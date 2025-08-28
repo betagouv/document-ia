@@ -9,11 +9,12 @@ packages = [{include = "document-ia-api"}]
 [tool.poetry.dependencies]
 python = "^3.11"
 fastapi = "^0.104.0"
-uvicorn = {extras = ["standard"], version = "^0.24.0"}
 python-dotenv = "^1.0.0"
 pydantic-settings = "^2.1.0"
 fastcrud = "^0.16.0"
 sqlalchemy = "^2.0.43"
+uvicorn = "^0.24.0"
+gunicorn = "^22.0.0"
 
 [tool.poetry.scripts]
 start = "uvicorn main:app --app-dir document-ia-api --host 0.0.0.0 --port 8000"

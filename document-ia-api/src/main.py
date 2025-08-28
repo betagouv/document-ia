@@ -29,7 +29,7 @@ app.include_router(router, prefix="/api", tags=["API"])
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
-        "document-ia-api.main:app",
+        "main:app",
         host=settings.host,
         port=settings.port,
         reload=True
