@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "document-ia-api"
+version = "0.1.0"
+description = "API minimaliste FastAPI avec authentification API_KEY"
+authors = ["Romaric HALDENWANG <romaric.haldenwang@beta.gouv.fr>"]
+readme = "README.md"
+packages = [{include = "document-ia-api"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.104.0"
+uvicorn = {extras = ["standard"], version = "^0.24.0"}
+python-dotenv = "^1.0.0"
+pydantic-settings = "^2.1.0"
+fastcrud = "^0.16.0"
+sqlalchemy = "^2.0.43"
+
+[tool.poetry.scripts]
+start = "uvicorn main:app --app-dir document-ia-api --host 0.0.0.0 --port 8000"
+dev = "uvicorn main:app --app-dir document-ia-api --reload --host 0.0.0.0 --port 8000"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
