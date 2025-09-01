@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from api.rate_limiting import RateLimitMiddleware
 from api.routes import router
+from schemas.rate_limiting import RateLimitInfo
 
 
 def create_test_app(api_key: str = None):
@@ -93,13 +94,13 @@ def mock_redis_service():
     mock_service.check_rate_limit = AsyncMock(
         return_value=(
             True,  # is_allowed
-            {
-                "limit_exceeded": False,
-                "remaining_minute": 99,
-                "remaining_daily": 999,
-                "reset_minute": "2024-01-01T12:01:00",
-                "reset_daily": "2024-01-02T00:00:00",
-            },
+            RateLimitInfo(
+                limit_exceeded=False,
+                remaining_minute=99,
+                remaining_daily=999,
+                reset_minute="2024-01-01T12:01:00",
+                reset_daily="2024-01-02T00:00:00",
+            ),
         )
     )
 

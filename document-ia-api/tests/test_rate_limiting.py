@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import AsyncMock, patch, Mock
 from src.infra.redis_service import RedisService
 from src.api.rate_limiting import check_rate_limit, RateLimitMiddleware
+from src.schemas.rate_limiting import RateLimitInfo
 from fastcrud.exceptions.http_exceptions import RateLimitException
 
 
@@ -15,13 +16,13 @@ class TestRateLimiting:
         # Mock successful rate limit check
         mock_redis_service.check_rate_limit.return_value = (
             True,
-            {
-                "limit_exceeded": False,
-                "remaining_minute": 299,
-                "remaining_daily": 4999,
-                "reset_minute": "2024-01-01T12:01:00",
-                "reset_daily": "2024-01-02T00:00:00",
-            },
+            RateLimitInfo(
+                limit_exceeded=False,
+                remaining_minute=299,
+                remaining_daily=4999,
+                reset_minute="2024-01-01T12:01:00",
+                reset_daily="2024-01-02T00:00:00",
+            ),
         )
 
         # Create a mock request object
@@ -33,9 +34,9 @@ class TestRateLimiting:
             # Test the rate limit dependency directly
             result = await check_rate_limit(mock_request, "test-api-key")
 
-        assert result["limit_exceeded"] is False
-        assert result["remaining_minute"] == 299
-        assert result["remaining_daily"] == 4999
+        assert result.limit_exceeded is False
+        assert result.remaining_minute == 299
+        assert result.remaining_daily == 4999
         assert mock_request.state.rate_limit_info == result
 
     @pytest.mark.asyncio
@@ -45,13 +46,13 @@ class TestRateLimiting:
         # Mock rate limit exceeded
         mock_redis_service.check_rate_limit.return_value = (
             False,
-            {
-                "limit_exceeded": True,
-                "remaining_minute": 0,
-                "remaining_daily": 0,
-                "reset_minute": "2024-01-01T12:01:00",
-                "reset_daily": "2024-01-02T00:00:00",
-            },
+            RateLimitInfo(
+                limit_exceeded=True,
+                remaining_minute=0,
+                remaining_daily=0,
+                reset_minute="2024-01-01T12:01:00",
+                reset_daily="2024-01-02T00:00:00",
+            ),
         )
 
         # Create a mock request object
@@ -77,13 +78,13 @@ class TestRateLimiting:
         # Configure the mock to return specific rate limit info
         mock_redis_service.check_rate_limit.return_value = (
             True,
-            {
-                "limit_exceeded": False,
-                "remaining_minute": 99,
-                "remaining_daily": 999,
-                "reset_minute": "2024-01-01T12:01:00",
-                "reset_daily": "2024-01-02T00:00:00",
-            },
+            RateLimitInfo(
+                limit_exceeded=False,
+                remaining_minute=99,
+                remaining_daily=999,
+                reset_minute="2024-01-01T12:01:00",
+                reset_daily="2024-01-02T00:00:00",
+            ),
         )
 
         response = client_with_api_key.get(
@@ -110,13 +111,13 @@ class TestRateLimiting:
         # Mock Redis connection failure
         mock_redis_service.check_rate_limit.return_value = (
             True,
-            {
-                "limit_exceeded": False,
-                "remaining_minute": 300,
-                "remaining_daily": 5000,
-                "reset_minute": None,
-                "reset_daily": None,
-            },
+            RateLimitInfo(
+                limit_exceeded=False,
+                remaining_minute=300,
+                remaining_daily=5000,
+                reset_minute=None,
+                reset_daily=None,
+            ),
         )
 
         # Create a mock request object
@@ -128,9 +129,9 @@ class TestRateLimiting:
             # Should still allow the request when Redis is unavailable
             result = await check_rate_limit(mock_request, "test-api-key")
 
-        assert result["limit_exceeded"] is False
-        assert result["remaining_minute"] == 300
-        assert result["remaining_daily"] == 5000
+        assert result.limit_exceeded is False
+        assert result.remaining_minute == 300
+        assert result.remaining_daily == 5000
 
 
 class TestRedisService:
@@ -166,12 +167,13 @@ class TestRateLimitMiddleware:
         # Create mock request and response
         mock_request = Mock()
         mock_request.state = Mock()
-        mock_request.state.rate_limit_info = {
-            "remaining_minute": 299,
-            "remaining_daily": 4999,
-            "reset_minute": "2024-01-01T12:01:00",
-            "reset_daily": "2024-01-02T00:00:00",
-        }
+        mock_request.state.rate_limit_info = RateLimitInfo(
+            limit_exceeded=False,
+            remaining_minute=299,
+            remaining_daily=4999,
+            reset_minute="2024-01-01T12:01:00",
+            reset_daily="2024-01-02T00:00:00",
+        )
 
         mock_response = Mock()
         mock_response.headers = {}

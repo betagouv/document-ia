@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from redis.asyncio import Redis, ConnectionPool
 from redis.exceptions import ConnectionError, TimeoutError
 from .config import settings
+from schemas.rate_limiting import RateLimitInfo
 
 # TODO: add a proper logging service (remove pii and sanitize data)
 logger = logging.getLogger(__name__)
@@ -62,7 +63,7 @@ class RedisService:
         logger.error("Max Redis connection retries exceeded")
         return False
 
-    async def check_rate_limit(self, api_key: str) -> Tuple[bool, dict]:
+    async def check_rate_limit(self, api_key: str) -> Tuple[bool, RateLimitInfo]:
         """
         Check rate limits for an API key.
 
@@ -70,20 +71,20 @@ class RedisService:
             api_key: The API key to check rate limits for
 
         Returns:
-            Tuple[bool, dict]: (is_allowed, rate_limit_info)
+            Tuple[bool, RateLimitInfo]: (is_allowed, rate_limit_info)
         """
         if not await self._ensure_connection():
             # If Redis is unavailable, allow the request but log the issue
             logger.error(
                 "Redis unavailable - allowing request but rate limiting is disabled"
             )
-            return True, {
-                "limit_exceeded": False,
-                "remaining_minute": settings.RATE_LIMIT_REQUESTS_PER_MINUTE,
-                "remaining_daily": settings.RATE_LIMIT_REQUESTS_PER_DAY,
-                "reset_minute": None,
-                "reset_daily": None,
-            }
+            return True, RateLimitInfo(
+                limit_exceeded=False,
+                remaining_minute=settings.RATE_LIMIT_REQUESTS_PER_MINUTE,
+                remaining_daily=settings.RATE_LIMIT_REQUESTS_PER_DAY,
+                reset_minute=None,
+                reset_daily=None,
+            )
 
         try:
             now = datetime.now()
@@ -117,48 +118,46 @@ class RedisService:
                     f"Minute: {minute_count}/{settings.RATE_LIMIT_REQUESTS_PER_MINUTE}, "
                     f"Daily: {daily_count}/{settings.RATE_LIMIT_REQUESTS_PER_DAY}"
                 )
-                # TODO: create a schema for the rate limit info
-                return False, {
-                    "limit_exceeded": True,
-                    "remaining_minute": max(
+                return False, RateLimitInfo(
+                    limit_exceeded=True,
+                    remaining_minute=max(
                         0, settings.RATE_LIMIT_REQUESTS_PER_MINUTE - minute_count
                     ),
-                    "remaining_daily": max(
+                    remaining_daily=max(
                         0, settings.RATE_LIMIT_REQUESTS_PER_DAY - daily_count
                     ),
-                    "reset_minute": (now + timedelta(minutes=1)).isoformat(),
-                    "reset_daily": (now + timedelta(days=1)).isoformat(),
-                }
+                    reset_minute=(now + timedelta(minutes=1)).isoformat(),
+                    reset_daily=(now + timedelta(days=1)).isoformat(),
+                )
 
-            return True, {
-                "limit_exceeded": False,
-                "remaining_minute": settings.RATE_LIMIT_REQUESTS_PER_MINUTE
-                - minute_count,
-                "remaining_daily": settings.RATE_LIMIT_REQUESTS_PER_DAY - daily_count,
-                "reset_minute": (now + timedelta(minutes=1)).isoformat(),
-                "reset_daily": (now + timedelta(days=1)).isoformat(),
-            }
+            return True, RateLimitInfo(
+                limit_exceeded=False,
+                remaining_minute=settings.RATE_LIMIT_REQUESTS_PER_MINUTE - minute_count,
+                remaining_daily=settings.RATE_LIMIT_REQUESTS_PER_DAY - daily_count,
+                reset_minute=(now + timedelta(minutes=1)).isoformat(),
+                reset_daily=(now + timedelta(days=1)).isoformat(),
+            )
 
         except (ConnectionError, TimeoutError) as e:
             logger.error(f"Redis error during rate limit check: {e}")
             # Allow request if Redis fails
-            return True, {
-                "limit_exceeded": False,
-                "remaining_minute": settings.RATE_LIMIT_REQUESTS_PER_MINUTE,
-                "remaining_daily": settings.RATE_LIMIT_REQUESTS_PER_DAY,
-                "reset_minute": None,
-                "reset_daily": None,
-            }
+            return True, RateLimitInfo(
+                limit_exceeded=False,
+                remaining_minute=settings.RATE_LIMIT_REQUESTS_PER_MINUTE,
+                remaining_daily=settings.RATE_LIMIT_REQUESTS_PER_DAY,
+                reset_minute=None,
+                reset_daily=None,
+            )
         except Exception as e:
             logger.error(f"Unexpected error during rate limit check: {e}")
             # Allow request on unexpected errors
-            return True, {
-                "limit_exceeded": False,
-                "remaining_minute": settings.RATE_LIMIT_REQUESTS_PER_MINUTE,
-                "remaining_daily": settings.RATE_LIMIT_REQUESTS_PER_DAY,
-                "reset_minute": None,
-                "reset_daily": None,
-            }
+            return True, RateLimitInfo(
+                limit_exceeded=False,
+                remaining_minute=settings.RATE_LIMIT_REQUESTS_PER_MINUTE,
+                remaining_daily=settings.RATE_LIMIT_REQUESTS_PER_DAY,
+                reset_minute=None,
+                reset_daily=None,
+            )
 
     async def close(self):
         """Close Redis connection."""

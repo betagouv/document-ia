@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 from .auth import verify_api_key
 from .rate_limiting import check_rate_limit
+from schemas.rate_limiting import RateLimitInfo
 from datetime import datetime
 from .config import settings
 
@@ -11,7 +12,7 @@ router = APIRouter()
 @router.get("/v1/")
 async def get_api_status(
     api_key: str = Depends(verify_api_key),
-    rate_limit_info: dict = Depends(check_rate_limit),
+    rate_limit_info: RateLimitInfo = Depends(check_rate_limit),
 ):
     """
     Get API status and information.
