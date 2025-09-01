@@ -15,3 +15,7 @@ def verify_api_key(api_key: str = Security(security)):
         raise UnauthorizedException
 
     return api_key
+
+
+def get_api_key(api_key: str = Security(security)):
+    return api_key

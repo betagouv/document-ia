@@ -1,0 +1,78 @@
+from fastapi import Depends, Request
+from starlette.middleware.base import BaseHTTPMiddleware
+from infra.redis_service import redis_service
+from schemas.rate_limiting import RateLimitInfo
+
+from .auth import get_api_key
+from .exceptions.http_exceptions import RateLimitException
+
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+async def check_rate_limit(
+    request: Request, api_key: str = Depends(get_api_key)
+) -> RateLimitInfo:
+    """
+    Rate limiting dependency that checks if the API key has exceeded rate limits.
+
+    Args:
+        request: FastAPI request object
+        api_key: The authenticated API key (automatically validated)
+
+    Returns:
+        RateLimitInfo containing rate limit information
+
+    Raises:
+        HTTPException: If rate limit is exceeded
+    """
+    is_allowed, rate_limit_info = await redis_service.check_rate_limit(api_key)
+
+    # Store rate limit info in request state for middleware access
+    request.state.rate_limit_info = rate_limit_info
+
+    if not is_allowed:
+        # TODO: sanitize the api key in the logging service
+        logger.warning(f"Rate limit exceeded for API key {api_key[:8]}...")
+
+        raise RateLimitException(
+            detail={
+                "error": "Rate limit exceeded",
+                "message": "Too many requests. Please try again later.",
+                "rate_limit_info": rate_limit_info.model_dump(),
+            }
+        )
+
+    return rate_limit_info
+
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """Middleware to add rate limit headers to responses."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+
+        # Add rate limit headers if available in request state
+        if hasattr(request.state, "rate_limit_info") and request.state.rate_limit_info:
+            rate_limit_info = request.state.rate_limit_info
+
+            response.headers["X-RateLimit-Remaining-Minute"] = str(
+                rate_limit_info.remaining_minute
+            )
+            response.headers["X-RateLimit-Remaining-Daily"] = str(
+                rate_limit_info.remaining_daily
+            )
+            response.headers["X-RateLimit-Reset-Minute"] = (
+                rate_limit_info.reset_minute or ""
+            )
+            response.headers["X-RateLimit-Reset-Daily"] = (
+                rate_limit_info.reset_daily or ""
+            )
+
+        return response
+
+
+# Dependency that can be used in route decorators
+rate_limit_dependency = Depends(check_rate_limit)

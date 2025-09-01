@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.config import settings
 from api.routes import router
+from api.rate_limiting import RateLimitMiddleware
 
 # Create FastAPI application
 app = FastAPI(
@@ -22,6 +23,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add rate limiting middleware
+app.add_middleware(RateLimitMiddleware)
 
 # Include API routes
 app.include_router(router, prefix="/api", tags=["API"])
