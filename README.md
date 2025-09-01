@@ -7,7 +7,7 @@ A FastAPI-based document analysis API following Clean Architecture principles wi
 This project implements Clean Architecture with dependency injection for external interfaces:
 
 - **Domain Layer** (`core/`): Core business logic independent of external frameworks
-- **Application Layer** (`application/`): Use cases and orchestration logic  
+- **Application Layer** (`application/`): Use cases and orchestration logic
 - **Infrastructure Layer** (`infra/`): External interfaces (DB, Redis, S3) implementations
 - **Interface Layer** (`api/`): API routes and controllers
 
@@ -157,9 +157,29 @@ curl -H "X-API-KEY: YOUR_API_KEY" http://localhost:8000/api/v1/
 
 ## Development Guidelines
 
-### Code Quality
+### Code Quality & Pre-commit Hooks
+
+This project uses pre-commit hooks to ensure code quality. The setup includes:
+
+- **Ruff**: Fast Python linter and formatter
+- **Pre-commit hooks**: Automated checks before commits
+
+#### Setup Pre-commit Hooks
+
+1. **Install dependencies** (if not already done):
+```bash
+poetry install
+```
+
+2. **Install pre-commit hooks**:
+```bash
+# Manual installation
+pre-commit install
+```
+
+#### Code Quality Standards
 - Python 3.11+ features
-- PEP 8 style guidelines
+- PEP 8 style guidelines (enforced by ruff)
 - Type hints for all function parameters and return values
 - Comprehensive error handling with custom exceptions
 - Structured logging with data sanitization
