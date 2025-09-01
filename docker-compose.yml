@@ -25,9 +25,26 @@ services:
     networks:
       - document-ia-network
 
+  minio:
+    image: minio/minio:latest
+    container_name: document-ia-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "${MINIO_API_PORT}:9000"
+      - "${MINIO_CONSOLE_PORT}:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - document-ia-network
+    command: server /data --console-address ":9001"
+
 volumes:
   postgres_data:
   redis_data:
+  minio_data:
 
 networks:
   document-ia-network:

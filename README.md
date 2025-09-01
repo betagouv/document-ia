@@ -51,7 +51,7 @@ document-ia-api/
 - **Async/await**: All external operations (DB, Redis, S3) are asynchronous
 - **PostgreSQL**: SQLAlchemy 2.0+ with async support and connection pooling
 - **Redis**: Caching and message queuing with robust reconnection policies
-- **S3 Integration**: Async file storage operations
+- **MinIO Integration**: S3-compatible async file storage operations
 - **Idempotency**: All state-changing operations are idempotent
 - **Multi-threading**: Thread-safe design with proper dependency injection
 - **API Key Authentication**: Secure API access control
@@ -75,9 +75,9 @@ cp env.example .env
 # Edit .env and set your configuration values
 ```
 
-## Database & Redis Setup
+## Database, Redis & MinIO Setup
 
-The FastAPI application requires PostgreSQL and Redis instances to function properly. You can use the provided `docker-compose.yml` file to quickly set up these services locally.
+The FastAPI application requires PostgreSQL, Redis, and MinIO (S3 compatible storage) instances to function properly. You can use the provided `docker-compose.yml` file to quickly set up these services locally.
 
 ### Using Docker Compose
 
@@ -101,6 +101,7 @@ docker-compose logs
 # View specific service logs
 docker-compose logs postgres
 docker-compose logs redis
+docker-compose logs minio
 
 # Follow logs in real-time
 docker-compose logs -f
@@ -114,6 +115,7 @@ docker-compose ps
 # Check service health
 docker-compose exec postgres pg_isready
 docker-compose exec redis redis-cli ping
+docker-compose exec minio mc admin info local
 ```
 
 ### Environment Variables
@@ -129,9 +131,41 @@ POSTGRES_PORT=5432
 
 # Redis Configuration
 REDIS_PORT=6379
+
+# MinIO Configuration (S3 compatible)
+MINIO_ROOT_USER=minioadmin
+MINIO_ROOT_PASSWORD=minioadmin
+MINIO_API_PORT=9000
+MINIO_CONSOLE_PORT=9001
 ```
 
-These variables are used by Docker Compose to configure the PostgreSQL and Redis services. The application will connect to these services using the same configuration.
+These variables are used by Docker Compose to configure the PostgreSQL, Redis, and MinIO services. The application will connect to these services using the same configuration.
+
+### MinIO Access
+
+MinIO provides S3-compatible object storage with a web-based management console:
+
+- **API Endpoint**: `http://localhost:9000` (or the port specified in `MINIO_API_PORT`)
+- **Web Console**: `http://localhost:9001` (or the port specified in `MINIO_CONSOLE_PORT`)
+
+#### Accessing MinIO Console
+
+1. Start the services: `docker-compose up -d`
+2. Open your browser and navigate to `http://localhost:9001`
+3. Login with the default credentials (or those specified in your `.env` file)
+4. Create buckets and manage your S3-compatible storage
+
+#### Using MinIO with S3 SDK
+
+MinIO is fully compatible with AWS S3 SDKs. Configure your application to use MinIO instead of AWS S3:
+
+```python
+# Example configuration for MinIO
+S3_ENDPOINT_URL = "http://localhost:9000"
+S3_ACCESS_KEY = "minioadmin"
+S3_SECRET_KEY = "minioadmin"
+S3_REGION = "us-east-1"  # MinIO default region
+```
 
 ## Usage
 
@@ -196,10 +230,10 @@ For detailed documentation, see [RATE_LIMITING.md](RATE_LIMITING.md).
 - `API_KEY`: Authentication key required for API access
 - `DATABASE_URL`: PostgreSQL connection string
 - `REDIS_URL`: Redis connection string
-- `AWS_ACCESS_KEY_ID`: S3 access key
-- `AWS_SECRET_ACCESS_KEY`: S3 secret key
-- `AWS_REGION`: S3 region
-- `S3_BUCKET_NAME`: S3 bucket name
+- `MINIO_ROOT_USER`: MinIO root user
+- `MINIO_ROOT_PASSWORD`: MinIO root password
+- `MINIO_API_PORT`: MinIO API port (default: 9000)
+- `MINIO_CONSOLE_PORT`: MinIO console port (default: 9001)
 
 ### Optional
 - `HOST`: Server host (default: 0.0.0.0)
