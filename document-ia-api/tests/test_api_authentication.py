@@ -40,7 +40,9 @@ class TestAPIAuthentication:
         # Assert: Should return 401 Unauthorized
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
         assert "detail" in response.json()
-        assert response.json()["detail"] == "No permission -- see authorization schemes"
+        detail = response.json()["detail"]
+        assert detail["error"] == "unauthorized"
+        assert detail["message"] == "Invalid API key"
 
     def test_valid_api_key_returns_200(self, client_with_api_key, valid_api_key):
         """
@@ -78,7 +80,9 @@ class TestAPIAuthentication:
         # Assert: Should return 500 Internal Server Error
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert "detail" in response.json()
-        assert response.json()["detail"] == "API_KEY not configured on server"
+        detail = response.json()["detail"]
+        assert detail["error"] == "server_configuration_error"
+        assert detail["message"] == "API_KEY not configured on server"
 
     def test_api_key_case_sensitive(self, client_with_api_key, valid_api_key):
         """
@@ -98,7 +102,9 @@ class TestAPIAuthentication:
 
         # Assert: Should return 401 Unauthorized due to case mismatch
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
-        assert response.json()["detail"] == "No permission -- see authorization schemes"
+        detail = response.json()["detail"]
+        assert detail["error"] == "unauthorized"
+        assert detail["message"] == "Invalid API key"
 
     def test_empty_api_key_returns_403(self, client_with_api_key):
         """
@@ -124,7 +130,9 @@ class TestAPIAuthentication:
 
         # Assert: Should return 401 Unauthorized
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
-        assert response.json()["detail"] == "No permission -- see authorization schemes"
+        detail = response.json()["detail"]
+        assert detail["error"] == "unauthorized"
+        assert detail["message"] == "Invalid API key"
 
 
 class TestAPIAuthenticationHeaders:
@@ -173,7 +181,9 @@ class TestAPIAuthenticationHeaders:
         # Assert: FastAPI seems to use the last header or reject the request
         # This test documents the actual behavior
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
-        assert response.json()["detail"] == "No permission -- see authorization schemes"
+        detail = response.json()["detail"]
+        assert detail["error"] == "unauthorized"
+        assert detail["message"] == "Invalid API key"
 
 
 class TestAPIAuthenticationErrorMessages:
@@ -195,7 +205,6 @@ class TestAPIAuthenticationErrorMessages:
             # Assert: All should return the same error format
             assert response.status_code == status.HTTP_401_UNAUTHORIZED
             assert "detail" in response.json()
-            assert (
-                response.json()["detail"]
-                == "No permission -- see authorization schemes"
-            )
+            detail = response.json()["detail"]
+            assert detail["error"] == "unauthorized"
+            assert detail["message"] == "Invalid API key"

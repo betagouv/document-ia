@@ -46,6 +46,15 @@ def create_test_app(api_key: str = None):
         # Test rate limiting settings
         RATE_LIMIT_REQUESTS_PER_MINUTE = 100
         RATE_LIMIT_REQUESTS_PER_DAY = 1000
+        # Test S3 settings
+        S3_ENDPOINT_URL = "http://localhost:9000"
+        S3_ACCESS_KEY_ID = "minioadmin"
+        S3_SECRET_ACCESS_KEY = "minioadmin"
+        S3_BUCKET_NAME = "document-ia"
+        S3_REGION_NAME = "us-east-1"
+        S3_USE_SSL = False
+        MAX_FILE_SIZE = 26214400  # 25MB
+        ALLOWED_MIME_TYPES = ["application/pdf", "image/jpeg", "image/jpg", "image/png"]
 
     # TODO: Do not copy and paste the app configuration from the main.py file
     # Create FastAPI application
@@ -62,15 +71,18 @@ def create_test_app(api_key: str = None):
 
     app.add_middleware(RateLimitMiddleware)
 
-    # Override the settings in the auth module
+    # Override the settings in all modules
     import api.auth
+    import api.config
+    import infra.config
+    import core.file_validator
 
     api.auth.settings = TestSettings()
-
-    # Override the settings in the infra config module
-    import infra.config
-
+    api.config.settings = TestSettings()
     infra.config.settings = TestSettings()
+
+    # Patch the file validator to use test settings
+    core.file_validator.settings = TestSettings()
 
     # Include API routes
     app.include_router(router, prefix="/api", tags=["API"])

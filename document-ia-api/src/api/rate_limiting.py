@@ -48,6 +48,8 @@ async def check_rate_limit(
     return rate_limit_info
 
 
+# TODO: implement FastAPI decorator for rate limiting
+# see: https://fastapi.tiangolo.com/tutorial/middleware/
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Middleware to add rate limit headers to responses."""
 

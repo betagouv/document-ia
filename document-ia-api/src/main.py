@@ -1,18 +1,53 @@
+import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.config import settings
 from api.routes import router
 from api.rate_limiting import RateLimitMiddleware
+from infra.s3_service import s3_service
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for FastAPI application."""
+    # Startup
+    logger.info("Starting Document IA API...")
+
+    # Check S3/MinIO connectivity
+    try:
+        bucket_exists = await s3_service.check_bucket_exists()
+        if bucket_exists:
+            logger.info(f"S3 bucket '{s3_service.bucket_name}' is accessible")
+        else:
+            logger.warning(f"S3 bucket '{s3_service.bucket_name}' does not exist")
+    except Exception as e:
+        logger.error(f"S3 connection check failed: {e}")
+
+    logger.info("Document IA API started successfully")
+
+    yield
+
+    # Shutdown
+    logger.info("Shutting down Document IA API...")
+
 
 # Create FastAPI application
 app = FastAPI(
-    title="API Document IA",
+    title="Document IA API",
     description="API permettant de lancer et gérer des workflows d'analyse de documents",
     version=settings.APP_VERSION,
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
+    lifespan=lifespan,
 )
 
 # Add CORS middleware

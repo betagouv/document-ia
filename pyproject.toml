@@ -16,6 +16,8 @@ sqlalchemy = "^2.0.43"
 uvicorn = "^0.24.0"
 gunicorn = "^22.0.0"
 redis = "^5.0.0"
+boto3 = "^1.34.0"
+python-magic = "^0.4.27"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.12.11"

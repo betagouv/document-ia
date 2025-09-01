@@ -29,7 +29,27 @@ class RedisSettings(BaseSettings):
     )
 
 
-class Settings(DatabaseSettings, RedisSettings):
+class S3Settings(BaseSettings):
+    # S3/MinIO configuration
+    S3_ENDPOINT_URL: str = os.getenv("S3_ENDPOINT_URL", "http://localhost:9000")
+    S3_ACCESS_KEY_ID: str = os.getenv("S3_ACCESS_KEY_ID", "minioadmin")
+    S3_SECRET_ACCESS_KEY: str = os.getenv("S3_SECRET_ACCESS_KEY", "minioadmin")
+    S3_BUCKET_NAME: str = os.getenv("S3_BUCKET_NAME", "document-ia")
+    S3_REGION_NAME: str = os.getenv("S3_REGION_NAME", "us-east-1")
+    S3_USE_SSL: bool = os.getenv("S3_USE_SSL", "false").lower() == "true"
+
+    # File upload configuration
+    MAX_FILE_SIZE: int = int(os.getenv("MAX_FILE_SIZE", "26214400"))  # 25MB in bytes
+
+    ALLOWED_MIME_TYPES: list = [
+        "application/pdf",
+        "image/jpeg",
+        "image/jpg",
+        "image/png",
+    ]
+
+
+class Settings(DatabaseSettings, RedisSettings, S3Settings):
     pass
 
 

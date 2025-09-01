@@ -1,1 +1,1 @@
-# Core package
+# Core layer - Business logic and entities
