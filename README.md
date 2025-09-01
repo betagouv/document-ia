@@ -74,6 +74,64 @@ cp env.example .env
 # Edit .env and set your configuration values
 ```
 
+## Database & Redis Setup
+
+The FastAPI application requires PostgreSQL and Redis instances to function properly. You can use the provided `docker-compose.yml` file to quickly set up these services locally.
+
+### Using Docker Compose
+
+1. **Start the services**
+```bash
+# Start PostgreSQL and Redis in detached mode
+docker-compose up -d
+```
+
+2. **Stop the services**
+```bash
+# Stop and remove containers
+docker-compose down
+```
+
+3. **View service logs**
+```bash
+# View all service logs
+docker-compose logs
+
+# View specific service logs
+docker-compose logs postgres
+docker-compose logs redis
+
+# Follow logs in real-time
+docker-compose logs -f
+```
+
+4. **Check service status**
+```bash
+# List running containers
+docker-compose ps
+
+# Check service health
+docker-compose exec postgres pg_isready
+docker-compose exec redis redis-cli ping
+```
+
+### Environment Variables
+
+The `docker-compose.yml` file uses environment variables from your `.env` file. Make sure your `.env` file includes the following variables (see `env.example` for reference):
+
+```bash
+# PostgreSQL Configuration
+POSTGRES_DB=document_ia
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your-secure-postgres-password
+POSTGRES_PORT=5432
+
+# Redis Configuration
+REDIS_PORT=6379
+```
+
+These variables are used by Docker Compose to configure the PostgreSQL and Redis services. The application will connect to these services using the same configuration.
+
 ## Usage
 
 ### Development mode
