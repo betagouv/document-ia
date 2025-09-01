@@ -19,7 +19,9 @@ gunicorn = "^22.0.0"
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.12.11"
 pytest = "^8.4.1"
+pytest-asyncio = "^0.23.0"
 pre-commit = "^3.6.0"
+httpx = "^0.25.0"
 
 [tool.poetry.scripts]
 start = "uvicorn main:app --app-dir document-ia-api --host 0.0.0.0 --port 8000"

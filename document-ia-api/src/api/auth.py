@@ -8,10 +8,10 @@ security = APIKeyHeader(name="X-API-KEY")
 
 
 def verify_api_key(api_key: str = Security(security)):
-    if not settings.api_key:
+    if not settings.API_KEY:
         raise CustomException(detail="API_KEY not configured on server")
 
-    if api_key != settings.api_key:
+    if api_key != settings.API_KEY:
         raise UnauthorizedException
 
     return api_key

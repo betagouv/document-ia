@@ -23,7 +23,7 @@ async def get_api_status(api_key: str = Depends(verify_api_key)):
     return {
         "status": "success",
         "message": "Document IA API is running",
-        "version": settings.version,
+        "version": settings.APP_VERSION,
     }
 
 
