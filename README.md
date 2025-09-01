@@ -55,6 +55,7 @@ document-ia-api/
 - **Idempotency**: All state-changing operations are idempotent
 - **Multi-threading**: Thread-safe design with proper dependency injection
 - **API Key Authentication**: Secure API access control
+- **Rate Limiting**: API key-based rate limiting with Redis storage
 
 ## Installation
 
@@ -162,6 +163,32 @@ curl -H "X-API-KEY: YOUR_API_KEY" http://localhost:8000/api/v1/
 ```
 
 **Note**: Authentication uses the `X-API-KEY` header, not Bearer token scheme.
+
+## Rate Limiting
+
+The API implements rate limiting based on API keys to prevent abuse and ensure fair usage. Rate limits are enforced per API key, not per IP address.
+
+### Configuration
+
+Rate limiting is configured through environment variables:
+
+- `RATE_LIMIT_REQUESTS_PER_MINUTE`: Maximum requests per minute (default: 300)
+- `RATE_LIMIT_REQUESTS_PER_DAY`: Maximum requests per day (default: 5000)
+
+### Usage
+
+Rate limiting is automatically applied to all `/api/v1/*` endpoints. When rate limits are exceeded, the API returns a `429 Too Many Requests` response.
+
+### Response Headers
+
+Rate limiting information is included in response headers:
+
+- `X-RateLimit-Remaining-Minute`: Remaining requests in the current minute
+- `X-RateLimit-Remaining-Daily`: Remaining requests in the current day
+- `X-RateLimit-Reset-Minute`: ISO timestamp when minute limit resets
+- `X-RateLimit-Reset-Daily`: ISO timestamp when daily limit resets
+
+For detailed documentation, see [RATE_LIMITING.md](RATE_LIMITING.md).
 
 ## Environment Variables
 

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 from .auth import verify_api_key
+from .rate_limiting import check_rate_limit
 from datetime import datetime
 from .config import settings
 
@@ -8,13 +9,17 @@ router = APIRouter()
 
 
 @router.get("/v1/")
-async def get_api_status(api_key: str = Depends(verify_api_key)):
+async def get_api_status(
+    api_key: str = Depends(verify_api_key),
+    rate_limit_info: dict = Depends(check_rate_limit),
+):
     """
     Get API status and information.
 
     This endpoint requires a valid API key in the Authorization header.
 
     Args:
+        request: FastAPI request object
         api_key: The authenticated API key (automatically validated)
 
     Returns:

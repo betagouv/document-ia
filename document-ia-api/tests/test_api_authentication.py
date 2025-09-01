@@ -11,14 +11,14 @@ from fastapi import status
 class TestAPIAuthentication:
     """Test cases for API key authentication."""
 
-    def test_no_api_key_returns_403(self, client):
+    def test_no_api_key_returns_403(self, client_with_api_key):
         """
         Test that requests without API key return 403 Forbidden.
 
         This tests the scenario where no X-API-KEY header is provided.
         """
         # Act: Make request without API key header
-        response = client.get("/api/v1/")
+        response = client_with_api_key.get("/api/v1/")
 
         # Assert: Should return 403 Forbidden (FastAPI default for missing auth)
         assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -141,7 +141,7 @@ class TestAPIAuthenticationHeaders:
             {"x-api-key": valid_api_key},
             {"X-API-KEY": valid_api_key},
             {"X-Api-Key": valid_api_key},
-            {"x-API-KEY": valid_api_key},
+            {"x-API-Key": valid_api_key},
         ]
 
         for headers in headers_variations:

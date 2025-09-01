@@ -6,6 +6,7 @@ This module provides common fixtures and configuration for all integration tests
 
 import os
 import pytest
+from unittest.mock import AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +16,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+from api.rate_limiting import RateLimitMiddleware
 from api.routes import router
 
 
@@ -35,7 +37,16 @@ def create_test_app(api_key: str = None):
         SERVER_HOST = "0.0.0.0"
         SERVER_PORT = 8000
         API_KEY = api_key
+        # Test Redis settings
+        REDIS_HOST = "localhost"
+        REDIS_PORT = 6379
+        REDIS_DB = 0
+        REDIS_PASSWORD = None
+        # Test rate limiting settings
+        RATE_LIMIT_REQUESTS_PER_MINUTE = 100
+        RATE_LIMIT_REQUESTS_PER_DAY = 1000
 
+    # TODO: Do not copy and paste the app configuration from the main.py file
     # Create FastAPI application
     app = FastAPI(title="API Document IA - Test")
 
@@ -48,10 +59,17 @@ def create_test_app(api_key: str = None):
         allow_headers=["*"],
     )
 
+    app.add_middleware(RateLimitMiddleware)
+
     # Override the settings in the auth module
     import api.auth
 
     api.auth.settings = TestSettings()
+
+    # Override the settings in the infra config module
+    import infra.config
+
+    infra.config.settings = TestSettings()
 
     # Include API routes
     app.include_router(router, prefix="/api", tags=["API"])
@@ -60,14 +78,32 @@ def create_test_app(api_key: str = None):
 
 
 @pytest.fixture
-def client():
+def mock_redis_service():
     """
-    Create a test client for the FastAPI application.
+    Create a mock Redis service for testing.
+
+    This avoids actual Redis connections during tests.
 
     Returns:
-        TestClient: A test client instance for making HTTP requests
+        MagicMock: A mocked Redis service
     """
-    return TestClient(create_test_app())
+    mock_service = MagicMock()
+
+    # Mock the check_rate_limit method to return success
+    mock_service.check_rate_limit = AsyncMock(
+        return_value=(
+            True,  # is_allowed
+            {
+                "limit_exceeded": False,
+                "remaining_minute": 99,
+                "remaining_daily": 999,
+                "reset_minute": "2024-01-01T12:01:00",
+                "reset_daily": "2024-01-02T00:00:00",
+            },
+        )
+    )
+
+    return mock_service
 
 
 @pytest.fixture
@@ -82,25 +118,51 @@ def valid_api_key():
 
 
 @pytest.fixture
-def client_with_api_key(valid_api_key):
+def client_with_api_key(valid_api_key, mock_redis_service):
     """
     Create a test client with a valid API key configured.
 
     Args:
         valid_api_key: The valid API key to use in settings
+        mock_redis_service: Mocked Redis service
 
     Returns:
         TestClient: A test client with API key configured
     """
-    return TestClient(create_test_app(api_key=valid_api_key))
+    # Patch the redis_service with our mock
+    import api.rate_limiting
+
+    original_redis_service = api.rate_limiting.redis_service
+    api.rate_limiting.redis_service = mock_redis_service
+
+    client = TestClient(create_test_app(api_key=valid_api_key))
+
+    # Restore original service after test
+    yield client
+
+    api.rate_limiting.redis_service = original_redis_service
 
 
 @pytest.fixture
-def client_without_api_key():
+def client_without_api_key(mock_redis_service):
     """
     Create a test client without API key configured.
+
+    Args:
+        mock_redis_service: Mocked Redis service
 
     Returns:
         TestClient: A test client without API key
     """
-    return TestClient(create_test_app(api_key=None))
+    # Patch the redis_service with our mock
+    import api.rate_limiting
+
+    original_redis_service = api.rate_limiting.redis_service
+    api.rate_limiting.redis_service = mock_redis_service
+
+    client = TestClient(create_test_app(api_key=None))
+
+    # Restore original service after test
+    yield client
+
+    api.rate_limiting.redis_service = original_redis_service
