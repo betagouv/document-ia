@@ -1,17 +1,17 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from core.config import settings
+from api.config import settings
 from api.routes import router
 
 # Create FastAPI application
 app = FastAPI(
-    title=settings.title,
-    description=settings.description,
-    version=settings.version,
+    title="API Document IA",
+    description="API permettant de lancer et gérer des workflows d'analyse de documents",
+    version=settings.APP_VERSION,
     docs_url="/docs",
     redoc_url="/redoc",
-    openapi_url="/openapi.json"
+    openapi_url="/openapi.json",
 )
 
 # Add CORS middleware
@@ -28,9 +28,7 @@ app.include_router(router, prefix="/api", tags=["API"])
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(
-        "main:app",
-        host=settings.host,
-        port=settings.port,
-        reload=True
+        "main:app", host=settings.SERVER_HOST, port=settings.SERVER_PORT, reload=True
     )
