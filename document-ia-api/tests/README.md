@@ -9,7 +9,17 @@ tests/
 ├── __init__.py                 # Makes tests a Python package
 ├── conftest.py                 # Pytest configuration and fixtures
 ├── pytest.ini                 # Pytest configuration file
-├── test_api_authentication.py # API authentication tests
+├── test_rate_limiting.py      # Rate limiting tests
+├── api/                        # API layer tests
+│   ├── __init__.py
+│   ├── test_api_authentication.py  # API authentication tests
+│   └── test_workflow_execution.py  # Workflow execution API tests
+├── integration/                # Integration tests
+│   ├── __init__.py
+│   └── test_s3_service.py     # S3 service integration tests
+├── unit/                       # Unit tests
+│   ├── __init__.py
+│   └── test_file_validator.py # File validator unit tests
 └── README.md
 ```
 
@@ -25,13 +35,22 @@ pytest
 pytest -v
 
 # Run specific test file
-pytest tests/test_api_authentication.py
+pytest tests/api/test_api_authentication.py
+
+# Run all API tests
+pytest tests/api/
+
+# Run all integration tests
+pytest tests/integration/
+
+# Run all unit tests
+pytest tests/unit/
 
 # Run specific test class
-pytest tests/test_api_authentication.py::TestAPIAuthentication
+pytest tests/api/test_api_authentication.py::TestAPIAuthentication
 
 # Run specific test method
-pytest tests/test_api_authentication.py::TestAPIAuthentication::test_valid_api_key_returns_200
+pytest tests/api/test_api_authentication.py::TestAPIAuthentication::test_valid_api_key_returns_200
 ```
 
 ### Using Poetry
@@ -45,6 +64,14 @@ poetry run pytest
 ```
 
 ## Test Categories
+
+### Test Organization
+
+Tests are organized into three main categories:
+
+- **`api/`**: Tests for API endpoints, authentication, and request/response handling
+- **`integration/`**: Tests that verify integration with external services (S3, Redis, etc.)
+- **`unit/`**: Tests for individual components and business logic in isolation
 
 ### Test Patterns
 
@@ -60,12 +87,16 @@ The tests follow these patterns:
 
 When adding new tests:
 
-1. Create a new test file following the naming convention `test_*.py`
-2. Use descriptive class and method names
-3. Add appropriate docstrings explaining what each test validates
-4. Use fixtures from `conftest.py` for common setup
-5. Follow the Arrange-Act-Assert pattern
-6. Include both positive and negative test cases
+1. **Choose the right directory**:
+   - `api/` for API endpoint tests
+   - `integration/` for external service integration tests
+   - `unit/` for isolated component tests
+2. Create a new test file following the naming convention `test_*.py`
+3. Use descriptive class and method names
+4. Add appropriate docstrings explaining what each test validates
+5. Use fixtures from `conftest.py` for common setup
+6. Follow the Arrange-Act-Assert pattern
+7. Include both positive and negative test cases
 
 ## Test Dependencies
 
