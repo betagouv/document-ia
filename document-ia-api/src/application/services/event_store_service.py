@@ -56,8 +56,8 @@ class EventStoreService:
                 + 1
             )
 
-            # Convert event to dictionary for storage
-            event_data = event.model_dump()
+            # Convert event to dictionary for storage with JSON serializable values
+            event_data = event.model_dump(mode="json")
 
             # Store the event
             stored_event = await self.repository.put_event(

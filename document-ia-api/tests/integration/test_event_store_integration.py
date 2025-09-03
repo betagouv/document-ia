@@ -7,21 +7,33 @@ functionality with real database interactions.
 
 import pytest
 from uuid import uuid4
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
-from infra.database.database import async_get_db
+from infra.database.database import build_database_uri
 from application.services.event_store_service import EventStoreService
 from schemas.events import EventStoreRecord, EventStream
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 async def db_session():
     """Create a real database session for integration tests."""
-    async for session in async_get_db():
-        yield session
-        break
+    # Create a fresh engine for each test to avoid connection sharing issues
+    engine = create_async_engine(build_database_uri(), echo=False, future=True)
+    session_factory = async_sessionmaker(
+        bind=engine, class_=AsyncSession, expire_on_commit=False
+    )
+
+    async with session_factory() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
+
+    # Clean up the engine
+    await engine.dispose()
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 async def event_store_service(db_session):
     """Create an EventStoreService with real database session."""
     return EventStoreService(db_session)

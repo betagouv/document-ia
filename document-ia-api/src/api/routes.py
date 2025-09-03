@@ -12,10 +12,11 @@ from api.contracts.common import (
     S3HealthStatus,
     RedisHealthStatus,
 )
-from application.services.workflow_service import workflow_service
+from application.services.workflow_service import WorkflowService
 from api.config import settings
 from infra.s3_service import s3_service
 from infra.redis_service import redis_service
+from infra.database.database import async_get_db
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -294,6 +295,7 @@ async def execute_workflow(
     metadata: str = Form(..., description="JSON string containing metadata object"),
     api_key: str = Depends(verify_api_key),
     rate_limit_info: RateLimitInfo = Depends(check_rate_limit),
+    db_session=Depends(async_get_db),
 ) -> WorkflowExecuteResponse:
     """
     Execute a document processing workflow with file upload and metadata.
@@ -325,20 +327,35 @@ async def execute_workflow(
         },
     )
 
-    # Execute workflow using the service
-    result = await workflow_service.execute_workflow(
-        workflow_id=workflow_id.strip(), file=file, metadata_json=metadata
-    )
+    try:
+        # Create workflow service instance with database session
+        workflow_service = WorkflowService(db_session)
 
-    logger.info(
-        "Workflow execution started successfully",
-        extra={
-            "endpoint": "execute_workflow",
-            "workflow_id": workflow_id,
-            "execution_id": result.execution_id,
-        },
-    )
+        # Execute workflow using the service
+        result = await workflow_service.execute_workflow(
+            workflow_id=workflow_id.strip(), file=file, metadata_json=metadata
+        )
 
-    return WorkflowExecuteResponse(
-        status="success", data=result, message="Workflow execution started successfully"
-    )
+        # Commit the database session to persist all changes (including events)
+        await db_session.commit()
+
+        logger.info(
+            "Workflow execution started successfully",
+            extra={
+                "endpoint": "execute_workflow",
+                "workflow_id": workflow_id,
+                "execution_id": result.execution_id,
+            },
+        )
+
+        return WorkflowExecuteResponse(
+            status="success",
+            data=result,
+            message="Workflow execution started successfully",
+        )
+
+    except Exception as e:
+        # Rollback the database session on any error
+        await db_session.rollback()
+        logger.error(f"Workflow execution failed: {e}")
+        raise

@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 from typing import Dict, Any
 from fastapi import HTTPException, UploadFile
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.file_validator import validate_uploaded_file
 from infra.s3_service import s3_service
@@ -17,6 +18,9 @@ logger = logging.getLogger(__name__)
 
 class WorkflowService:
     """Service for handling workflow execution business logic."""
+
+    def __init__(self, db_session: AsyncSession):
+        self.db_session = db_session
 
     async def execute_workflow(
         self, workflow_id: str, file: UploadFile, metadata_json: str
@@ -83,8 +87,7 @@ class WorkflowService:
 
             # Emit workflow started event
             try:
-                # TODO: import session from database ? What for ?
-                event_store_service = EventStoreService()
+                event_store_service = EventStoreService(self.db_session)
                 await event_store_service.emit_workflow_started(
                     workflow_id=workflow_id,
                     execution_id=execution_id,
@@ -233,5 +236,5 @@ class WorkflowService:
             )
 
 
-# Global workflow service instance
-workflow_service = WorkflowService()
+# Note: WorkflowService now requires a database session to be instantiated
+# This will be handled through dependency injection in the API routes
