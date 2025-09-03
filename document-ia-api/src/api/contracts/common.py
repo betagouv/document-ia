@@ -1,6 +1,7 @@
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
+from infra.schemas import S3HealthStatus, RedisHealthStatus
 
 
 class APIStatusResponse(BaseModel):
@@ -17,17 +18,6 @@ class APIStatusResponse(BaseModel):
     )
 
 
-class S3HealthStatus(BaseModel):
-    """Schema for S3 connectivity health status."""
-
-    connected: bool = Field(description="S3 connection status")
-    credentials_valid: bool = Field(description="S3 credentials validation status")
-    bucket_exists: bool = Field(description="S3 bucket existence status")
-    errors: list[str] = Field(
-        default_factory=list, description="List of S3 connectivity errors"
-    )
-
-
 class HealthCheckResponse(BaseModel):
     """Schema for health check response."""
 
@@ -36,6 +26,7 @@ class HealthCheckResponse(BaseModel):
     service: str = Field(description="Service name", examples=["Document IA API"])
     version: str = Field(description="Service version", examples=["1.0.0"])
     s3: S3HealthStatus = Field(description="S3 connectivity health status")
+    redis: RedisHealthStatus = Field(description="Redis connectivity health status")
 
 
 class ErrorResponse(BaseModel):

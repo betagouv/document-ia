@@ -9,12 +9,13 @@ from api.contracts.workflow import WorkflowExecuteResponse, WorkflowErrorRespons
 from api.contracts.common import (
     APIStatusResponse,
     HealthCheckResponse,
-    ErrorResponse,
     S3HealthStatus,
+    RedisHealthStatus,
 )
 from application.services.workflow_service import workflow_service
 from api.config import settings
 from infra.s3_service import s3_service
+from infra.redis_service import redis_service
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -89,13 +90,44 @@ async def get_api_status(
                             "connected": True,
                             "credentials_valid": True,
                             "bucket_exists": True,
+                            "is_healthy": True,
+                            "errors": [],
+                        },
+                        "redis": {
+                            "connected": True,
+                            "is_healthy": True,
                             "errors": [],
                         },
                     }
                 }
             },
         },
-        503: {"model": ErrorResponse, "description": "Service is unhealthy"},
+        503: {
+            "model": HealthCheckResponse,
+            "description": "Service is unhealthy",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "unhealthy",
+                        "timestamp": "2024-01-15T10:30:00.000Z",
+                        "service": "Document IA API",
+                        "version": "1.0.0",
+                        "s3": {
+                            "connected": False,
+                            "credentials_valid": False,
+                            "bucket_exists": False,
+                            "is_healthy": False,
+                            "errors": ["S3 connection failed"],
+                        },
+                        "redis": {
+                            "connected": False,
+                            "is_healthy": False,
+                            "errors": ["Redis connection failed"],
+                        },
+                    }
+                }
+            },
+        },
     },
     tags=["Health"],
 )
@@ -105,13 +137,13 @@ async def health_check() -> HealthCheckResponse:
 
     This endpoint is designed for monitoring systems and load balancers to check
     the health status of the Document IA API service. It performs comprehensive
-    health checks including S3 connectivity validation.
+    health checks including S3 and Redis connectivity validation.
 
     **No Authentication Required**: This endpoint is publicly accessible for monitoring.
 
     **Health Status Levels**:
-    - `healthy`: All systems operational
-    - `unhealthy`: Critical dependencies are unavailable
+    - `healthy`: All systems operational (HTTP 200)
+    - `unhealthy`: Critical dependencies are unavailable (HTTP 503)
     """
     logger.debug("Health check requested", extra={"endpoint": "health_check"})
 
@@ -119,8 +151,11 @@ async def health_check() -> HealthCheckResponse:
         # Perform S3 connectivity check
         s3_connectivity = await s3_service.check_connectivity()
 
-        # Determine overall health status based on S3 connectivity
-        if s3_connectivity["connected"] and s3_connectivity["bucket_exists"]:
+        # Perform Redis connectivity check
+        redis_connectivity = await redis_service.check_connectivity()
+
+        # Determine overall health status based on service health flags
+        if s3_connectivity["is_healthy"] and redis_connectivity["is_healthy"]:
             overall_status = "healthy"
         else:
             overall_status = "unhealthy"
@@ -130,21 +165,47 @@ async def health_check() -> HealthCheckResponse:
             connected=s3_connectivity["connected"],
             credentials_valid=s3_connectivity["credentials_valid"],
             bucket_exists=s3_connectivity["bucket_exists"],
+            is_healthy=s3_connectivity["is_healthy"],
             errors=s3_connectivity["errors"],
         )
 
-        return HealthCheckResponse(
-            status=overall_status,
-            timestamp=datetime.now().isoformat(),
-            service="Document IA API",
-            version=settings.APP_VERSION,
-            s3=s3_health,
+        # Create Redis health status object
+        redis_health = RedisHealthStatus(
+            connected=redis_connectivity["connected"],
+            is_healthy=redis_connectivity["is_healthy"],
+            errors=redis_connectivity["errors"],
         )
+
+        # Return healthy response (HTTP 200)
+        if overall_status == "healthy":
+            return HealthCheckResponse(
+                status=overall_status,
+                timestamp=datetime.now().isoformat(),
+                service="Document IA API",
+                version=settings.APP_VERSION,
+                s3=s3_health,
+                redis=redis_health,
+            )
+
+        # Raise exception for unhealthy status (HTTP 503)
+        else:
+            logger.warning(
+                f"Service unhealthy - S3: {s3_connectivity['is_healthy']}, Redis: {redis_connectivity['is_healthy']}",
+                extra={"endpoint": "health_check"},
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Service is currently unavailable - one or more dependencies are unhealthy",
+            )
+
+    except HTTPException:
+        # Re-raise HTTP exceptions (like 503 above)
+        raise
     except Exception as e:
         logger.error(f"Health check failed: {e}", extra={"endpoint": "health_check"})
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Service is currently unavailable",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal Server Error - Health check failed with error: {e}",
         )
 
 

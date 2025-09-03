@@ -5,7 +5,8 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
-from .config import settings
+
+from infra.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -207,7 +208,7 @@ class S3Service:
             "connected": False,
             "credentials_valid": False,
             "bucket_exists": False,
-            "write_permissions": False,
+            "is_healthy": False,
             "endpoint": settings.S3_ENDPOINT_URL,
             "bucket_name": self.bucket_name,
             "errors": [],
@@ -255,7 +256,6 @@ class S3Service:
 
             if bucket_exists:
                 logger.info(f"S3 bucket '{self.bucket_name}' is accessible")
-
             else:
                 logger.warning(f"S3 bucket '{self.bucket_name}' does not exist")
 
@@ -263,6 +263,13 @@ class S3Service:
             error_msg = f"Error during bucket check: {e}"
             connectivity_status["errors"].append(error_msg)
             logger.error(error_msg)
+
+        # Determine overall health status
+        connectivity_status["is_healthy"] = (
+            connectivity_status["connected"]
+            and connectivity_status["credentials_valid"]
+            and connectivity_status["bucket_exists"]
+        )
 
         return connectivity_status
 
