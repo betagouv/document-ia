@@ -313,6 +313,7 @@ class LogSanitizer:
 
 ### Python and FastAPI Standards
 - Use Python 3.11+ features
+- IMPORTANT: Allow use absolute imports
 - Follow PEP 8 style guidelines
 - Use type hints for all function parameters and return values
 - Use systematically Pydantic models for data structures (requests, response, error)

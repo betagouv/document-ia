@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
 # Create FastAPI application
 app = FastAPI(
     title="Document IA API",
-    description="API permettant de lancer et gérer des workflows d'analyse de documents",
+    description="A powerful document processing API that enables automated document analysis, workflow execution, and intelligent document handling.",
     version=settings.APP_VERSION,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -63,7 +63,7 @@ app.add_middleware(
 app.add_middleware(RateLimitMiddleware)
 
 # Include API routes
-app.include_router(router, prefix="/api", tags=["API"])
+app.include_router(router, prefix="/api")
 
 if __name__ == "__main__":
     import uvicorn
