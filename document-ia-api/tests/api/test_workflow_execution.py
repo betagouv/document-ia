@@ -42,7 +42,7 @@ class TestWorkflowExecution:
         """Test successful workflow execution with PDF file."""
 
         response = client_with_api_key.post(
-            "/api/v1/workflows/test-workflow-123/execute",
+            "/api/v1/workflows/document-analysis-v1/execute",
             files={"file": ("test.pdf", mock_pdf_file, "application/pdf")},
             data={"metadata": json.dumps(valid_metadata)},
             headers={"X-API-KEY": valid_api_key},
@@ -52,7 +52,7 @@ class TestWorkflowExecution:
         data = response.json()
         assert data["status"] == "success"
         assert data["data"]["execution_id"] is not None
-        assert data["data"]["workflow_id"] == "test-workflow-123"
+        assert data["data"]["workflow_id"] == "document-analysis-v1"
         assert data["data"]["status"] == "processing"
         assert "file_info" in data["data"]
 
@@ -61,7 +61,7 @@ class TestWorkflowExecution:
     ):
         """Test successful workflow execution with image file."""
         response = client_with_api_key.post(
-            "/api/v1/workflows/test-workflow-456/execute",
+            "/api/v1/workflows/document-analysis-v1/execute",
             files={"file": ("test.png", mock_image_file, "image/png")},
             data={"metadata": json.dumps(valid_metadata)},
             headers={"X-API-KEY": valid_api_key},
@@ -77,7 +77,7 @@ class TestWorkflowExecution:
     ):
         """Test workflow execution without API key."""
         response = client_with_api_key.post(
-            "/api/v1/workflows/test-workflow-123/execute",
+            "/api/v1/workflows/document-analysis-v1/execute",
             files={"file": ("test.pdf", mock_pdf_file, "application/pdf")},
             data={"metadata": json.dumps(valid_metadata)},
         )
@@ -89,7 +89,7 @@ class TestWorkflowExecution:
     ):
         """Test workflow execution with invalid API key."""
         response = client_with_api_key.post(
-            "/api/v1/workflows/test-workflow-123/execute",
+            "/api/v1/workflows/document-analysis-v1/execute",
             files={"file": ("test.pdf", mock_pdf_file, "application/pdf")},
             data={"metadata": json.dumps(valid_metadata)},
             headers={"X-API-KEY": "invalid-api-key"},
@@ -102,7 +102,7 @@ class TestWorkflowExecution:
     ):
         """Test workflow execution without file."""
         response = client_with_api_key.post(
-            "/api/v1/workflows/test-workflow-123/execute",
+            "/api/v1/workflows/document-analysis-v1/execute",
             data={"metadata": json.dumps(valid_metadata)},
             headers={"X-API-KEY": valid_api_key},
         )
@@ -114,7 +114,7 @@ class TestWorkflowExecution:
     ):
         """Test workflow execution without metadata."""
         response = client_with_api_key.post(
-            "/api/v1/workflows/test-workflow-123/execute",
+            "/api/v1/workflows/document-analysis-v1/execute",
             files={"file": ("test.pdf", mock_pdf_file, "application/pdf")},
             headers={"X-API-KEY": valid_api_key},
         )
@@ -126,7 +126,7 @@ class TestWorkflowExecution:
     ):
         """Test workflow execution with invalid JSON metadata."""
         response = client_with_api_key.post(
-            "/api/v1/workflows/test-workflow-123/execute",
+            "/api/v1/workflows/document-analysis-v1/execute",
             files={"file": ("test.pdf", mock_pdf_file, "application/pdf")},
             data={"metadata": "invalid-json"},
             headers={"X-API-KEY": valid_api_key},
@@ -141,7 +141,7 @@ class TestWorkflowExecution:
     ):
         """Test workflow execution with empty metadata."""
         response = client_with_api_key.post(
-            "/api/v1/workflows/test-workflow-123/execute",
+            "/api/v1/workflows/document-analysis-v1/execute",
             files={"file": ("test.pdf", mock_pdf_file, "application/pdf")},
             data={"metadata": "{}"},
             headers={"X-API-KEY": valid_api_key},
@@ -155,7 +155,7 @@ class TestWorkflowExecution:
         self, client_with_api_key, valid_api_key, valid_metadata, mock_pdf_file
     ):
         response = client_with_api_key.post(
-            "/api/v1/workflows/ /execute",  # Use a valid route pattern
+            "/api/v1/workflows/document-analysis-v99/execute",  # Use a valid route pattern
             files={"file": ("test.pdf", mock_pdf_file, "application/pdf")},
             data={"metadata": json.dumps(valid_metadata)},
             headers={"X-API-KEY": valid_api_key},
@@ -175,7 +175,7 @@ class TestWorkflowExecution:
             mock_upload.side_effect = Exception("S3 upload failed")
 
             response = client_with_api_key.post(
-                "/api/v1/workflows/test-workflow-123/execute",
+                "/api/v1/workflows/document-analysis-v1/execute",
                 files={"file": ("test.pdf", mock_pdf_file, "application/pdf")},
                 data={"metadata": json.dumps(valid_metadata)},
                 headers={"X-API-KEY": valid_api_key},
@@ -194,7 +194,7 @@ class TestWorkflowExecution:
         text_file = io.BytesIO(text_content)
 
         response = client_with_api_key.post(
-            "/api/v1/workflows/test-workflow-123/execute",
+            "/api/v1/workflows/document-analysis-v1/execute",
             files={"file": ("test.txt", text_file, "text/plain")},
             data={"metadata": json.dumps(valid_metadata)},
             headers={"X-API-KEY": valid_api_key},
@@ -213,7 +213,7 @@ class TestWorkflowExecution:
         large_file = io.BytesIO(large_content)
 
         response = client_with_api_key.post(
-            "/api/v1/workflows/test-workflow-123/execute",
+            "/api/v1/workflows/document-analysis-v1/execute",
             files={"file": ("large.pdf", large_file, "application/pdf")},
             data={"metadata": json.dumps(valid_metadata)},
             headers={"X-API-KEY": valid_api_key},
@@ -229,7 +229,7 @@ class TestWorkflowExecution:
     ):
         """Test workflow execution with potentially malicious filename."""
         response = client_with_api_key.post(
-            "/api/v1/workflows/test-workflow-123/execute",
+            "/api/v1/workflows/document-analysis-v1/execute",
             files={"file": ("../../../etc/passwd", mock_pdf_file, "application/pdf")},
             data={"metadata": json.dumps(valid_metadata)},
             headers={"X-API-KEY": valid_api_key},
@@ -264,7 +264,7 @@ class TestWorkflowExecution:
             )
 
             response = client_with_api_key.post(
-                "/api/v1/workflows/test-workflow-123/execute",
+                "/api/v1/workflows/document-analysis-v1/execute",
                 files={"file": ("test.pdf", mock_pdf_file, "application/pdf")},
                 data={"metadata": json.dumps(valid_metadata)},
                 headers={"X-API-KEY": valid_api_key},

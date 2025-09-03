@@ -7,6 +7,7 @@ from fastapi import HTTPException, UploadFile
 
 from core.file_validator import validate_uploaded_file
 from infra.s3_service import s3_service
+from infra.database.repositories.workflow import workflow_repository
 from schemas.workflow import WorkflowExecutionData
 
 logger = logging.getLogger(__name__)
@@ -33,13 +34,15 @@ class WorkflowService:
             HTTPException: If execution fails
         """
         try:
+            workflow = await workflow_repository.get_workflow_by_id(workflow_id)
+
             # Validate workflow ID
-            if not self._validate_workflow_id(workflow_id):
+            if not workflow:
                 raise HTTPException(
                     status_code=404,
                     detail={
                         "error": "workflow_not_found",
-                        "message": f"Workflow with ID '{workflow_id}' not found",
+                        "message": f"Workflow with ID '{workflow_id}' not found or disabled",
                     },
                 )
 
@@ -102,24 +105,6 @@ class WorkflowService:
                     "message": "An internal server error occurred during workflow execution",
                 },
             )
-
-    def _validate_workflow_id(self, workflow_id: str) -> bool:
-        """
-        Validate workflow ID format and existence.
-
-        Args:
-            workflow_id: Workflow identifier
-
-        Returns:
-            True if workflow ID is valid
-        """
-        # Basic validation - workflow ID should not be empty
-        if not workflow_id or not workflow_id.strip():
-            return False
-
-        # TODO: Add more sophisticated validation (e.g., check against database)
-        # For now, accept any non-empty string
-        return True
 
     def _parse_metadata(self, metadata_json: str) -> Dict[str, Any]:
         """

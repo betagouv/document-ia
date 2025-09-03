@@ -146,7 +146,6 @@ fetch('/api/v1/workflows/12345/execute', {
     "workflow_id": "12345",
     "status": "processing",
     "created_at": "2024-01-15T10:30:00Z",
-    "estimated_completion": null,
     "file_info": {
       "filename": "document.pdf",
       "size": 1024000,

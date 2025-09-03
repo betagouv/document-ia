@@ -227,7 +227,6 @@ async def health_check() -> HealthCheckResponse:
                             "workflow_id": "workflow_001",
                             "status": "processing",
                             "created_at": "2024-01-15T10:30:00.000Z",
-                            "estimated_completion": "2024-01-15T10:35:00.000Z",
                             "file_info": {
                                 "filename": "document.pdf",
                                 "size": 1024000,
