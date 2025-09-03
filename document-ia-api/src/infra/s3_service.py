@@ -191,6 +191,81 @@ class S3Service:
             logger.error(f"Unexpected error checking bucket: {e}")
             return False
 
+    async def check_connectivity(self) -> Dict[str, Any]:
+        """
+        Comprehensive S3 connectivity check.
+
+        Performs multiple checks:
+        1. Basic connection test (ping)
+        2. Credentials validation
+        3. Bucket existence check
+
+        Returns:
+            Dict containing connectivity status and details
+        """
+        connectivity_status = {
+            "connected": False,
+            "credentials_valid": False,
+            "bucket_exists": False,
+            "write_permissions": False,
+            "endpoint": settings.S3_ENDPOINT_URL,
+            "bucket_name": self.bucket_name,
+            "errors": [],
+        }
+
+        try:
+            # Test 1: Basic connection and credentials
+            logger.info("Testing S3 connectivity...")
+            await asyncio.get_event_loop().run_in_executor(
+                None, lambda: self.s3_client.list_buckets()
+            )
+            connectivity_status["connected"] = True
+            connectivity_status["credentials_valid"] = True
+            logger.info("S3 connection and credentials validated successfully")
+
+        except NoCredentialsError as e:
+            error_msg = f"S3 credentials not configured properly: {e}"
+            connectivity_status["errors"].append(error_msg)
+            logger.error(error_msg)
+            return connectivity_status
+
+        except ClientError as e:
+            error_code = e.response["Error"]["Code"]
+            if error_code in ["InvalidAccessKeyId", "SignatureDoesNotMatch"]:
+                error_msg = f"S3 credentials invalid: {e}"
+                connectivity_status["errors"].append(error_msg)
+                logger.error(error_msg)
+                return connectivity_status
+            else:
+                error_msg = f"S3 connection failed: {e}"
+                connectivity_status["errors"].append(error_msg)
+                logger.error(error_msg)
+                return connectivity_status
+
+        except Exception as e:
+            error_msg = f"Unexpected error during S3 connectivity check: {e}"
+            connectivity_status["errors"].append(error_msg)
+            logger.error(error_msg)
+            return connectivity_status
+
+        # Test 2: Check if bucket exists
+        try:
+            bucket_exists = await self.check_bucket_exists()
+            connectivity_status["bucket_exists"] = bucket_exists
+
+            if bucket_exists:
+                logger.info(f"S3 bucket '{self.bucket_name}' is accessible")
+
+            else:
+                logger.warning(f"S3 bucket '{self.bucket_name}' does not exist")
+
+        except Exception as e:
+            error_msg = f"Error during bucket check: {e}"
+            connectivity_status["errors"].append(error_msg)
+            logger.error(error_msg)
+
+        return connectivity_status
+
 
 # Global S3 service instance
 s3_service = S3Service()

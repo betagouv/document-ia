@@ -6,9 +6,15 @@ from api.auth import verify_api_key
 from api.rate_limiting import check_rate_limit
 from schemas.rate_limiting import RateLimitInfo
 from api.contracts.workflow import WorkflowExecuteResponse, WorkflowErrorResponse
-from api.contracts.common import APIStatusResponse, HealthCheckResponse, ErrorResponse
+from api.contracts.common import (
+    APIStatusResponse,
+    HealthCheckResponse,
+    ErrorResponse,
+    S3HealthStatus,
+)
 from application.services.workflow_service import workflow_service
 from api.config import settings
+from infra.s3_service import s3_service
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -79,7 +85,12 @@ async def get_api_status(
                         "timestamp": "2024-01-15T10:30:00.000Z",
                         "service": "Document IA API",
                         "version": "1.0.0",
-                        "uptime": "3600",
+                        "s3": {
+                            "connected": True,
+                            "credentials_valid": True,
+                            "bucket_exists": True,
+                            "errors": [],
+                        },
                     }
                 }
             },
@@ -93,25 +104,41 @@ async def health_check() -> HealthCheckResponse:
     Health check endpoint for monitoring and load balancer health checks.
 
     This endpoint is designed for monitoring systems and load balancers to check
-    the health status of the Document IA API service. It does not require authentication
-    and should respond quickly with minimal processing.
+    the health status of the Document IA API service. It performs comprehensive
+    health checks including S3 connectivity validation.
 
     **No Authentication Required**: This endpoint is publicly accessible for monitoring.
+
+    **Health Status Levels**:
+    - `healthy`: All systems operational
+    - `unhealthy`: Critical dependencies are unavailable
     """
     logger.debug("Health check requested", extra={"endpoint": "health_check"})
 
     try:
-        # Here you could add additional health checks like:
-        # - Database connectivity
-        # - Redis connectivity
-        # - S3 connectivity
-        # - External service dependencies
+        # Perform S3 connectivity check
+        s3_connectivity = await s3_service.check_connectivity()
+
+        # Determine overall health status based on S3 connectivity
+        if s3_connectivity["connected"] and s3_connectivity["bucket_exists"]:
+            overall_status = "healthy"
+        else:
+            overall_status = "unhealthy"
+
+        # Create S3 health status object
+        s3_health = S3HealthStatus(
+            connected=s3_connectivity["connected"],
+            credentials_valid=s3_connectivity["credentials_valid"],
+            bucket_exists=s3_connectivity["bucket_exists"],
+            errors=s3_connectivity["errors"],
+        )
 
         return HealthCheckResponse(
-            status="healthy",
+            status=overall_status,
             timestamp=datetime.now().isoformat(),
             service="Document IA API",
             version=settings.APP_VERSION,
+            s3=s3_health,
         )
     except Exception as e:
         logger.error(f"Health check failed: {e}", extra={"endpoint": "health_check"})
@@ -185,7 +212,9 @@ async def health_check() -> HealthCheckResponse:
                             "metadata": {
                                 "type": "string",
                                 "description": "JSON string containing metadata object",
-                                "example": '{"source": "email", "priority": "high", "tags": ["invoice", "urgent"]}',
+                                "examples": [
+                                    '{"source": "email", "priority": "high", "tags": ["invoice", "urgent"]}'
+                                ],
                             },
                         },
                         "required": ["file", "metadata"],
@@ -202,11 +231,7 @@ async def execute_workflow(
         description="Document file to process (PDF, JPG, PNG, max 25MB)",
         media_type=["application/pdf", "image/jpeg", "image/png"],
     ),
-    metadata: str = Form(
-        ...,
-        description="JSON string containing metadata object",
-        examples='[{"source": "email", "priority": "high", "tags": ["invoice", "urgent"]}]',
-    ),
+    metadata: str = Form(..., description="JSON string containing metadata object"),
     api_key: str = Depends(verify_api_key),
     rate_limit_info: RateLimitInfo = Depends(check_rate_limit),
 ) -> WorkflowExecuteResponse:

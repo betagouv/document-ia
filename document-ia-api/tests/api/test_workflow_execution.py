@@ -55,7 +55,6 @@ class TestWorkflowExecution:
         assert data["data"]["workflow_id"] == "test-workflow-123"
         assert data["data"]["status"] == "processing"
         assert "file_info" in data["data"]
-        assert "s3_info" in data["data"]
 
     def test_execute_workflow_success_image(
         self, client_with_api_key, valid_api_key, valid_metadata, mock_image_file

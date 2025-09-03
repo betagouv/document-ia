@@ -14,6 +14,3 @@ class WorkflowExecutionData(BaseModel):
     )
     file_info: Dict[str, Any] = Field(description="Uploaded file information")
     metadata: Dict[str, Any] = Field(description="Execution metadata")
-    s3_info: Optional[Dict[str, Any]] = Field(
-        default=None, description="S3 storage information"
-    )

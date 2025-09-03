@@ -21,15 +21,8 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting Document IA API...")
 
-    # Check S3/MinIO connectivity
-    try:
-        bucket_exists = await s3_service.check_bucket_exists()
-        if bucket_exists:
-            logger.info(f"S3 bucket '{s3_service.bucket_name}' is accessible")
-        else:
-            logger.warning(f"S3 bucket '{s3_service.bucket_name}' does not exist")
-    except Exception as e:
-        logger.error(f"S3 connection check failed: {e}")
+    # Check S3 connectivity
+    await s3_service.check_connectivity()
 
     logger.info("Document IA API started successfully")
 

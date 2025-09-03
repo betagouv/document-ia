@@ -66,15 +66,8 @@ class WorkflowService:
                 "size": len(file_content),
                 "content_type": detected_mime_type,
                 "file_id": s3_upload_result["file_id"],
-                "upload_timestamp": datetime.now().isoformat(),
-            }
-
-            # Prepare S3 info
-            s3_info = {
-                "s3_key": s3_upload_result["s3_key"],
-                "bucket_name": s3_service.bucket_name,
+                "uploaded_at": datetime.now().isoformat(),
                 "presigned_url": s3_upload_result["presigned_url"],
-                "storage_class": "STANDARD",
             }
 
             # Log successful execution
@@ -95,7 +88,6 @@ class WorkflowService:
                 created_at=datetime.now().isoformat(),
                 file_info=file_info,
                 metadata=metadata,
-                s3_info=s3_info,
             )
 
         except HTTPException:
