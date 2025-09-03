@@ -38,6 +38,12 @@ def create_test_app(api_key: str = None):
         SERVER_HOST = "0.0.0.0"
         SERVER_PORT = 8000
         API_KEY = api_key
+        # Test PostgreSQL settings
+        POSTGRES_DB = "document-ia"
+        POSTGRES_HOST = "localhost"
+        POSTGRES_PORT = 5432
+        POSTGRES_USER = "postgres"
+        POSTGRES_PASSWORD = "postgres"
         # Test Redis settings
         REDIS_HOST = "localhost"
         REDIS_PORT = 6379

@@ -8,7 +8,9 @@ from fastapi import HTTPException, UploadFile
 from core.file_validator import validate_uploaded_file
 from infra.s3_service import s3_service
 from infra.database.repositories.workflow import workflow_repository
+
 from schemas.workflow import WorkflowExecutionData
+from application.services.event_store_service import EventStoreService
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +80,23 @@ class WorkflowService:
                 f"Workflow execution started: {execution_id} "
                 f"(workflow: {workflow_id}, file: {file.filename})"
             )
+
+            # Emit workflow started event
+            try:
+                # TODO: import session from database ? What for ?
+                event_store_service = EventStoreService()
+                await event_store_service.emit_workflow_started(
+                    workflow_id=workflow_id,
+                    execution_id=execution_id,
+                    file_info=file_info,
+                    metadata=metadata,
+                )
+                logger.debug(
+                    f"Workflow started event emitted for execution {execution_id}"
+                )
+            except Exception as e:
+                logger.error(f"Failed to emit workflow started event: {e}")
+                # Don't fail the workflow execution if event emission fails
 
             # TODO: Queue workflow processing job
             # await self._queue_workflow_processing(
