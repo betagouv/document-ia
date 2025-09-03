@@ -38,16 +38,6 @@ class S3Settings(BaseSettings):
     S3_REGION_NAME: str = os.getenv("S3_REGION_NAME", "us-east-1")
     S3_USE_SSL: bool = os.getenv("S3_USE_SSL", "false").lower() == "true"
 
-    # File upload configuration
-    MAX_FILE_SIZE: int = int(os.getenv("MAX_FILE_SIZE", "26214400"))  # 25MB in bytes
-
-    ALLOWED_MIME_TYPES: list = [
-        "application/pdf",
-        "image/jpeg",
-        "image/jpg",
-        "image/png",
-    ]
-
 
 class Settings(DatabaseSettings, RedisSettings, S3Settings):
     pass

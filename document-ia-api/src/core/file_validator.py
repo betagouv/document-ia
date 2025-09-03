@@ -2,7 +2,7 @@ import logging
 import magic
 from typing import Tuple, Optional
 from fastapi import UploadFile, HTTPException
-from infra.config import settings
+from core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -10,16 +10,9 @@ logger = logging.getLogger(__name__)
 class FileValidator:
     """Service for validating uploaded files."""
 
-    # MIME type mapping for allowed file types
-    ALLOWED_MIME_TYPES = {
-        "application/pdf": [".pdf"],
-        "image/jpeg": [".jpg", ".jpeg"],
-        "image/png": [".png"],
-    }
-
-    # Reverse mapping for validation
+    # Reverse mapping for validation - built from settings
     EXTENSION_TO_MIME = {}
-    for mime_type, extensions in ALLOWED_MIME_TYPES.items():
+    for mime_type, extensions in settings.ALLOWED_MIME_TYPES.items():
         for ext in extensions:
             EXTENSION_TO_MIME[ext.lower()] = mime_type
 

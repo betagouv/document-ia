@@ -53,8 +53,6 @@ def create_test_app(api_key: str = None):
         S3_BUCKET_NAME = "document-ia"
         S3_REGION_NAME = "us-east-1"
         S3_USE_SSL = False
-        MAX_FILE_SIZE = 26214400  # 25MB
-        ALLOWED_MIME_TYPES = ["application/pdf", "image/jpeg", "image/jpg", "image/png"]
 
     # TODO: Do not copy and paste the app configuration from the main.py file
     # Create FastAPI application
@@ -75,14 +73,10 @@ def create_test_app(api_key: str = None):
     import api.auth
     import api.config
     import infra.config
-    import core.file_validator
 
     api.auth.settings = TestSettings()
     api.config.settings = TestSettings()
     infra.config.settings = TestSettings()
-
-    # Patch the file validator to use test settings
-    core.file_validator.settings = TestSettings()
 
     # Include API routes
     app.include_router(router, prefix="/api", tags=["API"])
