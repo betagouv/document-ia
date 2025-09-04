@@ -154,7 +154,7 @@ Before using the application, you need to create the default S3 bucket. Use the 
 
 ```bash
 # Run the MinIO bucket initialization script
-python scripts/init-minio-bucket.py
+python scripts/init-s3-bucket.py
 ```
 
 This script will:

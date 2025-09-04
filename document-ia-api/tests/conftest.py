@@ -11,6 +11,8 @@ from fastapi.testclient import TestClient
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from dotenv import load_dotenv
+
 # Add the src directory to Python path for imports
 import sys
 
@@ -19,6 +21,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from api.rate_limiting import RateLimitMiddleware
 from api.routes import router
 from schemas.rate_limiting import RateLimitInfo
+
+# Load test environment variables
+test_env_path = os.path.join(os.path.dirname(__file__), ".env.test")
+if os.path.exists(test_env_path):
+    load_dotenv(test_env_path)
 
 
 def create_test_app(api_key: str = None):
@@ -35,30 +42,7 @@ def create_test_app(api_key: str = None):
     # Create test settings
     class TestSettings:
         APP_VERSION = "1.0.0-test"
-        SERVER_HOST = "0.0.0.0"
-        SERVER_PORT = 8000
         API_KEY = api_key
-        # Test PostgreSQL settings
-        POSTGRES_DB = "document-ia"
-        POSTGRES_HOST = "localhost"
-        POSTGRES_PORT = 5432
-        POSTGRES_USER = "postgres"
-        POSTGRES_PASSWORD = "postgres"
-        # Test Redis settings
-        REDIS_HOST = "localhost"
-        REDIS_PORT = 6379
-        REDIS_DB = 0
-        REDIS_PASSWORD = None
-        # Test rate limiting settings
-        RATE_LIMIT_REQUESTS_PER_MINUTE = 100
-        RATE_LIMIT_REQUESTS_PER_DAY = 1000
-        # Test S3 settings
-        S3_ENDPOINT_URL = "http://localhost:9000"
-        S3_ACCESS_KEY_ID = "minioadmin"
-        S3_SECRET_ACCESS_KEY = "minioadmin"
-        S3_BUCKET_NAME = "document-ia"
-        S3_REGION_NAME = "us-east-1"
-        S3_USE_SSL = False
 
     # TODO: Do not copy and paste the app configuration from the main.py file
     # Create FastAPI application
@@ -75,14 +59,10 @@ def create_test_app(api_key: str = None):
 
     app.add_middleware(RateLimitMiddleware)
 
-    # Override the settings in all modules
+    # Override the settings in auth module
     import api.auth
-    import api.config
-    import infra.config
 
     api.auth.settings = TestSettings()
-    api.config.settings = TestSettings()
-    infra.config.settings = TestSettings()
 
     # Include API routes
     app.include_router(router, prefix="/api", tags=["API"])
