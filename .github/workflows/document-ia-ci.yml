@@ -15,11 +15,38 @@ jobs:
     name: Ruff lint and Pytest
     runs-on: ubuntu-latest
     env:
-      # Default envs for app config during tests
-      API_KEY: test-api-key
-      HOST: 127.0.0.1
-      PORT: 8001
+      # Python path for imports
       PYTHONPATH: document-ia-api/src
+      # Configuration de l'API
+      API_KEY: your-secret-api-key-here
+
+      # Configuration PostgreSQL
+      POSTGRES_DB: document_ia_test
+      POSTGRES_HOST: localhost
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: your-secure-postgres-password
+      POSTGRES_PORT: 5432
+
+      # Configuration Redis
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      REDIS_PASSWORD: your-secure-redis-password
+
+      # Configuration MinIO (S3 compatible, only for dev)
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_API_PORT: 9000
+      MINIO_CONSOLE_PORT: 9001
+
+      # Configuration S3/MinIO Storage
+      S3_ENDPOINT_URL: http://localhost:9000
+      S3_ACCESS_KEY_ID: minioadmin
+      S3_SECRET_ACCESS_KEY: minioadmin
+      S3_BUCKET_NAME: document-ia-test
+      S3_REGION_NAME: us-east-1
+      S3_USE_SSL: false
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,6 +69,59 @@ jobs:
       - name: Ruff - Lint sources
         run: poetry run ruff check document-ia-api/src
 
-      - name: Pytest - Unit tests
-        if: ${{ hashFiles('document-ia-api/tests/**/*.py') != '' }}
+      - name: Start PostgreSQL
+        run: |
+          docker run -d \
+            --name postgres-test \
+            -e POSTGRES_DB=${POSTGRES_DB} \
+            -e POSTGRES_USER=${POSTGRES_USER} \
+            -e POSTGRES_PASSWORD=${POSTGRES_PASSWORD} \
+            -p ${POSTGRES_PORT}:5432 \
+            postgres:17-alpine
+
+      - name: Start Redis
+        run: |
+          docker run -d \
+            --name redis-test \
+            -p ${REDIS_PORT}:6379 \
+            redis:8-alpine
+
+      - name: Start MinIO
+        run: |
+          docker run -d \
+            --name minio-test \
+            -e MINIO_ROOT_USER=${MINIO_ROOT_USER} \
+            -e MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD} \
+            -p ${MINIO_API_PORT}:9000 \
+            -p ${MINIO_CONSOLE_PORT}:9001 \
+            minio/minio:latest-cicd server /data --console-address ":9001"
+
+      - name: Wait for PostgreSQL to be ready
+        run: |
+          timeout 60s bash -c 'until docker exec postgres-test pg_isready -U postgres; do sleep 1; done'
+          echo "PostgreSQL is ready!"
+
+      - name: Wait for Redis to be ready
+        run: |
+          timeout 60s bash -c 'until docker exec redis-test redis-cli ping | grep -q PONG; do sleep 1; done'
+          echo "Redis is ready!"
+
+      - name: Wait for MinIO to be ready
+        run: |
+          timeout 60s bash -c 'until curl -f http://localhost:9000/minio/health/live; do sleep 1; done'
+          echo "MinIO is ready!"
+
+      - name: Run migrations
+        run: poetry run alembic upgrade head
+
+      - name: Init S3 bucket
+        run: poetry run python scripts/init-s3-bucket.py
+
+      - name: Pytest - Tests
         run: poetry run pytest --maxfail=1 --disable-warnings
+
+      - name: Cleanup Docker containers
+        if: always()
+        run: |
+          docker stop postgres-test redis-test minio-test || true
+          docker rm postgres-test redis-test minio-test || true

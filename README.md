@@ -148,6 +148,22 @@ MinIO provides S3-compatible object storage with a web-based management console:
 - **API Endpoint**: `http://localhost:9000` (or the port specified in `MINIO_API_PORT`)
 - **Web Console**: `http://localhost:9001` (or the port specified in `MINIO_CONSOLE_PORT`)
 
+#### Initialize MinIO Bucket
+
+Before using the application, you need to create the default S3 bucket. Use the provided initialization script:
+
+```bash
+# Run the MinIO bucket initialization script
+python scripts/init-s3-bucket.py
+```
+
+This script will:
+- Connect to your MinIO instance
+- Create the default bucket (`document-ia`) if it doesn't exist
+- Verify the bucket is accessible
+
+**Note**: Make sure your MinIO service is running (`docker-compose up -d`) before running this script.
+
 #### Accessing MinIO Console
 
 1. Start the services: `docker-compose up -d`
@@ -172,11 +188,6 @@ S3_REGION = "us-east-1"  # MinIO default region
 ### Development mode
 ```bash
 poetry run dev
-```
-
-### Production mode
-```bash
-poetry run start
 ```
 
 ## API Endpoints

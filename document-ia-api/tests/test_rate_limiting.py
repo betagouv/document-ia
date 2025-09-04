@@ -1,9 +1,10 @@
 import pytest
 from unittest.mock import AsyncMock, patch, Mock
+from fastcrud.exceptions.http_exceptions import RateLimitException
+
 from src.infra.redis_service import RedisService
 from src.api.rate_limiting import check_rate_limit, RateLimitMiddleware
 from src.schemas.rate_limiting import RateLimitInfo
-from fastcrud.exceptions.http_exceptions import RateLimitException
 
 
 class TestRateLimiting:

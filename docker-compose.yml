@@ -26,7 +26,7 @@ services:
       - document-ia-network
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio:latest-cicd
     container_name: document-ia-minio
     restart: unless-stopped
     environment:
@@ -40,6 +40,12 @@ services:
     networks:
       - document-ia-network
     command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
 volumes:
   postgres_data:

@@ -63,7 +63,7 @@ document-ia-api/
 class DocumentRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
-    
+
     async def get_by_id(self, id: int) -> Optional[Document]:
         result = await self.session.execute(
             select(Document).where(Document.id == id)
@@ -112,13 +112,13 @@ class RedisMessageQueue:
         self.max_retries = 10
         self.base_delay = 1.0
         self.max_delay = 60.0
-        
+
     async def _get_retry_delay(self) -> float:
         """Calculate exponential backoff delay with jitter"""
         delay = min(self.base_delay * (2 ** self.connection_attempts), self.max_delay)
         jitter = delay * 0.25 * random.uniform(-1, 1)
         return max(0.1, delay + jitter)
-    
+
     async def _ensure_connection(self) -> bool:
         """Ensure Redis connection with retry logic"""
         while self.connection_attempts < self.max_retries:
@@ -136,21 +136,21 @@ class RedisMessageQueue:
                     f"Retrying in {delay:.2f}s"
                 )
                 await asyncio.sleep(delay)
-        
+
         self.logger.error("Max Redis connection retries exceeded")
         return False
-    
+
     async def publish_message(self, stream: str, data: dict):
         """Publish message with connection retry"""
         if not await self._ensure_connection():
             raise ConnectionError("Unable to establish Redis connection")
-        
+
         try:
             await self.redis.xadd(stream, data)
         except (ConnectionError, TimeoutError) as e:
             self.logger.error(f"Failed to publish message to stream {stream}: {e}")
             raise
-    
+
     async def consume_messages(self, stream: str, group: str, consumer: str):
         """Consume messages with robust error handling"""
         while True:
@@ -159,11 +159,11 @@ class RedisMessageQueue:
                     self.logger.error("Cannot consume messages - Redis unavailable")
                     await asyncio.sleep(30)  # Wait before retry
                     continue
-                
+
                 messages = await self.redis.xreadgroup(
                     group, consumer, {stream: '>'}, count=1, block=1000
                 )
-                
+
                 for message in messages:
                     try:
                         await self.process_message(message)
@@ -171,7 +171,7 @@ class RedisMessageQueue:
                     except Exception as e:
                         # Log error but don't ack - message will be retried
                         self.logger.error(f"Error processing message: {e}")
-                        
+
             except (ConnectionError, TimeoutError) as e:
                 self.logger.error(f"Redis connection error during consumption: {e}")
                 await asyncio.sleep(5)  # Brief pause before retry
@@ -194,14 +194,14 @@ class RedisMessageQueue:
 class S3Service:
     def __init__(self, s3_client):
         self.s3_client = s3_client
-    
+
     async def upload_file(self, bucket: str, key: str, file_data: bytes):
         await self.s3_client.put_object(
             Bucket=bucket,
             Key=key,
             Body=file_data
         )
-    
+
     async def download_file(self, bucket: str, key: str) -> bytes:
         response = await self.s3_client.get_object(Bucket=bucket, Key=key)
         return await response['Body'].read()
@@ -220,14 +220,14 @@ class S3Service:
 ```python
 # Thread-safe service with dependency injection
 class DocumentService:
-    def __init__(self, 
+    def __init__(self,
                  db_repo: DocumentRepository,
                  cache_service: CacheService,
                  s3_service: S3Service):
         self.db_repo = db_repo
         self.cache_service = cache_service
         self.s3_service = s3_service
-    
+
     async def process_document(self, document_id: int):
         # All operations are async and thread-safe
         document = await self.db_repo.get_by_id(document_id)
@@ -255,14 +255,14 @@ class DocumentService:
 class IdempotencyMiddleware:
     def __init__(self, redis_client: Redis):
         self.redis = redis_client
-    
+
     async def __call__(self, request: Request, call_next):
         idempotency_key = request.headers.get("Idempotency-Key")
         if idempotency_key and request.method in ["POST", "PUT", "PATCH"]:
             cached_response = await self.redis.get(f"idempotency:{idempotency_key}")
             if cached_response:
                 return JSONResponse(content=json.loads(cached_response))
-            
+
             response = await call_next(request)
             await self.redis.setex(
                 f"idempotency:{idempotency_key}",
@@ -287,7 +287,7 @@ class IdempotencyMiddleware:
 # Data sanitization utilities
 class LogSanitizer:
     SENSITIVE_FIELDS = ['email', 'phone', 'ssn', 'password', 'token']
-    
+
     @staticmethod
     def sanitize_data(data: dict) -> dict:
         sanitized = data.copy()
@@ -295,7 +295,7 @@ class LogSanitizer:
             if field in sanitized:
                 sanitized[field] = "***REDACTED***"
         return sanitized
-    
+
     @staticmethod
     def sanitize_log_message(message: str) -> str:
         # Remove sensitive patterns from log messages
@@ -311,11 +311,12 @@ class LogSanitizer:
 
 ## Code Quality & Standards
 
-### Python Standards
+### Python and FastAPI Standards
 - Use Python 3.11+ features
+- IMPORTANT: Allow use absolute imports
 - Follow PEP 8 style guidelines
 - Use type hints for all function parameters and return values
-- Use dataclasses or Pydantic models for data structures
+- Use systematically Pydantic models for data structures (requests, response, error)
 - Implement proper error handling with custom exceptions
 
 ### Testing Requirements
@@ -338,7 +339,7 @@ class DocumentCreateRequest(BaseModel):
 
 class DocumentService:
     async def create_document(
-        self, 
+        self,
         request: DocumentCreateRequest,
         user_id: int
     ) -> Document:
@@ -394,6 +395,7 @@ class DocumentService:
 
 ### Development Workflow
 - Use Poetry for dependency management
+- Always use virtual environment !
 - Run tests before deployment
 - Use pre-commit hooks for code quality
 - Implement CI/CD pipeline

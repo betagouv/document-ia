@@ -1,14 +1,17 @@
 import asyncio
 import logging
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, Any
 from datetime import datetime, timedelta
 from redis.asyncio import Redis, ConnectionPool
 from redis.exceptions import ConnectionError, TimeoutError
-from .config import settings
+
+from infra.config import settings
 from schemas.rate_limiting import RateLimitInfo
 
 # TODO: add a proper logging service (remove pii and sanitize data)
 logger = logging.getLogger(__name__)
+
+# TODO: reset self.connection_attempts to 0 otherwise it will never reconnect
 
 
 class RedisService:
@@ -17,9 +20,9 @@ class RedisService:
     def __init__(self):
         self.redis: Optional[Redis] = None
         self.connection_attempts = 0
-        self.max_retries = 10
+        self.max_retries = 3
         self.base_delay = 1.0
-        self.max_delay = 60.0
+        self.max_delay = 30.0
 
     async def _get_retry_delay(self) -> float:
         """Calculate exponential backoff delay with jitter."""
@@ -36,8 +39,7 @@ class RedisService:
                 if self.redis is None:
                     # Create connection pool
                     pool = ConnectionPool.from_url(
-                        f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}",
-                        password=settings.REDIS_PASSWORD,
+                        settings.get_redis_url(),
                         decode_responses=True,
                         max_connections=20,
                     )
@@ -158,6 +160,50 @@ class RedisService:
                 reset_minute=None,
                 reset_daily=None,
             )
+
+    async def check_connectivity(self) -> Dict[str, Any]:
+        """
+        Comprehensive Redis connectivity check.
+
+        Performs basic connection test (ping)
+
+        Returns:
+            Dict containing connectivity status and details
+        """
+        connectivity_status = {
+            "connected": False,
+            "is_healthy": False,
+            "host": settings.REDIS_HOST,
+            "port": settings.REDIS_PORT,
+            "db": settings.REDIS_DB,
+            "errors": [],
+        }
+
+        try:
+            logger.info("Testing Redis connectivity...")
+            if not await self._ensure_connection():
+                error_msg = "Failed to establish Redis connection"
+                connectivity_status["errors"].append(error_msg)
+                logger.error(error_msg)
+                return connectivity_status
+
+            connectivity_status["connected"] = True
+            connectivity_status["is_healthy"] = True
+            logger.info("Redis connection established successfully")
+
+        except (ConnectionError, TimeoutError) as e:
+            error_msg = f"Redis connection failed: {e}"
+            connectivity_status["errors"].append(error_msg)
+            logger.error(error_msg)
+            return connectivity_status
+
+        except Exception as e:
+            error_msg = f"Unexpected error during Redis connectivity check: {e}"
+            connectivity_status["errors"].append(error_msg)
+            logger.error(error_msg)
+            return connectivity_status
+
+        return connectivity_status
 
     async def close(self):
         """Close Redis connection."""
