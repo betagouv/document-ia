@@ -9,7 +9,7 @@ import pytest
 from uuid import uuid4
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
-from infra.database.database import build_database_uri
+from infra.config import settings
 from application.services.event_store_service import EventStoreService
 from schemas.events import EventStoreRecord, EventStream
 
@@ -18,7 +18,9 @@ from schemas.events import EventStoreRecord, EventStream
 async def db_session():
     """Create a real database session for integration tests."""
     # Create a fresh engine for each test to avoid connection sharing issues
-    engine = create_async_engine(build_database_uri(), echo=False, future=True)
+    engine = create_async_engine(
+        settings.get_database_url(async_connection=True), echo=False, future=True
+    )
     session_factory = async_sessionmaker(
         bind=engine, class_=AsyncSession, expire_on_commit=False
     )

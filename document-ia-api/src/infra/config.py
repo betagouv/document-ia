@@ -69,14 +69,6 @@ class RedisSettings(BaseSettings):
 
         return f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
 
-    # Rate limiting configuration
-    RATE_LIMIT_REQUESTS_PER_MINUTE: int = int(
-        os.getenv("RATE_LIMIT_REQUESTS_PER_MINUTE", "300")
-    )
-    RATE_LIMIT_REQUESTS_PER_DAY: int = int(
-        os.getenv("RATE_LIMIT_REQUESTS_PER_DAY", "5000")
-    )
-
 
 class S3Settings(BaseSettings):
     # S3/MinIO configuration
@@ -89,7 +81,16 @@ class S3Settings(BaseSettings):
 
 
 class Settings(DatabaseSettings, RedisSettings, S3Settings):
-    pass
+    # Application settings
+    AUTO_MIGRATE: bool = os.getenv("AUTO_MIGRATE", "true").lower() == "true"
+
+    # Rate limiting configuration
+    RATE_LIMIT_REQUESTS_PER_MINUTE: int = int(
+        os.getenv("RATE_LIMIT_REQUESTS_PER_MINUTE", "300")
+    )
+    RATE_LIMIT_REQUESTS_PER_DAY: int = int(
+        os.getenv("RATE_LIMIT_REQUESTS_PER_DAY", "5000")
+    )
 
 
 # Global settings instance
