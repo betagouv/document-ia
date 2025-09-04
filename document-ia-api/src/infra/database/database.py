@@ -18,8 +18,18 @@ class Base(DeclarativeBase):
     pass
 
 
+# Create async engine with SSL context for Heroku compatibility
+engine_kwargs = {
+    "echo": False,
+    "future": True,
+}
+# Add SSL context if available (for Heroku and other cloud providers)
+ssl_context = settings.get_ssl_context()
+if ssl_context:
+    engine_kwargs["connect_args"] = {"ssl": ssl_context}
+
 async_engine = create_async_engine(
-    settings.get_database_url(async_connection=True), echo=False, future=True
+    settings.get_database_url(async_connection=True), **engine_kwargs
 )
 
 local_session = async_sessionmaker(

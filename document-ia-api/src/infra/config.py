@@ -1,4 +1,6 @@
 import os
+import ssl
+from urllib.parse import urlparse
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 
@@ -9,23 +11,48 @@ class DatabaseSettings(BaseSettings):
     POSTGRES_DB: str | None = os.getenv("POSTGRES_DB")
     POSTGRES_HOST: str | None = os.getenv("POSTGRES_HOST")
     POSTGRES_PORT: int | None = os.getenv("POSTGRES_PORT")
+    POSTGRES_SSL_MODE: str | None = os.getenv("POSTGRES_SSL_MODE")
 
     POSTGRES_USER: str | None = os.getenv("POSTGRES_USER")
     POSTGRES_PASSWORD: str | None = os.getenv("POSTGRES_PASSWORD")
 
     POSTGRESQL_URL: str | None = os.getenv("POSTGRESQL_URL")
 
+    def _sanitize_postgresql_url(self, url: str, async_connection: bool = False) -> str:
+        """Sanitize PostgreSQL URL by removing unsupported SSL parameters."""
+        parsed = urlparse(url)
+
+        # Remove query parameters that asyncpg doesn't support
+        # asyncpg handles SSL through the ssl parameter, not URL parameters
+        clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+
+        # Convert postgres:// or postgresql:// to postgresql+asyncpg://
+        clean_url = clean_url.replace("postgres://", "postgresql://")
+
+        if async_connection:
+            clean_url = clean_url.replace("postgresql://", "postgresql+asyncpg://")
+
+        return clean_url
+
+    def _create_postgresql_url(
+        self,
+        user: str,
+        password: str,
+        host: str,
+        port: int,
+        db: str,
+        async_connection: bool = False,
+    ) -> str:
+        """Create PostgreSQL URL."""
+        return self._sanitize_postgresql_url(
+            f"postgresql://{user}:{password}@{host}:{port}/{db}", async_connection
+        )
+
     # Build database URI from individual components or use POSTGRESQL_URL
     def get_database_url(self, async_connection: bool = False) -> str:
         # If POSTGRESQL_URL is provided, use it directly
         if self.POSTGRESQL_URL:
-            if async_connection:
-                # Convert postgresql:// to postgresql+asyncpg:// for async connections
-                return self.POSTGRESQL_URL.replace(
-                    "postgresql://", "postgresql+asyncpg://"
-                )
-            else:
-                return self.POSTGRESQL_URL
+            return self._sanitize_postgresql_url(self.POSTGRESQL_URL, async_connection)
 
         # Fallback to individual components
         if not all(
@@ -39,10 +66,25 @@ class DatabaseSettings(BaseSettings):
         ):
             raise ValueError("Missing required PostgreSQL configuration")
 
-        if async_connection:
-            return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
-        else:
-            return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+        return self._create_postgresql_url(
+            self.POSTGRES_USER,
+            self.POSTGRES_PASSWORD,
+            self.POSTGRES_HOST,
+            self.POSTGRES_PORT,
+            self.POSTGRES_DB,
+            async_connection,
+        )
+
+    def get_ssl_context(self) -> ssl.SSLContext | None:
+        """Get SSL context for database connections."""
+
+        if self.POSTGRES_SSL_MODE in ["require", "prefer", "allow"]:
+            ssl_context = ssl.create_default_context()
+            ssl_context.verify_mode = ssl.CERT_REQUIRED
+            ssl_context.check_hostname = False
+            return ssl_context
+
+        return None
 
 
 class RedisSettings(BaseSettings):
