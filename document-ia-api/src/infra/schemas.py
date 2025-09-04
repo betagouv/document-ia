@@ -27,3 +27,13 @@ class RedisHealthStatus(BaseModel):
     errors: list[str] = Field(
         default_factory=list, description="List of Redis connectivity errors"
     )
+
+
+class DatabaseHealthStatus(BaseModel):
+    """Schema for Database connectivity health status."""
+
+    connected: bool = Field(description="Database connection status")
+    is_healthy: bool = Field(description="Overall Database health status")
+    errors: list[str] = Field(
+        default_factory=list, description="List of Database connectivity errors"
+    )

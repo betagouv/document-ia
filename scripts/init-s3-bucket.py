@@ -46,8 +46,8 @@ def create_bucket_if_not_exists(client, bucket_name: str) -> bool:
 
 
 def main():
-    """Main function to initialize MinIO bucket."""
-    print("🚀 Starting MinIO bucket initialization...")
+    """Main function to initialize S3 bucket."""
+    print("🚀 Starting S3 bucket initialization...")
 
     # Get configuration from environment variables
     endpoint_url = os.getenv("S3_ENDPOINT_URL", "http://localhost:9000")
@@ -75,7 +75,7 @@ def main():
     if not create_bucket_if_not_exists(client, bucket_name):
         sys.exit(1)
 
-    print("🎉 MinIO bucket initialization completed successfully!")
+    print("🎉 S3 bucket initialization completed successfully!")
 
 
 if __name__ == "__main__":

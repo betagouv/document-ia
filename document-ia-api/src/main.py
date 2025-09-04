@@ -8,6 +8,7 @@ from api.routes import router
 from api.rate_limiting import RateLimitMiddleware
 from infra.s3_service import s3_service
 from infra.redis_service import redis_service
+from infra.database.database import check_database_connectivity
 
 # Configure logging
 logging.basicConfig(
@@ -22,9 +23,10 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting Document IA API...")
 
-    # Check S3 and Redis connectivity
+    # Check S3, Redis, and Database connectivity
     await s3_service.check_connectivity()
     await redis_service.check_connectivity()
+    await check_database_connectivity()
 
     logger.info("Document IA API started successfully")
 

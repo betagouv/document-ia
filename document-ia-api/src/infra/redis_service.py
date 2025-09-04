@@ -39,8 +39,7 @@ class RedisService:
                 if self.redis is None:
                     # Create connection pool
                     pool = ConnectionPool.from_url(
-                        f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/{settings.REDIS_DB}",
-                        password=settings.REDIS_PASSWORD,
+                        settings.get_redis_url(),
                         decode_responses=True,
                         max_connections=20,
                     )

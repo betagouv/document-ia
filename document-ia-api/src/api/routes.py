@@ -11,12 +11,13 @@ from api.contracts.common import (
     HealthCheckResponse,
     S3HealthStatus,
     RedisHealthStatus,
+    DatabaseHealthStatus,
 )
 from application.services.workflow_service import WorkflowService
 from api.config import settings
 from infra.s3_service import s3_service
 from infra.redis_service import redis_service
-from infra.database.database import async_get_db
+from infra.database.database import async_get_db, check_database_connectivity
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -99,6 +100,11 @@ async def get_api_status(
                             "is_healthy": True,
                             "errors": [],
                         },
+                        "database": {
+                            "connected": True,
+                            "is_healthy": True,
+                            "errors": [],
+                        },
                     }
                 }
             },
@@ -124,6 +130,11 @@ async def get_api_status(
                             "connected": False,
                             "is_healthy": False,
                             "errors": ["Redis connection failed"],
+                        },
+                        "database": {
+                            "connected": False,
+                            "is_healthy": False,
+                            "errors": ["Database connection failed"],
                         },
                     }
                 }
@@ -155,8 +166,15 @@ async def health_check() -> HealthCheckResponse:
         # Perform Redis connectivity check
         redis_connectivity = await redis_service.check_connectivity()
 
+        # Perform Database connectivity check
+        database_connectivity = await check_database_connectivity()
+
         # Determine overall health status based on service health flags
-        if s3_connectivity["is_healthy"] and redis_connectivity["is_healthy"]:
+        if (
+            s3_connectivity["is_healthy"]
+            and redis_connectivity["is_healthy"]
+            and database_connectivity["is_healthy"]
+        ):
             overall_status = "healthy"
         else:
             overall_status = "unhealthy"
@@ -177,6 +195,13 @@ async def health_check() -> HealthCheckResponse:
             errors=redis_connectivity["errors"],
         )
 
+        # Create Database health status object
+        database_health = DatabaseHealthStatus(
+            connected=database_connectivity["connected"],
+            is_healthy=database_connectivity["is_healthy"],
+            errors=database_connectivity["errors"],
+        )
+
         # Return healthy response (HTTP 200)
         if overall_status == "healthy":
             return HealthCheckResponse(
@@ -186,12 +211,14 @@ async def health_check() -> HealthCheckResponse:
                 version=settings.APP_VERSION,
                 s3=s3_health,
                 redis=redis_health,
+                database=database_health,
             )
 
         # Raise exception for unhealthy status (HTTP 503)
+        # TODO: return error details
         else:
             logger.warning(
-                f"Service unhealthy - S3: {s3_connectivity['is_healthy']}, Redis: {redis_connectivity['is_healthy']}",
+                f"Service unhealthy - S3: {s3_connectivity['is_healthy']}, Redis: {redis_connectivity['is_healthy']}, Database: {database_connectivity['is_healthy']}",
                 extra={"endpoint": "health_check"},
             )
             raise HTTPException(

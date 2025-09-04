@@ -1,7 +1,7 @@
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
-from infra.schemas import S3HealthStatus, RedisHealthStatus
+from infra.schemas import S3HealthStatus, RedisHealthStatus, DatabaseHealthStatus
 
 
 class APIStatusResponse(BaseModel):
@@ -27,6 +27,9 @@ class HealthCheckResponse(BaseModel):
     version: str = Field(description="Service version", examples=["1.0.0"])
     s3: S3HealthStatus = Field(description="S3 connectivity health status")
     redis: RedisHealthStatus = Field(description="Redis connectivity health status")
+    database: DatabaseHealthStatus = Field(
+        description="Database connectivity health status"
+    )
 
 
 class ErrorResponse(BaseModel):
