@@ -34,7 +34,7 @@ class TestHealthCheck:
             mock_s3_check.return_value = mock_s3_connectivity
             mock_redis_check.return_value = mock_redis_connectivity
 
-            response = client_with_api_key.get("/api/health")
+            response = client_with_api_key.get("/api/v1/health")
 
             assert response.status_code == 200
             data = response.json()
@@ -85,7 +85,7 @@ class TestHealthCheck:
             mock_s3_check.return_value = mock_s3_connectivity
             mock_redis_check.return_value = mock_redis_connectivity
 
-            response = client_with_api_key.get("/api/health")
+            response = client_with_api_key.get("/api/v1/health")
 
             # Should return 503 when service is unhealthy
             assert response.status_code == 503
@@ -125,7 +125,7 @@ class TestHealthCheck:
             mock_s3_check.return_value = mock_s3_connectivity
             mock_redis_check.return_value = mock_redis_connectivity
 
-            response = client_with_api_key.get("/api/health")
+            response = client_with_api_key.get("/api/v1/health")
 
             # Should return 503 when service is unhealthy
             assert response.status_code == 503
@@ -165,7 +165,7 @@ class TestHealthCheck:
             mock_s3_check.return_value = mock_s3_connectivity
             mock_redis_check.return_value = mock_redis_connectivity
 
-            response = client_with_api_key.get("/api/health")
+            response = client_with_api_key.get("/api/v1/health")
 
             # Should return 503 when service is unhealthy
             assert response.status_code == 503
@@ -193,7 +193,7 @@ class TestHealthCheck:
                 "errors": [],
             }
 
-            response = client_with_api_key.get("/api/health")
+            response = client_with_api_key.get("/api/v1/health")
 
             # Should return 500 for unexpected exceptions
             assert response.status_code == 500

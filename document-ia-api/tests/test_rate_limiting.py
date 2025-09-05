@@ -89,7 +89,7 @@ class TestRateLimiting:
         )
 
         response = client_with_api_key.get(
-            "/api/v1/", headers={"X-API-KEY": valid_api_key}
+            "/api/test", headers={"X-API-KEY": valid_api_key}
         )
 
         # The response should exist and include rate limit headers

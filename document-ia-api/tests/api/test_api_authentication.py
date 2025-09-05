@@ -18,7 +18,7 @@ class TestAPIAuthentication:
         This tests the scenario where no X-API-KEY header is provided.
         """
         # Act: Make request without API key header
-        response = client_with_api_key.get("/api/v1/")
+        response = client_with_api_key.get("/api/test")
 
         # Assert: Should return 403 Forbidden (FastAPI default for missing auth)
         assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -34,7 +34,7 @@ class TestAPIAuthentication:
         """
         # Act: Make request with invalid API key
         response = client_with_api_key.get(
-            "/api/v1/", headers={"X-API-KEY": "invalid_api_key"}
+            "/api/test", headers={"X-API-KEY": "invalid_api_key"}
         )
 
         # Assert: Should return 401 Unauthorized
@@ -52,7 +52,7 @@ class TestAPIAuthentication:
         """
         # Act: Make request with valid API key
         response = client_with_api_key.get(
-            "/api/v1/", headers={"X-API-KEY": valid_api_key}
+            "/api/test", headers={"X-API-KEY": valid_api_key}
         )
 
         # Assert: Should return 200 OK with expected response structure
@@ -74,7 +74,7 @@ class TestAPIAuthentication:
         """
         # Act: Make request with any API key when server is not configured
         response = client_without_api_key.get(
-            "/api/v1/", headers={"X-API-KEY": "any-api-key"}
+            "/api/test", headers={"X-API-KEY": "any-api-key"}
         )
 
         # Assert: Should return 500 Internal Server Error
@@ -97,7 +97,7 @@ class TestAPIAuthentication:
 
         # Act: Make request with case-variant API key
         response = client_with_api_key.get(
-            "/api/v1/", headers={"X-API-KEY": case_variant}
+            "/api/test", headers={"X-API-KEY": case_variant}
         )
 
         # Assert: Should return 401 Unauthorized due to case mismatch
@@ -113,7 +113,7 @@ class TestAPIAuthentication:
         This tests the edge case where an empty string is provided as API key.
         """
         # Act: Make request with empty API key
-        response = client_with_api_key.get("/api/v1/", headers={"X-API-KEY": ""})
+        response = client_with_api_key.get("/api/test", headers={"X-API-KEY": ""})
 
         # Assert: Should return 403 Forbidden (FastAPI treats empty as missing)
         assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -126,7 +126,7 @@ class TestAPIAuthentication:
         This tests the edge case where only whitespace characters are provided.
         """
         # Act: Make request with whitespace-only API key
-        response = client_with_api_key.get("/api/v1/", headers={"X-API-KEY": "   "})
+        response = client_with_api_key.get("/api/test", headers={"X-API-KEY": "   "})
 
         # Assert: Should return 401 Unauthorized
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
@@ -153,7 +153,7 @@ class TestAPIAuthenticationHeaders:
         ]
 
         for headers in headers_variations:
-            response = client_with_api_key.get("/api/v1/", headers=headers)
+            response = client_with_api_key.get("/api/test", headers=headers)
 
             # Assert: All variations should work
             assert response.status_code == status.HTTP_200_OK, (
@@ -171,7 +171,7 @@ class TestAPIAuthenticationHeaders:
         """
         # Act: Make request with multiple API key headers
         response = client_with_api_key.get(
-            "/api/v1/",
+            "/api/test",
             headers={
                 "X-API-KEY": valid_api_key,
                 "x-api-key": "invalid_api_key",  # Duplicate with different case
@@ -199,7 +199,7 @@ class TestAPIAuthenticationErrorMessages:
 
         for invalid_key in invalid_keys:
             response = client_with_api_key.get(
-                "/api/v1/", headers={"X-API-KEY": invalid_key}
+                "/api/test", headers={"X-API-KEY": invalid_key}
             )
 
             # Assert: All should return the same error format

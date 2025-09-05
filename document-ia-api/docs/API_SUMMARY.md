@@ -96,19 +96,13 @@ document-ia-api/src/
 
 ## API Endpoints
 
-### 1. GET /api/v1/
-- **Purpose**: Get API status and version information
-- **Authentication**: Required
-- **Rate Limiting**: Yes
-- **Response**: APIStatusResponse
-
-### 2. GET /api/health
+### 1. GET /api/v1/health
 - **Purpose**: Health check for monitoring and load balancers
 - **Authentication**: Not required
 - **Rate Limiting**: No
 - **Response**: HealthCheckResponse
 
-### 3. POST /api/v1/workflows/{workflow_id}/execute
+### 2. POST /api/v1/workflows/{workflow_id}/execute
 - **Purpose**: Execute document processing workflow
 - **Authentication**: Required
 - **Rate Limiting**: Yes
@@ -140,7 +134,7 @@ document-ia-api/src/
 ### Manual Testing
 - **Swagger UI**: Use `/docs` for interactive testing
 - **ReDoc**: Use `/redoc` for comprehensive documentation
-- **Health Check**: Test `/api/health` endpoint
+- **Health Check**: Test `/api/v1/health` endpoint
 
 ### Automated Testing
 - **Unit Tests**: Test individual endpoint functions

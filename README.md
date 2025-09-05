@@ -194,7 +194,7 @@ poetry run dev
 
 - **GET /** - Homepage with documentation links
 - **GET /api/v1/** - API status (authentication required)
-- **GET /api/health** - Health check (authentication required)
+- **GET /api/v1/health** - Health check (authentication required)
 - **GET /docs** - Swagger UI documentation
 - **GET /redoc** - ReDoc documentation
 - **GET /openapi.json** - OpenAPI specification
