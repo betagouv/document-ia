@@ -47,6 +47,32 @@ services:
       retries: 5
       start_period: 30s
 
+  init-s3-bucket:
+    image: python:3.11-alpine
+    container_name: document-ia-init-s3-bucket
+    restart: no
+    environment:
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL}
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME}
+      S3_REGION_NAME: ${S3_REGION_NAME}
+      S3_USE_SSL: ${S3_USE_SSL}
+      PYTHONPATH: /app
+    command: |
+      sh -c "
+        apk add --no-cache curl &&
+        pip install boto3 python-dotenv &&
+        python /app/scripts/init-s3-bucket.py
+      "
+    volumes:
+      - .:/app
+    networks:
+      - document-ia-network
+    depends_on:
+      minio:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   redis_data:
