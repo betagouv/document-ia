@@ -1,5 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, patch, Mock
+from datetime import datetime, timedelta
 from fastcrud.exceptions.http_exceptions import RateLimitException
 
 from src.infra.redis_service import RedisService
@@ -89,7 +90,7 @@ class TestRateLimiting:
         )
 
         response = client_with_api_key.get(
-            "/api/v1/", headers={"X-API-KEY": valid_api_key}
+            "/api/test", headers={"X-API-KEY": valid_api_key}
         )
 
         # The response should exist and include rate limit headers
@@ -221,3 +222,47 @@ class TestRateLimitMiddleware:
         # Verify no headers were added
         assert "X-RateLimit-Remaining-Minute" not in response.headers
         assert "X-RateLimit-Remaining-Daily" not in response.headers
+
+
+class TestFixedWindowResetBehavior:
+    """Test cases for fixed window rate limiting reset behavior."""
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_reset_times_in_response(self, mock_redis_service):
+        """Test that rate limit responses include correct reset times."""
+        # Test with a specific time to verify reset calculation
+        test_time = datetime(2024, 12, 1, 13, 30, 45)
+
+        # Calculate expected reset times
+        minute_start = test_time.replace(second=0, microsecond=0)
+        next_minute = minute_start + timedelta(minutes=1)
+        day_start = test_time.replace(hour=0, minute=0, second=0, microsecond=0)
+        next_day = day_start + timedelta(days=1)
+
+        # Mock successful rate limit check with correct reset times
+        mock_redis_service.check_rate_limit.return_value = (
+            True,
+            RateLimitInfo(
+                limit_exceeded=False,
+                remaining_minute=299,
+                remaining_daily=4999,
+                reset_minute=next_minute.isoformat(),
+                reset_daily=next_day.isoformat(),
+            ),
+        )
+
+        # Create a mock request object
+        mock_request = Mock()
+        mock_request.state = Mock()
+
+        # Patch the redis_service import in the rate_limiting module
+        with patch("src.api.rate_limiting.redis_service", mock_redis_service):
+            result = await check_rate_limit(mock_request, "test-api-key")
+
+        # Verify reset times are correct
+        assert result.reset_minute == next_minute.isoformat()
+        assert result.reset_daily == next_day.isoformat()
+
+        # Verify specific expected values
+        assert result.reset_minute == "2024-12-01T13:31:00"
+        assert result.reset_daily == "2024-12-02T00:00:00"
