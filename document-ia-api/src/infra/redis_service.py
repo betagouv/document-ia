@@ -90,8 +90,18 @@ class RedisService:
 
         try:
             now = datetime.now()
-            minute_key = f"rate_limit:minute:{api_key}:{now.strftime('%Y%m%d%H%M')}"
-            daily_key = f"rate_limit:daily:{api_key}:{now.strftime('%Y%m%d')}"
+
+            # Calculate proper window boundaries for fixed window rate limiting
+            minute_start = now.replace(second=0, microsecond=0)
+            next_minute = minute_start + timedelta(minutes=1)
+
+            day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            next_day = day_start + timedelta(days=1)
+
+            minute_key = (
+                f"rate_limit:minute:{api_key}:{minute_start.strftime('%Y%m%d%H%M')}"
+            )
+            daily_key = f"rate_limit:daily:{api_key}:{day_start.strftime('%Y%m%d')}"
 
             # Use pipeline for atomic operations
             async with self.redis.pipeline() as pipe:
@@ -128,16 +138,16 @@ class RedisService:
                     remaining_daily=max(
                         0, settings.RATE_LIMIT_REQUESTS_PER_DAY - daily_count
                     ),
-                    reset_minute=(now + timedelta(minutes=1)).isoformat(),
-                    reset_daily=(now + timedelta(days=1)).isoformat(),
+                    reset_minute=next_minute.isoformat(),
+                    reset_daily=next_day.isoformat(),
                 )
 
             return True, RateLimitInfo(
                 limit_exceeded=False,
                 remaining_minute=settings.RATE_LIMIT_REQUESTS_PER_MINUTE - minute_count,
                 remaining_daily=settings.RATE_LIMIT_REQUESTS_PER_DAY - daily_count,
-                reset_minute=(now + timedelta(minutes=1)).isoformat(),
-                reset_daily=(now + timedelta(days=1)).isoformat(),
+                reset_minute=next_minute.isoformat(),
+                reset_daily=next_day.isoformat(),
             )
 
         except (ConnectionError, TimeoutError) as e:
