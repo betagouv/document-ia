@@ -95,6 +95,10 @@ class RedisSettings(BaseSettings):
 
     REDIS_URL: str | None = os.getenv("REDIS_URL")
 
+    EVENT_STREAM_NAME: str = os.getenv("EVENT_STREAM_NAME", "event_stream")
+    EVENT_STREAM_EXPIRATION: int = int(os.getenv("EVENT_STREAM_EXPIRATION", 300))
+    EVENT_STREAM_MAXLEN: int = int(os.getenv("EVENT_STREAM_MAXLEN", 1000))
+
     def get_redis_url(self) -> str:
         if self.REDIS_URL:
             return self.REDIS_URL
