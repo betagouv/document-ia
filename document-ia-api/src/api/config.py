@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
 class AppSettings(BaseSettings):
     # API configuration
     APP_VERSION: str = "1.0.0"
@@ -17,8 +18,10 @@ class AuthenticationSettings(BaseSettings):
     # Hardcoded API Key for authentication
     API_KEY: str | None = os.getenv("API_KEY")
 
+
 class Settings(AppSettings, AuthenticationSettings):
     pass
+
 
 # Global settings instance
 settings = Settings()

@@ -1,20 +1,20 @@
 import logging
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.config import settings
-from api.routes import router
 from api.rate_limiting import RateLimitMiddleware
-from infra.s3_service import s3_service
-from infra.redis_service import redis_service
+from api.routes import router
+from core.logging_setup import setup_logging
 from infra.database.database import check_database_connectivity
 from infra.database.migration_service import migration_service
+from infra.redis_service import redis_service
+from infra.s3_service import s3_service
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+setup_logging()
+
 logger = logging.getLogger(__name__)
 
 
@@ -69,5 +69,9 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(
-        "main:app", host=settings.SERVER_HOST, port=settings.SERVER_PORT, reload=True
+        "main:app",
+        host=settings.SERVER_HOST,
+        port=settings.SERVER_PORT,
+        reload=True,
+        log_config=None,
     )

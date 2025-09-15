@@ -14,7 +14,8 @@
   -> sinon rollback les actions
 - Il y a probablement un refacto de la logique de rate limiting dans le service redis à faire. On pourrait isoler et tester la logique métier (calcul des boundaries pour les fixed windows)
 - Se mettre d'accord sur les conventions de naming et langues de commentaires (anglais si vocation à créer une brique open-source, sauf vocable spécifique fr admin ou financier, ex: "revenu fiscal de reference")
-
+- Ajouter les deps système au déploiement Scalingo (imagemagick, tesseract)
+- Revoir la création de l'app pour partager la configuration entre les tests et le main.py
 
 # RAF
 

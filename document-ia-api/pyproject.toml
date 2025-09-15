@@ -4,7 +4,13 @@ version = "0.1.0"
 description = "API minimaliste FastAPI avec authentification API_KEY"
 authors = ["Romaric HALDENWANG <romaric.haldenwang@beta.gouv.fr>"]
 readme = "README.md"
-packages = [{include = "document-ia-api"}]
+packages = [
+    { include = "api", from = "src" },
+    { include = "application", from = "src" },
+    { include = "core", from = "src" },
+    { include = "infra", from = "src" },
+    { include = "schemas", from = "src" },
+]
 
 [tool.poetry.dependencies]
 python = "^3.11"
