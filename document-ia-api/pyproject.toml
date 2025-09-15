@@ -29,6 +29,7 @@ asyncpg = "^0.30.0"
 greenlet = "^3.0.0"
 alembic = "^1.16.5"
 psycopg2-binary = "^2.9.10"
+document-ia-infra = {path = "../document-ia-infra" }
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.12.11"
@@ -46,7 +47,7 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py312"
 line-length = 88
 
 [tool.ruff.format]

@@ -1,39 +1,45 @@
-#!/usr/bin/env python3
 """
 Class Publisher for Redis Stream
 """
 
-from infra.config import settings
 import json
-from datetime import datetime
-
 import logging
+from datetime import datetime
+from typing import TypeVar
+
+from document_ia_redis.redis_manager import redis_manager
+from document_ia_redis.redis_settings import redis_settings
+from document_ia_redis.serializable_message import SerializableMessage
 
 logger = logging.getLogger(__name__)
 
+T = TypeVar("T", bound=SerializableMessage)
 
-class Publisher:
-    def __init__(self, redis_client, stream_name):
+
+class Publisher[T]:
+    def __init__(self, stream_name):
         """Initialise the Redis connection and the publisher"""
-        self.redis_client = redis_client
         self.stream_name = stream_name
 
-    def publish_message(self, message):
+    async def publish_message(self, message: T):
         """Publie une tâche dans le stream Redis"""
         try:
+            connection = await redis_manager.get_connection()
+
             # Convertir les données en format approprié pour Redis
             stream_data = {
-                "data": json.dumps(message),
+                "data": json.dumps(message.to_dict()),
                 "timestamp": datetime.now().isoformat(),
             }
 
             # Ajouter au stream
-            message_id = self.redis_client.xadd(
+            # WARNING = inside a stream there is no ttl or expiration mechanism we have to implement it !
+            message_id = await connection.xadd(
                 self.stream_name,
                 stream_data,
-                maxlen=settings.EVENT_STREAM_MAXLEN,  # limit the size of the stream
-                ex=settings.EVENT_STREAM_EXPIRATION,  # add an expiration
+                maxlen=redis_settings.EVENT_STREAM_MAXLEN,  # limit the size of the stream
             )
+
             logger.info(f"✅ Message published in Redis stream: {message_id}")
 
             return message_id

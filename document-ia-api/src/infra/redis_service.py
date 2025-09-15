@@ -1,69 +1,23 @@
-import asyncio
 import logging
-from typing import Optional, Tuple, Dict, Any
 from datetime import datetime, timedelta
-from redis.asyncio import Redis, ConnectionPool
+from typing import Tuple, Dict, Any
+
 from redis.exceptions import ConnectionError, TimeoutError
 
+from document_ia_redis.redis_manager import redis_manager
+from document_ia_redis.redis_settings import redis_settings
 from infra.config import settings
 from schemas.rate_limiting import RateLimitInfo
 
 # TODO: add a proper logging service (remove pii and sanitize data)
 logger = logging.getLogger(__name__)
 
+
 # TODO: reset self.connection_attempts to 0 otherwise it will never reconnect
 
 
 class RedisService:
     """Redis service for caching and rate limiting operations."""
-
-    def __init__(self):
-        self.redis: Optional[Redis] = None
-        self.connection_attempts = 0
-        self.max_retries = 3
-        self.base_delay = 1.0
-        self.max_delay = 30.0
-
-    async def _get_retry_delay(self) -> float:
-        """Calculate exponential backoff delay with jitter."""
-        import random
-
-        delay = min(self.base_delay * (2**self.connection_attempts), self.max_delay)
-        jitter = delay * 0.25 * random.uniform(-1, 1)
-        return max(0.1, delay + jitter)
-
-    async def _ensure_connection(self) -> bool:
-        """Ensure Redis connection with retry logic."""
-        while self.connection_attempts < self.max_retries:
-            try:
-                if self.redis is None:
-                    # Create connection pool
-                    pool = ConnectionPool.from_url(
-                        settings.get_redis_url(),
-                        decode_responses=True,
-                        max_connections=20,
-                    )
-                    self.redis = Redis(connection_pool=pool)
-
-                await self.redis.ping()
-                if self.connection_attempts > 0:
-                    logger.info(
-                        f"Redis connection restored after {self.connection_attempts} attempts"
-                    )
-                self.connection_attempts = 0
-                return True
-
-            except (ConnectionError, TimeoutError) as e:
-                self.connection_attempts += 1
-                delay = await self._get_retry_delay()
-                logger.warning(
-                    f"Redis connection failed (attempt {self.connection_attempts}/{self.max_retries}): {e}. "
-                    f"Retrying in {delay:.2f}s"
-                )
-                await asyncio.sleep(delay)
-
-        logger.error("Max Redis connection retries exceeded")
-        return False
 
     async def check_rate_limit(self, api_key: str) -> Tuple[bool, RateLimitInfo]:
         """
@@ -75,7 +29,8 @@ class RedisService:
         Returns:
             Tuple[bool, RateLimitInfo]: (is_allowed, rate_limit_info)
         """
-        if not await self._ensure_connection():
+        connection = await redis_manager.get_connection()
+        if connection is None:
             # If Redis is unavailable, allow the request but log the issue
             logger.error(
                 "Redis unavailable - allowing request but rate limiting is disabled"
@@ -104,7 +59,7 @@ class RedisService:
             daily_key = f"rate_limit:daily:{api_key}:{day_start.strftime('%Y%m%d')}"
 
             # Use pipeline for atomic operations
-            async with self.redis.pipeline() as pipe:
+            async with connection.pipeline() as pipe:
                 # Increment counters and get current values
                 await pipe.incr(minute_key)
                 await pipe.expire(minute_key, 60)  # Expire after 60 seconds
@@ -183,15 +138,16 @@ class RedisService:
         connectivity_status = {
             "connected": False,
             "is_healthy": False,
-            "host": settings.REDIS_HOST,
-            "port": settings.REDIS_PORT,
-            "db": settings.REDIS_DB,
+            "host": redis_settings.REDIS_HOST,
+            "port": redis_settings.REDIS_PORT,
+            "db": redis_settings.REDIS_DB,
             "errors": [],
         }
 
         try:
             logger.info("Testing Redis connectivity...")
-            if not await self._ensure_connection():
+            connection = await redis_manager.get_connection()
+            if connection is None:
                 error_msg = "Failed to establish Redis connection"
                 connectivity_status["errors"].append(error_msg)
                 logger.error(error_msg)
@@ -217,8 +173,7 @@ class RedisService:
 
     async def close(self):
         """Close Redis connection."""
-        if self.redis:
-            await self.redis.close()
+        await redis_manager.close()
 
 
 # Global Redis service instance
