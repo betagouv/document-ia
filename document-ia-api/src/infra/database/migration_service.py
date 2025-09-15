@@ -1,242 +1,105 @@
+import asyncio
 import logging
-import subprocess
-import sys
-from typing import Dict, Any, Optional
 from pathlib import Path
 
-from infra.config import settings
+from alembic import command
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+from sqlalchemy.exc import ProgrammingError
 
-# Configure logging
+from infra.config import settings
+from infra.database.database import async_engine
+
 logger = logging.getLogger(__name__)
 
 
-class MigrationStatus:
-    """Represents the current migration status."""
-
-    def __init__(
-        self,
-        current_revision: Optional[str],
-        head_revision: Optional[str],
-        is_up_to_date: bool,
-    ):
-        self.current_revision = current_revision
-        self.head_revision = head_revision
-        self.is_up_to_date = is_up_to_date
-
-
-class MigrationResult:
-    """Represents the result of a migration operation."""
-
-    def __init__(self, success: bool, message: str, migrations_applied: int = 0):
-        self.success = success
-        self.message = message
-        self.migrations_applied = migrations_applied
-
-
 class MigrationService:
-    """Service for handling database migrations using Alembic."""
-
     def __init__(self):
-        self.alembic_ini_path = (
-            Path(__file__).parent.parent.parent.parent / "alembic.ini"
-        )
-        self.alembic_script_location = (
-            Path(__file__).parent.parent.parent.parent / "document-ia-api" / "alembic"
-        )
+        project_root = Path(__file__).resolve().parents[3]
+        self.alembic_ini_path = project_root / "alembic.ini"
+        self.alembic_script_location = project_root / "alembic"
 
-    async def auto_migrate(self):
-        """
-        Auto-migrate the database.
-
-        Returns:
-            MigrationResult: Result of the migration operation
-        """
-        # Run database migrations after connectivity checks
-        if settings.AUTO_MIGRATE:
-            logger.info("Running database migrations...")
-            migration_result = await self.run_migrations()
-            if not migration_result.success:
-                logger.error(f"Migration failed: {migration_result.message}")
-                raise RuntimeError(
-                    f"Database migration failed: {migration_result.message}"
+    async def _get_db_revision(self) -> str | None:
+        """Retourne la révision Alembic en DB (ou None si table absente)."""
+        async with async_engine.connect() as conn:
+            try:
+                res = await conn.exec_driver_sql(
+                    "SELECT version_num FROM alembic_version"
                 )
-            else:
-                logger.info(f"Migration completed: {migration_result.message}")
-        else:
-            logger.info("Auto-migration disabled, skipping database migrations")
+                return res.scalar_one_or_none()
+            except ProgrammingError:
+                # table alembic_version absente
+                return None
 
-    async def check_migration_status(self) -> MigrationStatus:
+    def _revisions_between(
+        self, cfg: Config, lower: str | None, upper: str | None
+    ) -> list[str]:
         """
-        Check the current migration status.
-
-        Returns:
-            MigrationStatus: Current migration status information
+        Retourne la liste des révisions à appliquer pour aller de `lower` -> `upper`.
+        - `lower` peut être None (équivaut à <base>)
+        - L’ordre retourné est du plus ancien vers le plus récent.
         """
-        try:
-            logger.info("Checking migration status...")
+        script = ScriptDirectory.from_config(cfg)
 
-            # Get current revision
-            current_revision = await self._get_current_revision()
+        # Alembic itère à l’envers; on inverse à la fin pour un ordre chronologique
+        lower_ref = lower or "base"
+        upper_ref = upper or "head"
 
-            # Get head revision
-            head_revision = await self._get_head_revision()
+        revs = list(script.iterate_revisions(upper=upper_ref, lower=lower_ref))
+        revs.reverse()  # ordre base -> head
 
-            # Check if migrations are up to date
-            is_up_to_date = current_revision == head_revision
+        out = []
+        for r in revs:
+            msg = (r.doc or "").strip()
+            label = f"{r.revision}" if not msg else f"{r.revision} - {msg}"
+            out.append(label)
+        return out
 
+    async def auto_migrate(self) -> None:
+        cfg = Config(str(self.alembic_ini_path))
+        cfg.set_main_option(
+            "sqlalchemy.url", settings.get_database_url(async_connection=True)
+        )
+        cfg.set_main_option("script_location", str(self.alembic_script_location))
+        # Ne pas laisser Alembic reconfigurer les logs
+        cfg.attributes["skip_file_config"] = True
+
+        before = await self._get_db_revision()
+
+        logger.info(
+            "Démarrage des migrations Alembic -> head (rév. avant: %s)",
+            before or "<base>",
+        )
+
+        # Upgrade (bloquant, dans un thread) + timeout
+        await asyncio.wait_for(
+            asyncio.to_thread(command.upgrade, cfg, "head"), timeout=300
+        )
+
+        after = await self._get_db_revision()
+
+        if before == after:
             logger.info(
-                f"Migration status - Current: {current_revision}, Head: {head_revision}, Up to date: {is_up_to_date}"
+                "Aucune migration à appliquer (DB déjà à jour). Rév. courante: %s",
+                after or "<base>",
             )
-
-            return MigrationStatus(
-                current_revision=current_revision,
-                head_revision=head_revision,
-                is_up_to_date=is_up_to_date,
-            )
-
-        except Exception as e:
-            logger.error(f"Failed to check migration status: {e}")
-            raise
-
-    async def is_migration_needed(self) -> bool:
-        """
-        Check if migrations are needed.
-
-        Returns:
-            bool: True if migrations are needed, False otherwise
-        """
-        try:
-            status = await self.check_migration_status()
-            return not status.is_up_to_date
-        except Exception as e:
-            logger.error(f"Failed to check if migration is needed: {e}")
-            return True  # Assume migration is needed if we can't check
-
-    async def run_migrations(self) -> MigrationResult:
-        """
-        Run database migrations.
-
-        Returns:
-            MigrationResult: Result of the migration operation
-        """
-        try:
-            logger.info("Starting database migrations...")
-
-            # Check if migrations are needed first
-            if not await self.is_migration_needed():
-                logger.info("Database is already up to date, no migrations needed")
-                return MigrationResult(
-                    success=True,
-                    message="Database is already up to date",
-                    migrations_applied=0,
-                )
-
-            # Run migrations
-            result = await self._run_alembic_upgrade()
-
-            if result["success"]:
+        else:
+            applied = self._revisions_between(cfg, lower=before, upper=after)
+            if applied:
                 logger.info(
-                    f"Database migrations completed successfully: {result['message']}"
-                )
-                return MigrationResult(
-                    success=True,
-                    message=result["message"],
-                    migrations_applied=result.get("migrations_applied", 0),
+                    "Migrations appliquées (%d): %s", len(applied), ", ".join(applied)
                 )
             else:
-                logger.error(f"Database migrations failed: {result['message']}")
-                return MigrationResult(success=False, message=result["message"])
+                logger.info(
+                    "Migrations appliquées (bornes): %s -> %s",
+                    before or "<base>",
+                    after or "<inconnue>",
+                )
 
-        except Exception as e:
-            error_msg = f"Unexpected error during migration: {e}"
-            logger.error(error_msg)
-            return MigrationResult(success=False, message=error_msg)
-
-    async def _get_current_revision(self) -> Optional[str]:
-        """Get the current database revision."""
-        try:
-            result = await self._run_alembic_command(["current"])
-            if result["success"] and result["output"]:
-                # Extract revision from output (format: "Current revision for postgresql://... is abc123")
-                lines = result["output"].strip().split("\n")
-                for line in lines:
-                    if "Current revision" in line and "is" in line:
-                        parts = line.split("is")
-                        if len(parts) > 1:
-                            return parts[1].strip()
-                return None
-            return None
-        except Exception as e:
-            logger.error(f"Failed to get current revision: {e}")
-            return None
-
-    async def _get_head_revision(self) -> Optional[str]:
-        """Get the head revision."""
-        try:
-            result = await self._run_alembic_command(["heads"])
-            if result["success"] and result["output"]:
-                # Extract revision from output (format: "abc123 (head)")
-                lines = result["output"].strip().split("\n")
-                for line in lines:
-                    if "(head)" in line:
-                        return line.split()[0]
-                return None
-            return None
-        except Exception as e:
-            logger.error(f"Failed to get head revision: {e}")
-            return None
-
-    async def _run_alembic_upgrade(self) -> Dict[str, Any]:
-        """Run alembic upgrade command."""
-        return await self._run_alembic_command(["upgrade", "head"])
-
-    async def _run_alembic_command(self, command: list) -> Dict[str, Any]:
-        """
-        Run an alembic command.
-
-        Args:
-            command: List of command arguments
-
-        Returns:
-            Dict containing success status, output, and error
-        """
-        try:
-            # Build the full command
-            full_command = [
-                sys.executable,
-                "-m",
-                "alembic",
-                "-c",
-                str(self.alembic_ini_path),
-            ] + command
-
-            logger.debug(f"Running command: {' '.join(full_command)}")
-
-            # Run the command
-            process = subprocess.run(
-                full_command,
-                capture_output=True,
-                text=True,
-                cwd=str(self.alembic_ini_path.parent),
-            )
-
-            if process.returncode == 0:
-                return {
-                    "success": True,
-                    "output": process.stdout,
-                    "error": process.stderr,
-                }
-            else:
-                return {
-                    "success": False,
-                    "output": process.stdout,
-                    "error": process.stderr,
-                    "return_code": process.returncode,
-                }
-
-        except Exception as e:
-            return {"success": False, "output": "", "error": str(e), "return_code": -1}
+        logger.info(
+            "Révision avant: %s | après: %s", before or "<base>", after or "<inconnue>"
+        )
+        logger.info("Migrations Alembic terminées avec succès ✅")
 
 
-# Global migration service instance
 migration_service = MigrationService()

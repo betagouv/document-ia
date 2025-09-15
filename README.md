@@ -1,83 +1,24 @@
-# Document IA API
+# Document IA Backend
 
-A FastAPI-based document analysis API following Clean Architecture principles with PostgreSQL, Redis, and S3 integration.
-
-## Architecture Overview
-
-This project implements Clean Architecture with dependency injection for external interfaces:
-
-- **Domain Layer** (`core/`): Core business logic independent of external frameworks
-- **Application Layer** (`application/`): Use cases and orchestration logic
-- **Infrastructure Layer** (`infra/`): External interfaces (DB, Redis, S3) implementations
-- **Interface Layer** (`api/`): API routes and controllers
+This project will include a FastAPI backend (Readme: document-ia-api/README.md)
+This project will also include a worker service to process messages from Redis queue
 
 ## Project Structure
 
 ```
 document-ia-api/
 ├── src/
-│   ├── __init__.py
-│   ├── main.py                      # FastAPI application entry point
-│   ├── api/                         # Interface layer (routes, controllers)
-│   │   ├── __init__.py
-│   │   ├── exceptions/             # API exceptions
-│   │   ├── auth.py                 # Authentication logic
-│   │   ├── config.py               # Configuration management
-│   │   └── routes.py               # API routes
-│   ├── application/                 # Application layer (use cases, services)
-│   │   ├── __init__.py
-│   │   └── services/               # Application services
-│   ├── core/                        # Domain layer (business logic, entities)
-│   │   ├── __init__.py
-│   │   ├── config.py               # Configuration management
-│   │   └── exceptions/             # Domain exceptions
-│   ├── infra/                      # Infrastructure layer (DB, Redis, S3 adapters)
-│   │   ├── __init__.py
-│   │   ├── database/               # Database adapters and repositories
-│   │   ├── cache/                  # Redis caching adapters
-│   │   ├── storage/                # S3 storage adapters
-│   │   └── messaging/              # Redis messaging adapters
-│   ├── middleware/                  # FastAPI middleware
-│   ├── models/                      # SQLAlchemy models
-│   └── schemas/                     # Pydantic schemas
 ├── tests/                          # Unit and integration tests
 ├── pyproject.toml                  # Poetry configuration
 └── poetry.lock                     # Dependency lock file
+document-ia-worker/
+├── src/
+├── tests/                          # Unit and integration tests
+├── pyproject.toml                  # Poetry configuration
+└── poetry.lock                     # Dependency lock file
+docker-compose.yml                 # Docker Compose file for local development
+.env
 ```
-
-## Key Features
-
-- **Clean Architecture**: Separation of concerns with dependency injection
-- **Async/await**: All external operations (DB, Redis, S3) are asynchronous
-- **PostgreSQL**: SQLAlchemy 2.0+ with async support and connection pooling
-- **Redis**: Caching and message queuing with robust reconnection policies
-- **MinIO Integration**: S3-compatible async file storage operations
-- **Idempotency**: All state-changing operations are idempotent
-- **Multi-threading**: Thread-safe design with proper dependency injection
-- **API Key Authentication**: Secure API access control
-- **Rate Limiting**: API key-based rate limiting with Redis storage
-
-## Installation
-
-1. **Install Poetry** (if not already installed)
-```bash
-pipx install poetry
-```
-
-2. **Install dependencies**
-```bash
-poetry install
-```
-
-3. **Configure environment**
-```bash
-cp env.example .env
-# Edit .env and set your configuration values
-```
-
-## Database, Redis & MinIO Setup
-
-The FastAPI application requires PostgreSQL, Redis, and MinIO (S3 compatible storage) instances to function properly. You can use the provided `docker-compose.yml` file to quickly set up these services locally.
 
 ### Using Docker Compose
 
@@ -182,108 +123,6 @@ S3_ACCESS_KEY = "minioadmin"
 S3_SECRET_KEY = "minioadmin"
 S3_REGION = "us-east-1"  # MinIO default region
 ```
-
-## Usage
-
-### Development mode
-```bash
-poetry run dev
-```
-
-## API Endpoints
-
-- **GET /** - Homepage with documentation links
-- **GET /api/v1/** - API status (authentication required)
-- **GET /api/v1/health** - Health check (authentication required)
-- **GET /docs** - Swagger UI documentation
-- **GET /redoc** - ReDoc documentation
-- **GET /openapi.json** - OpenAPI specification
-
-## Authentication
-
-All `/api/*` endpoints require authentication via the `X-API-KEY` header:
-
-```bash
-curl -H "X-API-KEY: YOUR_API_KEY" http://localhost:8000/api/v1/
-```
-
-**Note**: Authentication uses the `X-API-KEY` header, not Bearer token scheme.
-
-## Rate Limiting
-
-The API implements rate limiting based on API keys to prevent abuse and ensure fair usage. Rate limits are enforced per API key, not per IP address.
-
-### Configuration
-
-Rate limiting is configured through environment variables:
-
-- `RATE_LIMIT_REQUESTS_PER_MINUTE`: Maximum requests per minute (default: 300)
-- `RATE_LIMIT_REQUESTS_PER_DAY`: Maximum requests per day (default: 5000)
-
-### Usage
-
-Rate limiting is automatically applied to all `/api/v1/*` endpoints. When rate limits are exceeded, the API returns a `429 Too Many Requests` response.
-
-### Response Headers
-
-Rate limiting information is included in response headers:
-
-- `X-RateLimit-Remaining-Minute`: Remaining requests in the current minute
-- `X-RateLimit-Remaining-Daily`: Remaining requests in the current day
-- `X-RateLimit-Reset-Minute`: ISO timestamp when minute limit resets
-- `X-RateLimit-Reset-Daily`: ISO timestamp when daily limit resets
-
-For detailed documentation, see [RATE_LIMITING.md](RATE_LIMITING.md).
-
-## Environment Variables
-
-### Required
-- `API_KEY`: Authentication key required for API access
-- `DATABASE_URL`: PostgreSQL connection string
-- `REDIS_URL`: Redis connection string
-- `MINIO_ROOT_USER`: MinIO root user
-- `MINIO_ROOT_PASSWORD`: MinIO root password
-- `MINIO_API_PORT`: MinIO API port (default: 9000)
-- `MINIO_CONSOLE_PORT`: MinIO console port (default: 9001)
-
-### Optional
-- `HOST`: Server host (default: 0.0.0.0)
-- `PORT`: Server port (default: 8000)
-- `LOG_LEVEL`: Logging level (default: INFO)
-
-## Core Dependencies
-
-- **FastAPI**: Modern, fast web framework
-- **Uvicorn**: ASGI server for FastAPI
-- **SQLAlchemy 2.0+**: Async ORM with connection pooling
-- **Redis**: Async Redis client for caching and messaging
-- **Boto3**: AWS SDK for S3 operations
-- **Pydantic**: Data validation and serialization
-- **Pydantic-settings**: Configuration management
-
-## Architecture Principles
-
-### Clean Architecture Implementation
-- **External Dependencies**: Database, caching, messaging, and file storage are injected as dependencies
-- **Domain Layer**: Core business logic is independent of external frameworks
-- **Application Layer**: Use cases and orchestration logic
-- **Infrastructure Layer**: External interfaces (DB, Redis, S3) implementations
-- **Interface Layer**: API routes and controllers
-
-### Async Operations
-- All external calls (PostgreSQL, Redis, S3) are asynchronous
-- Proper connection pooling for all external services
-- Robust error handling with exponential backoff for Redis connections
-
-### Idempotency
-- HTTP request idempotency using idempotency keys
-- Background task idempotency with unique task IDs
-- Proper deduplication logic and audit logging
-
-### Thread Safety
-- Thread-safe data structures
-- Dependency injection for shared resources
-- Async/await patterns to avoid blocking operations
 
 ## Development Guidelines
 
