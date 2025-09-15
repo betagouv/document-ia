@@ -61,6 +61,32 @@ router = APIRouter(prefix="/workflows")
                 }
             },
         },
+        422: {
+            "description": "Erreur de validation (schéma Pydantic) – champs manquants ou invalides",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": [
+                            {
+                                "loc": ["path", "workflow_id"],
+                                "msg": "field required",
+                                "type": "value_error.missing",
+                            },
+                            {
+                                "loc": ["body", "file"],
+                                "msg": "field required",
+                                "type": "value_error.missing",
+                            },
+                            {
+                                "loc": ["body", "metadata"],
+                                "msg": "field required",
+                                "type": "value_error.missing",
+                            },
+                        ]
+                    }
+                }
+            },
+        },
     },
     tags=["Workflows"],
     openapi_extra={
@@ -95,7 +121,6 @@ async def execute_workflow(
     file: UploadFile = File(
         ...,
         description="Document file to process (PDF, JPG, PNG, max 25MB)",
-        media_type=["application/pdf", "image/jpeg", "image/png"],
     ),
     metadata: str = Form(..., description="JSON string containing metadata object"),
     api_key: str = Depends(verify_api_key),
