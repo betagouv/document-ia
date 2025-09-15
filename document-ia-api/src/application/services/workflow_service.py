@@ -1,17 +1,19 @@
+import json
 import logging
 import uuid
-import json
 from datetime import datetime
 from typing import Dict, Any
+
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.file_validator import validate_uploaded_file
-from infra.s3_service import s3_service
-from infra.database.repositories.workflow import workflow_repository
-
-from schemas.workflow import WorkflowExecutionData
 from application.services.event_store_service import EventStoreService
+from core.file_validator import validate_uploaded_file
+from document_ia_redis.publisher import Publisher
+from document_ia_redis.model.workflow_execution_message import WorkflowExecutionMessage
+from infra.database.repositories.workflow import workflow_repository
+from infra.s3_service import s3_service
+from schemas.workflow import WorkflowExecutionData
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +23,7 @@ class WorkflowService:
 
     def __init__(self, db_session: AsyncSession):
         self.db_session = db_session
+        self.redis_producer = Publisher[WorkflowExecutionMessage]("workflow:test")
 
     async def execute_workflow(
         self, workflow_id: str, file: UploadFile, metadata_json: str
@@ -101,10 +104,13 @@ class WorkflowService:
                 logger.error(f"Failed to emit workflow started event: {e}")
                 # Don't fail the workflow execution if event emission fails
 
-            # TODO: Queue workflow processing job
-            # await self._queue_workflow_processing(
-            #     execution_id, workflow_id, s3_upload_result["s3_key"], metadata
-            # )
+            publish_id = await self.redis_producer.publish_message(
+                WorkflowExecutionMessage(workflow_execution_id=execution_id)
+            )
+            if not publish_id:
+                logger.warning(
+                    f"Workflow execution {execution_id}: message not published to Redis stream {self.redis_producer.stream_name}"
+                )
 
             return WorkflowExecutionData(
                 execution_id=execution_id,

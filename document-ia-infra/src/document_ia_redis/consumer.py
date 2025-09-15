@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Classe Consumer commune pour les consumers Redis Stream
 """

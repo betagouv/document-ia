@@ -221,6 +221,23 @@ files = [
 ]
 
 [[package]]
+name = "document-ia-infra"
+version = "0.1.0"
+description = "Code des briques d'infrastructure pour Document IA"
+optional = false
+python-versions = "^3.11"
+files = []
+develop = false
+
+[package.dependencies]
+python-dotenv = "^1.0.0"
+redis = "^5.0.0"
+
+[package.source]
+type = "directory"
+url = "../document-ia-infra"
+
+[[package]]
 name = "fastapi"
 version = "0.104.1"
 description = "FastAPI framework, high performance, easy to learn, fast to code, ready for production"
@@ -1348,4 +1365,4 @@ test = ["covdefaults (>=2.3)", "coverage (>=7.2.7)", "coverage-enable-subprocess
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "8b9eea70d14ab9ed4674786cb373766f61e6cc404e3bbc95e1bf3982028d123f"
+content-hash = "7f9fc5699c86bb8e1e4bb7747686e578d36cf90f4da9d5894a58f59741b5692f"
