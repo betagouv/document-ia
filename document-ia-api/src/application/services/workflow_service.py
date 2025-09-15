@@ -24,7 +24,7 @@ class WorkflowService:
 
     async def execute_workflow(
         self, workflow_id: str, file: UploadFile, metadata_json: str
-    ) -> Dict[str, Any]:
+    ) -> WorkflowExecutionData:
         """
         Execute a workflow with file upload and metadata processing.
 
