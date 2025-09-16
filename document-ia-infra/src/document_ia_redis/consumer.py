@@ -2,126 +2,170 @@
 Classe Consumer commune pour les consumers Redis Stream
 """
 
-import json
+import asyncio  # remplacement de threading+sleep
 import logging
-import time
-from typing import TypeVar, Any
+from asyncio import Future
+from typing import TypeVar, Generic, Optional, Any
 
-import redis
+from document_ia_worker.core.threading.AsyncThread import AsyncThread
+from redis import ResponseError
 from redis.asyncio import Redis
 
+from document_ia_redis.redis_manager import redis_manager, RedisManager
 from document_ia_redis.serializable_message import SerializableMessage
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=SerializableMessage)
 
+RECLAIM_IDLE_MS = 10000
 
-class Consumer[T]:
+
+class Consumer(Generic[T]):
     def __init__(
         self,
-        redis_client: Redis,
-        process_callback: Any,
         consumer_name: str,
         consumer_group: str,
         stream_name: str,
         batch_size: int,
         block_time: int,
+        worker_number: int = 1,
     ):
         """Initialise la connexion Redis et le consumer"""
+        self.redis: Optional[Redis] = None
+        self.reclaimer_thread: Optional[Future[Any]] = None
         self.consumer_name = consumer_name
-        self.redis_client = redis_client
         self.stream_name = stream_name
         self.consumer_group = consumer_group
 
-        # Callback function to process the message
-        self.process_callback = process_callback
-
         # Configuration du consumer
         self.batch_size = batch_size
-        self.block_time = block_time
+        self.block_time = block_time  # en ms pour xreadgroup
+        self.worker_number = worker_number
+        self.stop_flag = False
 
-        # Créer le consumer group s'il n'existe pas
-        self._setup_consumer_group()
+    async def start_consumer(self):
+        logger.info(f"Start consumer {self.consumer_name}")
+        logger.debug("Establishing connection to Redis...")
 
-    def _setup_consumer_group(self):
-        """
-        Configure le consumer group pour le stream.
-
-        Responsabilité du consumer : s'assurer que le consumer group existe
-        avant de commencer à traiter les messages. Cela permet une séparation
-        claire des responsabilités :
-        - Publisher : publie des messages dans le stream
-        - Consumer : gère le consumer group et traite les messages
-        """
         try:
-            # Créer le consumer group
-            self.redis_client.xgroup_create(
-                self.stream_name, self.consumer_group, id="0", mkstream=True
-            )
-            logger.info(f"✅ Consumer group '{self.consumer_group}' créé avec succès")
-        except redis.ResponseError as e:
-            if "BUSYGROUP" in str(e):
-                logger.info(f"ℹ️  Consumer group '{self.consumer_group}' existe déjà")
-            else:
-                logger.error(f"⚠️  Erreur lors de la création du consumer group: {e}")
+            await self._init_consumer()
+        except (ConnectionError, Exception) as e:
+            logger.error(f"❌ Failed to start consumer {self.consumer_name}: {e}")
+            return
 
-    async def run_consumer(self):
-        """Lance le consumer pour traiter les messages du stream"""
-        logger.info(f"\n🚀 Démarrage du Consumer: {self.consumer_name}")
-        logger.info(f"📊 Stream: {self.stream_name}")
-        logger.info(f"👥 Consumer Group: {self.consumer_group}")
-        logger.info(
-            f"⏱️  Block time: {self.block_time}ms | Batch size: {self.batch_size}\n"
+        # Lancement de la tâche de réclamation asynchrone
+        self._start_reclaimer_task()
+
+        while not self.stop_flag:
+            pass
+
+        logger.info(f"Consumer {self.consumer_name} stopped")
+        if self.reclaimer_thread is not None:
+            logger.info("Waiting for reclaimer task to finish...")
+            # Signale d'arrêt déjà posé par stop_flag
+            await self.reclaimer_thread
+        await redis_manager.close()
+
+    def stop_signal(self):
+        logger.info(f"need to shut down consumer {self.consumer_name}")
+        self.stop_flag = True
+
+    async def _init_consumer(self):
+        try:
+            self.redis = await self._get_safe_redis_connection()
+            await self._ensure_consumer_group(self.redis)
+            logger.info(f"✅ Consumer {self.consumer_name} initialized and ready")
+        except ConnectionError as e:
+            logger.error(f"❌ Error initializing consumer {self.consumer_name}: {e}")
+            raise Exception(
+                "Failed to initialize consumer due to Redis connection issues"
+            ) from e
+
+    async def _ensure_consumer_group(self, redis_connection: Redis):
+        try:
+            await redis_connection.xgroup_create(
+                name=self.stream_name,
+                groupname=self.consumer_group,
+                id="$",
+                mkstream=True,
+            )
+            logger.info(
+                f"Consumer group created stream = {self.stream_name}, group= {self.consumer_group}"
+            )
+        except ResponseError as e:
+            if "BUSYGROUP" in str(e):
+                logger.info(
+                    f"Consumer group already exists, group = {self.consumer_group}"
+                )
+            else:
+                raise
+
+    async def _get_safe_redis_connection(self) -> Redis:
+        self.redis = await redis_manager.get_connection()
+        if self.redis is None:
+            logger.error("❌ No Redis connection available, cannot start consumer")
+            raise ConnectionError("No Redis connection available")
+        return self.redis
+
+    def _start_reclaimer_task(self):
+        if self.reclaimer_thread is not None:
+            return
+
+        async_thread = AsyncThread(
+            target=self._reclaim_pending_messages(),
+            name=f"reclaimer-{self.consumer_name}",
+            daemon=True,
         )
 
-        while True:
+        self.reclaimer_thread = async_thread.start()
+        logger.info(
+            f"Reclaimer daemon thread started for consumer {self.consumer_name}"
+        )
+
+    async def _reclaim_pending_messages(self):
+        threaded_redis_manger = RedisManager()
+        logger.info(f"Reclaimer task started idle_ms = {RECLAIM_IDLE_MS}")
+        start = "0-0"
+
+        redis_connection = await threaded_redis_manger.get_connection()
+        if redis_connection is None:
+            logger.error("❌ No Redis connection available for reclaimer")
+            return
+
+        # Boucle continue jusqu'à stop_flag
+        while not self.stop_flag:
             try:
-                # Lire les messages du stream
-                messages = await self.redis_client.xreadgroup(
+                next_start, claimed, _ = await redis_connection.xautoclaim(
+                    self.stream_name,
                     self.consumer_group,
                     self.consumer_name,
-                    {self.stream_name: ">"},
-                    count=self.batch_size,
-                    block=self.block_time,
+                    RECLAIM_IDLE_MS,
+                    start,
+                    count=1,
                 )
-
-                if messages:
-                    for stream, stream_messages in messages:
-                        logger.info(
-                            f"📥 {self.consumer_name} reçoit: {len(stream_messages)} messages from {stream}"
+                for msg_id, fields in claimed:
+                    logger.info(f"Reclaimed message ID: {msg_id} with fields: {fields}")
+                    retries = int(fields.get("retries", "0")) + 1
+                    fields["retries"] = str(retries)
+                    # TODO : add DLQ handling if retries > max_retries
+                    try:
+                        await redis_connection.xack(
+                            self.stream_name, self.consumer_group, msg_id
                         )
-
-                        for message_id, fields in stream_messages:
-                            try:
-                                # Extraire les données de la tâche
-                                task_data: T = json.loads(fields.get("data", "{}"))
-
-                                # Traiter la tâche
-                                success, result = self.process_callback(task_data)
-
-                                if success:
-                                    logger.info(
-                                        f"✅ {self.consumer_name} traite: {result}"
-                                    )
-
-                                    # Marquer le message comme traité
-                                    self.acknowledge_message(message_id)
-                                else:
-                                    logger.error(
-                                        f"❌ {self.consumer_name} échoue: {result}"
-                                    )
-
-                            except json.JSONDecodeError as e:
-                                logger.error(f"❌ Erreur de décodage JSON: {e}")
-                            except Exception as e:
-                                logger.error(f"❌ Erreur de traitement: {e}")
-
-            except redis.ConnectionError:
-                logger.error("❌ Perte de connexion Redis, tentative de reconnexion...")
-                time.sleep(5)
+                        await redis_connection.xadd(self.stream_name, fields)
+                    except Exception as ack_err:
+                        logger.error(
+                            f"Failed to requeue reclaimed message {msg_id}: {ack_err}"
+                        )
+                start = next_start or "0-0"
+                # Petit sleep coopératif
+                await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error reclaiming pending messages: {e}")
+                await asyncio.sleep(5)
                 continue
-
-    def acknowledge_message(self, message_id: str):
-        """Marque le message comme traité"""
-        self.redis_client.xack(self.stream_name, self.consumer_group, message_id)
+        await threaded_redis_manger.close()
+        logger.info("Reclaimer task stopped")

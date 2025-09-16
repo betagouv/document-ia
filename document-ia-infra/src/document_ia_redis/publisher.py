@@ -35,6 +35,7 @@ class Publisher(Generic[T]):
             stream_data: dict[EncodableT, EncodableT] = {
                 "data": json.dumps(message.to_dict()),
                 "timestamp": datetime.now().isoformat(),
+                "retries": 0,
             }
 
             # Ajouter au stream

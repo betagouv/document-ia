@@ -1,6 +1,9 @@
 import os
 
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
+
+load_dotenv()
 
 
 class RedisSettings(BaseSettings):
@@ -14,6 +17,9 @@ class RedisSettings(BaseSettings):
     EVENT_STREAM_NAME: str = os.getenv("EVENT_STREAM_NAME", "event_stream")
     EVENT_STREAM_EXPIRATION: int = int(os.getenv("EVENT_STREAM_EXPIRATION", 300))
     EVENT_STREAM_MAXLEN: int = int(os.getenv("EVENT_STREAM_MAXLEN", 1000))
+    EVENT_CONSUMER_GROUP: str = os.getenv(
+        "EVENT_CONSUMER_GROUP", "workflow_execution_consumer"
+    )
 
     def get_redis_url(self) -> str:
         if self.REDIS_URL:

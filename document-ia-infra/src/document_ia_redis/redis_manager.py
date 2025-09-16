@@ -46,7 +46,7 @@ class RedisManager:
                 self.connection_attempts = 0
                 return self.redis
 
-            except (ConnectionError, TimeoutError) as e:
+            except (ConnectionError, TimeoutError, Exception) as e:
                 self.connection_attempts += 1
                 delay = await self._get_retry_delay()
                 logger.warning(
