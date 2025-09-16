@@ -1,0 +1,38 @@
+[tool.poetry]
+name = "document-ia-worker"
+version = "0.1.0"
+description = "Worker document ia"
+authors = ["Nicolas Sagon <nicolas.sagon@beta.gouv.fr>"]
+readme = "README.md"
+packages = [
+    { include = "*", from = "src" },
+]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+python-dotenv = "^1.0.0"
+document-ia-infra = {path = "../document-ia-infra" }
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.12.11"
+pytest = "^8.4.1"
+pytest-asyncio = "^0.23.0"
+pydantic-settings = "^2.1.0"
+pre-commit = "^3.6.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

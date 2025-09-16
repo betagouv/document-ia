@@ -11,6 +11,7 @@ from application.services.event_store_service import EventStoreService
 from core.file_validator import validate_uploaded_file
 from document_ia_redis.publisher import Publisher
 from document_ia_redis.model.workflow_execution_message import WorkflowExecutionMessage
+from document_ia_redis.redis_settings import redis_settings
 from infra.database.repositories.workflow import workflow_repository
 from infra.s3_service import s3_service
 from schemas.workflow import WorkflowExecutionData
@@ -23,7 +24,9 @@ class WorkflowService:
 
     def __init__(self, db_session: AsyncSession):
         self.db_session = db_session
-        self.redis_producer = Publisher[WorkflowExecutionMessage]("workflow:test")
+        self.redis_producer = Publisher[WorkflowExecutionMessage](
+            redis_settings.EVENT_STREAM_NAME
+        )
 
     async def execute_workflow(
         self, workflow_id: str, file: UploadFile, metadata_json: str
