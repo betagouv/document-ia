@@ -48,7 +48,7 @@ class MigrationService:
         revs = list(script.iterate_revisions(upper=upper_ref, lower=lower_ref))
         revs.reverse()  # ordre base -> head
 
-        out = []
+        out: list[str] = []
         for r in revs:
             msg = (r.doc or "").strip()
             label = f"{r.revision}" if not msg else f"{r.revision} - {msg}"

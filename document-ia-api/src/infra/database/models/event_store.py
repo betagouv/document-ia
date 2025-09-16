@@ -5,9 +5,13 @@ This module defines the database model for storing events in the event store,
 following event sourcing principles.
 """
 
-from uuid import uuid4
-from sqlalchemy import Column, String, DateTime, Integer, Index, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from datetime import datetime
+from typing import Dict, Any
+from uuid import UUID, uuid4
+
+from sqlalchemy import String, DateTime, Integer, Index, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from infra.database.database import Base
@@ -24,8 +28,8 @@ class EventStore(Base):
     __tablename__ = "event_store"
 
     # Primary key
-    id = Column(
-        UUID(as_uuid=True),
+    id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
         primary_key=True,
         default=uuid4,
         nullable=False,
@@ -33,15 +37,15 @@ class EventStore(Base):
     )
 
     # Event metadata
-    workflow_id = Column(
+    workflow_id: Mapped[str] = mapped_column(
         String(255), nullable=False, index=True, comment="Workflow identifier"
     )
 
-    execution_id = Column(
+    execution_id: Mapped[str] = mapped_column(
         String(255), nullable=False, index=True, comment="Execution instance identifier"
     )
 
-    created_at = Column(
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         default=func.now(),
@@ -49,7 +53,7 @@ class EventStore(Base):
         comment="Event timestamp",
     )
 
-    event_type = Column(
+    event_type: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
         index=True,
@@ -57,10 +61,12 @@ class EventStore(Base):
     )
 
     # Event payload stored as JSONB for efficient querying
-    event = Column(JSONB, nullable=False, comment="Event payload as JSON")
+    event: Mapped[Dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, comment="Event payload as JSON"
+    )
 
     # Version for optimistic locking
-    version = Column(
+    version: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
         default=1,
@@ -96,7 +102,7 @@ class EventStore(Base):
             f"version={self.version})>"
         )
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
         """Convert the model instance to a dictionary."""
         return {
             "id": str(self.id),

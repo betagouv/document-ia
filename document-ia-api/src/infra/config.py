@@ -11,7 +11,7 @@ load_dotenv()
 class DatabaseSettings(BaseSettings):
     POSTGRES_DB: str | None = os.getenv("POSTGRES_DB")
     POSTGRES_HOST: str | None = os.getenv("POSTGRES_HOST")
-    POSTGRES_PORT: int | None = os.getenv("POSTGRES_PORT")
+    POSTGRES_PORT: int | None = int(os.getenv("POSTGRES_PORT", "5432"))
     POSTGRES_SSL_MODE: str | None = os.getenv("POSTGRES_SSL_MODE")
 
     POSTGRES_USER: str | None = os.getenv("POSTGRES_USER")
@@ -68,11 +68,11 @@ class DatabaseSettings(BaseSettings):
             raise ValueError("Missing required PostgreSQL configuration")
 
         return self._create_postgresql_url(
-            self.POSTGRES_USER,
-            self.POSTGRES_PASSWORD,
-            self.POSTGRES_HOST,
-            self.POSTGRES_PORT,
-            self.POSTGRES_DB,
+            self.POSTGRES_USER or "",
+            self.POSTGRES_PASSWORD or "",
+            self.POSTGRES_HOST or "",
+            self.POSTGRES_PORT or 5432,
+            self.POSTGRES_DB or "",
             async_connection,
         )
 

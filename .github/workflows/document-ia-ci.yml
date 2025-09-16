@@ -63,11 +63,33 @@ jobs:
           virtualenvs-in-project: true
           installer-parallel: true
 
-      - name: Install dependencies
-        run: poetry install --no-interaction --no-ansi --with dev
+      - name: Install dependencies (all sub-projects)
+        run: |
+          echo "== Reading .project-file =="
+          if [ ! -f .project-file ]; then echo ".project-file manquant"; exit 1; fi
+          grep -v '^[# ]' .project-file | while read project; do
+            [ -z "$project" ] && continue
+            echo "---- Installing $project ----"
+            if [ -f "$project/pyproject.toml" ]; then
+              (cd "$project" && poetry install --no-interaction --no-ansi --with dev)
+            else
+              echo "Skip: $project (pas de pyproject.toml)"
+            fi
+          done
 
       - name: Ruff - Lint sources
-        run: poetry run ruff check document-ia-api/src
+        run: |
+          echo "== Reading .project-file =="
+          if [ ! -f .project-file ]; then echo ".project-file manquant"; exit 1; fi
+          grep -v '^[# ]' .project-file | while read project; do
+            [ -z "$project" ] && continue
+            echo "---- Linting sources ----"
+            if [ -f "$project/pyproject.toml" ]; then
+              (cd "$project" && poetry run ruff check src)
+            else
+              echo "Skip: $project (pas de pyproject.toml)"
+            fi
+          done
 
       - name: Start PostgreSQL
         run: |
@@ -112,13 +134,24 @@ jobs:
           echo "MinIO is ready!"
 
       - name: Run migrations
-        run: poetry run alembic upgrade head
+        run: (cd document-ia-api && poetry run alembic upgrade head)
 
       - name: Init S3 bucket
-        run: poetry run python scripts/init-s3-bucket.py
+        run: (cd document-ia-api && poetry run python scripts/init-s3-bucket.py)
 
       - name: Pytest - Tests
-        run: poetry run pytest --maxfail=1 --disable-warnings
+        run: |
+          echo "== Reading .project-file =="
+          if [ ! -f .project-file ]; then echo ".project-file manquant"; exit 1; fi
+          grep -v '^[# ]' .project-file | while read project; do
+            [ -z "$project" ] && continue
+            echo "---- Running Tests ----"
+            if [ -f "$project/pyproject.toml" ]; then
+              (cd "$project" && poetry run pytest --maxfail=1 --disable-warnings)
+            else
+              echo "Skip: $project (pas de pyproject.toml)"
+            fi
+          done
 
       - name: Cleanup Docker containers
         if: always()

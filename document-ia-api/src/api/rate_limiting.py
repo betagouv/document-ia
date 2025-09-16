@@ -1,13 +1,14 @@
+import logging
+from typing import cast
+
 from fastapi import Depends, Request
-from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi import Response
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+
+from api.exceptions.rate_limit_exception import RateLimitException
 from infra.redis_service import redis_service
 from schemas.rate_limiting import RateLimitInfo
-
 from .auth import get_api_key
-from .exceptions.http_exceptions import RateLimitException
-
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -51,15 +52,14 @@ async def check_rate_limit(
 # TODO: implement FastAPI decorator for rate limiting
 # see: https://fastapi.tiangolo.com/tutorial/middleware/
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Middleware to add rate limit headers to responses."""
+    """Middleware ajoutant les en-têtes de rate limit à la réponse."""
 
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
         response = await call_next(request)
-
-        # Add rate limit headers if available in request state
         if hasattr(request.state, "rate_limit_info") and request.state.rate_limit_info:
-            rate_limit_info = request.state.rate_limit_info
-
+            rate_limit_info = cast(RateLimitInfo, request.state.rate_limit_info)
             response.headers["X-RateLimit-Remaining-Minute"] = str(
                 rate_limit_info.remaining_minute
             )
@@ -72,7 +72,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             response.headers["X-RateLimit-Reset-Daily"] = (
                 rate_limit_info.reset_daily or ""
             )
-
         return response
 
 

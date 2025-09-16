@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 
-from src.core.file_validator import FileValidator
+from core.file_validator import FileValidator
 
 
 class TestFileValidation:

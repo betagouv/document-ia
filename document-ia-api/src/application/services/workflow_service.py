@@ -2,7 +2,7 @@ import json
 import logging
 import uuid
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -148,11 +148,7 @@ class WorkflowService:
             HTTPException: If metadata parsing fails
         """
         try:
-            metadata = json.loads(metadata_json)
-
-            # Validate metadata structure
-            if not isinstance(metadata, dict):
-                raise ValueError("Metadata must be a JSON object")
+            metadata: dict[str, Any] = json.loads(metadata_json)
 
             if not metadata:
                 raise ValueError("Metadata cannot be empty")
@@ -198,7 +194,7 @@ class WorkflowService:
     async def _upload_file_to_s3(
         self,
         file_content: bytes,
-        filename: str,
+        filename: Optional[str],
         content_type: str,
         metadata: Dict[str, Any],
     ) -> Dict[str, Any]:
