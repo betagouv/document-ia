@@ -1,6 +1,9 @@
 import pytest
 from unittest.mock import patch
 
+from infra.redis.redis_connectivity_status import RedisConnectivityStatus
+from infra.s3.s3_connectivity_status import S3ConnectivityStatus
+
 
 class TestHealthCheck:
     """Test cases for health check endpoint."""
@@ -10,20 +13,9 @@ class TestHealthCheck:
         """Test health check when both S3 and Redis are fully operational."""
 
         # Mock S3 connectivity check to return healthy status
-        mock_s3_connectivity = {
-            "connected": True,
-            "credentials_valid": True,
-            "bucket_exists": True,
-            "is_healthy": True,
-            "errors": [],
-        }
+        mock_s3_connectivity = TestHealthCheck._getHealthyS3Connectivity()
 
-        # Mock Redis connectivity check to return healthy status
-        mock_redis_connectivity = {
-            "connected": True,
-            "is_healthy": True,
-            "errors": [],
-        }
+        mock_redis_connectivity = TestHealthCheck._getHealthyRedisConnectivity()
 
         with (
             patch("infra.s3_service.s3_service.check_connectivity") as mock_s3_check,
@@ -61,20 +53,9 @@ class TestHealthCheck:
         """Test health check when S3 is not connected."""
 
         # Mock S3 connectivity check to return unhealthy status
-        mock_s3_connectivity = {
-            "connected": False,
-            "credentials_valid": False,
-            "bucket_exists": False,
-            "is_healthy": False,
-            "errors": ["S3 credentials not configured properly"],
-        }
+        mock_s3_connectivity = TestHealthCheck._getUnhealthyS3Connectivity()
 
-        # Mock Redis connectivity check to return healthy status
-        mock_redis_connectivity = {
-            "connected": True,
-            "is_healthy": True,
-            "errors": [],
-        }
+        mock_redis_connectivity = TestHealthCheck._getHealthyRedisConnectivity()
 
         with (
             patch("infra.s3_service.s3_service.check_connectivity") as mock_s3_check,
@@ -101,20 +82,10 @@ class TestHealthCheck:
         """Test health check when Redis is not connected."""
 
         # Mock S3 connectivity check to return healthy status
-        mock_s3_connectivity = {
-            "connected": True,
-            "credentials_valid": True,
-            "bucket_exists": True,
-            "is_healthy": True,
-            "errors": [],
-        }
+        mock_s3_connectivity = TestHealthCheck._getHealthyS3Connectivity()
 
         # Mock Redis connectivity check to return unhealthy status
-        mock_redis_connectivity = {
-            "connected": False,
-            "is_healthy": False,
-            "errors": ["Redis connection failed"],
-        }
+        mock_redis_connectivity = TestHealthCheck._getUnhealthyRedisConnectivity()
 
         with (
             patch("infra.s3_service.s3_service.check_connectivity") as mock_s3_check,
@@ -141,20 +112,10 @@ class TestHealthCheck:
         """Test health check when both S3 and Redis are unhealthy."""
 
         # Mock S3 connectivity check to return unhealthy status
-        mock_s3_connectivity = {
-            "connected": False,
-            "credentials_valid": False,
-            "bucket_exists": False,
-            "is_healthy": False,
-            "errors": ["S3 connection failed"],
-        }
+        mock_s3_connectivity = TestHealthCheck._getUnhealthyS3Connectivity()
 
         # Mock Redis connectivity check to return unhealthy status
-        mock_redis_connectivity = {
-            "connected": False,
-            "is_healthy": False,
-            "errors": ["Redis connection failed"],
-        }
+        mock_redis_connectivity = TestHealthCheck._getUnhealthyRedisConnectivity()
 
         with (
             patch("infra.s3_service.s3_service.check_connectivity") as mock_s3_check,
@@ -187,11 +148,9 @@ class TestHealthCheck:
             ) as mock_redis_check,
         ):
             mock_s3_check.side_effect = Exception("S3 service unavailable")
-            mock_redis_check.return_value = {
-                "connected": True,
-                "is_healthy": True,
-                "errors": [],
-            }
+            mock_redis_check.return_value = (
+                TestHealthCheck._getHealthyRedisConnectivity()
+            )
 
             response = client_with_api_key.get("/api/v1/health")
 
@@ -201,3 +160,47 @@ class TestHealthCheck:
             assert "detail" in data
             assert "Internal Server Error" in data["detail"]
             assert "S3 service unavailable" in data["detail"]
+
+    @staticmethod
+    def _getHealthyS3Connectivity():
+        return S3ConnectivityStatus(
+            connected=True,
+            endpoint="https://example.com",
+            bucket_name="example-bucket",
+            credentials_valid=True,
+            bucket_exists=True,
+            errors=[],
+        )
+
+    @staticmethod
+    def _getUnhealthyS3Connectivity():
+        return S3ConnectivityStatus(
+            connected=False,
+            endpoint="https://example.com",
+            bucket_name="example-bucket",
+            credentials_valid=False,
+            bucket_exists=False,
+            errors=["S3 credentials not configured properly"],
+        )
+
+    @staticmethod
+    def _getHealthyRedisConnectivity():
+        return RedisConnectivityStatus(
+            connected=True,
+            is_healthy=True,
+            db=0,
+            host="localhost",
+            port=6379,
+            errors=[],
+        )
+
+    @staticmethod
+    def _getUnhealthyRedisConnectivity():
+        return RedisConnectivityStatus(
+            connected=False,
+            is_healthy=False,
+            db=0,
+            host="localhost",
+            port=6379,
+            errors=["Redis connection failed"],
+        )

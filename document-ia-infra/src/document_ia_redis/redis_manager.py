@@ -31,14 +31,14 @@ class RedisManager:
             try:
                 if self.redis is None:
                     # Create connection pool
-                    pool = ConnectionPool.from_url(
+                    pool = ConnectionPool.from_url(  # type: ignore
                         redis_settings.get_redis_url(),
                         decode_responses=True,
                         max_connections=20,
                     )
                     self.redis = Redis(connection_pool=pool)
 
-                await self.redis.ping()
+                await self.redis.ping()  # type: ignore
                 if self.connection_attempts > 0:
                     logger.info(
                         f"Redis connection restored after {self.connection_attempts} attempts"

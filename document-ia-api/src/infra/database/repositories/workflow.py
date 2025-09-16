@@ -24,7 +24,7 @@ class WorkflowRepository:
             current_dir = Path(__file__).parent
             # Go up from: src/infra/database/repositories/ to src/
             src_dir = current_dir.parent.parent.parent
-            workflows_file_path = src_dir / "data" / "workflows.json"
+            workflows_file_path = str(src_dir / "data" / "workflows.json")
 
         self.workflows_file_path = Path(workflows_file_path)
 
@@ -103,7 +103,7 @@ class WorkflowRepository:
                 workflows_data = json.load(f)
 
             # Validate and parse workflows
-            workflows = []
+            workflows: list[WorkflowDefinition] = []
             for workflow_data in workflows_data:
                 try:
                     workflow = WorkflowDefinition(**workflow_data)

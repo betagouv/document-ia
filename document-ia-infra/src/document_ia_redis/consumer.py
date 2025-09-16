@@ -2,25 +2,31 @@
 Classe Consumer commune pour les consumers Redis Stream
 """
 
-import redis
 import json
-import time
-
 import logging
+import time
+from typing import TypeVar, Any
+
+import redis
+from redis.asyncio import Redis
+
+from document_ia_redis.serializable_message import SerializableMessage
 
 logger = logging.getLogger(__name__)
 
+T = TypeVar("T", bound=SerializableMessage)
 
-class Consumer:
+
+class Consumer[T]:
     def __init__(
         self,
-        redis_client,
-        process_callback,
-        consumer_name,
-        consumer_group,
-        stream_name,
-        batch_size,
-        block_time,
+        redis_client: Redis,
+        process_callback: Any,
+        consumer_name: str,
+        consumer_group: str,
+        stream_name: str,
+        batch_size: int,
+        block_time: int,
     ):
         """Initialise la connexion Redis et le consumer"""
         self.consumer_name = consumer_name
@@ -60,7 +66,7 @@ class Consumer:
             else:
                 logger.error(f"⚠️  Erreur lors de la création du consumer group: {e}")
 
-    def run_consumer(self):
+    async def run_consumer(self):
         """Lance le consumer pour traiter les messages du stream"""
         logger.info(f"\n🚀 Démarrage du Consumer: {self.consumer_name}")
         logger.info(f"📊 Stream: {self.stream_name}")
@@ -72,7 +78,7 @@ class Consumer:
         while True:
             try:
                 # Lire les messages du stream
-                messages = self.redis_client.xreadgroup(
+                messages = await self.redis_client.xreadgroup(
                     self.consumer_group,
                     self.consumer_name,
                     {self.stream_name: ">"},
@@ -89,7 +95,7 @@ class Consumer:
                         for message_id, fields in stream_messages:
                             try:
                                 # Extraire les données de la tâche
-                                task_data = json.loads(fields.get("data", "{}"))
+                                task_data: T = json.loads(fields.get("data", "{}"))
 
                                 # Traiter la tâche
                                 success, result = self.process_callback(task_data)
@@ -116,6 +122,6 @@ class Consumer:
                 time.sleep(5)
                 continue
 
-    def acknowledge_message(self, message_id):
+    def acknowledge_message(self, message_id: str):
         """Marque le message comme traité"""
         self.redis_client.xack(self.stream_name, self.consumer_group, message_id)

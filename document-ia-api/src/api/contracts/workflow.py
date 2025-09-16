@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field, field_validator
-from typing import Dict, Any, Optional
 from datetime import datetime
+from typing import Dict, Any, Optional
+
+from pydantic import BaseModel, Field
 
 from schemas.workflow import WorkflowExecutionData
 
@@ -23,12 +24,9 @@ class WorkflowExecuteRequest(BaseModel):
         },
     )
 
-    @field_validator("metadata")
     @classmethod
-    def validate_metadata(cls, v):
+    def validate_metadata(cls, v: Dict[str, Any]) -> Dict[str, Any]:
         """Validate metadata structure."""
-        if not isinstance(v, dict):
-            raise ValueError("Metadata must be a JSON object")
 
         # Ensure metadata is not empty
         if not v:

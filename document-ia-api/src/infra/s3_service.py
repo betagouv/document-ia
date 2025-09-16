@@ -3,10 +3,13 @@ import logging
 import uuid
 from datetime import datetime
 from typing import Optional, Dict, Any
+
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
+from mypy_boto3_s3.client import S3Client
 
 from infra.config import settings
+from infra.s3.s3_connectivity_status import S3ConnectivityStatus
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +18,7 @@ class S3Service:
     """Service for handling S3/MinIO file operations."""
 
     def __init__(self):
-        self.s3_client = boto3.client(
+        self.s3_client: S3Client = boto3.client(  # pyright: ignore [reportUnknownMemberType]
             "s3",
             endpoint_url=settings.S3_ENDPOINT_URL,
             aws_access_key_id=settings.S3_ACCESS_KEY_ID,
@@ -28,7 +31,7 @@ class S3Service:
     async def upload_file(
         self,
         file_data: bytes,
-        filename: str,
+        filename: Optional[str],
         content_type: str,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
@@ -47,12 +50,20 @@ class S3Service:
         try:
             # Generate unique key for the file
             file_id = str(uuid.uuid4())
-            file_extension = filename.split(".")[-1] if "." in filename else ""
+
+            if filename is None:
+                final_filename = f"{file_id}.{content_type}"
+            else:
+                final_filename = filename
+
+            file_extension = (
+                final_filename.split(".")[-1] if "." in final_filename else ""
+            )
             s3_key = f"uploads/{datetime.now().strftime('%Y/%m/%d')}/{file_id}.{file_extension}"
 
             # Prepare S3 metadata
             s3_metadata = {
-                "original-filename": filename,
+                "original-filename": final_filename,
                 "content-type": content_type,
                 "upload-timestamp": datetime.now().isoformat(),
                 "file-id": file_id,
@@ -161,7 +172,7 @@ class S3Service:
             }
 
         except ClientError as e:
-            if e.response["Error"]["Code"] == "404":
+            if e.response.get("Error", {}).get("Code", {}) == "404":
                 return None
             logger.error(f"Failed to get file info for {s3_key}: {e}")
             return None
@@ -182,7 +193,7 @@ class S3Service:
             )
             return True
         except ClientError as e:
-            error_code = e.response["Error"]["Code"]
+            error_code = e.response.get("Error", {}).get("Code", {})
             if error_code == "404":
                 logger.warning(f"S3 bucket '{self.bucket_name}' does not exist")
                 return False
@@ -192,7 +203,7 @@ class S3Service:
             logger.error(f"Unexpected error checking bucket: {e}")
             return False
 
-    async def check_connectivity(self) -> Dict[str, Any]:
+    async def check_connectivity(self) -> S3ConnectivityStatus:
         """
         Comprehensive S3 connectivity check.
 
@@ -202,17 +213,12 @@ class S3Service:
         3. Bucket existence check
 
         Returns:
-            Dict containing connectivity status and details
+            S3ConnectivityStatus object with connectivity status and details
         """
-        connectivity_status = {
-            "connected": False,
-            "credentials_valid": False,
-            "bucket_exists": False,
-            "is_healthy": False,
-            "endpoint": settings.S3_ENDPOINT_URL,
-            "bucket_name": self.bucket_name,
-            "errors": [],
-        }
+        connectivity_status = S3ConnectivityStatus.default(
+            endpoint=settings.S3_ENDPOINT_URL,
+            bucket_name=self.bucket_name,
+        )
 
         try:
             # Test 1: Basic connection and credentials
@@ -220,39 +226,39 @@ class S3Service:
             await asyncio.get_event_loop().run_in_executor(
                 None, lambda: self.s3_client.list_buckets()
             )
-            connectivity_status["connected"] = True
-            connectivity_status["credentials_valid"] = True
+            connectivity_status.connected = True
+            connectivity_status.credentials_valid = True
             logger.info("S3 connection and credentials validated successfully")
 
         except NoCredentialsError as e:
             error_msg = f"S3 credentials not configured properly: {e}"
-            connectivity_status["errors"].append(error_msg)
+            connectivity_status.errors.append(error_msg)
             logger.error(error_msg)
             return connectivity_status
 
         except ClientError as e:
-            error_code = e.response["Error"]["Code"]
+            error_code = e.response.get("Error", {}).get("Code", {})
             if error_code in ["InvalidAccessKeyId", "SignatureDoesNotMatch"]:
                 error_msg = f"S3 credentials invalid: {e}"
-                connectivity_status["errors"].append(error_msg)
+                connectivity_status.errors.append(error_msg)
                 logger.error(error_msg)
                 return connectivity_status
             else:
                 error_msg = f"S3 connection failed: {e}"
-                connectivity_status["errors"].append(error_msg)
+                connectivity_status.errors.append(error_msg)
                 logger.error(error_msg)
                 return connectivity_status
 
         except Exception as e:
             error_msg = f"Unexpected error during S3 connectivity check: {e}"
-            connectivity_status["errors"].append(error_msg)
+            connectivity_status.errors.append(error_msg)
             logger.error(error_msg)
             return connectivity_status
 
         # Test 2: Check if bucket exists
         try:
             bucket_exists = await self.check_bucket_exists()
-            connectivity_status["bucket_exists"] = bucket_exists
+            connectivity_status.bucket_exists = bucket_exists
 
             if bucket_exists:
                 logger.info(f"S3 bucket '{self.bucket_name}' is accessible")
@@ -261,15 +267,8 @@ class S3Service:
 
         except Exception as e:
             error_msg = f"Error during bucket check: {e}"
-            connectivity_status["errors"].append(error_msg)
+            connectivity_status.errors.append(error_msg)
             logger.error(error_msg)
-
-        # Determine overall health status
-        connectivity_status["is_healthy"] = (
-            connectivity_status["connected"]
-            and connectivity_status["credentials_valid"]
-            and connectivity_status["bucket_exists"]
-        )
 
         return connectivity_status
 

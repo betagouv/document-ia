@@ -1,8 +1,11 @@
 import logging
-import magic
 from typing import Tuple, Optional
+
+import magic
 from fastapi import UploadFile, HTTPException
+
 from core.config import settings
+from core.model.file_info import FileInfo
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +14,7 @@ class FileValidator:
     """Service for validating uploaded files."""
 
     # Reverse mapping for validation - built from settings
-    EXTENSION_TO_MIME = {}
+    EXTENSION_TO_MIME: dict[str, str] = {}
     for mime_type, extensions in settings.ALLOWED_MIME_TYPES.items():
         for ext in extensions:
             EXTENSION_TO_MIME[ext.lower()] = mime_type
@@ -62,6 +65,9 @@ class FileValidator:
                     f"File type '{detected_mime}' not supported. Supported types: {', '.join(settings.ALLOWED_MIME_TYPES)}",
                     None,
                 )
+
+            # Ensure filename is present if the _validate_mime_type pass the filename is not None
+            assert file.filename
 
             # Cross-validate extension vs detected MIME type
             if not cls._cross_validate_extension_and_mime(file, detected_mime):
@@ -142,7 +148,7 @@ class FileValidator:
         return detected_mime == expected_mime
 
     @classmethod
-    def get_file_info(cls, file: UploadFile) -> dict:
+    def get_file_info(cls, file: UploadFile) -> Optional[FileInfo]:
         """Get comprehensive file information."""
         try:
             current_pos = file.file.tell()
@@ -150,29 +156,28 @@ class FileValidator:
             file_size = file.file.tell()
             file.file.seek(current_pos)  # Restore position
 
+            if file.filename is None:
+                raise ValueError("Filename is None")
+
             extension = (
                 "." + file.filename.split(".")[-1].lower()
                 if "." in file.filename
                 else ""
             )
 
-            # Handle both list and dict formats for ALLOWED_MIME_TYPES
-            if isinstance(settings.ALLOWED_MIME_TYPES, dict):
-                allowed_types = list(settings.ALLOWED_MIME_TYPES.keys())
-            else:
-                allowed_types = settings.ALLOWED_MIME_TYPES
+            allowed_types = list(settings.ALLOWED_MIME_TYPES.keys())
 
-            return {
-                "filename": file.filename,
-                "size": file_size,
-                "extension": extension,
-                "content_type": file.content_type,
-                "max_size_allowed": settings.MAX_FILE_SIZE,
-                "allowed_types": allowed_types,
-            }
+            return FileInfo(
+                filename=file.filename,
+                size=file_size,
+                extension=extension,
+                content_type=file.content_type,
+                max_size_allowed=settings.MAX_FILE_SIZE,
+                allowed_types=allowed_types,
+            )
         except Exception as e:
             logger.error(f"Error getting file info: {e}")
-            return {}
+            return None
 
 
 def validate_uploaded_file(file: UploadFile) -> str:
@@ -190,13 +195,14 @@ def validate_uploaded_file(file: UploadFile) -> str:
     """
     is_valid, error_message, detected_mime = FileValidator.validate_file(file)
 
-    if not is_valid:
+    if not is_valid or detected_mime is None:
+        file_info = FileValidator.get_file_info(file)
         raise HTTPException(
             status_code=400,
             detail={
                 "error": "file_validation_error",
                 "message": error_message,
-                "file_info": FileValidator.get_file_info(file),
+                "file_info": file_info.to_dict() if file_info else None,
             },
         )
 

@@ -1,12 +1,13 @@
 import logging
 from datetime import datetime, timedelta
-from typing import Tuple, Dict, Any
+from typing import Tuple
 
 from redis.exceptions import ConnectionError, TimeoutError
 
 from document_ia_redis.redis_manager import redis_manager
 from document_ia_redis.redis_settings import redis_settings
 from infra.config import settings
+from infra.redis.redis_connectivity_status import RedisConnectivityStatus
 from schemas.rate_limiting import RateLimitInfo
 
 # TODO: add a proper logging service (remove pii and sanitize data)
@@ -126,7 +127,7 @@ class RedisService:
                 reset_daily=None,
             )
 
-    async def check_connectivity(self) -> Dict[str, Any]:
+    async def check_connectivity(self) -> RedisConnectivityStatus:
         """
         Comprehensive Redis connectivity check.
 
@@ -135,37 +136,34 @@ class RedisService:
         Returns:
             Dict containing connectivity status and details
         """
-        connectivity_status = {
-            "connected": False,
-            "is_healthy": False,
-            "host": redis_settings.REDIS_HOST,
-            "port": redis_settings.REDIS_PORT,
-            "db": redis_settings.REDIS_DB,
-            "errors": [],
-        }
+        connectivity_status = RedisConnectivityStatus.default(
+            host=redis_settings.REDIS_HOST,
+            port=redis_settings.REDIS_PORT,
+            db=redis_settings.REDIS_DB,
+        )
 
         try:
             logger.info("Testing Redis connectivity...")
             connection = await redis_manager.get_connection()
             if connection is None:
                 error_msg = "Failed to establish Redis connection"
-                connectivity_status["errors"].append(error_msg)
+                connectivity_status.errors.append(error_msg)
                 logger.error(error_msg)
                 return connectivity_status
 
-            connectivity_status["connected"] = True
-            connectivity_status["is_healthy"] = True
+            connectivity_status.connected = True
+            connectivity_status.is_healthy = True
             logger.info("Redis connection established successfully")
 
         except (ConnectionError, TimeoutError) as e:
             error_msg = f"Redis connection failed: {e}"
-            connectivity_status["errors"].append(error_msg)
+            connectivity_status.errors.append(error_msg)
             logger.error(error_msg)
             return connectivity_status
 
         except Exception as e:
             error_msg = f"Unexpected error during Redis connectivity check: {e}"
-            connectivity_status["errors"].append(error_msg)
+            connectivity_status.errors.append(error_msg)
             logger.error(error_msg)
             return connectivity_status
 

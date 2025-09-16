@@ -11,7 +11,7 @@ class AppSettings(BaseSettings):
 
     # Server configuration
     SERVER_HOST: str = os.getenv("HOST", "0.0.0.0")
-    SERVER_PORT: int = os.getenv("PORT", 8000)
+    SERVER_PORT: int = int(os.getenv("PORT", 8000))
 
 
 class AuthenticationSettings(BaseSettings):

@@ -115,35 +115,25 @@ async def health_check() -> HealthCheckResponse:
 
         # Determine overall health status based on service health flags
         if (
-            s3_connectivity["is_healthy"]
-            and redis_connectivity["is_healthy"]
-            and database_connectivity["is_healthy"]
+            s3_connectivity.is_healthy
+            and redis_connectivity.is_healthy
+            and database_connectivity.is_healthy
         ):
             overall_status = "healthy"
         else:
             overall_status = "unhealthy"
 
         # Create S3 health status object
-        s3_health = S3HealthStatus(
-            connected=s3_connectivity["connected"],
-            credentials_valid=s3_connectivity["credentials_valid"],
-            bucket_exists=s3_connectivity["bucket_exists"],
-            is_healthy=s3_connectivity["is_healthy"],
-            errors=s3_connectivity["errors"],
-        )
+        s3_health = S3HealthStatus.from_s3_connectivity_status(s3_connectivity)
 
         # Create Redis health status object
-        redis_health = RedisHealthStatus(
-            connected=redis_connectivity["connected"],
-            is_healthy=redis_connectivity["is_healthy"],
-            errors=redis_connectivity["errors"],
+        redis_health = RedisHealthStatus.from_redis_connectivity_status(
+            redis_connectivity
         )
 
         # Create Database health status object
-        database_health = DatabaseHealthStatus(
-            connected=database_connectivity["connected"],
-            is_healthy=database_connectivity["is_healthy"],
-            errors=database_connectivity["errors"],
+        database_health = DatabaseHealthStatus.from_database_connectivity_status(
+            database_connectivity
         )
 
         # Return healthy response (HTTP 200)
@@ -162,7 +152,7 @@ async def health_check() -> HealthCheckResponse:
         # TODO: return error details
         else:
             logger.warning(
-                f"Service unhealthy - S3: {s3_connectivity['is_healthy']}, Redis: {redis_connectivity['is_healthy']}, Database: {database_connectivity['is_healthy']}",
+                f"Service unhealthy - S3: {s3_connectivity.is_healthy}, Redis: {redis_connectivity.is_healthy}, Database: {database_connectivity.is_healthy}",
                 extra={"endpoint": "health_check"},
             )
             raise HTTPException(

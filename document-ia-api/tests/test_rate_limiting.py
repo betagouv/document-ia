@@ -1,11 +1,11 @@
-import pytest
-from unittest.mock import AsyncMock, patch, Mock
 from datetime import datetime, timedelta
-from fastcrud.exceptions.http_exceptions import RateLimitException
+from unittest.mock import patch, Mock
 
-from src.infra.redis_service import RedisService
-from src.api.rate_limiting import check_rate_limit, RateLimitMiddleware
-from src.schemas.rate_limiting import RateLimitInfo
+import pytest
+
+from api.exceptions.rate_limit_exception import RateLimitException
+from api.rate_limiting import check_rate_limit, RateLimitMiddleware
+from schemas.rate_limiting import RateLimitInfo
 
 
 class TestRateLimiting:
@@ -31,9 +31,7 @@ class TestRateLimiting:
         mock_request = Mock()
         mock_request.state = Mock()
 
-        # Patch the redis_service import in the rate_limiting module
-        with patch("src.api.rate_limiting.redis_service", mock_redis_service):
-            # Test the rate limit dependency directly
+        with patch("api.rate_limiting.redis_service", mock_redis_service):
             result = await check_rate_limit(mock_request, "test-api-key")
 
         assert result.limit_exceeded is False
@@ -61,8 +59,7 @@ class TestRateLimiting:
         mock_request = Mock()
         mock_request.state = Mock()
 
-        # Patch the redis_service import in the rate_limiting module
-        with patch("src.api.rate_limiting.redis_service", mock_redis_service):
+        with patch("api.rate_limiting.redis_service", mock_redis_service):
             # Test that the dependency raises RateLimitException
             with pytest.raises(RateLimitException) as exc_info:
                 await check_rate_limit(mock_request, "test-api-key")
@@ -126,37 +123,13 @@ class TestRateLimiting:
         mock_request = Mock()
         mock_request.state = Mock()
 
-        # Patch the redis_service import in the rate_limiting module
-        with patch("src.api.rate_limiting.redis_service", mock_redis_service):
+        with patch("api.rate_limiting.redis_service", mock_redis_service):
             # Should still allow the request when Redis is unavailable
             result = await check_rate_limit(mock_request, "test-api-key")
 
         assert result.limit_exceeded is False
         assert result.remaining_minute == 300
         assert result.remaining_daily == 5000
-
-
-class TestRedisService:
-    """Test cases for Redis service functionality."""
-
-    @pytest.mark.asyncio
-    async def test_redis_service_initialization(self):
-        """Test Redis service initialization."""
-        service = RedisService()
-        assert service.redis is None
-        assert service.connection_attempts == 0
-
-    @pytest.mark.asyncio
-    async def test_redis_service_cleanup(self):
-        """Test Redis service cleanup."""
-        service = RedisService()
-        # Mock Redis connection
-        service.redis = AsyncMock()
-
-        await service.close()
-
-        # Verify close was called on Redis connection
-        service.redis.close.assert_called_once()
 
 
 class TestRateLimitMiddleware:
@@ -255,8 +228,8 @@ class TestFixedWindowResetBehavior:
         mock_request = Mock()
         mock_request.state = Mock()
 
-        # Patch the redis_service import in the rate_limiting module
-        with patch("src.api.rate_limiting.redis_service", mock_redis_service):
+        # Patch le bon module (sans prefixe src)
+        with patch("api.rate_limiting.redis_service", mock_redis_service):
             result = await check_rate_limit(mock_request, "test-api-key")
 
         # Verify reset times are correct

@@ -1,0 +1,36 @@
+{
+  "include": [
+    "document-ia-api/src",
+    "document-ia-infra/src",
+    "document-ia-worker/src"
+  ],
+  "ignore": [
+    "**/pycache",
+    "**/tests/**",
+    "**/scripts/**.py",
+    "document-ia-api/alembic/versions"
+  ],
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "strict",
+  "reportMissingTypeStubs": false,
+  "executionEnvironments": [
+    {
+      "root": "document-ia-api/src",
+      "extraPaths": [
+        "document-ia-api/src"
+      ]
+    },
+    {
+      "root": "document-ia-infra/src",
+      "extraPaths": [
+        "document-ia-infra/src"
+      ]
+    },
+    {
+      "root": "document-ia-worker/src",
+      "extraPaths": [
+        "document-ia-worker/src"
+      ]
+    }
+  ]
+}

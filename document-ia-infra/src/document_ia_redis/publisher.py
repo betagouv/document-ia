@@ -5,7 +5,9 @@ Class Publisher for Redis Stream
 import json
 import logging
 from datetime import datetime
-from typing import TypeVar
+from typing import TypeVar, Generic
+
+from redis.typing import EncodableT
 
 from document_ia_redis.redis_manager import redis_manager
 from document_ia_redis.redis_settings import redis_settings
@@ -16,8 +18,8 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=SerializableMessage)
 
 
-class Publisher[T]:
-    def __init__(self, stream_name):
+class Publisher(Generic[T]):
+    def __init__(self, stream_name: str):
         """Initialise the Redis connection and the publisher"""
         self.stream_name = stream_name
 
@@ -25,9 +27,12 @@ class Publisher[T]:
         """Publie une tâche dans le stream Redis"""
         try:
             connection = await redis_manager.get_connection()
+            if connection is None:
+                logger.error("❌ No Redis connection available")
+                return None
 
             # Convertir les données en format approprié pour Redis
-            stream_data = {
+            stream_data: dict[EncodableT, EncodableT] = {
                 "data": json.dumps(message.to_dict()),
                 "timestamp": datetime.now().isoformat(),
             }

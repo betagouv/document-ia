@@ -9,6 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import text
 
 from infra.config import settings
+from infra.database.database_connectivity_status import DatabaseConnectivityStatus
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -19,7 +20,7 @@ class Base(DeclarativeBase):
 
 
 # Create async engine with SSL context for Heroku compatibility
-engine_kwargs = {
+engine_kwargs: Dict[str, Any] = {
     "echo": False,
     "future": True,
 }
@@ -42,7 +43,7 @@ async def async_get_db() -> AsyncGenerator[AsyncSession, None]:
         yield db
 
 
-async def check_database_connectivity() -> Dict[str, Any]:
+async def check_database_connectivity() -> DatabaseConnectivityStatus:
     """
     Comprehensive database connectivity check.
 
@@ -51,11 +52,7 @@ async def check_database_connectivity() -> Dict[str, Any]:
     Returns:
         Dict containing connectivity status and details
     """
-    connectivity_status = {
-        "connected": False,
-        "is_healthy": False,
-        "errors": [],
-    }
+    connectivity_status = DatabaseConnectivityStatus.default()
 
     try:
         logger.info("Testing database connectivity...")
@@ -66,19 +63,19 @@ async def check_database_connectivity() -> Dict[str, Any]:
             result = await session.execute(text("SELECT 1"))
             result.scalar()
 
-        connectivity_status["connected"] = True
-        connectivity_status["is_healthy"] = True
+        connectivity_status.connected = True
+        connectivity_status.is_healthy = True
         logger.info("Database connection established successfully")
 
     except SQLAlchemyError as e:
         error_msg = f"Database connection failed: {e}"
-        connectivity_status["errors"].append(error_msg)
+        connectivity_status.errors.append(error_msg)
         logger.error(error_msg)
         return connectivity_status
 
     except Exception as e:
         error_msg = f"Unexpected error during database connectivity check: {e}"
-        connectivity_status["errors"].append(error_msg)
+        connectivity_status.errors.append(error_msg)
         logger.error(error_msg)
         return connectivity_status
 

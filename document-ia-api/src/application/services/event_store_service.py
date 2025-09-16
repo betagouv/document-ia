@@ -6,9 +6,9 @@ providing high-level business logic and event orchestration.
 """
 
 import logging
+from datetime import datetime, UTC
 from typing import List, Optional, Dict, Any
 from uuid import uuid4
-from datetime import datetime, UTC
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -156,7 +156,6 @@ class EventStoreService:
     ) -> WorkflowExecutionStartedEvent:
         """Create a WorkflowExecutionStartedEvent."""
         return WorkflowExecutionStartedEvent(
-            event_id=uuid4(),
             workflow_id=workflow_id,
             execution_id=execution_id,
             created_at=datetime.now(),
@@ -310,41 +309,5 @@ class EventStoreService:
             failed_step=failed_step,
             retry_count=retry_count,
             stack_trace=stack_trace,
-        )
-        return await self.store_event(event)
-
-    async def emit_workflow_cancelled(
-        self,
-        workflow_id: str,
-        execution_id: str,
-        cancellation_reason: str,
-        cancelled_by: Optional[str] = None,
-        cancelled_at_step: Optional[str] = None,
-    ) -> EventStoreRecord:
-        """Emit and store a workflow cancelled event."""
-        event = self.create_workflow_cancelled_event(
-            workflow_id=workflow_id,
-            execution_id=execution_id,
-            cancellation_reason=cancellation_reason,
-            cancelled_by=cancelled_by,
-            cancelled_at_step=cancelled_at_step,
-        )
-        return await self.store_event(event)
-
-    async def emit_workflow_retried(
-        self,
-        workflow_id: str,
-        execution_id: str,
-        retry_reason: str,
-        retry_count: int,
-        previous_execution_id: Optional[str] = None,
-    ) -> EventStoreRecord:
-        """Emit and store a workflow retried event."""
-        event = self.create_workflow_retried_event(
-            workflow_id=workflow_id,
-            execution_id=execution_id,
-            retry_reason=retry_reason,
-            retry_count=retry_count,
-            previous_execution_id=previous_execution_id,
         )
         return await self.store_event(event)

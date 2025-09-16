@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, UploadFile, File, Form
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth import verify_api_key
 from api.rate_limiting import check_rate_limit
@@ -125,7 +126,7 @@ async def execute_workflow(
     metadata: str = Form(..., description="JSON string containing metadata object"),
     api_key: str = Depends(verify_api_key),
     rate_limit_info: RateLimitInfo = Depends(check_rate_limit),
-    db_session=Depends(async_get_db),
+    db_session: AsyncSession = Depends(async_get_db),
 ) -> WorkflowExecuteResponse:
     """
     Execute a document processing workflow with file upload and metadata.

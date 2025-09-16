@@ -5,20 +5,25 @@ This module defines the event schemas used in the event store system,
 following event sourcing principles for workflow execution tracking.
 """
 
+from abc import ABC
 from datetime import datetime
-from typing import Dict, Any, Optional, List, Union
-from uuid import UUID
+from typing import Dict, Any, Optional, List
+from uuid import UUID, uuid4
+
 from pydantic import BaseModel, Field
 
 
-class BaseEvent(BaseModel):
+class BaseEvent(BaseModel, ABC):
     """Base event class with common fields for all events."""
 
-    event_id: UUID = Field(description="Unique identifier for this event")
+    event_id: UUID = Field(
+        description="Unique identifier for this event", default_factory=uuid4
+    )
     workflow_id: str = Field(description="Workflow identifier")
     execution_id: str = Field(description="Execution instance identifier")
     created_at: datetime = Field(description="Event timestamp")
     version: int = Field(description="Event version for optimistic locking")
+    event_type: str = Field(description="Event type")
 
 
 class WorkflowExecutionStartedEvent(BaseEvent):
@@ -70,14 +75,6 @@ class WorkflowExecutionFailedEvent(BaseEvent):
     )
     retry_count: int = Field(default=0, description="Number of retry attempts")
     stack_trace: Optional[str] = Field(default=None, description="Error stack trace")
-
-
-Event = Union[
-    WorkflowExecutionStartedEvent,
-    WorkflowExecutionStepCompletedEvent,
-    WorkflowExecutionCompletedEvent,
-    WorkflowExecutionFailedEvent,
-]
 
 
 class EventStoreRecord(BaseModel):

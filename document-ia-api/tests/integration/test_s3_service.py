@@ -1,7 +1,8 @@
-import pytest
 from unittest.mock import patch, MagicMock
 
-from src.infra.s3_service import S3Service
+import pytest
+
+from infra.s3_service import S3Service
 
 
 class TestS3Service:
@@ -59,10 +60,10 @@ class TestS3Service:
             service = S3Service()
             result = await service.check_connectivity()
 
-            assert result["connected"] is True
-            assert result["credentials_valid"] is True
-            assert result["bucket_exists"] is True
-            assert len(result["errors"]) == 0
+            assert result.connected is True
+            assert result.credentials_valid is True
+            assert result.bucket_exists is True
+            assert len(result.errors) == 0
 
     @pytest.mark.asyncio
     async def test_s3_connectivity_check_credentials_error(self):
@@ -80,10 +81,10 @@ class TestS3Service:
             service = S3Service()
             result = await service.check_connectivity()
 
-            assert result["connected"] is False
-            assert result["credentials_valid"] is False
-            assert len(result["errors"]) > 0
-            assert "credentials not configured" in result["errors"][0]
+            assert result.connected is False
+            assert result.credentials_valid is False
+            assert len(result.errors) > 0
+            assert "credentials not configured" in result.errors[0]
 
     @pytest.mark.asyncio
     async def test_s3_connectivity_check_bucket_not_exists(self):
@@ -107,6 +108,6 @@ class TestS3Service:
             service = S3Service()
             result = await service.check_connectivity()
 
-            assert result["connected"] is True
-            assert result["credentials_valid"] is True
-            assert result["bucket_exists"] is False
+            assert result.connected is True
+            assert result.credentials_valid is True
+            assert result.bucket_exists is False
