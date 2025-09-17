@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from document_ia_infra.data.event.dto.event_dto import EventDTO
+from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.repository.event import EventRepository
 
 
@@ -116,7 +117,7 @@ class TestEventRepository:
                 created_at=datetime.now(UTC),
                 workflow_id="test_workflow_001",
                 execution_id="test_execution_001",
-                event_type="WorkflowExecutionStarted",
+                event_type=EventType.WORKFLOW_EXECUTION_STARTED,
                 event={"test": "data1"},
                 version=1,
             ),
@@ -125,7 +126,7 @@ class TestEventRepository:
                 created_at=datetime.now(UTC),
                 workflow_id="test_workflow_001",
                 execution_id="test_execution_001",
-                event_type="WorkflowExecutionCompleted",
+                event_type=EventType.WORKFLOW_EXECUTION_COMPLETED,
                 event={"test": "data2"},
                 version=2,
             ),
@@ -157,7 +158,7 @@ class TestEventRepository:
                 workflow_id="test_workflow_001",
                 execution_id="test_execution_001",
                 created_at=datetime.now(UTC),
-                event_type="WorkflowExecutionStarted",
+                event_type=EventType.WORKFLOW_EXECUTION_STARTED,
                 event={"test": "data"},
                 version=1,
             )
@@ -187,7 +188,7 @@ class TestEventRepository:
                 workflow_id="test_workflow_001",
                 execution_id="test_execution_001",
                 created_at=datetime.now(UTC),
-                event_type="WorkflowExecutionStarted",
+                event_type=EventType.WORKFLOW_EXECUTION_STARTED,
                 event={"test": "data"},
                 version=1,
             )
@@ -237,3 +238,50 @@ class TestEventRepository:
 
         # Assert
         assert result == 0
+
+    async def test_get_last_event_by_execution_id_found(
+        self, event_repository, mock_session
+    ):
+        """Test retrieving last (latest) event for an execution id."""
+        # Arrange: mock scalars().first() chain
+        dummy_event = MagicMock()
+        dummy_event.id = uuid4()
+        dummy_event.workflow_id = "wf123"
+        dummy_event.execution_id = "exec123"
+        dummy_event.created_at = datetime.now(UTC)
+        dummy_event.event_type = EventType.WORKFLOW_EXECUTION_COMPLETED.value
+        dummy_event.event = {"status": "ok"}
+        dummy_event.version = 5
+
+        mock_scalars = MagicMock()
+        mock_scalars.first.return_value = dummy_event
+        mock_result = MagicMock()
+        mock_result.scalars.return_value = mock_scalars
+        mock_session.execute.return_value = mock_result
+
+        # Act
+        result = await event_repository.get_last_event_by_execution_id(
+            execution_id="exec123"
+        )
+
+        # Assert
+        assert result is not None
+        assert result.execution_id == "exec123"
+        assert result.version == 5
+        assert result.event_type == EventType.WORKFLOW_EXECUTION_COMPLETED
+        assert result.event == {"status": "ok"}
+
+    async def test_get_last_event_by_execution_id_not_found(
+        self, event_repository, mock_session
+    ):
+        """Test retrieving last event returns None when no event exists."""
+        mock_scalars = MagicMock()
+        mock_scalars.first.return_value = None
+        mock_result = MagicMock()
+        mock_result.scalars.return_value = mock_scalars
+        mock_session.execute.return_value = mock_result
+
+        result = await event_repository.get_last_event_by_execution_id(
+            execution_id="unknown"
+        )
+        assert result is None

@@ -9,14 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from document_ia_api.application.services.event_store_service import EventStoreService
 from document_ia_api.core.file_validator import validate_uploaded_file
+from document_ia_api.infra.s3_service import s3_service
+from document_ia_api.schemas.workflow import WorkflowExecutionData
+from document_ia_infra.core.model.file_info import FileInfo
 from document_ia_infra.data.workflow.repository.worflow import workflow_repository
-from document_ia_infra.redis.publisher import Publisher
 from document_ia_infra.redis.model.workflow_execution_message import (
     WorkflowExecutionMessage,
 )
+from document_ia_infra.redis.publisher import Publisher
 from document_ia_infra.redis.redis_settings import redis_settings
-from document_ia_api.infra.s3_service import s3_service
-from document_ia_api.schemas.workflow import WorkflowExecutionData
 
 logger = logging.getLogger(__name__)
 
@@ -78,15 +79,15 @@ class WorkflowService:
             execution_id = str(uuid.uuid4())
 
             # Prepare file info
-            file_info = {
-                "filename": file.filename,
-                "size": len(file_content),
-                "content_type": detected_mime_type,
-                "file_id": s3_upload_result["file_id"],
-                "uploaded_at": datetime.now().isoformat(),
-                "presigned_url": s3_upload_result["presigned_url"],
-            }
 
+            file_info = FileInfo(
+                filename=file.filename or "unknown",
+                s3_key=s3_upload_result["s3_key"],
+                size=len(file_content),
+                content_type=detected_mime_type,
+                uploaded_at=datetime.now().isoformat(),
+                presigned_url=s3_upload_result["presigned_url"],
+            )
             # Log successful execution
             logger.info(
                 f"Workflow execution started: {execution_id} "
@@ -95,7 +96,7 @@ class WorkflowService:
 
             # Emit workflow started event
             try:
-                event_store_service = EventStoreService()
+                event_store_service = EventStoreService(self.db_session)
                 await event_store_service.emit_workflow_started(
                     workflow_id=workflow_id,
                     execution_id=execution_id,

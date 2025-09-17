@@ -13,6 +13,7 @@ from uuid import uuid4
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from document_ia_api.application.services.event_store_service import EventStoreService
+from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.repository.event import EventRepository
 from document_ia_api.schemas.events import (
     EventStoreRecord,
@@ -67,7 +68,7 @@ def sample_event_record():
         workflow_id="test_workflow_001",
         execution_id="test_execution_001",
         created_at=datetime.now(UTC),
-        event_type="WorkflowExecutionStarted",
+        event_type=EventType.WORKFLOW_EXECUTION_STARTED,
         event={
             "event_id": str(uuid4()),
             "workflow_id": "test_workflow_001",
@@ -95,7 +96,7 @@ class TestEventStoreService:
             workflow_id="test_workflow_001",
             execution_id="test_execution_001",
             created_at=datetime.now(UTC),
-            event_type="WorkflowExecutionStarted",
+            event_type=EventType.WORKFLOW_EXECUTION_STARTED,
             event=sample_event.model_dump(),
             version=2,
         )

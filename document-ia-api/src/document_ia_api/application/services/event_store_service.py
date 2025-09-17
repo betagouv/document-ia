@@ -10,21 +10,19 @@ from datetime import datetime, UTC
 from typing import List, Optional, Dict, Any
 from uuid import uuid4
 
-from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from document_ia_api.schemas.events import (
+from document_ia_api.schemas.events import EventStoreRecord, EventStream
+from document_ia_api.schemas.mappers.event_mapper import convert_event_dto
+from document_ia_infra.core.model.file_info import FileInfo
+from document_ia_infra.data.event.repository.event import EventRepository
+from document_ia_infra.data.event.schema.event import (
     BaseEvent,
     WorkflowExecutionStartedEvent,
     WorkflowExecutionStepCompletedEvent,
     WorkflowExecutionCompletedEvent,
     WorkflowExecutionFailedEvent,
-    EventStoreRecord,
-    EventStream,
 )
-from document_ia_api.schemas.mappers.event_mapper import convert_event_dto
-from document_ia_infra.data.database import database_manager
-from document_ia_infra.data.event.repository.event import EventRepository
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +30,7 @@ logger = logging.getLogger(__name__)
 class EventStoreService:
     """Service for event store business logic and event handling."""
 
-    def __init__(self, session: AsyncSession = Depends(database_manager.async_get_db)):
+    def __init__(self, session: AsyncSession):
         self.repository = EventRepository(session)
         self.session = session
 
@@ -66,7 +64,7 @@ class EventStoreService:
             stored_event = await self.repository.put_event(
                 workflow_id=event.workflow_id,
                 execution_id=event.execution_id,
-                event_type=event.event_type,
+                event_type=event.event_type.value,
                 event_data=event_data,
                 version=next_version,
             )
@@ -155,7 +153,7 @@ class EventStoreService:
         self,
         workflow_id: str,
         execution_id: str,
-        file_info: Dict[str, Any],
+        file_info: FileInfo,
         metadata: Dict[str, Any],
     ) -> WorkflowExecutionStartedEvent:
         """Create a WorkflowExecutionStartedEvent."""
@@ -242,7 +240,7 @@ class EventStoreService:
         self,
         workflow_id: str,
         execution_id: str,
-        file_info: Dict[str, Any],
+        file_info: FileInfo,
         metadata: Dict[str, Any],
     ) -> EventStoreRecord:
         """Emit and store a workflow started event."""

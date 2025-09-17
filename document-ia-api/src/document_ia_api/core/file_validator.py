@@ -5,7 +5,7 @@ import magic
 from fastapi import UploadFile, HTTPException
 
 from document_ia_api.core.config import settings
-from document_ia_api.core.model.file_info import FileInfo
+from document_ia_api.schemas.file_not_valid_information import FileNoteValidInformation
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +148,7 @@ class FileValidator:
         return detected_mime == expected_mime
 
     @classmethod
-    def get_file_info(cls, file: UploadFile) -> Optional[FileInfo]:
+    def get_file_info(cls, file: UploadFile) -> Optional[FileNoteValidInformation]:
         """Get comprehensive file information."""
         try:
             current_pos = file.file.tell()
@@ -167,7 +167,7 @@ class FileValidator:
 
             allowed_types = list(settings.ALLOWED_MIME_TYPES.keys())
 
-            return FileInfo(
+            return FileNoteValidInformation(
                 filename=file.filename,
                 size=file_size,
                 extension=extension,
@@ -202,7 +202,7 @@ def validate_uploaded_file(file: UploadFile) -> str:
             detail={
                 "error": "file_validation_error",
                 "message": error_message,
-                "file_info": file_info.to_dict() if file_info else None,
+                "file_info": file_info.model_dump() if file_info else None,
             },
         )
 
