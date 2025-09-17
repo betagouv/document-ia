@@ -5,11 +5,7 @@ description = "API minimaliste FastAPI avec authentification API_KEY"
 authors = ["Romaric HALDENWANG <romaric.haldenwang@beta.gouv.fr>"]
 readme = "README.md"
 packages = [
-    { include = "api", from = "src" },
-    { include = "application", from = "src" },
-    { include = "core", from = "src" },
-    { include = "infra", from = "src" },
-    { include = "schemas", from = "src" },
+    { include = "document_ia_api", from = "src" }
 ]
 
 [tool.poetry.dependencies]

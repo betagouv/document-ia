@@ -1,7 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from document_ia_redis.redis_manager import RedisManager
+from document_ia_infra.redis.redis_manager import RedisManager
 
 
 class TestRedisManager:
@@ -22,11 +22,11 @@ class TestRedisManager:
 
         with (
             patch(
-                "document_ia_redis.redis_manager.ConnectionPool.from_url",
+                "document_ia_infra.redis.redis_manager.ConnectionPool.from_url",
                 return_value=mock_pool,
             ) as pool_mock,
             patch(
-                "document_ia_redis.redis_manager.Redis", return_value=mock_redis
+                "document_ia_infra.redis.redis_manager.Redis", return_value=mock_redis
             ) as redis_cls,
         ):
             conn = await manager.get_connection()
@@ -59,10 +59,12 @@ class TestRedisManager:
 
         with (
             patch(
-                "document_ia_redis.redis_manager.ConnectionPool.from_url",
+                "document_ia_infra.redis.redis_manager.ConnectionPool.from_url",
                 return_value=mock_pool,
             ),
-            patch("document_ia_redis.redis_manager.Redis", return_value=mock_redis),
+            patch(
+                "document_ia_infra.redis.redis_manager.Redis", return_value=mock_redis
+            ),
             patch("asyncio.sleep", side_effect=fake_sleep),
         ):
             conn = await manager.get_connection()
@@ -85,10 +87,12 @@ class TestRedisManager:
 
         with (
             patch(
-                "document_ia_redis.redis_manager.ConnectionPool.from_url",
+                "document_ia_infra.redis.redis_manager.ConnectionPool.from_url",
                 return_value=mock_pool,
             ),
-            patch("document_ia_redis.redis_manager.Redis", return_value=mock_redis),
+            patch(
+                "document_ia_infra.redis.redis_manager.Redis", return_value=mock_redis
+            ),
             patch("asyncio.sleep", return_value=None),
         ):
             conn = await manager.get_connection()

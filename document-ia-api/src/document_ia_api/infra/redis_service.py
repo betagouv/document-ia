@@ -4,8 +4,8 @@ from typing import Tuple
 
 from redis.exceptions import ConnectionError, TimeoutError
 
-from document_ia_redis.redis_manager import redis_manager
-from document_ia_redis.redis_settings import redis_settings
+from document_ia_infra.redis.redis_manager import redis_manager
+from document_ia_infra.redis.redis_settings import redis_settings
 from document_ia_api.infra.config import settings
 from document_ia_api.infra.redis.redis_connectivity_status import (
     RedisConnectivityStatus,

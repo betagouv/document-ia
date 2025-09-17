@@ -4,7 +4,7 @@ from typing import Optional
 
 from redis.asyncio import Redis, ConnectionPool
 
-from document_ia_redis.redis_settings import redis_settings
+from document_ia_infra.redis.redis_settings import redis_settings
 
 logger = logging.getLogger(__name__)
 

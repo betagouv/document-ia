@@ -1,6 +1,6 @@
 from fastapi import Security, HTTPException, Header
 from fastapi.security import APIKeyHeader
-from .config import settings
+from document_ia_api.api.config import settings
 from typing import Optional
 
 # Security scheme for API Key authentication

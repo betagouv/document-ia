@@ -8,9 +8,11 @@ from types import FrameType
 from typing import Iterable, Optional
 
 from config.logging import setup_logging
-from document_ia_redis.consumer import Consumer
-from document_ia_redis.model.workflow_execution_message import WorkflowExecutionMessage
-from document_ia_redis.redis_settings import redis_settings
+from document_ia_infra.redis.consumer import Consumer
+from document_ia_infra.redis.model.workflow_execution_message import (
+    WorkflowExecutionMessage,
+)
+from document_ia_infra.redis.redis_settings import redis_settings
 
 setup_logging()
 logger = logging.getLogger(__name__)
