@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 from typing import Optional, List
 
-from document_ia_infra.data.workflow.model.workflow_definition import WorkflowDefinition
+from document_ia_infra.data.workflow.dto.workflow_dto import WorkflowDTO
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +28,7 @@ class WorkflowRepository:
 
         self.workflows_file_path = Path(workflows_file_path)
 
-    async def get_workflow_by_id(
-        self, workflow_id: str
-    ) -> Optional[WorkflowDefinition]:
+    async def get_workflow_by_id(self, workflow_id: str) -> Optional[WorkflowDTO]:
         """
         Retrieve a workflow definition by its ID.
 
@@ -63,7 +61,7 @@ class WorkflowRepository:
             logger.error(f"Unexpected error retrieving workflow {workflow_id}: {e}")
             raise
 
-    async def get_all_workflows(self) -> List[WorkflowDefinition]:
+    async def get_all_workflows(self) -> List[WorkflowDTO]:
         """
         Retrieve all workflow definitions.
 
@@ -79,7 +77,7 @@ class WorkflowRepository:
             logger.error(f"Error retrieving all workflows: {e}")
             return []
 
-    async def _load_workflows(self) -> List[WorkflowDefinition]:
+    async def _load_workflows(self) -> List[WorkflowDTO]:
         """
         Load workflows from JSON file.
 
@@ -103,10 +101,10 @@ class WorkflowRepository:
                 workflows_data = json.load(f)
 
             # Validate and parse workflows
-            workflows: list[WorkflowDefinition] = []
+            workflows: list[WorkflowDTO] = []
             for workflow_data in workflows_data:
                 try:
-                    workflow = WorkflowDefinition(**workflow_data)
+                    workflow = WorkflowDTO(**workflow_data)
                     workflows.append(workflow)
                 except Exception as e:
                     logger.warning(f"Invalid workflow data skipped: {e}")

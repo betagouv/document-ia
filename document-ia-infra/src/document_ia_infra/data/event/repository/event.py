@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from document_ia_infra.data.event.dto.event_dto import EventDTO
+from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.entity.event_entity import EventEntity
 
 logger = logging.getLogger(__name__)
@@ -71,7 +72,7 @@ class EventRepository:
                 workflow_id=event_record.workflow_id,
                 execution_id=event_record.execution_id,
                 created_at=event_record.created_at,
-                event_type=event_record.event_type,
+                event_type=EventType.from_str(event_record.event_type),
                 event=event_record.event,
                 version=event_record.version,
             )
@@ -82,6 +83,47 @@ class EventRepository:
             )
             await self.session.rollback()
             raise
+        except Exception as e:
+            logger.error(
+                f"Unexpected error storing event {event_type} for execution {execution_id}: {e}"
+            )
+            await self.session.rollback()
+            raise
+
+    async def get_last_event_by_execution_id(
+        self,
+        execution_id: str,
+    ) -> Optional[EventDTO]:
+        """
+        Retrieve the latest event for a specific execution ID.
+
+        Args:
+            execution_id: Execution instance identifier
+
+        Returns:
+            Optional[EventStoreRecord]: The latest event or None if not found
+        """
+        query = (
+            select(EventEntity)
+            .where(EventEntity.execution_id == execution_id)
+            .order_by(EventEntity.created_at.desc(), EventEntity.version.desc())
+            .limit(1)
+        )
+
+        result = await self.session.execute(query)
+        event = result.scalars().first()
+
+        if event:
+            return EventDTO(
+                id=event.id,
+                workflow_id=event.workflow_id,
+                execution_id=event.execution_id,
+                created_at=event.created_at,
+                event_type=EventType.from_str(event.event_type),
+                event=event.event,
+                version=event.version,
+            )
+        return None
 
     async def get_events_by_execution_id(
         self,
@@ -124,7 +166,7 @@ class EventRepository:
                 workflow_id=event.workflow_id,
                 execution_id=event.execution_id,
                 created_at=event.created_at,
-                event_type=event.event_type,
+                event_type=EventType.from_str(event.event_type),
                 event=event.event,
                 version=event.version,
             )

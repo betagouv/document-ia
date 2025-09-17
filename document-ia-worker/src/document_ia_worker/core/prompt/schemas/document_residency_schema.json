@@ -1,0 +1,123 @@
+[
+  {
+    "type": "attestation_paiement_loyer",
+    "category": "residency",
+    "name": "Attestation de bon paiement des loyers",
+    "description": [
+      "L'attestation de bon paiement couvre une période plus longue et confirme la régularité des paiements",
+      "Document émis par un bailleur certifiant que le locataire est à jour de ses loyers",
+      "Le document comporte à la fois les informations (nom, prénom, adresse) du locataire et du bailleur",
+      "Contient des formulations comme \"Certifie que\", \"atteste que\", \"est à jour\", \"règlements effectués\"",
+      "Couvre généralement une période plus longue qu'une simple quittance (plusieurs mois ou années)",
+      "Mentionne la régularité des paiements ou l'absence d'incidents de paiement",
+      "Peut contenir des formules comme \"n'a fait l'objet d'aucun incident de paiement\"",
+      "Format souvent plus narratif qu'une quittance, sous forme de lettre/attestation",
+      "L'attestation a un caractère déclaratif"
+    ],
+    "json_schema": {
+      "title": "AttestationPaiementLoyer",
+      "type": "object",
+      "properties": {
+        "nom": {
+          "type": "string",
+          "description": "Nom de famille du locataire (en majuscules sur le document)"
+        },
+        "prenom": {
+          "type": "string",
+          "description": "Prénom du locataire"
+        },
+        "adresse": {
+          "type": "string",
+          "description": "Adresse du locataire et du logement, exemple: 123 Rue de la Paix, 75000 Paris"
+        },
+        "date_emission": {
+          "type": "string",
+          "description": "Date d'émission du document, au format JJ/MM/AAAA"
+        }
+      },
+      "required": ["nom", "prenom", "adresse", "date_emission"]
+    }
+  },
+  {
+    "type": "attestation_hebergement",
+    "category": "residency",
+    "name": "Attestation d'hébergement chez un tiers",
+    "description": [
+      "Document par lequel une personne certifie héberger quelqu'un à son domicile",
+      "Contient des termes comme \"Certifie que\", \"atteste que\", \"héberge\", \"à titre gratuit\", \"à mon domicile\"",
+      "Identifie clairement l'hébergeant et l'hébergé avec leurs informations personnelles (prenom, nom, date de naissance)",
+      "Mentionne l'adresse du logement où la personne est hébergée",
+      "Peut faire référence à un lien familial ou amical entre les parties",
+      "Souvent formulée à la première personne (\"Je soussigné...\")",
+      "Généralement datée et signée par l'hébergeant"
+    ],
+    "json_schema": {
+      "title": "AttestationHebergement",
+      "type": "object",
+      "properties": {
+        "nom": {
+          "type": "string",
+          "description": "Nom de famille de l'hébergé (en majuscules sur le document)"
+        },
+        "prenom": {
+          "type": "string",
+          "description": "Prénom de l'hébergé"
+        },
+        "date_naissance": {
+          "type": "string",
+          "description": "Date de naissance de l'hébergé, au format JJ/MM/AAAA"
+        },
+        "adresse": {
+          "type": "string",
+          "description": "Adresse du logement où la personne est hébergée, exemple: 123 Rue de la Paix, 75000 Paris"
+        },
+        "date_emission": {
+          "type": "string",
+          "description": "Date d'émission du document, au format JJ/MM/AAAA"
+        }
+      },
+      "required": ["nom", "prenom", "adresse", "date_emission"]
+    }
+  },
+  {
+    "type": "avis_taxe_fonciere",
+    "category": "residency",
+    "name": "Avis de taxe foncière",
+    "description": [
+      "Document fiscal émis par la Direction Générale des Finances Publiques (DGFIP)",
+      "Contient explicitement les termes \"taxe foncière\", \"propriétés bâties/non bâties\"",
+      "Présente des montants d'imposition liés à la propriété immobilière",
+      "Identifie un ou plusieurs propriétaires et les références cadastrales du bien",
+      "Comporte des sections spécifiques (base d'imposition, taux, cotisation, etc.)",
+      "Mentionne l'adresse du bien imposé",
+      "Contient généralement un numéro fiscal et un numéro d'avis"
+    ],
+    "json_schema": {
+      "title": "AvisTaxeFonciere",
+      "type": "object",
+      "properties": {
+        "nom": {
+          "type": "string",
+          "description": "Nom de famille du propriétaire (en majuscules sur le document)"
+        },
+        "prenom": {
+          "type": "string",
+          "description": "Prénom du propriétaire (premier prénom)"
+        },
+        "adresse": {
+          "type": "string",
+          "description": "Adresse du logement, exemple: 123 Rue de la Paix, 75000 Paris"
+        },
+        "annee_imposition": {
+          "type": "number",
+          "description": "Année d'imposition, exemple: 2001"
+        },
+        "date_emission": {
+          "type": "string",
+          "description": "Date d'émission ou d'établisssement du document, au format JJ/MM/AAAA"
+        }
+      },
+      "required": ["nom", "prenom", "adresse", "date_emission"]
+    }
+  }
+]

@@ -1,0 +1,79 @@
+{
+  "type": "permis_conduire",
+  "name": "Permis de conduire",
+  "description": [
+    "Document officiel permettant de conduire un véhicule sur la voie publique",
+    "Format carte avec mentions \"Permis de conduire\" ou \"Driving licence\"",
+    "Contient des mentions comme \"République Française\" ou \"Union Européenne\"",
+    "Catégories de permis (A, B, etc.)",
+    "Numéro de permis à 12 chiffres",
+    "Présence d'informations : nom, prénom, date et lieu de naissance, adresse, numéro de permis",
+    "Dates de délivrance et d'expiration pour chaque catégorie",
+    "Photo d'identité du titulaire, signature et éventuellement une puce électronique"
+  ],
+  "json_schema": {
+    "title": "PermisConduire",
+    "type": "object",
+    "properties": {
+      "numero_document": {
+        "type": "string",
+        "name": "Numéro du permis",
+        "description": "Identifiant unique du permis de conduire (format alphanumérique).",
+        "example": "1234567890123456789"
+      },
+      "date_delivrance": {
+        "type": "string",
+        "name": "Date de délivrance",
+        "format": "date-time",
+        "description": "Date de délivrance du permis de conduire (format JJ/MM/AAAA). Si absente, renseigner `null`.",
+        "example": "15/06/2010"
+      },
+      "date_expiration": {
+        "type": "string",
+        "name": "Date d'expiration",
+        "format": "date-time",
+        "description": "Date limite de validité du permis de conduire (format JJ/MM/AAAA). Si absente, renseigner `null`.",
+        "example": "15/06/2030"
+      },
+      "nom": {
+        "type": "string",
+        "name": "Nom",
+        "description": "Nom de famille du titulaire (en majuscules sur le document).",
+        "example": "DUPONT"
+      },
+      "prenom": {
+        "type": "string",
+        "name": "Prénom",
+        "description": "Prénom du titulaire (premier prénom).",
+        "example": "JEAN"
+      },
+      "date_naissance": {
+        "type": "string",
+        "name": "Date de naissance",
+        "format": "date-time",
+        "description": "Date de naissance du titulaire (format JJ/MM/AAAA). Si absente, renseigner `null`.",
+        "example": "01/01/1990"
+      },
+      "lieu_naissance": {
+        "type": "string",
+        "name": "Lieu de naissance",
+        "description": "Lieu de naissance du titulaire (ville). Si absente, renseigner `null`.",
+        "example": "PARIS"
+      },
+      "adresse": {
+        "type": "string",
+        "name": "Adresse",
+        "description": "Adresse de résidence du titulaire. Si absente, renseigner `null`.",
+        "example": "123 Rue de la Paix, 75008 Paris"
+      }
+    },
+    "required": [
+      "numero_document",
+      "date_delivrance",
+      "date_expiration",
+      "nom",
+      "prenom",
+      "date_naissance"
+    ]
+  }
+}
