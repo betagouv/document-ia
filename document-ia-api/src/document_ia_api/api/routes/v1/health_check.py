@@ -6,7 +6,7 @@ from fastapi import HTTPException, status
 
 from document_ia_api.api.config import settings
 from document_ia_api.api.contracts.common import HealthCheckResponse
-from document_ia_api.infra.database.database import check_database_connectivity
+from document_ia_api.infra.database_service import database_service
 from document_ia_api.infra.redis_service import redis_service
 from document_ia_api.infra.s3_service import s3_service
 from document_ia_api.infra.schemas import (
@@ -115,7 +115,7 @@ async def health_check() -> HealthCheckResponse:
         redis_connectivity = await redis_service.check_connectivity()
 
         # Perform Database connectivity check
-        database_connectivity = await check_database_connectivity()
+        database_connectivity = await database_service.check_database_connectivity()
 
         # Determine overall health status based on service health flags
         if (

@@ -9,12 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from document_ia_api.application.services.event_store_service import EventStoreService
 from document_ia_api.core.file_validator import validate_uploaded_file
+from document_ia_infra.data.workflow.repository.worflow import workflow_repository
 from document_ia_infra.redis.publisher import Publisher
 from document_ia_infra.redis.model.workflow_execution_message import (
     WorkflowExecutionMessage,
 )
 from document_ia_infra.redis.redis_settings import redis_settings
-from document_ia_api.infra.database.repositories.workflow import workflow_repository
 from document_ia_api.infra.s3_service import s3_service
 from document_ia_api.schemas.workflow import WorkflowExecutionData
 
@@ -95,7 +95,7 @@ class WorkflowService:
 
             # Emit workflow started event
             try:
-                event_store_service = EventStoreService(self.db_session)
+                event_store_service = EventStoreService()
                 await event_store_service.emit_workflow_started(
                     workflow_id=workflow_id,
                     execution_id=execution_id,

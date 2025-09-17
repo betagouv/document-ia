@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 from typing import Optional, List
 
-from document_ia_api.schemas.workflow import WorkflowDefinition
+from document_ia_infra.data.workflow.model.workflow_definition import WorkflowDefinition
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +23,8 @@ class WorkflowRepository:
             # Default path relative to the project root
             current_dir = Path(__file__).parent
             # Go up from: src/infra/database/repositories/ to src/
-            src_dir = current_dir.parent.parent.parent
-            workflows_file_path = str(src_dir / "data" / "workflows.json")
+            data_package_dir = current_dir.parent
+            workflows_file_path = str(data_package_dir / "data" / "workflows.json")
 
         self.workflows_file_path = Path(workflows_file_path)
 

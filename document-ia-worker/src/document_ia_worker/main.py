@@ -8,12 +8,13 @@ from asyncio import Event
 from types import FrameType
 from typing import Iterable, Optional
 
-from config.logging import setup_logging
 from document_ia_infra.redis.consumer import Consumer
 from document_ia_infra.redis.model.workflow_execution_message import (
     WorkflowExecutionMessage,
 )
 from document_ia_infra.redis.redis_settings import redis_settings
+from document_ia_worker.config.logging import setup_logging
+from document_ia_worker.workflow.message_handler import process_message
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -33,8 +34,10 @@ async def run_consumer() -> None:
         consumer_name=f"document-ia-worker:{os.getpid()}:{int(time.time()) % 10000}",
         consumer_group=redis_settings.EVENT_CONSUMER_GROUP,
         stream_name=redis_settings.EVENT_STREAM_NAME,
-        batch_size=1,
+        batch_size=10,
         block_time=10000,
+        message_class=WorkflowExecutionMessage,
+        process_message_callable=process_message,
     )
 
     await _consumer.start_consumer()

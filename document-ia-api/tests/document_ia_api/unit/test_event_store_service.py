@@ -13,7 +13,7 @@ from uuid import uuid4
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from document_ia_api.application.services.event_store_service import EventStoreService
-from document_ia_api.infra.database.repositories.event_store import EventStoreRepository
+from document_ia_infra.data.event.repository.event import EventRepository
 from document_ia_api.schemas.events import (
     EventStoreRecord,
     WorkflowExecutionStartedEvent,
@@ -33,7 +33,7 @@ def mock_session():
 @pytest.fixture
 def mock_repository():
     """Create a mock event store repository."""
-    repository = AsyncMock(spec=EventStoreRepository)
+    repository = AsyncMock(spec=EventRepository)
     return repository
 
 

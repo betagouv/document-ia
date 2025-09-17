@@ -9,9 +9,10 @@ from document_ia_api.api.contracts.workflow import (
     WorkflowErrorResponse,
 )
 from document_ia_api.application.services.workflow_service import WorkflowService
-from document_ia_api.infra.database.database import async_get_db
 
 import logging
+
+from document_ia_infra.data.database import database_manager
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +130,7 @@ async def execute_workflow(
     metadata: str = Form(..., description="JSON string containing metadata object"),
     api_key: str = Depends(verify_api_key),
     rate_limit_info: RateLimitInfo = Depends(check_rate_limit),
-    db_session: AsyncSession = Depends(async_get_db),
+    db_session: AsyncSession = Depends(database_manager.async_get_db),
 ) -> WorkflowExecuteResponse:
     """
     Execute a document processing workflow with file upload and metadata.

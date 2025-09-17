@@ -9,16 +9,16 @@ import logging
 from typing import List, Optional, Dict, Any
 
 from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from document_ia_api.infra.database.models.event_store import EventStore
-from document_ia_api.schemas.events import EventStoreRecord
+from document_ia_infra.data.event.dto.event_dto import EventDTO
+from document_ia_infra.data.event.entity.event_entity import EventEntity
 
 logger = logging.getLogger(__name__)
 
 
-class EventStoreRepository:
+class EventRepository:
     """Repository for event store database operations."""
 
     def __init__(self, session: AsyncSession):
@@ -31,7 +31,7 @@ class EventStoreRepository:
         event_type: str,
         event_data: Dict[str, Any],
         version: int = 1,
-    ) -> EventStoreRecord:
+    ) -> EventDTO:
         """
         Store an event in the event store.
 
@@ -49,7 +49,7 @@ class EventStoreRepository:
             IntegrityError: If event with same version already exists
         """
         try:
-            event_record = EventStore(
+            event_record = EventEntity(
                 workflow_id=workflow_id,
                 execution_id=execution_id,
                 event_type=event_type,
@@ -66,7 +66,7 @@ class EventStoreRepository:
                 f"(workflow: {workflow_id}, version: {version})"
             )
 
-            return EventStoreRecord(
+            return EventDTO(
                 id=event_record.id,
                 workflow_id=event_record.workflow_id,
                 execution_id=event_record.execution_id,
@@ -89,7 +89,7 @@ class EventStoreRepository:
         workflow_id: Optional[str] = None,
         limit: Optional[int] = None,
         offset: int = 0,
-    ) -> List[EventStoreRecord]:
+    ) -> List[EventDTO]:
         """
         Retrieve events for a specific execution ID.
 
@@ -102,12 +102,12 @@ class EventStoreRepository:
         Returns:
             List[EventStoreRecord]: List of events ordered by creation time
         """
-        query = select(EventStore).where(EventStore.execution_id == execution_id)
+        query = select(EventEntity).where(EventEntity.execution_id == execution_id)
 
         if workflow_id:
-            query = query.where(EventStore.workflow_id == workflow_id)
+            query = query.where(EventEntity.workflow_id == workflow_id)
 
-        query = query.order_by(EventStore.created_at.asc(), EventStore.version.asc())
+        query = query.order_by(EventEntity.created_at.asc(), EventEntity.version.asc())
 
         if offset > 0:
             query = query.offset(offset)
@@ -119,7 +119,7 @@ class EventStoreRepository:
         events = result.scalars().all()
 
         return [
-            EventStoreRecord(
+            EventDTO(
                 id=event.id,
                 workflow_id=event.workflow_id,
                 execution_id=event.execution_id,
@@ -144,12 +144,12 @@ class EventStoreRepository:
         Returns:
             int: Latest version number, 0 if no events exist
         """
-        query = select(func.max(EventStore.version)).where(
-            EventStore.execution_id == execution_id
+        query = select(func.max(EventEntity.version)).where(
+            EventEntity.execution_id == execution_id
         )
 
         if workflow_id:
-            query = query.where(EventStore.workflow_id == workflow_id)
+            query = query.where(EventEntity.workflow_id == workflow_id)
 
         result = await self.session.execute(query)
         max_version = result.scalar()

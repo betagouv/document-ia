@@ -8,7 +8,7 @@ from api.config import settings
 from api.rate_limiting import RateLimitMiddleware
 from api.routes import router
 from core.logging_setup import setup_logging
-from infra.database.database import check_database_connectivity
+from document_ia_api.infra.database_service import database_service
 from infra.database.migration_service import migration_service
 from infra.redis_service import redis_service
 from infra.s3_service import s3_service
@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI):
     # Check S3, Redis, and Database connectivity
     await s3_service.check_connectivity()
     await redis_service.check_connectivity()
-    await check_database_connectivity()
+    await database_service.check_database_connectivity()
     # Run database migrations
     await migration_service.auto_migrate()
 

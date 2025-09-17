@@ -1,6 +1,10 @@
-import pytest
 from unittest.mock import patch
 
+import pytest
+
+from document_ia_api.infra.database.database_connectivity_status import (
+    DatabaseConnectivityStatus,
+)
 from document_ia_api.infra.redis.redis_connectivity_status import (
     RedisConnectivityStatus,
 )
@@ -16,7 +20,7 @@ class TestHealthCheck:
 
         # Mock S3 connectivity check to return healthy status
         mock_s3_connectivity = TestHealthCheck._getHealthyS3Connectivity()
-
+        mock_db_connectivity = TestHealthCheck._getHealthyDBConnectivity()
         mock_redis_connectivity = TestHealthCheck._getHealthyRedisConnectivity()
 
         with (
@@ -26,9 +30,13 @@ class TestHealthCheck:
             patch(
                 "document_ia_api.infra.redis_service.redis_service.check_connectivity"
             ) as mock_redis_check,
+            patch(
+                "document_ia_api.infra.database_service.database_service.check_database_connectivity"
+            ) as mock_db_check,
         ):
             mock_s3_check.return_value = mock_s3_connectivity
             mock_redis_check.return_value = mock_redis_connectivity
+            mock_db_check.return_value = mock_db_connectivity
 
             response = client_with_api_key.get("/api/v1/health")
 
@@ -58,7 +66,7 @@ class TestHealthCheck:
 
         # Mock S3 connectivity check to return unhealthy status
         mock_s3_connectivity = TestHealthCheck._getUnhealthyS3Connectivity()
-
+        mock_db_connectivity = TestHealthCheck._getHealthyDBConnectivity()
         mock_redis_connectivity = TestHealthCheck._getHealthyRedisConnectivity()
 
         with (
@@ -68,9 +76,13 @@ class TestHealthCheck:
             patch(
                 "document_ia_api.infra.redis_service.redis_service.check_connectivity"
             ) as mock_redis_check,
+            patch(
+                "document_ia_api.infra.database_service.database_service.check_database_connectivity"
+            ) as mock_db_check,
         ):
             mock_s3_check.return_value = mock_s3_connectivity
             mock_redis_check.return_value = mock_redis_connectivity
+            mock_db_check.return_value = mock_db_connectivity
 
             response = client_with_api_key.get("/api/v1/health")
 
@@ -89,7 +101,7 @@ class TestHealthCheck:
 
         # Mock S3 connectivity check to return healthy status
         mock_s3_connectivity = TestHealthCheck._getHealthyS3Connectivity()
-
+        mock_db_connectivity = TestHealthCheck._getHealthyDBConnectivity()
         # Mock Redis connectivity check to return unhealthy status
         mock_redis_connectivity = TestHealthCheck._getUnhealthyRedisConnectivity()
 
@@ -100,9 +112,13 @@ class TestHealthCheck:
             patch(
                 "document_ia_api.infra.redis_service.redis_service.check_connectivity"
             ) as mock_redis_check,
+            patch(
+                "document_ia_api.infra.database_service.database_service.check_database_connectivity"
+            ) as mock_db_check,
         ):
             mock_s3_check.return_value = mock_s3_connectivity
             mock_redis_check.return_value = mock_redis_connectivity
+            mock_db_check.return_value = mock_db_connectivity
 
             response = client_with_api_key.get("/api/v1/health")
 
@@ -121,7 +137,7 @@ class TestHealthCheck:
 
         # Mock S3 connectivity check to return unhealthy status
         mock_s3_connectivity = TestHealthCheck._getUnhealthyS3Connectivity()
-
+        mock_db_connectivity = TestHealthCheck._getHealthyDBConnectivity()
         # Mock Redis connectivity check to return unhealthy status
         mock_redis_connectivity = TestHealthCheck._getUnhealthyRedisConnectivity()
 
@@ -132,9 +148,13 @@ class TestHealthCheck:
             patch(
                 "document_ia_api.infra.redis_service.redis_service.check_connectivity"
             ) as mock_redis_check,
+            patch(
+                "document_ia_api.infra.database_service.database_service.check_database_connectivity"
+            ) as mock_db_check,
         ):
             mock_s3_check.return_value = mock_s3_connectivity
             mock_redis_check.return_value = mock_redis_connectivity
+            mock_db_check.return_value = mock_db_connectivity
 
             response = client_with_api_key.get("/api/v1/health")
 
@@ -158,11 +178,15 @@ class TestHealthCheck:
             patch(
                 "document_ia_api.infra.redis_service.redis_service.check_connectivity"
             ) as mock_redis_check,
+            patch(
+                "document_ia_api.infra.database_service.database_service.check_database_connectivity"
+            ) as mock_db_check,
         ):
             mock_s3_check.side_effect = Exception("S3 service unavailable")
             mock_redis_check.return_value = (
                 TestHealthCheck._getHealthyRedisConnectivity()
             )
+            mock_db_check.return_value = TestHealthCheck._getHealthyDBConnectivity()
 
             response = client_with_api_key.get("/api/v1/health")
 
@@ -215,4 +239,12 @@ class TestHealthCheck:
             host="localhost",
             port=6379,
             errors=["Redis connection failed"],
+        )
+
+    @staticmethod
+    def _getHealthyDBConnectivity():
+        return DatabaseConnectivityStatus(
+            connected=True,
+            is_healthy=True,
+            errors=[],
         )
