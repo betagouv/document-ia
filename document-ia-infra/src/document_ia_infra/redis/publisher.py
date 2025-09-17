@@ -9,9 +9,9 @@ from typing import TypeVar, Generic
 
 from redis.typing import EncodableT
 
-from document_ia_redis.redis_manager import redis_manager
-from document_ia_redis.redis_settings import redis_settings
-from document_ia_redis.serializable_message import SerializableMessage
+from document_ia_infra.redis.redis_manager import redis_manager
+from document_ia_infra.redis.redis_settings import redis_settings
+from document_ia_infra.redis.serializable_message import SerializableMessage
 
 logger = logging.getLogger(__name__)
 

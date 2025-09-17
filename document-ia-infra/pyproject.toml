@@ -5,7 +5,7 @@ description = "Code des briques d'infrastructure pour Document IA"
 authors = ["Nicolas Sagon <nicolas.sagon@beta.gouv.fr>"]
 readme = "README.md"
 packages = [
-    { include = "document_ia_redis", from = "src" },
+    { include = "document_ia_infra", from = "src" },
 ]
 
 [tool.poetry.dependencies]

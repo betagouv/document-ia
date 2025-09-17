@@ -1,6 +1,6 @@
 from dataclasses import dataclass, asdict
 
-from document_ia_redis.serializable_message import SerializableMessage
+from document_ia_infra.redis.serializable_message import SerializableMessage
 
 
 @dataclass
