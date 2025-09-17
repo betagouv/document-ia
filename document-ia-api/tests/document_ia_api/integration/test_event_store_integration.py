@@ -5,34 +5,26 @@ This module contains integration tests that test the complete event store
 functionality with real database interactions.
 """
 
-import pytest
 from uuid import uuid4
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
-from document_ia_api.infra.config import settings
+import pytest
+
 from document_ia_api.application.services.event_store_service import EventStoreService
 from document_ia_api.schemas.events import EventStoreRecord, EventStream
+from document_ia_infra.data.database import database_manager
 
 
 @pytest.fixture(scope="function")
 async def db_session():
-    """Create a real database session for integration tests."""
-    # Create a fresh engine for each test to avoid connection sharing issues
-    engine = create_async_engine(
-        settings.get_database_url(async_connection=True), echo=False, future=True
-    )
-    session_factory = async_sessionmaker(
-        bind=engine, class_=AsyncSession, expire_on_commit=False
-    )
-
-    async with session_factory() as session:
+    # Empêche la réutilisation d'une connexion asyncpg liée à un autre event loop
+    await database_manager.async_engine.dispose()
+    async with database_manager.local_session() as session:  # type: AsyncSession
         try:
             yield session
         finally:
+            if session.in_transaction():
+                await session.rollback()
             await session.close()
-
-    # Clean up the engine
-    await engine.dispose()
 
 
 @pytest.fixture(scope="function")
@@ -41,12 +33,10 @@ async def event_store_service(db_session):
     return EventStoreService(db_session)
 
 
-@pytest.mark.asyncio
 class TestEventStoreIntegration:
     """Integration tests for event store functionality."""
 
     async def test_full_event_lifecycle(self, event_store_service, db_session):
-        """Test complete event lifecycle from creation to retrieval."""
         # Arrange
         workflow_id = "integration_test_workflow"
         execution_id = str(uuid4())

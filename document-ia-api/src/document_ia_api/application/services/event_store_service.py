@@ -10,9 +10,9 @@ from datetime import datetime, UTC
 from typing import List, Optional, Dict, Any
 from uuid import uuid4
 
+from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from document_ia_api.infra.database.repositories.event_store import EventStoreRepository
 from document_ia_api.schemas.events import (
     BaseEvent,
     WorkflowExecutionStartedEvent,
@@ -22,6 +22,9 @@ from document_ia_api.schemas.events import (
     EventStoreRecord,
     EventStream,
 )
+from document_ia_api.schemas.mappers.event_mapper import convert_event_dto
+from document_ia_infra.data.database import database_manager
+from document_ia_infra.data.event.repository.event import EventRepository
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +32,8 @@ logger = logging.getLogger(__name__)
 class EventStoreService:
     """Service for event store business logic and event handling."""
 
-    def __init__(self, session: AsyncSession):
-        self.repository = EventStoreRepository(session)
+    def __init__(self, session: AsyncSession = Depends(database_manager.async_get_db)):
+        self.repository = EventRepository(session)
         self.session = session
 
     async def store_event(self, event: BaseEvent) -> EventStoreRecord:
@@ -73,7 +76,7 @@ class EventStoreService:
                 f"for execution {event.execution_id} (version: {next_version})"
             )
 
-            return stored_event
+            return convert_event_dto(stored_event)
 
         except Exception as e:
             logger.error(
@@ -101,12 +104,13 @@ class EventStoreService:
         Returns:
             List[EventStoreRecord]: List of events ordered by creation time
         """
-        return await self.repository.get_events_by_execution_id(
+        event_dto_list = await self.repository.get_events_by_execution_id(
             execution_id=execution_id,
             workflow_id=workflow_id,
             limit=limit,
             offset=offset,
         )
+        return [convert_event_dto(event_dto) for event_dto in event_dto_list]
 
     async def get_event_stream(
         self, execution_id: str, workflow_id: Optional[str] = None

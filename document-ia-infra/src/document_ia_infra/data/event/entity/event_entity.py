@@ -14,10 +14,10 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
-from document_ia_api.infra.database.database import Base
+from document_ia_infra.data.database import Base
 
 
-class EventStore(Base):
+class EventEntity(Base):
     """
     Event store table for storing workflow execution events.
 

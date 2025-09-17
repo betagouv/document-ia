@@ -7,8 +7,8 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy.exc import ProgrammingError
 
-from document_ia_api.infra.config import settings
-from document_ia_api.infra.database.database import async_engine
+from document_ia_infra.data.data_settings import database_settings
+from document_ia_infra.data.database import database_manager
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ class MigrationService:
 
     async def _get_db_revision(self) -> str | None:
         """Retourne la révision Alembic en DB (ou None si table absente)."""
-        async with async_engine.connect() as conn:
+        async with database_manager.async_engine.connect() as conn:
             try:
                 res = await conn.exec_driver_sql(
                     "SELECT version_num FROM alembic_version"
@@ -58,7 +58,7 @@ class MigrationService:
     async def auto_migrate(self) -> None:
         cfg = Config(str(self.alembic_ini_path))
         cfg.set_main_option(
-            "sqlalchemy.url", settings.get_database_url(async_connection=True)
+            "sqlalchemy.url", database_settings.get_database_url(async_connection=True)
         )
         cfg.set_main_option("script_location", str(self.alembic_script_location))
         # Ne pas laisser Alembic reconfigurer les logs

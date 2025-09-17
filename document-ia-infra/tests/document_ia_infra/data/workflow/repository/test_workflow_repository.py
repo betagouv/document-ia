@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from document_ia_api.infra.database.repositories.workflow import WorkflowRepository
+from document_ia_infra.data.workflow.repository.worflow import WorkflowRepository
 
 
 class TestWorkflowRepository:

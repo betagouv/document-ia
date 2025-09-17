@@ -5,8 +5,8 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from infra.config import settings
-from infra.database.database import Base
+from document_ia_infra.data.data_settings import database_settings as settings
+from document_ia_infra.data.database import Base
 
 target_metadata = Base.metadata
 

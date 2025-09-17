@@ -5,17 +5,16 @@ This module contains comprehensive unit tests for the event store repository,
 testing all CRUD operations and event stream functionality.
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock
 from datetime import datetime, UTC
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
-from sqlalchemy.ext.asyncio import AsyncSession
+import pytest
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from document_ia_api.infra.database.repositories.event_store import EventStoreRepository
-from document_ia_api.infra.database.models.event_store import EventStore
-from document_ia_api.schemas.events import EventStoreRecord
+from document_ia_infra.data.event.dto.event_dto import EventDTO
+from document_ia_infra.data.event.repository.event import EventRepository
 
 
 @pytest.fixture
@@ -32,9 +31,9 @@ def mock_session():
 
 
 @pytest.fixture
-def event_store_repository(mock_session):
-    """Create an EventStoreRepository instance with mock session."""
-    return EventStoreRepository(mock_session)
+def event_repository(mock_session):
+    """Create an EventRepository instance with mock session."""
+    return EventRepository(mock_session)
 
 
 @pytest.fixture
@@ -52,11 +51,11 @@ def sample_event_data():
     }
 
 
-class TestEventStoreRepository:
-    """Test cases for EventStoreRepository."""
+class TestEventRepository:
+    """Test cases for EventRepository."""
 
     async def test_put_event_success(
-        self, event_store_repository, mock_session, sample_event_data
+        self, event_repository, mock_session, sample_event_data
     ):
         """Test successful event storage."""
         # Arrange
@@ -71,7 +70,7 @@ class TestEventStoreRepository:
         mock_session.refresh.side_effect = mock_refresh
 
         # Act
-        result = await event_store_repository.put_event(
+        result = await event_repository.put_event(
             workflow_id="test_workflow_001",
             execution_id="test_execution_001",
             event_type="WorkflowExecutionStarted",
@@ -80,7 +79,7 @@ class TestEventStoreRepository:
         )
 
         # Assert
-        assert isinstance(result, EventStoreRecord)
+        assert isinstance(result, EventDTO)
         assert result.workflow_id == "test_workflow_001"
         assert result.execution_id == "test_execution_001"
         assert result.event_type == "WorkflowExecutionStarted"
@@ -90,7 +89,7 @@ class TestEventStoreRepository:
         mock_session.refresh.assert_called_once()
 
     async def test_put_event_integrity_error(
-        self, event_store_repository, mock_session, sample_event_data
+        self, event_repository, mock_session, sample_event_data
     ):
         """Test event storage with integrity error."""
         # Arrange
@@ -98,7 +97,7 @@ class TestEventStoreRepository:
 
         # Act & Assert
         with pytest.raises(IntegrityError):
-            await event_store_repository.put_event(
+            await event_repository.put_event(
                 workflow_id="test_workflow_001",
                 execution_id="test_execution_001",
                 event_type="WorkflowExecutionStarted",
@@ -108,13 +107,11 @@ class TestEventStoreRepository:
 
         mock_session.rollback.assert_called_once()
 
-    async def test_get_events_by_execution_id(
-        self, event_store_repository, mock_session
-    ):
+    async def test_get_events_by_execution_id(self, event_repository, mock_session):
         """Test retrieving events by execution ID."""
         # Arrange
         mock_events = [
-            EventStore(
+            EventDTO(
                 id=uuid4(),
                 created_at=datetime.now(UTC),
                 workflow_id="test_workflow_001",
@@ -123,7 +120,7 @@ class TestEventStoreRepository:
                 event={"test": "data1"},
                 version=1,
             ),
-            EventStore(
+            EventDTO(
                 id=uuid4(),
                 created_at=datetime.now(UTC),
                 workflow_id="test_workflow_001",
@@ -139,23 +136,23 @@ class TestEventStoreRepository:
         mock_session.execute.return_value = mock_result
 
         # Act
-        result = await event_store_repository.get_events_by_execution_id(
+        result = await event_repository.get_events_by_execution_id(
             execution_id="test_execution_001"
         )
 
         # Assert
         assert len(result) == 2
-        assert all(isinstance(event, EventStoreRecord) for event in result)
+        assert all(isinstance(event, EventDTO) for event in result)
         assert result[0].execution_id == "test_execution_001"
         assert result[1].execution_id == "test_execution_001"
 
     async def test_get_events_by_execution_id_with_workflow_filter(
-        self, event_store_repository, mock_session
+        self, event_repository, mock_session
     ):
         """Test retrieving events by execution ID with workflow filter."""
         # Arrange
         mock_events = [
-            EventStore(
+            EventDTO(
                 id=uuid4(),
                 workflow_id="test_workflow_001",
                 execution_id="test_execution_001",
@@ -171,7 +168,7 @@ class TestEventStoreRepository:
         mock_session.execute.return_value = mock_result
 
         # Act
-        result = await event_store_repository.get_events_by_execution_id(
+        result = await event_repository.get_events_by_execution_id(
             execution_id="test_execution_001", workflow_id="test_workflow_001"
         )
 
@@ -180,12 +177,12 @@ class TestEventStoreRepository:
         assert result[0].workflow_id == "test_workflow_001"
 
     async def test_get_events_by_execution_id_with_limit_and_offset(
-        self, event_store_repository, mock_session
+        self, event_repository, mock_session
     ):
         """Test retrieving events with limit and offset."""
         # Arrange
         mock_events = [
-            EventStore(
+            EventDTO(
                 id=uuid4(),
                 workflow_id="test_workflow_001",
                 execution_id="test_execution_001",
@@ -201,7 +198,7 @@ class TestEventStoreRepository:
         mock_session.execute.return_value = mock_result
 
         # Act
-        result = await event_store_repository.get_events_by_execution_id(
+        result = await event_repository.get_events_by_execution_id(
             execution_id="test_execution_001", limit=10, offset=5
         )
 
@@ -209,7 +206,7 @@ class TestEventStoreRepository:
         assert len(result) == 1
         mock_session.execute.assert_called_once()
 
-    async def test_get_latest_event_version(self, event_store_repository, mock_session):
+    async def test_get_latest_event_version(self, event_repository, mock_session):
         """Test getting latest event version."""
         # Arrange
         mock_result = MagicMock()
@@ -217,7 +214,7 @@ class TestEventStoreRepository:
         mock_session.execute.return_value = mock_result
 
         # Act
-        result = await event_store_repository.get_latest_event_version(
+        result = await event_repository.get_latest_event_version(
             execution_id="test_execution_001"
         )
 
@@ -225,7 +222,7 @@ class TestEventStoreRepository:
         assert result == 5
 
     async def test_get_latest_event_version_no_events(
-        self, event_store_repository, mock_session
+        self, event_repository, mock_session
     ):
         """Test getting latest event version when no events exist."""
         # Arrange
@@ -234,7 +231,7 @@ class TestEventStoreRepository:
         mock_session.execute.return_value = mock_result
 
         # Act
-        result = await event_store_repository.get_latest_event_version(
+        result = await event_repository.get_latest_event_version(
             execution_id="nonexistent_execution"
         )
 

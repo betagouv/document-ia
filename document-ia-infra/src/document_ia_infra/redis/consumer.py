@@ -5,8 +5,10 @@ Classe Consumer commune pour les consumers Redis Stream
 import asyncio  # remplacement de threading+sleep
 import logging
 from asyncio import Task
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from typing import TypeVar, Generic, Optional, Any
+from typing import TypeVar, Generic, Optional, Any, Coroutine, cast
+import functools
 
 from redis import ResponseError
 from redis.asyncio import Redis
@@ -20,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=SerializableMessage)
 
-RECLAIM_IDLE_MS = 10000
+RECLAIM_IDLE_MS = 60000
 
 
 class Consumer(Generic[T]):
@@ -31,6 +33,8 @@ class Consumer(Generic[T]):
         stream_name: str,
         batch_size: int,
         block_time: int,
+        message_class: type[T],
+        process_message_callable: Callable[[T], Coroutine[Any, Any, None]],
         worker_number: int = 1,
     ):
         self.redis: Optional[Redis] = None
@@ -39,6 +43,8 @@ class Consumer(Generic[T]):
         self.consumer_name = consumer_name
         self.stream_name = stream_name
         self.consumer_group = consumer_group
+        self.message_class = message_class
+        self.process_message_callable = process_message_callable
 
         # Configuration du consumer
         self.batch_size = batch_size
@@ -91,6 +97,7 @@ class Consumer(Generic[T]):
     async def _start_listening_messages(self):
         self.redis = await self._get_safe_redis_connection()
         try:
+            loop = asyncio.get_running_loop()
             while not self.stop_flag.is_set():
                 response = await self.redis.xreadgroup(
                     self.consumer_group,
@@ -104,16 +111,87 @@ class Consumer(Generic[T]):
                     continue
 
                 _, entries = response[0]
+                if not entries:
+                    continue
+
+                future_map: dict[asyncio.Future[Any], str] = {}
+                # Soumission en parallèle
                 for msg in entries:
-                    message_data: T = msg[1]["data"]
-                    logger.info(f"Received message: {msg} with data : {message_data}")
-                    await self.redis.xack(self.stream_name, self.consumer_group, msg[0])
-                    raise NotImplementedError("Process the message here")
+                    msg_id = msg[0]
+                    raw_data = msg[1]["data"]
+                    try:
+                        message_data: T = cast(
+                            T, self.message_class.from_json(raw_data)
+                        )
+                    # TODO pu the message in dead-letter queue
+                    except Exception as decode_err:
+                        logger.error(f"Erreur décodage message {msg_id}: {decode_err}")
+                        # On ack pour éviter boucle infinie sur message pourri
+                        await self.redis.xack(
+                            self.stream_name, self.consumer_group, msg_id
+                        )
+                        continue
+
+                    func = functools.partial(
+                        self._process_message_sync_wrapper, message_data
+                    )
+                    fut = loop.run_in_executor(self.executor, func)
+                    future_map[fut] = msg_id
+
+                # Ack au fur et à mesure des finitions
+                pending = set(future_map.keys())
+                while pending:
+                    done, pending = await asyncio.wait(
+                        pending, return_when=asyncio.FIRST_COMPLETED
+                    )
+                    for fut in done:
+                        msg_id = future_map[fut]
+                        try:
+                            fut.result()  # propage exception éventuelle
+                        # TODO Handle Retry / DLQ
+                        except Exception as proc_err:
+                            logger.error(
+                                f"Echec traitement message {msg_id}: {proc_err}. Pas d'ACK pour retry."
+                            )
+                            continue
+                        try:
+                            logger.info("Message successfully acknowledged")
+                            await self.redis.xack(
+                                self.stream_name, self.consumer_group, msg_id
+                            )
+                        except Exception as ack_err:
+                            logger.error(
+                                f"Erreur ACK message {msg_id}: {ack_err} (risk de retraitement)."
+                            )
 
         except Exception as e:
             logger.error(f"Error in consumer loop shutdown: {e}")
             self.stop_flag.set()
             raise e
+
+    def _process_message_sync_wrapper(self, message: T) -> None:
+        """Fonction exécutée dans un thread.
+        Crée un nouvel event loop pour exécuter le coroutine process_message_callable.
+        ATTENTION: si process_message_callable accède à des objets liés à l'event loop principal
+        (ex: connexion Redis asynchrone déjà créée), cela peut poser problème. Dans ce cas il
+        faudrait refactorer pour ne déplacer dans le thread que la partie CPU-bound.
+        """
+        loop = asyncio.new_event_loop()
+        try:
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self.process_message_callable(message))
+        finally:
+            try:
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            except Exception:
+                pass
+            loop.close()
+
+    async def _run_processing_in_executor(self, message: T) -> None:
+        loop = asyncio.get_running_loop()
+        # Utilise functools.partial pour passer l'argument
+        func = functools.partial(self._process_message_sync_wrapper, message)
+        await loop.run_in_executor(self.executor, func)
 
     async def _ensure_consumer_group(self, redis_connection: Redis):
         try:
