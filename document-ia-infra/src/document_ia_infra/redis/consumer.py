@@ -4,7 +4,7 @@ Classe Consumer commune pour les consumers Redis Stream
 
 import asyncio  # remplacement de threading+sleep
 import logging
-from asyncio import Future
+from asyncio import Task
 from concurrent.futures import ThreadPoolExecutor
 from typing import TypeVar, Generic, Optional, Any
 
@@ -13,10 +13,8 @@ from redis.asyncio import Redis
 
 from document_ia_infra.redis.redis_manager import (
     redis_manager as redis_manager_main_thread,
-    RedisManager,
 )
 from document_ia_infra.redis.serializable_message import SerializableMessage
-from document_ia_worker.core.threading.AsyncThread import AsyncThread
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +34,8 @@ class Consumer(Generic[T]):
         worker_number: int = 1,
     ):
         self.redis: Optional[Redis] = None
-        self.reclaimer_thread: Optional[Future[Any]] = None
+        self.reclaimer_task: Optional[Task[Any]] = None
+        self.stop_flag = asyncio.Event()
         self.consumer_name = consumer_name
         self.stream_name = stream_name
         self.consumer_group = consumer_group
@@ -45,7 +44,6 @@ class Consumer(Generic[T]):
         self.batch_size = batch_size
         self.block_time = block_time  # en ms pour xreadgroup
         self.worker_number = worker_number
-        self.stop_flag = False
 
         self.executor = ThreadPoolExecutor(max_workers=self.worker_number)
 
@@ -55,19 +53,19 @@ class Consumer(Generic[T]):
 
         try:
             await self._init_consumer()
-        except (ConnectionError, Exception) as e:
-            logger.error(f"❌ Failed to start consumer {self.consumer_name}: {e}")
-            return
-
-        # Lancement de la tâche de réclamation asynchrone
-        self._start_reclaimer_task()
-        await self._start_listening_messages()
-
-        await self._de_init_consumer()
-
-    def stop_signal(self):
-        logger.info(f"need to shut down consumer {self.consumer_name}")
-        self.stop_flag = True
+            async with asyncio.TaskGroup() as tg:
+                self.reclaimer_task = tg.create_task(
+                    self._reclaim_pending_messages(),
+                    name=f"reclaimer-{self.consumer_name}",
+                )
+                tg.create_task(
+                    self._start_listening_messages(),
+                    name=f"listener-{self.consumer_name}",
+                )
+        except Exception as e:
+            raise e
+        finally:
+            await self._de_init_consumer()
 
     async def _init_consumer(self):
         try:
@@ -81,17 +79,19 @@ class Consumer(Generic[T]):
             ) from e
 
     async def _de_init_consumer(self):
-        logger.info(f"Consumer {self.consumer_name} stopped")
-        if self.reclaimer_thread is not None:
-            logger.info("Waiting for reclaimer task to finish...")
-            # Signale d'arrêt déjà posé par stop_flag
-            await self.reclaimer_thread
+        logger.info(f"Consumer {self.consumer_name} stopping...")
+        if self.reclaimer_task:
+            try:
+                await asyncio.wait_for(self.reclaimer_task, timeout=10)
+            except Exception:
+                pass
+        self.executor.shutdown(wait=True)
         await redis_manager_main_thread.close()
 
     async def _start_listening_messages(self):
         self.redis = await self._get_safe_redis_connection()
         try:
-            while not self.stop_flag:
+            while not self.stop_flag.is_set():
                 response = await self.redis.xreadgroup(
                     self.consumer_group,
                     self.consumer_name,
@@ -105,12 +105,15 @@ class Consumer(Generic[T]):
 
                 _, entries = response[0]
                 for msg in entries:
-                    logger.info(f"Received message: {msg}")
+                    message_data: T = msg[1]["data"]
+                    logger.info(f"Received message: {msg} with data : {message_data}")
+                    await self.redis.xack(self.stream_name, self.consumer_group, msg[0])
+                    raise NotImplementedError("Process the message here")
 
         except Exception as e:
-            logger.error(f"Error in consumer loop: {e}")
-            self.stop_signal()
-            return
+            logger.error(f"Error in consumer loop shutdown: {e}")
+            self.stop_flag.set()
+            raise e
 
     async def _ensure_consumer_group(self, redis_connection: Redis):
         try:
@@ -138,41 +141,21 @@ class Consumer(Generic[T]):
             raise ConnectionError("No Redis connection available")
         return self.redis
 
-    def _start_reclaimer_task(self):
-        if self.reclaimer_thread is not None:
-            return
-
-        async_thread = AsyncThread(
-            target=self._reclaim_pending_messages(),
-            name=f"reclaimer-{self.consumer_name}",
-            daemon=True,
-        )
-
-        self.reclaimer_thread = async_thread.start()
-        logger.info(
-            f"Reclaimer daemon thread started for consumer {self.consumer_name}"
-        )
-
-    # This method runs inside a separate thread
     # It reclaims pending messages that have been idle for more than RECLAIM_IDLE_MS
     # and re-queues them for processing
     # It uses xautoclaim to claim messages and xadd to re-queue them
     # It also increments a "retries" field in the message to track how many times it has been retried
     # If the retries exceed a certain threshold, it could be sent to a dead-letter queue (not implemented here)
     async def _reclaim_pending_messages(self):
-        threaded_redis_manger = RedisManager()
         logger.info(f"Reclaimer task started idle_ms = {RECLAIM_IDLE_MS}")
         start = "0-0"
 
-        redis_connection = await threaded_redis_manger.get_connection()
-        if redis_connection is None:
-            logger.error("❌ No Redis connection available for reclaimer")
-            return
+        self.redis = await self._get_safe_redis_connection()
 
         # Boucle continue jusqu'à stop_flag
-        while not self.stop_flag:
+        while not self.stop_flag.is_set():
             try:
-                next_start, claimed, _ = await redis_connection.xautoclaim(
+                next_start, claimed, _ = await self.redis.xautoclaim(
                     self.stream_name,
                     self.consumer_group,
                     self.consumer_name,
@@ -186,12 +169,12 @@ class Consumer(Generic[T]):
                     fields["retries"] = str(retries)
                     # TODO : add DLQ handling if retries > max_retries
                     try:
-                        await redis_connection.xack(
+                        await self.redis.xadd(self.stream_name, fields)
+                        logger.info(f"Add new message with fields: {fields}")
+                        await self.redis.xack(
                             self.stream_name, self.consumer_group, msg_id
                         )
                         logger.info(f"Acknowledged reclaimed message {msg_id}")
-                        await redis_connection.xadd(self.stream_name, fields)
-                        logger.info(f"Add new message with fields: {fields}")
                     except Exception as ack_err:
                         logger.error(
                             f"Failed to requeue reclaimed message {msg_id}: {ack_err}"
@@ -205,5 +188,4 @@ class Consumer(Generic[T]):
                 logger.error(f"Error reclaiming pending messages: {e}")
                 await asyncio.sleep(5)
                 continue
-        await threaded_redis_manger.close()
         logger.info("Reclaimer task stopped")
