@@ -1,8 +1,9 @@
 import asyncio
+import contextlib
 import logging
 import os
-import time
 import signal
+import time
 from asyncio import Event
 from types import FrameType
 from typing import Iterable, Optional
@@ -43,10 +44,6 @@ def _register_signal_handlers(
     stop_event: asyncio.Event, sigs: Iterable[int] = (signal.SIGINT, signal.SIGTERM)
 ) -> None:
     def _handle_signal(signum: int, _frame: FrameType | None) -> None:
-        logger.info("Signal %s reçu, arrêt demandé.", signum)
-        # Demande d'arrêt du consumer si instancié
-        if _consumer is not None:
-            _consumer.stop_signal()
         stop_event.set()
 
     for s in sigs:
@@ -66,14 +63,31 @@ async def main() -> None:
 
     consumer_task = asyncio.create_task(run_consumer())
 
-    await stop_event.wait()
+    stop_wait = asyncio.create_task(stop_event.wait())
+    done, _ = await asyncio.wait(
+        {consumer_task, stop_wait}, return_when=asyncio.FIRST_COMPLETED
+    )
 
-    logger.info("Arrêt en cours, cancellation du consumer...")
-    consumer_task.cancel()
+    if consumer_task in done:
+        # Le consumer est terminé (erreur ou fin normale)
+        try:
+            await consumer_task
+        except Exception:
+            logger.error("❌ Consumer crashed — exiting with error")
+            raise
+    else:
+        logger.info("Consumer finished gracefully - exiting")
+        return
+
+    if _consumer is not None:
+        _consumer.stop_flag.set()
     try:
-        await consumer_task
-    except asyncio.CancelledError:
-        logger.info("Consumer annulé proprement.")
+        await asyncio.wait_for(consumer_task, timeout=20)
+    except asyncio.TimeoutError:
+        logger.warning("Consumer timed out - exiting")
+        consumer_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await consumer_task
 
 
 if __name__ == "__main__":
