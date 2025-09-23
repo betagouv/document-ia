@@ -12,15 +12,14 @@ class TestS3Service:
         """Test S3 service initialization."""
 
         service = S3Service()
-        assert service.bucket_name is not None
-        assert service.s3_client is not None
+        assert service.s3_manager is not None
 
     @pytest.mark.asyncio
     async def test_s3_upload_file(self):
         """Test S3 file upload."""
 
         # Mock boto3 client at the module level
-        with patch("document_ia_api.infra.s3_service.boto3.client") as mock_boto3:
+        with patch("document_ia_infra.s3.s3_manager.boto3.client") as mock_boto3:
             mock_client = MagicMock()
             mock_boto3.return_value = mock_client
 
@@ -47,7 +46,7 @@ class TestS3Service:
     async def test_s3_connectivity_check_success(self):
         """Test S3 connectivity check with successful connection."""
 
-        with patch("document_ia_api.infra.s3_service.boto3.client") as mock_boto3:
+        with patch("document_ia_infra.s3.s3_manager.boto3.client") as mock_boto3:
             mock_client = MagicMock()
             mock_boto3.return_value = mock_client
 
@@ -69,7 +68,7 @@ class TestS3Service:
     async def test_s3_connectivity_check_credentials_error(self):
         """Test S3 connectivity check with invalid credentials."""
 
-        with patch("document_ia_api.infra.s3_service.boto3.client") as mock_boto3:
+        with patch("document_ia_infra.s3.s3_manager.boto3.client") as mock_boto3:
             mock_client = MagicMock()
             mock_boto3.return_value = mock_client
 
@@ -90,7 +89,7 @@ class TestS3Service:
     async def test_s3_connectivity_check_bucket_not_exists(self):
         """Test S3 connectivity check when bucket doesn't exist."""
 
-        with patch("document_ia_api.infra.s3_service.boto3.client") as mock_boto3:
+        with patch("document_ia_infra.s3.s3_manager.boto3.client") as mock_boto3:
             mock_client = MagicMock()
             mock_boto3.return_value = mock_client
 
