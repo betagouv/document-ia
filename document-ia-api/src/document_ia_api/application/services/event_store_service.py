@@ -12,9 +12,13 @@ from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from document_ia_api.api.exceptions.entity_not_found_exception import (
+    EntityNotFoundException,
+)
 from document_ia_api.schemas.events import EventStoreRecord, EventStream
 from document_ia_api.schemas.mappers.event_mapper import convert_event_dto
 from document_ia_infra.core.model.file_info import FileInfo
+from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.repository.event import EventRepository
 from document_ia_infra.data.event.schema.event import (
     BaseEvent,
@@ -33,6 +37,21 @@ class EventStoreService:
     def __init__(self, session: AsyncSession):
         self.repository = EventRepository(session)
         self.session = session
+
+    async def get_last_event_for_execution_id(self, execution_id: str) -> EventDTO:
+        try:
+            event_dto = await self.repository.get_last_event_by_execution_id(
+                execution_id
+            )
+            if not event_dto:
+                raise EntityNotFoundException("event", execution_id)
+            return event_dto
+
+        except Exception as e:
+            logger.error(
+                f"Failed to get last event for execution_id {execution_id}: {e}"
+            )
+            raise
 
     async def store_event(self, event: BaseEvent) -> EventStoreRecord:
         """
