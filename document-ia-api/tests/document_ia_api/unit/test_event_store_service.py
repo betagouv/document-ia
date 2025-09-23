@@ -13,10 +13,11 @@ from uuid import uuid4
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from document_ia_api.application.services.event_store_service import EventStoreService
+from document_ia_api.schemas.events import EventStoreRecord
+from document_ia_infra.core.model.file_info import FileInfo
 from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.repository.event import EventRepository
-from document_ia_api.schemas.events import (
-    EventStoreRecord,
+from document_ia_infra.data.event.schema.event import (
     WorkflowExecutionStartedEvent,
     WorkflowExecutionStepCompletedEvent,
     WorkflowExecutionCompletedEvent,
@@ -46,6 +47,17 @@ def event_store_service(mock_session, mock_repository):
     return service
 
 
+def _sample_file_info():
+    return FileInfo(
+        filename="test.pdf",
+        size=1024,
+        content_type="application/pdf",
+        s3_key="uploads/test.pdf",
+        uploaded_at=datetime.now(UTC).isoformat(),
+        presigned_url="https://example.com/presigned_url",
+    )
+
+
 @pytest.fixture
 def sample_event():
     """Sample event for testing."""
@@ -55,7 +67,7 @@ def sample_event():
         execution_id="test_execution_001",
         created_at=datetime.now(UTC),
         version=1,
-        file_info={"filename": "test.pdf", "size": 1024},
+        file_info=_sample_file_info(),
         metadata={"source": "test"},
     )
 
@@ -156,7 +168,7 @@ class TestEventStoreService:
         event = event_store_service.create_workflow_started_event(
             workflow_id="test_workflow_001",
             execution_id="test_execution_001",
-            file_info={"filename": "test.pdf"},
+            file_info=_sample_file_info(),
             metadata={"source": "test"},
         )
 
@@ -164,7 +176,7 @@ class TestEventStoreService:
         assert isinstance(event, WorkflowExecutionStartedEvent)
         assert event.workflow_id == "test_workflow_001"
         assert event.execution_id == "test_execution_001"
-        assert event.file_info == {"filename": "test.pdf"}
+        assert event.file_info.filename == "test.pdf"
         assert event.metadata == {"source": "test"}
 
     def test_create_step_completed_event(self, event_store_service):
@@ -246,7 +258,7 @@ class TestEventStoreService:
         result = await event_store_service.emit_workflow_started(
             workflow_id="test_workflow_001",
             execution_id="test_execution_001",
-            file_info={"filename": "test.pdf"},
+            file_info=_sample_file_info(),
             metadata={"source": "test"},
         )
 

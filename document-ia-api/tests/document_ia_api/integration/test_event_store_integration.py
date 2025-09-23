@@ -5,12 +5,14 @@ This module contains integration tests that test the complete event store
 functionality with real database interactions.
 """
 
+from datetime import datetime, UTC
 from uuid import uuid4
 
 import pytest
 
 from document_ia_api.application.services.event_store_service import EventStoreService
 from document_ia_api.schemas.events import EventStoreRecord, EventStream
+from document_ia_infra.core.model.file_info import FileInfo
 from document_ia_infra.data.database import database_manager
 
 
@@ -25,6 +27,17 @@ async def db_session():
             if session.in_transaction():
                 await session.rollback()
             await session.close()
+
+
+def _sample_file_info():
+    return FileInfo(
+        filename="integration_test.pdf",
+        size=1024,
+        content_type="application/pdf",
+        s3_key="uploads/test.pdf",
+        uploaded_at=datetime.now(UTC).isoformat(),
+        presigned_url="https://example.com/presigned_url",
+    )
 
 
 @pytest.fixture(scope="function")
@@ -45,7 +58,7 @@ class TestEventStoreIntegration:
         started_event = await event_store_service.emit_workflow_started(
             workflow_id=workflow_id,
             execution_id=execution_id,
-            file_info={"filename": "integration_test.pdf", "size": 2048},
+            file_info=_sample_file_info(),
             metadata={"source": "integration_test", "priority": "high"},
         )
 
@@ -125,7 +138,7 @@ class TestEventStoreIntegration:
                 event = await event_store_service.emit_workflow_started(
                     workflow_id=workflow_id,
                     execution_id=execution_id,
-                    file_info={"filename": f"version_test_{i}.pdf"},
+                    file_info=_sample_file_info(),
                     metadata={"step": i},
                 )
             elif i == 4:

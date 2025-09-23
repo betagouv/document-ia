@@ -20,6 +20,10 @@ class TestWorkflowRepository:
                 "description": "A test workflow",
                 "version": "1.0.0",
                 "enabled": True,
+                "steps": [
+                    "download_file",
+                    "preprocess_file",
+                ],
                 "supported_file_types": ["application/pdf"],
                 "max_file_size_mb": 10,
                 "processing_timeout_minutes": 15,
@@ -32,6 +36,10 @@ class TestWorkflowRepository:
                 "description": "Another test workflow",
                 "version": "1.0.0",
                 "enabled": False,
+                "steps": [
+                    "download_file",
+                    "preprocess_file",
+                ],
                 "supported_file_types": ["image/jpeg"],
                 "max_file_size_mb": 5,
                 "processing_timeout_minutes": 10,
