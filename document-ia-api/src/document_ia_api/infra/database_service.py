@@ -1,13 +1,11 @@
 import logging
 
-from fastapi import Depends
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from document_ia_api.infra.database.database_connectivity_status import (
     DatabaseConnectivityStatus,
 )
-from document_ia_infra.data.database import database_manager
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +15,7 @@ class DatabaseService:
         pass
 
     async def check_database_connectivity(
-        self, db: AsyncSession = Depends(database_manager.async_get_db)
+        self, db: AsyncSession
     ) -> DatabaseConnectivityStatus:
         """
         Comprehensive database connectivity check.

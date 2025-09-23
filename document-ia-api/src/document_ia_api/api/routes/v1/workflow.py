@@ -1,21 +1,19 @@
+import logging
+
 from fastapi import APIRouter, Depends, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from document_ia_api.api.auth import verify_api_key
-from document_ia_api.api.rate_limiting import check_rate_limit
-from document_ia_api.schemas.rate_limiting import RateLimitInfo
+from document_ia_api.api.contracts.api_error import ApiErrorResponse
 from document_ia_api.api.contracts.workflow import (
     WorkflowExecuteResponse,
-    WorkflowErrorResponse,
 )
+from document_ia_api.api.rate_limiting import check_rate_limit
 from document_ia_api.application.services.workflow_service import WorkflowService
-
-import logging
-
+from document_ia_api.schemas.rate_limiting import RateLimitInfo
 from document_ia_infra.data.database import database_manager
 
 logger = logging.getLogger(__name__)
-
 
 router = APIRouter(prefix="/workflows")
 
@@ -52,7 +50,7 @@ router = APIRouter(prefix="/workflows")
             },
         },
         400: {
-            "model": WorkflowErrorResponse,
+            "model": ApiErrorResponse,
             "description": "Invalid request data or file validation error",
             "content": {
                 "application/json": {

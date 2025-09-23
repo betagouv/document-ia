@@ -1,8 +1,9 @@
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi import HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from document_ia_api.api.config import settings
 from document_ia_api.api.contracts.common import HealthCheckResponse
@@ -14,6 +15,7 @@ from document_ia_api.infra.schemas import (
     RedisHealthStatus,
     DatabaseHealthStatus,
 )
+from document_ia_infra.data.database import database_manager
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +93,9 @@ router = APIRouter()
     },
     tags=["Health"],
 )
-async def health_check() -> HealthCheckResponse:
+async def health_check(
+    db: AsyncSession = Depends(database_manager.async_get_db),
+) -> HealthCheckResponse:
     """
     Health check endpoint for monitoring and load balancer health checks.
 
@@ -115,7 +119,7 @@ async def health_check() -> HealthCheckResponse:
         redis_connectivity = await redis_service.check_connectivity()
 
         # Perform Database connectivity check
-        database_connectivity = await database_service.check_database_connectivity()
+        database_connectivity = await database_service.check_database_connectivity(db)
 
         # Determine overall health status based on service health flags
         if (
