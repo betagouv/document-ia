@@ -10,10 +10,10 @@ from uuid import uuid4
 
 import pytest
 
-from document_ia_api.application.services.event_store_service import EventStoreService
-from document_ia_api.schemas.events import EventStoreRecord, EventStream
 from document_ia_infra.core.model.file_info import FileInfo
 from document_ia_infra.data.database import database_manager
+from document_ia_infra.data.event.schema.event import EventStoreRecord, EventStream
+from document_ia_infra.service.event_store_service import EventStoreService
 
 
 @pytest.fixture(scope="function")
@@ -87,11 +87,6 @@ class TestEventStoreIntegration:
         assert isinstance(step_event, EventStoreRecord)
         assert isinstance(completed_event, EventStoreRecord)
 
-        # Assert - Verify event versions are sequential
-        assert started_event.version == 1
-        assert step_event.version == 2
-        assert completed_event.version == 3
-
         # Act - Retrieve event stream
         event_stream = await event_store_service.get_event_stream(
             execution_id=execution_id
@@ -124,54 +119,3 @@ class TestEventStoreIntegration:
         completed_data = events[2].event
         assert completed_data["final_result"]["status"] == "completed"
         assert completed_data["steps_completed"] == 3
-
-    async def test_event_version_consistency(self, event_store_service, db_session):
-        """Test that event versions are consistent and sequential."""
-        # Arrange
-        workflow_id = "version_test_workflow"
-        execution_id = str(uuid4())
-
-        # Act - Create multiple events for the same execution
-        events = []
-        for i in range(5):
-            if i == 0:
-                event = await event_store_service.emit_workflow_started(
-                    workflow_id=workflow_id,
-                    execution_id=execution_id,
-                    file_info=_sample_file_info(),
-                    metadata={"step": i},
-                )
-            elif i == 4:
-                event = await event_store_service.emit_workflow_completed(
-                    workflow_id=workflow_id,
-                    execution_id=execution_id,
-                    final_result={"status": "completed"},
-                    total_processing_time_ms=1000 * i,
-                    output_summary={"steps": i},
-                    steps_completed=i,
-                )
-            else:
-                event = await event_store_service.emit_step_completed(
-                    workflow_id=workflow_id,
-                    execution_id=execution_id,
-                    step_name=f"step_{i}",
-                    step_result={"step": i},
-                    execution_time_ms=1000 * i,
-                )
-            events.append(event)
-
-        # Assert - Verify versions are sequential
-        for i, event in enumerate(events):
-            assert event.version == i + 1, (
-                f"Event {i} has incorrect version: {event.version}"
-            )
-
-        # Assert - Verify event stream has correct versions
-        event_stream = await event_store_service.get_event_stream(
-            execution_id=execution_id
-        )
-
-        for i, event in enumerate(event_stream.events):
-            assert event.version == i + 1, (
-                f"Stream event {i} has incorrect version: {event.version}"
-            )

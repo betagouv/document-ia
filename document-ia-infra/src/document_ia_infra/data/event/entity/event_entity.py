@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Dict, Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import String, DateTime, Integer, Index, UniqueConstraint
+from sqlalchemy import String, DateTime, Index
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -65,14 +65,6 @@ class EventEntity(Base):
         JSONB, nullable=False, comment="Event payload as JSON"
     )
 
-    # Version for optimistic locking
-    version: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-        default=1,
-        comment="Event version for optimistic locking",
-    )
-
     # TODO: add constraint
     # UNIQUE CONSTRAINT (workflow_id, execution_id, event_type, version)
 
@@ -85,12 +77,8 @@ class EventEntity(Base):
             "workflow_id",
             "created_at",
         ),
-        # Index for querying events by execution_id and version
-        Index("idx_event_store_execution_version", "execution_id", "version"),
         # Index for time-based queries
         Index("idx_event_store_created_at", "created_at"),
-        # UNIQUE CONSTRAINT (workflow_id, execution_id, event_type, version)
-        UniqueConstraint("workflow_id", "execution_id", "event_type", "version"),
     )
 
     def __repr__(self) -> str:
@@ -99,7 +87,6 @@ class EventEntity(Base):
             f"workflow_id={self.workflow_id}, "
             f"execution_id={self.execution_id}, "
             f"event_type={self.event_type}, "
-            f"version={self.version})>"
         )
 
     def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
@@ -111,5 +98,4 @@ class EventEntity(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "event_type": self.event_type,
             "event": self.event,
-            "version": self.version,
         }

@@ -3,7 +3,6 @@ from typing import Optional, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from document_ia_api.application.services.event_store_service import EventStoreService
 from document_ia_infra.data.database import DatabaseManager
 from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.repository.event import EventRepository
@@ -13,6 +12,7 @@ from document_ia_infra.exception.retryable_exception import RetryableException
 from document_ia_infra.redis.model.workflow_execution_message import (
     WorkflowExecutionMessage,
 )
+from document_ia_infra.service.event_store_service import EventStoreService
 from document_ia_worker.exception.no_event_attached_to_execution_exception import (
     NoEventAttachedToExecutionException,
 )

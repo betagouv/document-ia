@@ -1,6 +1,6 @@
 from abc import ABC
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
@@ -72,3 +72,30 @@ class WorkflowExecutionFailedEvent(BaseEvent):
         default=None, description="Step where failure occurred"
     )
     retry_count: int = Field(default=0, description="Number of retry attempts")
+
+
+class EventStoreRecord(BaseModel):
+    """Schema for event store database record."""
+
+    id: UUID = Field(description="Primary key")
+    workflow_id: str = Field(description="Workflow identifier")
+    execution_id: str = Field(description="Execution instance identifier")
+    created_at: datetime = Field(description="Event timestamp")
+    event_type: EventType = Field(description="Type of event")
+    # TODO: change to Event (breaking tests...)
+    event: Dict[str, Any] = Field(description="Event payload as JSON")
+
+
+class EventStream(BaseModel):
+    """Schema for event stream response."""
+
+    execution_id: str = Field(description="Execution instance identifier")
+    workflow_id: str = Field(description="Workflow identifier")
+    events: List[EventStoreRecord] = Field(description="List of events in the stream")
+    total_events: int = Field(description="Total number of events")
+    first_event_at: Optional[datetime] = Field(
+        default=None, description="Timestamp of first event"
+    )
+    last_event_at: Optional[datetime] = Field(
+        default=None, description="Timestamp of last event"
+    )

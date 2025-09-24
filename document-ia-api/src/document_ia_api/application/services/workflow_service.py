@@ -7,7 +7,6 @@ from typing import Dict, Any, Optional
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from document_ia_api.application.services.event_store_service import EventStoreService
 from document_ia_api.core.file_validator import validate_uploaded_file
 from document_ia_api.infra.s3_service import s3_service
 from document_ia_api.schemas.workflow import WorkflowExecutionData
@@ -18,6 +17,7 @@ from document_ia_infra.redis.model.workflow_execution_message import (
 )
 from document_ia_infra.redis.publisher import Publisher
 from document_ia_infra.redis.redis_settings import redis_settings
+from document_ia_infra.service.event_store_service import EventStoreService
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +106,7 @@ class WorkflowService:
                 logger.debug(
                     f"Workflow started event emitted for execution {execution_id}"
                 )
+
             except Exception as e:
                 logger.error(f"Failed to emit workflow started event: {e}")
                 # Don't fail the workflow execution if event emission fails

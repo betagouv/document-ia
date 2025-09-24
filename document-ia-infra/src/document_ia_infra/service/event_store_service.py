@@ -12,11 +12,6 @@ from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from document_ia_api.api.exceptions.entity_not_found_exception import (
-    EntityNotFoundException,
-)
-from document_ia_api.schemas.events import EventStoreRecord, EventStream
-from document_ia_api.schemas.mappers.event_mapper import convert_event_dto
 from document_ia_infra.core.model.file_info import FileInfo
 from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.repository.event import EventRepository
@@ -26,6 +21,12 @@ from document_ia_infra.data.event.schema.event import (
     WorkflowExecutionStepCompletedEvent,
     WorkflowExecutionCompletedEvent,
     WorkflowExecutionFailedEvent,
+    EventStoreRecord,
+    EventStream,
+)
+from document_ia_infra.data.event.schema.mappers.event_mapper import convert_event_dto
+from document_ia_infra.exception.entity_not_found_exception import (
+    EntityNotFoundException,
 )
 
 logger = logging.getLogger(__name__)
@@ -68,14 +69,6 @@ class EventStoreService:
             Exception: If storage fails
         """
         try:
-            # Get the next version for this execution
-            next_version = (
-                await self.repository.get_latest_event_version(
-                    execution_id=event.execution_id, workflow_id=event.workflow_id
-                )
-                + 1
-            )
-
             # Convert event to dictionary for storage with JSON serializable values
             event_data = event.model_dump(mode="json")
 
@@ -85,12 +78,11 @@ class EventStoreService:
                 execution_id=event.execution_id,
                 event_type=event.event_type.value,
                 event_data=event_data,
-                version=next_version,
             )
 
             logger.info(
                 f"Event stored successfully: {event.event_type} "
-                f"for execution {event.execution_id} (version: {next_version})"
+                f"for execution {event.execution_id}"
             )
 
             return convert_event_dto(stored_event)
