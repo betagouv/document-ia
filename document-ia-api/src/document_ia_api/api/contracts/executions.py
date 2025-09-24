@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Literal, Union
+from typing import Annotated, Literal, Union, Optional
 
 from pydantic import BaseModel, Field, HttpUrl
 
@@ -24,6 +24,14 @@ class ExecutionDoneData(BaseModel):
     result: ExecutionDoneResult
 
 
+class ExecutionFailedData(BaseModel):
+    error_type: str
+    failed_step: Optional[str]
+    retry_count: int
+    workflow_id: str
+    error_message: str
+
+
 class ExecutionPendingModel(BaseModel):
     id: str
     status: Literal["PENDING"]
@@ -36,8 +44,14 @@ class ExecutionDoneModel(BaseModel):
     data: ExecutionDoneData
 
 
+class ExecutionFailedModel(BaseModel):
+    id: str
+    status: Literal["FAILED"]
+    data: ExecutionFailedData
+
+
 # Discriminated union on "status"
 ExecutionResponse = Annotated[
-    Union[ExecutionPendingModel, ExecutionDoneModel],
+    Union[ExecutionPendingModel, ExecutionDoneModel, ExecutionFailedModel],
     Field(discriminator="status"),
 ]

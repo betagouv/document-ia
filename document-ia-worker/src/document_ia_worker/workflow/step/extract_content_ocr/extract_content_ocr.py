@@ -27,7 +27,7 @@ class ExtractContentOcrStep(BaseStep[OcrResult]):
         self.tesseract_oem = 1
         self.tesseract_lang = "fra"
         self.tesseract_config = f"--psm {self.tesseract_psm} --oem {self.tesseract_oem}"
-        self.tesseract_timeout = 60
+        self.tesseract_timeout = 60  # seconds
 
     def get_context_result_key(self) -> str:
         return OcrResult.__name__
@@ -68,6 +68,8 @@ class ExtractContentOcrStep(BaseStep[OcrResult]):
                         has_failed=False,
                     )
                 )
+            # When there is an error during the OCR processing, we catch it and continue with the next page
+            # It could be a timeout or any other error
             except Exception as e:
                 logger.error(f"Error during OCR processing: {e}")
                 results.append(

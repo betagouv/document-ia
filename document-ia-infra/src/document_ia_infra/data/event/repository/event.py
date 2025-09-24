@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.entity.event_entity import EventEntity
+from document_ia_infra.exception.retryable_exception import RetryableException
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,70 @@ class EventRepository:
             await self.session.rollback()
             raise
 
+    async def get_created_event_if_execution_not_completed_or_failed(
+        self,
+        execution_id: str,
+    ) -> Optional[EventDTO]:
+        """
+        Retrieve the latest event for a specific execution ID.
+
+        Args:
+            execution_id: Execution instance identifier
+
+        Returns:
+            Optional[EventStoreRecord]: The latest event or None if not found
+        """
+        query = (
+            select(EventEntity)
+            .where(EventEntity.execution_id == execution_id)
+            .order_by(EventEntity.created_at.desc(), EventEntity.version.desc())
+        )
+
+        try:
+            results = await self.session.execute(query)
+            events = results.scalars().all()
+            event: Optional[EventEntity] = None
+
+            last_event = events[-1]
+            # If last_event for an execution is Completed return None no need to reexecute the process
+            if last_event.event_type == EventType.WORKFLOW_EXECUTION_COMPLETED:
+                event = None
+            # Otherwise if the last event is a started event we need to process.
+            elif last_event.event_type == EventType.WORKFLOW_EXECUTION_STARTED:
+                event = last_event
+            # The complicated case :
+            # If the last event is a failed but the error is retryable we need to find the WORKFLOW_EXECUTION_STARTED event
+            elif (
+                last_event.event_type == EventType.WORKFLOW_EXECUTION_FAILED
+                and last_event.event.get("error_type") == RetryableException.__name__
+            ):
+                for e in reversed(events):
+                    if e.event_type == EventType.WORKFLOW_EXECUTION_STARTED:
+                        event = e
+                        break
+
+            if event:
+                return EventDTO(
+                    id=event.id,
+                    workflow_id=event.workflow_id,
+                    execution_id=event.execution_id,
+                    created_at=event.created_at,
+                    event_type=EventType.from_str(event.event_type),
+                    event=event.event,
+                    version=event.version,
+                )
+            return None
+
+        except OSError as e:
+            logger.error("Database connection error: {e}")
+            raise RetryableException(e)
+        except Exception as e:
+            logger.error(
+                f"Unexpected error retrieving last event for execution {execution_id}: {e}"
+            )
+            await self.session.rollback()
+            raise
+
     async def get_last_event_by_execution_id(
         self,
         execution_id: str,
@@ -110,20 +175,31 @@ class EventRepository:
             .limit(1)
         )
 
-        result = await self.session.execute(query)
-        event = result.scalars().first()
+        try:
+            result = await self.session.execute(query)
+            event = result.scalars().first()
 
-        if event:
-            return EventDTO(
-                id=event.id,
-                workflow_id=event.workflow_id,
-                execution_id=event.execution_id,
-                created_at=event.created_at,
-                event_type=EventType.from_str(event.event_type),
-                event=event.event,
-                version=event.version,
+            if event:
+                return EventDTO(
+                    id=event.id,
+                    workflow_id=event.workflow_id,
+                    execution_id=event.execution_id,
+                    created_at=event.created_at,
+                    event_type=EventType.from_str(event.event_type),
+                    event=event.event,
+                    version=event.version,
+                )
+            return None
+
+        except OSError as e:
+            logger.error("Database connection error: {e}")
+            raise RetryableException(e)
+        except Exception as e:
+            logger.error(
+                f"Unexpected error retrieving last event for execution {execution_id}: {e}"
             )
-        return None
+            await self.session.rollback()
+            raise
 
     async def get_events_by_execution_id(
         self,

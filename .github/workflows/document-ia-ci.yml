@@ -137,7 +137,7 @@ jobs:
         run: (cd document-ia-api && poetry run alembic upgrade head)
 
       - name: Init S3 bucket
-        run: (cd document-ia-api && poetry run python scripts/init-s3-bucket.py)
+        run: (cd document-ia-api && poetry run python ../scripts/init-s3-bucket.py)
 
       - name: Pytest - Tests
         run: |
