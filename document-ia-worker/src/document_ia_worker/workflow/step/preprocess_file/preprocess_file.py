@@ -76,7 +76,9 @@ class PreprocessFileStep(BaseFileManipulationStep[PreprocessFileResult]):
             return self._preprocess_pdf()
         else:
             logger.info("File is a Picture, no preprocessing needed.")
-            return PreprocessFileResult([self.download_file_result.file_path])
+            return PreprocessFileResult(
+                output_files_path=[self.download_file_result.file_path]
+            )
 
     def _preprocess_pdf(self) -> PreprocessFileResult:
         image_paths: list[str] = []
@@ -142,4 +144,4 @@ class PreprocessFileStep(BaseFileManipulationStep[PreprocessFileResult]):
             doc.close()  # Ferme le document PDF
 
         # noinspection PyUnreachableCode
-        return PreprocessFileResult(image_paths)
+        return PreprocessFileResult(output_files_path=image_paths)

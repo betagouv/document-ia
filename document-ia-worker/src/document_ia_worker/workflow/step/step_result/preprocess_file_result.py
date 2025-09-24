@@ -1,6 +1,5 @@
-from dataclasses import dataclass
+from pydantic import BaseModel
 
 
-@dataclass
-class PreprocessFileResult:
+class PreprocessFileResult(BaseModel):
     output_files_path: list[str]
