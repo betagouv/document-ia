@@ -16,9 +16,9 @@ from document_ia_api.api.contracts.executions import (
     ExecutionFailedData,
 )
 from document_ia_api.api.exceptions.entity_not_found_exception import (
-    EntityNotFoundException,
+    HttpEntityNotFoundException,
 )
-from document_ia_api.application.services.event_store_service import EventStoreService
+
 from document_ia_infra.data.database import database_manager
 from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.schema.event import (
@@ -26,6 +26,10 @@ from document_ia_infra.data.event.schema.event import (
     WorkflowExecutionCompletedEvent,
     WorkflowExecutionFailedEvent,
 )
+from document_ia_infra.exception.entity_not_found_exception import (
+    EntityNotFoundException,
+)
+from document_ia_infra.service.event_store_service import EventStoreService
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +164,10 @@ async def get_execution(
             )
 
     except EntityNotFoundException as e:
+        raise HttpEntityNotFoundException(
+            entity_name=e.entity_name, entity_id=e.entity_id
+        )
+    except HttpEntityNotFoundException as e:
         raise e
     except Exception as e:
         logger.error(

@@ -14,4 +14,3 @@ class EventDTO:
     created_at: datetime
     event_type: EventType
     event: dict[str, Any]
-    version: int

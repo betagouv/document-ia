@@ -126,17 +126,17 @@ test = ["distro (>=1.9.0,<1.10.0)", "flake8 (>=6.1,<7.0)", "flake8-pyi (>=24.1.0
 
 [[package]]
 name = "boto3"
-version = "1.40.36"
+version = "1.40.37"
 description = "The AWS SDK for Python"
 optional = false
 python-versions = ">=3.9"
 files = [
-    {file = "boto3-1.40.36-py3-none-any.whl", hash = "sha256:d7c1fe033f491f560cd26022a9dcf28baf877ae854f33bc64fffd0df3b9c98be"},
-    {file = "boto3-1.40.36.tar.gz", hash = "sha256:bfc1f3d5c4f5d12b8458406b8972f8794ac57e2da1ee441469e143bc0440a5c3"},
+    {file = "boto3-1.40.37-py3-none-any.whl", hash = "sha256:ccc5aa217e41bcc80e243c12e6b4330a010b5752cdda2618d67d0b854cd730d5"},
+    {file = "boto3-1.40.37.tar.gz", hash = "sha256:222de1ac6b878c2a2ea75ecfdd876ff3e8bd71930a5f9a3631379dfacc402eda"},
 ]
 
 [package.dependencies]
-botocore = ">=1.40.36,<1.41.0"
+botocore = ">=1.40.37,<1.41.0"
 jmespath = ">=0.7.1,<2.0.0"
 s3transfer = ">=0.14.0,<0.15.0"
 
@@ -145,13 +145,13 @@ crt = ["botocore[crt] (>=1.21.0,<2.0a0)"]
 
 [[package]]
 name = "boto3-stubs"
-version = "1.40.36"
-description = "Type annotations for boto3 1.40.36 generated with mypy-boto3-builder 8.11.0"
+version = "1.40.37"
+description = "Type annotations for boto3 1.40.37 generated with mypy-boto3-builder 8.11.0"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "boto3_stubs-1.40.36-py3-none-any.whl", hash = "sha256:6e1a18cf38b61cd25dd8ec7e14691313277355df169b35e19bbe29fffcd1986c"},
-    {file = "boto3_stubs-1.40.36.tar.gz", hash = "sha256:9d8c53670e1877c16bbc1a1af10707c41bcd2d446d29f215fd9edeb1f9bbfaea"},
+    {file = "boto3_stubs-1.40.37-py3-none-any.whl", hash = "sha256:b4a2760e77fae7ddeb664f7deec5c6b9c03919f33f1cf20c42a3d2ab9f91f98c"},
+    {file = "boto3_stubs-1.40.37.tar.gz", hash = "sha256:f9f8f1aaf8ac0cf33fe7d4611b7699f179badfe2b0066d59ae928fbf84b0b2b1"},
 ]
 
 [package.dependencies]
@@ -220,7 +220,7 @@ bedrock-data-automation-runtime = ["mypy-boto3-bedrock-data-automation-runtime (
 bedrock-runtime = ["mypy-boto3-bedrock-runtime (>=1.40.0,<1.41.0)"]
 billing = ["mypy-boto3-billing (>=1.40.0,<1.41.0)"]
 billingconductor = ["mypy-boto3-billingconductor (>=1.40.0,<1.41.0)"]
-boto3 = ["boto3 (==1.40.36)"]
+boto3 = ["boto3 (==1.40.37)"]
 braket = ["mypy-boto3-braket (>=1.40.0,<1.41.0)"]
 budgets = ["mypy-boto3-budgets (>=1.40.0,<1.41.0)"]
 ce = ["mypy-boto3-ce (>=1.40.0,<1.41.0)"]
@@ -586,13 +586,13 @@ xray = ["mypy-boto3-xray (>=1.40.0,<1.41.0)"]
 
 [[package]]
 name = "botocore"
-version = "1.40.36"
+version = "1.40.37"
 description = "Low-level, data-driven core of boto 3."
 optional = false
 python-versions = ">=3.9"
 files = [
-    {file = "botocore-1.40.36-py3-none-any.whl", hash = "sha256:d6edf75875e4013cb7078875a1d6c289afb4cc6675d99d80700c692d8d8e0b72"},
-    {file = "botocore-1.40.36.tar.gz", hash = "sha256:93386a8dc54173267ddfc6cd8636c9171e021f7c032aa1df3af7de816e3df616"},
+    {file = "botocore-1.40.37-py3-none-any.whl", hash = "sha256:9d4cee2ae0fe273003c6d1a8c9f7b98c4e40a6f74ba2f37eacba27d97fb7734f"},
+    {file = "botocore-1.40.37.tar.gz", hash = "sha256:9d2cfc41963a3a8be8ece395292e29afad2e25aa602d02bc0c0c3a598405a318"},
 ]
 
 [package.dependencies]
@@ -784,14 +784,16 @@ description = "Code des briques d'infrastructure pour Document IA"
 optional = false
 python-versions = "^3.11"
 files = []
-develop = false
+develop = true
 
 [package.dependencies]
+asyncpg = "^0.30.0"
 boto3 = "^1.34.0"
 openai = "^1.108.1"
 pydantic = "^2.11.9"
 python-dotenv = "^1.0.0"
 redis = "^5.0.0"
+sqlalchemy = "^2.0.43"
 tiktoken = "^0.11.0"
 
 [package.source]
@@ -1246,13 +1248,13 @@ typing-extensions = {version = "*", markers = "python_version < \"3.12\""}
 
 [[package]]
 name = "mypy-boto3-ec2"
-version = "1.40.34"
-description = "Type annotations for boto3 EC2 1.40.34 service generated with mypy-boto3-builder 8.11.0"
+version = "1.40.37"
+description = "Type annotations for boto3 EC2 1.40.37 service generated with mypy-boto3-builder 8.11.0"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "mypy_boto3_ec2-1.40.34-py3-none-any.whl", hash = "sha256:d8381c4b299e83cc654cf161e6befa2bc5fd471fcc08d4a7e585f4b547417b60"},
-    {file = "mypy_boto3_ec2-1.40.34.tar.gz", hash = "sha256:4c0f6dbaced47beaea5d762c936ae880441001ad98f955a697a46c70dc7a1609"},
+    {file = "mypy_boto3_ec2-1.40.37-py3-none-any.whl", hash = "sha256:4a2936e0bb1a8d5a5d4cbcceea61ba9cfccd18ea1fabd15190415b4e24c22ecd"},
+    {file = "mypy_boto3_ec2-1.40.37.tar.gz", hash = "sha256:fdf8ecbc56ebc96eb10fe075ad04fe5e93e6c074bd2a56d8a204edc68f6d1603"},
 ]
 
 [package.dependencies]
@@ -1327,13 +1329,13 @@ files = [
 
 [[package]]
 name = "openai"
-version = "1.108.2"
+version = "1.109.1"
 description = "The official Python library for the openai API"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "openai-1.108.2-py3-none-any.whl", hash = "sha256:4c7caa23845a49aebd8f65e01b35739b5b2df5e621d4666cbe55f0973fae81b7"},
-    {file = "openai-1.108.2.tar.gz", hash = "sha256:e6ce793e0ef8a52d343850a5411edbd5b21214f64a8d29cdca0fcb929e8e3155"},
+    {file = "openai-1.109.1-py3-none-any.whl", hash = "sha256:6bcaf57086cf59159b8e27447e4e7dd019db5d29a438072fbd49c290c7e65315"},
+    {file = "openai-1.109.1.tar.gz", hash = "sha256:d173ed8dbca665892a6db099b4a2dfac624f94d20a93f46eb0b56aae940ed869"},
 ]
 
 [package.dependencies]
@@ -1623,13 +1625,13 @@ typing-extensions = ">=4.6.0,<4.7.0 || >4.7.0"
 
 [[package]]
 name = "pydantic-settings"
-version = "2.10.1"
+version = "2.11.0"
 description = "Settings management using Pydantic"
 optional = false
 python-versions = ">=3.9"
 files = [
-    {file = "pydantic_settings-2.10.1-py3-none-any.whl", hash = "sha256:a60952460b99cf661dc25c29c0ef171721f98bfcb52ef8d9ea4c943d7c8cc796"},
-    {file = "pydantic_settings-2.10.1.tar.gz", hash = "sha256:06f0062169818d0f5524420a360d632d5857b83cffd4d42fe29597807a1614ee"},
+    {file = "pydantic_settings-2.11.0-py3-none-any.whl", hash = "sha256:fe2cea3413b9530d10f3a5875adffb17ada5c1e1bab0b2885546d7310415207c"},
+    {file = "pydantic_settings-2.11.0.tar.gz", hash = "sha256:d0e87a1c7d33593beb7194adb8470fc426e95ba02af83a0f23474a04c9a08180"},
 ]
 
 [package.dependencies]
@@ -2393,4 +2395,4 @@ test = ["covdefaults (>=2.3)", "coverage (>=7.2.7)", "coverage-enable-subprocess
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "e57ff0bbb19acfbe14b1384bf2bf37d85b39892cf5ab5fe9e953669a640f3c74"
+content-hash = "5cf0eba6302cd8698c036f1b74a9b88f555d378cb26a3a8b2b5f6e158b3e1d25"

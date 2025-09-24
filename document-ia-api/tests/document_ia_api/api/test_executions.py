@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 
 from document_ia_api.api.exceptions.entity_not_found_exception import (
-    EntityNotFoundException,
+    HttpEntityNotFoundException,
 )
 from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.dto.event_type_enum import EventType
@@ -30,8 +30,8 @@ class TestExecutions:
                 "uploaded_at": created.isoformat(),
                 "presigned_url": "https://example.com/presigned",
             },
-            "metadata": {"source": "email"},
             "version": 1,
+            "metadata": {"source": "email"},
         }
         return EventDTO(
             id=uuid4(),
@@ -40,7 +40,6 @@ class TestExecutions:
             created_at=created,
             event_type=EventType.WORKFLOW_EXECUTION_STARTED,
             event=event_payload,
-            version=1,
         )
 
     def _event_dto_completed(self, execution_id: str) -> EventDTO:
@@ -66,7 +65,6 @@ class TestExecutions:
             created_at=created,
             event_type=EventType.WORKFLOW_EXECUTION_COMPLETED,
             event=event_payload,
-            version=1,
         )
 
     def test_get_execution_pending_success(
@@ -76,7 +74,7 @@ class TestExecutions:
             return self._event_dto_started(execution_id_param)
 
         with patch(
-                "document_ia_api.application.services.event_store_service."
+                "document_ia_infra.service.event_store_service."
                 "EventStoreService.get_last_event_for_execution_id",
                 new=AsyncMock(side_effect=fake_get_last_event),
         ):
@@ -101,7 +99,7 @@ class TestExecutions:
             return self._event_dto_completed(execution_id_param)
 
         with patch(
-                "document_ia_api.application.services.event_store_service."
+                "document_ia_infra.service.event_store_service."
                 "EventStoreService.get_last_event_for_execution_id",
                 new=AsyncMock(side_effect=fake_get_last_event),
         ):
@@ -123,9 +121,9 @@ class TestExecutions:
             self, client_with_api_key, valid_api_key, execution_id
     ):
         with patch(
-                "document_ia_api.application.services.event_store_service."
+                "document_ia_infra.service.event_store_service."
                 "EventStoreService.get_last_event_for_execution_id",
-                new=AsyncMock(side_effect=EntityNotFoundException("execution", execution_id)),
+                new=AsyncMock(side_effect=HttpEntityNotFoundException("execution", execution_id)),
         ):
             response = client_with_api_key.get(
                 f"/api/v1/executions/{execution_id}",
@@ -140,7 +138,7 @@ class TestExecutions:
             self, client_with_api_key, valid_api_key, execution_id
     ):
         with patch(
-                "document_ia_api.application.services.event_store_service."
+                "document_ia_infra.service.event_store_service."
                 "EventStoreService.get_last_event_for_execution_id",
                 new=AsyncMock(side_effect=Exception("db down")),
         ):

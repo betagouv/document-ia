@@ -1,5 +1,5 @@
-from document_ia_api.schemas.events import EventStoreRecord
 from document_ia_infra.data.event.dto.event_dto import EventDTO
+from document_ia_infra.data.event.schema.event import EventStoreRecord
 
 
 def convert_event_dto(dto: EventDTO) -> EventStoreRecord:
@@ -10,5 +10,4 @@ def convert_event_dto(dto: EventDTO) -> EventStoreRecord:
         created_at=dto.created_at,
         event_type=dto.event_type,
         event=dto.event,
-        version=dto.version,
     )

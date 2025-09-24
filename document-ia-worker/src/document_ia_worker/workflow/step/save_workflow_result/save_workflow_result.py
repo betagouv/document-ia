@@ -66,7 +66,6 @@ class SaveWorkflowResultStep(BaseStep[None]):
                 self.execution_id,
                 EventType.WORKFLOW_EXECUTION_COMPLETED,
                 event.model_dump(mode="json"),
-                version=1,
             )
             logger.info(f"Event added to store with ID: {dto.id}")
 

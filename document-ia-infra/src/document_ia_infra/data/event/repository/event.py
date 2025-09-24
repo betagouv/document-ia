@@ -8,7 +8,7 @@ providing async CRUD operations and event stream reconstruction.
 import logging
 from typing import List, Optional, Dict, Any
 
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,7 +32,6 @@ class EventRepository:
         execution_id: str,
         event_type: str,
         event_data: Dict[str, Any],
-        version: int = 1,
     ) -> EventDTO:
         """
         Store an event in the event store.
@@ -42,7 +41,6 @@ class EventRepository:
             execution_id: Execution instance identifier
             event_type: Type of event
             event_data: Event payload data
-            version: Event version for optimistic locking
 
         Returns:
             EventStoreRecord: The stored event record
@@ -56,7 +54,6 @@ class EventRepository:
                 execution_id=execution_id,
                 event_type=event_type,
                 event=event_data,
-                version=version,
             )
 
             self.session.add(event_record)
@@ -65,7 +62,7 @@ class EventRepository:
 
             logger.debug(
                 f"Event stored: {event_type} for execution {execution_id} "
-                f"(workflow: {workflow_id}, version: {version})"
+                f"(workflow: {workflow_id})"
             )
 
             return EventDTO(
@@ -75,7 +72,6 @@ class EventRepository:
                 created_at=event_record.created_at,
                 event_type=EventType.from_str(event_record.event_type),
                 event=event_record.event,
-                version=event_record.version,
             )
 
         except IntegrityError as e:
@@ -107,7 +103,7 @@ class EventRepository:
         query = (
             select(EventEntity)
             .where(EventEntity.execution_id == execution_id)
-            .order_by(EventEntity.created_at.desc(), EventEntity.version.desc())
+            .order_by(EventEntity.created_at.desc())
         )
 
         try:
@@ -141,7 +137,6 @@ class EventRepository:
                     created_at=event.created_at,
                     event_type=EventType.from_str(event.event_type),
                     event=event.event,
-                    version=event.version,
                 )
             return None
 
@@ -171,7 +166,7 @@ class EventRepository:
         query = (
             select(EventEntity)
             .where(EventEntity.execution_id == execution_id)
-            .order_by(EventEntity.created_at.desc(), EventEntity.version.desc())
+            .order_by(EventEntity.created_at.desc())
             .limit(1)
         )
 
@@ -187,7 +182,6 @@ class EventRepository:
                     created_at=event.created_at,
                     event_type=EventType.from_str(event.event_type),
                     event=event.event,
-                    version=event.version,
                 )
             return None
 
@@ -225,7 +219,7 @@ class EventRepository:
         if workflow_id:
             query = query.where(EventEntity.workflow_id == workflow_id)
 
-        query = query.order_by(EventEntity.created_at.asc(), EventEntity.version.asc())
+        query = query.order_by(EventEntity.created_at.asc())
 
         if offset > 0:
             query = query.offset(offset)
@@ -244,32 +238,6 @@ class EventRepository:
                 created_at=event.created_at,
                 event_type=EventType.from_str(event.event_type),
                 event=event.event,
-                version=event.version,
             )
             for event in events
         ]
-
-    async def get_latest_event_version(
-        self, execution_id: str, workflow_id: Optional[str] = None
-    ) -> int:
-        """
-        Get the latest event version for an execution.
-
-        Args:
-            execution_id: Execution instance identifier
-            workflow_id: Optional workflow identifier for additional filtering
-
-        Returns:
-            int: Latest version number, 0 if no events exist
-        """
-        query = select(func.max(EventEntity.version)).where(
-            EventEntity.execution_id == execution_id
-        )
-
-        if workflow_id:
-            query = query.where(EventEntity.workflow_id == workflow_id)
-
-        result = await self.session.execute(query)
-        max_version = result.scalar()
-
-        return max_version or 0

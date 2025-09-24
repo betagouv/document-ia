@@ -5,15 +5,13 @@ This module contains comprehensive unit tests for the event store service,
 testing business logic and event orchestration functionality.
 """
 
-import pytest
-from unittest.mock import AsyncMock
 from datetime import datetime, UTC
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from document_ia_api.application.services.event_store_service import EventStoreService
-from document_ia_api.schemas.events import EventStoreRecord
 from document_ia_infra.core.model.file_info import FileInfo
 from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.repository.event import EventRepository
@@ -21,8 +19,9 @@ from document_ia_infra.data.event.schema.event import (
     WorkflowExecutionStartedEvent,
     WorkflowExecutionStepCompletedEvent,
     WorkflowExecutionCompletedEvent,
-    WorkflowExecutionFailedEvent,
+    WorkflowExecutionFailedEvent, EventStoreRecord,
 )
+from document_ia_infra.service.event_store_service import EventStoreService
 
 
 @pytest.fixture
@@ -91,7 +90,6 @@ def sample_event_record():
             "file_info": {"filename": "test.pdf"},
             "metadata": {"source": "test"},
         },
-        version=1,
     )
 
 
@@ -99,7 +97,7 @@ class TestEventStoreService:
     """Test cases for EventStoreService."""
 
     async def test_store_event_success(
-        self, event_store_service, mock_repository, sample_event
+            self, event_store_service, mock_repository, sample_event
     ):
         """Test successful event storage."""
         # Arrange
@@ -110,10 +108,8 @@ class TestEventStoreService:
             created_at=datetime.now(UTC),
             event_type=EventType.WORKFLOW_EXECUTION_STARTED,
             event=sample_event.model_dump(),
-            version=2,
         )
 
-        mock_repository.get_latest_event_version.return_value = 1
         mock_repository.put_event.return_value = mock_stored_event
 
         # Act
@@ -123,26 +119,10 @@ class TestEventStoreService:
         assert isinstance(result, EventStoreRecord)
         assert result.workflow_id == "test_workflow_001"
         assert result.execution_id == "test_execution_001"
-        mock_repository.get_latest_event_version.assert_called_once_with(
-            execution_id="test_execution_001", workflow_id="test_workflow_001"
-        )
         mock_repository.put_event.assert_called_once()
 
-    async def test_store_event_exception(
-        self, event_store_service, mock_repository, sample_event
-    ):
-        """Test event storage with exception."""
-        # Arrange
-        mock_repository.get_latest_event_version.side_effect = Exception(
-            "Database error"
-        )
-
-        # Act & Assert
-        with pytest.raises(Exception, match="Database error"):
-            await event_store_service.store_event(sample_event)
-
     async def test_get_events_by_execution_id(
-        self, event_store_service, mock_repository, sample_event_record
+            self, event_store_service, mock_repository, sample_event_record
     ):
         """Test getting events by execution ID."""
         # Arrange
@@ -231,7 +211,6 @@ class TestEventStoreService:
             error_message="Failed to process document",
             failed_step="preprocessing",
             retry_count=2,
-            stack_trace="Traceback...",
         )
 
         # Assert
@@ -242,16 +221,14 @@ class TestEventStoreService:
         assert event.error_message == "Failed to process document"
         assert event.failed_step == "preprocessing"
         assert event.retry_count == 2
-        assert event.stack_trace == "Traceback..."
 
     # High-level workflow event orchestration method tests
 
     async def test_emit_workflow_started(
-        self, event_store_service, mock_repository, sample_event_record
+            self, event_store_service, mock_repository, sample_event_record
     ):
         """Test emitting workflow started event."""
         # Arrange
-        mock_repository.get_latest_event_version.return_value = 0
         mock_repository.put_event.return_value = sample_event_record
 
         # Act
@@ -264,15 +241,13 @@ class TestEventStoreService:
 
         # Assert
         assert isinstance(result, EventStoreRecord)
-        mock_repository.get_latest_event_version.assert_called_once()
         mock_repository.put_event.assert_called_once()
 
     async def test_emit_step_completed(
-        self, event_store_service, mock_repository, sample_event_record
+            self, event_store_service, mock_repository, sample_event_record
     ):
         """Test emitting step completed event."""
         # Arrange
-        mock_repository.get_latest_event_version.return_value = 1
         mock_repository.put_event.return_value = sample_event_record
 
         # Act
@@ -287,15 +262,13 @@ class TestEventStoreService:
 
         # Assert
         assert isinstance(result, EventStoreRecord)
-        mock_repository.get_latest_event_version.assert_called_once()
         mock_repository.put_event.assert_called_once()
 
     async def test_emit_workflow_completed(
-        self, event_store_service, mock_repository, sample_event_record
+            self, event_store_service, mock_repository, sample_event_record
     ):
         """Test emitting workflow completed event."""
         # Arrange
-        mock_repository.get_latest_event_version.return_value = 2
         mock_repository.put_event.return_value = sample_event_record
 
         # Act
@@ -310,15 +283,13 @@ class TestEventStoreService:
 
         # Assert
         assert isinstance(result, EventStoreRecord)
-        mock_repository.get_latest_event_version.assert_called_once()
         mock_repository.put_event.assert_called_once()
 
     async def test_emit_workflow_failed(
-        self, event_store_service, mock_repository, sample_event_record
+            self, event_store_service, mock_repository, sample_event_record
     ):
         """Test emitting workflow failed event."""
         # Arrange
-        mock_repository.get_latest_event_version.return_value = 2
         mock_repository.put_event.return_value = sample_event_record
 
         # Act
@@ -329,10 +300,8 @@ class TestEventStoreService:
             error_message="Failed to process document",
             failed_step="preprocessing",
             retry_count=2,
-            stack_trace="Traceback...",
         )
 
         # Assert
         assert isinstance(result, EventStoreRecord)
-        mock_repository.get_latest_event_version.assert_called_once()
         mock_repository.put_event.assert_called_once()
