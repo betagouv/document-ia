@@ -1,0 +1,1 @@
+worker: ./bin/start_worker.sh

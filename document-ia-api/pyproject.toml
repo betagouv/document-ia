@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "document-ia-api"
-version = "0.1.0"
+version = "1.0.0"
 description = "API minimaliste FastAPI avec authentification API_KEY"
 authors = ["Romaric HALDENWANG <romaric.haldenwang@beta.gouv.fr>"]
 readme = "README.md"
@@ -23,7 +23,7 @@ asyncpg = "^0.30.0"
 greenlet = "^3.0.0"
 alembic = "^1.16.5"
 psycopg2-binary = "^2.9.10"
-document-ia-infra = { path = "../document-ia-infra", develop = true }
+document-ia-infra = { path = "../document-ia-infra", develop = false }
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.12.11"
