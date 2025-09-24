@@ -85,4 +85,4 @@ class ExtractContentOcrStep(BaseStep[OcrResult]):
                 del gray
                 index += 1
 
-        return OcrResult(results)
+        return OcrResult(pages=results)

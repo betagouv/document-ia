@@ -1,14 +1,12 @@
-from dataclasses import dataclass
 from typing import Optional
+from pydantic import BaseModel
 
 
-@dataclass
-class OcrResultPage:
+class OcrResultPage(BaseModel):
     page_number: int
     text: Optional[str]
     has_failed: bool
 
 
-@dataclass
-class OcrResult:
+class OcrResult(BaseModel):
     pages: list[OcrResultPage]

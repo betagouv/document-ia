@@ -1,7 +1,6 @@
-from dataclasses import dataclass
+from pydantic import BaseModel
 
 
-@dataclass
-class DownloadFileResult:
+class DownloadFileResult(BaseModel):
     file_path: str
     content_type: str
