@@ -6,6 +6,9 @@ from botocore.exceptions import ClientError
 from mypy_boto3_s3.client import S3Client
 from mypy_boto3_s3.type_defs import ListBucketsOutputTypeDef, BucketTypeDef
 
+from document_ia_infra.exception.s3_authentification_exception import (
+    S3AuthentificationException,
+)
 from document_ia_infra.s3.s3_metadata_util import sanitize_metadata
 from document_ia_infra.s3.s3_settings import s3_settings
 
@@ -66,19 +69,18 @@ class S3Manager:
             logger.error(f"Unexpected error during file deletion: {e}")
             return False
 
-    def download_file(self, s3_key: str, output_path: str) -> bool:
+    def download_file(self, s3_key: str, output_path: str):
         try:
             self.s3_client.download_file(
                 Bucket=self.bucket_name, Key=s3_key, Filename=output_path
             )
             logger.info(f"File downloaded successfully: {s3_key} to {output_path}")
-            return True
         except ClientError as e:
             logger.error(f"Failed to download file {s3_key}: {e}")
-            return False
+            raise S3AuthentificationException()
         except Exception as e:
             logger.error(f"Unexpected error during file download: {e}")
-            return False
+            raise e
 
     def get_file_info(self, s3_key: str) -> Optional[Dict[str, Any]]:
         try:
