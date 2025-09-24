@@ -8,8 +8,8 @@ import logging
 from asyncio import Task
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from typing import TypeVar, Generic, Optional, Any, Coroutine, cast
 from datetime import datetime, timezone
+from typing import TypeVar, Generic, Optional, Any, Coroutine, cast
 
 from redis import ResponseError
 from redis.asyncio import Redis
@@ -37,7 +37,7 @@ class Consumer(Generic[T]):
         batch_size: int,
         block_time: int,
         message_class: type[T],
-        process_message_callable: Callable[[T], Coroutine[Any, Any, None]],
+        process_message_callable: Callable[[T, int], Coroutine[Any, Any, None]],
         worker_number: int = 1,
         max_retry_number: int = 3,
     ):
@@ -129,6 +129,7 @@ class Consumer(Generic[T]):
                 # Soumission en parallèle
                 for msg_id, fields in entries:
                     raw_data = fields.get("data")
+                    retry_count = int(fields.get("retries", "0"))
                     # We have to cast the data of the message to the type intended for the consumer
                     try:
                         message_data: T = cast(
@@ -153,7 +154,7 @@ class Consumer(Generic[T]):
 
                     # We start the processing in a thread managed by a ThreadPoolExecutor
                     func = functools.partial(
-                        self._process_message_sync_wrapper, message_data
+                        self._process_message_sync_wrapper, message_data, retry_count
                     )
                     # noinspection PyTypeChecker
                     fut = loop.run_in_executor(self.executor, func)
@@ -181,7 +182,7 @@ class Consumer(Generic[T]):
                             retry_count = int(fields.get("retries", "0"))
                             data = fields.get("data", "")
                             # If the retry number is not exceeded, we requeue the message
-                            if retry_count < self.max_retry_number:
+                            if retry_count < self.max_retry_number - 1:
                                 try:
                                     await self.redis.xadd(
                                         self.stream_name,
@@ -242,17 +243,17 @@ class Consumer(Generic[T]):
             self.stop_flag.set()
             raise e
 
-    def _process_message_sync_wrapper(self, message: T) -> None:
+    def _process_message_sync_wrapper(self, message: T, retry_count: int) -> None:
         """Fonction exécutée dans un thread.
-        Crée un nouvel event loop pour exécuter le coroutine process_message_callable.
-        ATTENTION: si process_message_callable accède à des objets liés à l'event loop principal
-        (ex: connexion Redis asynchrone déjà créée), cela peut poser problème. Dans ce cas il
+        Crée un nouvel event loop pour exécuter la coroutine process_message_callable.
+        ATTENTION : si process_message_callable accède à des objets liés à l'évent loop principal
+        (ex : connexion Redis asynchrone déjà créée), cela peut poser un problème. Dans ce cas, il
         faudrait refactorer pour ne déplacer dans le thread que la partie CPU-bound.
         """
         loop = asyncio.new_event_loop()
         try:
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(self.process_message_callable(message))
+            loop.run_until_complete(self.process_message_callable(message, retry_count))
         finally:
             try:
                 loop.run_until_complete(loop.shutdown_asyncgens())
@@ -260,12 +261,6 @@ class Consumer(Generic[T]):
                 logger.error("Error shutting down async generators in thread loop")
                 pass
             loop.close()
-
-    async def _run_processing_in_executor(self, message: T) -> None:
-        loop = asyncio.get_running_loop()
-        # Utilise functools.partial pour passer l'argument
-        func = functools.partial(self._process_message_sync_wrapper, message)
-        await loop.run_in_executor(self.executor, func)
 
     async def _ensure_consumer_group(self, redis_connection: Redis):
         try:

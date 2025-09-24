@@ -12,6 +12,8 @@ from document_ia_api.api.contracts.executions import (
     ExecutionDoneModel,
     ExecutionDoneData,
     ExecutionDoneResult,
+    ExecutionFailedModel,
+    ExecutionFailedData,
 )
 from document_ia_api.api.exceptions.entity_not_found_exception import (
     EntityNotFoundException,
@@ -22,6 +24,7 @@ from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.schema.event import (
     WorkflowExecutionStartedEvent,
     WorkflowExecutionCompletedEvent,
+    WorkflowExecutionFailedEvent,
 )
 
 logger = logging.getLogger(__name__)
@@ -105,7 +108,7 @@ async def get_execution(
     execution_id: str,
     api_key: str = Depends(verify_api_key),
     db_session: AsyncSession = Depends(database_manager.async_get_db),
-) -> ExecutionPendingModel | ExecutionDoneModel | ApiErrorResponse:
+) -> ExecutionPendingModel | ExecutionDoneModel | ExecutionFailedModel:
     logger.info(
         "Execution details requested",
         extra={"endpoint": "get_execution", "execution_id": execution_id},
@@ -142,7 +145,20 @@ async def get_execution(
                     ),
                 ),
             )
-        raise HTTPException(status_code=404, detail="Execution not found")
+        if last_event.event_type == EventType.WORKFLOW_EXECUTION_FAILED:
+            event_data = WorkflowExecutionFailedEvent(**last_event.event)
+            return ExecutionFailedModel(
+                id=execution_id,
+                status="FAILED",
+                data=ExecutionFailedData(
+                    error_type=event_data.error_type,
+                    failed_step=event_data.failed_step,
+                    retry_count=event_data.retry_count,
+                    workflow_id=event_data.workflow_id,
+                    error_message=event_data.error_message,
+                ),
+            )
+
     except EntityNotFoundException as e:
         raise e
     except Exception as e:
@@ -155,3 +171,4 @@ async def get_execution(
             },
         )
         raise HTTPException(status_code=500, detail=str(e))
+    raise HTTPException(status_code=404, detail="Execution not found")

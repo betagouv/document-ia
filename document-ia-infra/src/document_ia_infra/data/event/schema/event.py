@@ -72,4 +72,3 @@ class WorkflowExecutionFailedEvent(BaseEvent):
         default=None, description="Step where failure occurred"
     )
     retry_count: int = Field(default=0, description="Number of retry attempts")
-    stack_trace: Optional[str] = Field(default=None, description="Error stack trace")

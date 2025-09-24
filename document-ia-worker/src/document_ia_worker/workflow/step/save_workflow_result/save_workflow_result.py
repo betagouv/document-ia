@@ -69,6 +69,7 @@ class SaveWorkflowResultStep(BaseStep[None]):
                 version=1,
             )
             logger.info(f"Event added to store with ID: {dto.id}")
+
         except Exception as e:
             logger.error(f"Failed to save workflow result event: {e}")
             raise
