@@ -2,10 +2,13 @@ import logging
 from typing import Any, Dict, cast, TypeVar
 
 import tiktoken
-from openai import AsyncOpenAI, AuthenticationError
+from openai import AsyncOpenAI, AuthenticationError, PermissionDeniedError
 from openai.types.chat import ChatCompletion
 from pydantic import BaseModel
 
+from document_ia_infra.exception.openai_authentification_error import (
+    OpenAIAuthentificationError,
+)
 from document_ia_infra.openai.openai_settings import openai_settings
 
 logger = logging.getLogger(__name__)
@@ -58,12 +61,12 @@ class OpenAIManager:
 
             return response_class.model_validate_json(result)
 
-        except AuthenticationError as e:
-            logger.error(f"OpenAI authentication error: {e}")
-            raise Exception(
-                "Retryable OpenAI API key is invalid or not configured properly"
-            )
+        except AuthenticationError:
+            raise OpenAIAuthentificationError()
         except Exception as e:
+            # Apparently openai-python PermissionDeniedError cannot be caught specifically in an except (it throw a type error because it is not a BaseException subclass ?)
+            if isinstance(e, PermissionDeniedError):
+                raise OpenAIAuthentificationError()
             logger.error(f"Error generating response: {e}")
             raise e
 
