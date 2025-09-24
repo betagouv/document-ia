@@ -1,6 +1,10 @@
 import logging
 from typing import Optional, Any
 
+from document_ia_infra.exception.openai_authentification_error import (
+    OpenAIAuthentificationError,
+)
+from document_ia_infra.exception.retryable_exception import RetryableException
 from document_ia_infra.openai.openai_manager import OpenAIManager
 from document_ia_worker.core.prompt.model.DocumentClassification import (
     DocumentClassification,
@@ -50,8 +54,12 @@ class LLMClassifyDocumentStep(BaseStep[LLMResult]):
         for page in self.ocr_result.pages:
             user_prompt += f"{page.text}\n\n"
 
-        response = await self.openai_manager.generate_typped_response(
-            system_prompt, user_prompt, DocumentClassification
-        )
-        logger.info(f"LLM classification response: {response}")
+        try:
+            response = await self.openai_manager.generate_typped_response(
+                system_prompt, user_prompt, DocumentClassification
+            )
+        except OpenAIAuthentificationError as e:
+            raise RetryableException(e.message)
+
+        logger.debug(f"LLM classification response: {response}")
         return LLMResult(data=response)

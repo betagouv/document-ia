@@ -23,7 +23,7 @@ asyncpg = "^0.30.0"
 greenlet = "^3.0.0"
 alembic = "^1.16.5"
 psycopg2-binary = "^2.9.10"
-document-ia-infra = {path = "../document-ia-infra" }
+document-ia-infra = { path = "../document-ia-infra", develop = true }
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.12.11"
@@ -32,7 +32,7 @@ pytest-asyncio = "^0.23.0"
 pre-commit = "^3.6.0"
 httpx = "^0.25.0"
 pyright = "^1.1.405"
-boto3-stubs = {extras = ["essential"], version = "^1.40.31"}
+boto3-stubs = { extras = ["essential"], version = "^1.40.31" }
 
 
 [tool.poetry.scripts]

@@ -3,16 +3,19 @@ Classe Consumer commune pour les consumers Redis Stream
 """
 
 import asyncio  # remplacement de threading+sleep
+import functools
 import logging
 from asyncio import Task
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import TypeVar, Generic, Optional, Any, Coroutine, cast
-import functools
+from datetime import datetime, timezone
 
 from redis import ResponseError
 from redis.asyncio import Redis
+from redis.typing import FieldT, EncodableT
 
+from document_ia_infra.exception.retryable_exception import RetryableException
 from document_ia_infra.redis.redis_manager import (
     redis_manager as redis_manager_main_thread,
 )
@@ -36,6 +39,7 @@ class Consumer(Generic[T]):
         message_class: type[T],
         process_message_callable: Callable[[T], Coroutine[Any, Any, None]],
         worker_number: int = 1,
+        max_retry_number: int = 3,
     ):
         self.redis: Optional[Redis] = None
         self.reclaimer_task: Optional[Task[Any]] = None
@@ -50,6 +54,10 @@ class Consumer(Generic[T]):
         self.batch_size = batch_size
         self.block_time = block_time  # en ms pour xreadgroup
         self.worker_number = worker_number
+        self.max_retry_number = max_retry_number
+
+        # DLQ stream
+        self.dlq_stream_name = f"{self.stream_name}:dlq"
 
         self.executor = ThreadPoolExecutor(max_workers=self.worker_number)
 
@@ -98,6 +106,8 @@ class Consumer(Generic[T]):
         self.redis = await self._get_safe_redis_connection()
         try:
             loop = asyncio.get_running_loop()
+            # This loop continue until stop_flag is set
+            # Stop flag is a signal when the process need to be shutdown
             while not self.stop_flag.is_set():
                 response = await self.redis.xreadgroup(
                     self.consumer_group,
@@ -114,46 +124,109 @@ class Consumer(Generic[T]):
                 if not entries:
                     continue
 
-                future_map: dict[asyncio.Future[Any], str] = {}
+                # We use this barbaric definition to keep track of which future corresponds to which message
+                future_map: dict[asyncio.Future[Any], tuple[str, dict[str, Any]]] = {}
                 # Soumission en parallèle
-                for msg in entries:
-                    msg_id = msg[0]
-                    raw_data = msg[1]["data"]
+                for msg_id, fields in entries:
+                    raw_data = fields.get("data")
+                    # We have to cast the data of the message to the type intended for the consumer
                     try:
                         message_data: T = cast(
                             T, self.message_class.from_json(raw_data)
                         )
-                    # TODO pu the message in dead-letter queue
+                    # If we have an exception during the decoding of the data, we put the message in the DLQ because we will not be able to process it
                     except Exception as decode_err:
                         logger.error(f"Erreur décodage message {msg_id}: {decode_err}")
-                        # On ack pour éviter boucle infinie sur message pourri
+                        # We acknowledge the message to remove it from the stream
                         await self.redis.xack(
                             self.stream_name, self.consumer_group, msg_id
                         )
+                        # Send to DLQ
+                        await self._send_to_dlq(
+                            redis_connection=self.redis,
+                            msg_id=msg_id,
+                            fields=fields,
+                            reason="decode_error",
+                            error=str(decode_err),
+                        )
                         continue
 
+                    # We start the processing in a thread managed by a ThreadPoolExecutor
                     func = functools.partial(
                         self._process_message_sync_wrapper, message_data
                     )
+                    # noinspection PyTypeChecker
                     fut = loop.run_in_executor(self.executor, func)
-                    future_map[fut] = msg_id
+                    # We store the future in a map we the message data along to be able to ack/nack later
+                    future_map[fut] = (msg_id, fields)
 
-                # Ack au fur et à mesure des finitions
                 pending = set(future_map.keys())
                 while pending:
+                    # We wait for the first future to complete
+                    # And we loop again
                     done, pending = await asyncio.wait(
                         pending, return_when=asyncio.FIRST_COMPLETED
                     )
                     for fut in done:
-                        msg_id = future_map[fut]
+                        msg_id, fields = future_map[fut]
+                        # We check if the future raised an exception
                         try:
-                            fut.result()  # propage exception éventuelle
-                        # TODO Handle Retry / DLQ
+                            fut.result()
+                        # If the processing raised a RetryableException, we requeue the message with an incremented retry count
+                        except RetryableException as retry_exc:
+                            logger.warning(
+                                f"Échec de traitement du message {msg_id}: {retry_exc} retry it"
+                            )
+                            # We get the data stored along the future to re-send the message in the queue
+                            retry_count = int(fields.get("retries", "0"))
+                            data = fields.get("data", "")
+                            # If the retry number is not exceeded, we requeue the message
+                            if retry_count < self.max_retry_number:
+                                try:
+                                    await self.redis.xadd(
+                                        self.stream_name,
+                                        {"data": data, "retries": str(retry_count + 1)},
+                                    )
+                                    logger.info(
+                                        f"Message {msg_id} requeued with retry count {retry_count + 1}"
+                                    )
+                                # If we have an error during the requeue, we log it and move the message to the DLQ
+                                except Exception as requeue_err:
+                                    logger.error(
+                                        f"Failed to requeue message {msg_id}: {requeue_err}"
+                                    )
+                                    # Push to DLQ if we cannot requeue
+                                    await self._send_to_dlq(
+                                        redis_connection=self.redis,
+                                        msg_id=msg_id,
+                                        fields=fields,
+                                        reason="error_requeueing_message",
+                                        error=str(requeue_err),
+                                    )
+                            else:
+                                logger.error(
+                                    f"Max retry count exceeded for message {msg_id}. Moving to DLQ."
+                                )
+                                await self._send_to_dlq(
+                                    redis_connection=self.redis,
+                                    msg_id=msg_id,
+                                    fields=fields,
+                                    reason="max_retries_exceeded",
+                                    error=str(retry_exc),
+                                )
+                        # If we have an error that is not retryable, we log it and ack the message to remove it from the stream
+                        # And move it to the DLQ
                         except Exception as proc_err:
                             logger.error(
-                                f"Echec traitement message {msg_id}: {proc_err}. Pas d'ACK pour retry."
+                                f"Echec traitement message {msg_id}: {proc_err}. Moving to DLQ."
                             )
-                            continue
+                            await self._send_to_dlq(
+                                redis_connection=self.redis,
+                                msg_id=msg_id,
+                                fields=fields,
+                                reason="not_retryable_error",
+                                error=str(proc_err),
+                            )
                         try:
                             logger.info("Message successfully acknowledged")
                             await self.redis.xack(
@@ -184,6 +257,7 @@ class Consumer(Generic[T]):
             try:
                 loop.run_until_complete(loop.shutdown_asyncgens())
             except Exception:
+                logger.error("Error shutting down async generators in thread loop")
                 pass
             loop.close()
 
@@ -219,6 +293,41 @@ class Consumer(Generic[T]):
             raise ConnectionError("No Redis connection available")
         return self.redis
 
+    async def _send_to_dlq(
+        self,
+        redis_connection: Redis,
+        msg_id: str,
+        fields: dict[str, Any],
+        reason: str,
+        error: Optional[str] = None,
+    ) -> None:
+        """Push a message to the Dead Letter Queue (DLQ) stream.
+
+        Args:
+            msg_id: original message id in the source stream
+            fields: original message fields (from Redis XREADGROUP)
+            reason: short code describing why it was sent to DLQ (e.g., 'decode_error')
+            error: optional error string/details
+        """
+        dlq_fields: dict[FieldT, EncodableT] = {
+            "data": str(fields.get("data", "")),
+            "retries": str(fields.get("retries", "0")),
+            "original_id": str(msg_id),
+            "reason": reason,
+            "error": error or "",
+            "consumer": self.consumer_name,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        try:
+            dlq_id = await redis_connection.xadd(self.dlq_stream_name, dlq_fields)
+            logger.info(
+                f"Pushed message {msg_id} to DLQ stream '{self.dlq_stream_name}' with id {dlq_id} (reason={reason})"
+            )
+        except Exception as dlq_err:
+            logger.error(
+                f"Failed to push message {msg_id} to DLQ after requeue failure: {dlq_err}"
+            )
+
     # It reclaims pending messages that have been idle for more than RECLAIM_IDLE_MS
     # and re-queues them for processing
     # It uses xautoclaim to claim messages and xadd to re-queue them
@@ -243,10 +352,21 @@ class Consumer(Generic[T]):
                 )
                 for msg_id, fields in claimed:
                     logger.info(f"Reclaimed message ID: {msg_id} with fields: {fields}")
-                    retries = int(fields.get("retries", "0")) + 1
-                    fields["retries"] = str(retries)
-                    # TODO : add DLQ handling if retries > max_retries
+                    retry_count = int(fields.get("retries", "0")) + 1
+                    if retry_count > self.max_retry_number:
+                        logger.error(
+                            f"Max retry count exceeded for reclaimed message {msg_id}. Moving to DLQ."
+                        )
+                        await self._send_to_dlq(
+                            redis_connection=self.redis,
+                            msg_id=msg_id,
+                            fields=fields,
+                            reason="max_retries_exceeded",
+                            error="Exceeded max retry count during reclaim",
+                        )
+                        continue
                     try:
+                        fields["retries"] = str(retry_count + 1)
                         await self.redis.xadd(self.stream_name, fields)
                         logger.info(f"Add new message with fields: {fields}")
                         await self.redis.xack(
