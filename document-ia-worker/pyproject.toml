@@ -10,7 +10,7 @@ packages = [
 
 [tool.poetry.dependencies]
 python = "^3.11"
-document-ia-infra = { path = "../document-ia-infra", develop = true }
+document-ia-infra = { path = "../document-ia-infra", develop = false }
 python-dotenv = "^1.0.0"
 pydantic-settings = "^2.1.0"
 pytesseract = "^0.3.13"

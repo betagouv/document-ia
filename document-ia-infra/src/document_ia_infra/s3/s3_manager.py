@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Optional, Dict, Any
 
 import boto3
@@ -17,6 +18,9 @@ logger = logging.getLogger(__name__)
 
 class S3Manager:
     def __init__(self):
+        # Disable checksum because outscale do not support them
+        os.environ["AWS_REQUEST_CHECKSUM_CALCULATION"] = "WHEN_REQUIRED"
+        os.environ["AWS_RESPONSE_CHECKSUM_VALIDATION"] = "WHEN_REQUIRED"
         self.s3_client: S3Client = boto3.client(  # pyright: ignore [reportUnknownMemberType]
             "s3",
             endpoint_url=s3_settings.S3_ENDPOINT_URL,
