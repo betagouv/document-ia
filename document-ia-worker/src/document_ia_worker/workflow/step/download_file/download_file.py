@@ -2,6 +2,10 @@ import logging
 from pathlib import Path
 
 from document_ia_infra.core.model.file_info import FileInfo
+from document_ia_infra.exception.retryable_exception import RetryableException
+from document_ia_infra.exception.s3_authentification_exception import (
+    S3AuthentificationException,
+)
 from document_ia_infra.s3.s3_manager import S3Manager
 from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
 from document_ia_worker.workflow.step.base_file_manipulation_step import (
@@ -37,15 +41,12 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
             self.file_info.s3_key.split("/")[-1]
         )
         s3_manager = S3Manager()
-        is_file_downloaded = s3_manager.download_file(
-            self.file_info.s3_key, str(file_path)
-        )
-        if is_file_downloaded:
+        try:
+            s3_manager.download_file(self.file_info.s3_key, str(file_path))
             logger.info(f"File downloaded successfully to: {file_path}")
             return DownloadFileResult(
                 file_path=str(file_path), content_type=self.file_info.content_type
             )
-        else:
-            # TODO : add custom exception
-            logger.error(f"Failed to download file from S3: {self.file_info.s3_key}")
-            raise Exception(f"Failed to download file from S3: {self.file_info.s3_key}")
+        except S3AuthentificationException as e:
+            logger.error("S3 authentication failed during file download.")
+            raise RetryableException(e)
