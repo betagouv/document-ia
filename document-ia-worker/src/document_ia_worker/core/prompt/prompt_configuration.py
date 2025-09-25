@@ -7,9 +7,10 @@ class TaskType(str, Enum):
     EXTRACTION = "extraction"
 
 
-class SupportedDocumentCategory(list[str], Enum):
-    IDENTIFICATION = (["cni", "passeport", "permis_conduire"],)
-    RESIDENCY = (["residency"],)
+class SupportedDocumentType(str, Enum):
+    CNI = "cni"
+    PASSEPORT = "passeport"
+    PERMIS_CONDUIRE = "permis_conduire"
 
 
 @dataclass

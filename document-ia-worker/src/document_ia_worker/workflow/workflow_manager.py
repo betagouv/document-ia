@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, UTC
 from typing import Optional, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,15 +47,13 @@ class WorkflowManager:
     event_data: Optional[WorkflowExecutionStartedEvent]
     step_list: list[BaseStep[Any]]
     workflow_context: dict[str, Any]
+    main_workflow_context: Optional[MainWorkflowContext]
 
     def __init__(self, message: WorkflowExecutionMessage, retry_count: int):
         self.message = message
         logger.info("New workflow_manager instance")
         # We can't use the singleton here because we need a new session for each thread
         self.database_manager = DatabaseManager()
-        self.main_workflow_context = MainWorkflowContext(
-            self.message.workflow_execution_id
-        )
 
         # Instance-scoped state to avoid cross-thread leakage
         self.retry_count = retry_count
@@ -62,9 +61,13 @@ class WorkflowManager:
         self.event_data = None
         self.step_list = []
         self.workflow_context = {}
+        self.main_workflow_context = None
 
     async def start(self):
-        logger.info(f"Processing workflow message: {self.message}")
+        self.main_workflow_context = MainWorkflowContext(
+            execution_id=self.message.workflow_execution_id,
+            start_time=datetime.now(UTC),
+        )
         async with self.database_manager.local_session() as session:
             try:
                 await self._prepare_workflow(session)
@@ -118,6 +121,7 @@ class WorkflowManager:
                 self.workflow is None
                 or self.event_dto is None
                 or self.event_data is None
+                or self.main_workflow_context is None
             ):
                 raise Exception("Workflow or event not prepared")
 
@@ -141,7 +145,9 @@ class WorkflowManager:
                     )
                 if step == "llm_classify_document":
                     self.step_list.append(
-                        LLMClassifyDocumentStep(self.main_workflow_context)
+                        LLMClassifyDocumentStep(
+                            self.main_workflow_context, self.workflow.llm_model
+                        )
                     )
                 if step == "save_results":
                     self.step_list.append(
@@ -170,6 +176,10 @@ class WorkflowManager:
         if len(self.step_list) == 0:
             raise WorkflowStepException(
                 "execute_workflow", Exception("No workflow steps found")
+            )
+        if self.main_workflow_context is None:
+            raise WorkflowStepException(
+                "execute_workflow", Exception("Main workflow context not initialized")
             )
         try:
             for step in self.step_list:

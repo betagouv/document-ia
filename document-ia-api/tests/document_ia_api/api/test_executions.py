@@ -86,7 +86,7 @@ class TestExecutions:
         assert response.status_code == 200
         data = response.json()
         assert data["id"] == execution_id
-        assert data["status"] == "PENDING"
+        assert data["status"] == "STARTED"
         assert data["data"]["file_name"] == "test.pdf"
         assert data["data"]["content_type"] == "application/pdf"
         assert "presigned_url" in data["data"]
@@ -111,7 +111,7 @@ class TestExecutions:
         assert response.status_code == 200
         data = response.json()
         assert data["id"] == execution_id
-        assert data["status"] == "DONE"
+        assert data["status"] == "SUCCESS"
         assert data["data"]["total_processing_time_ms"] == 1200
         assert data["data"]["result"]["document_type"] == "cni"
         assert data["data"]["result"]["confidence"] == 0.9

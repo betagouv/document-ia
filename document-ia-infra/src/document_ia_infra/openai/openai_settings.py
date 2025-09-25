@@ -6,11 +6,9 @@ load_dotenv()
 
 
 class OpenAISettings:
-    ALBERT_API_KEY: str | None = os.getenv("ALBERT_API_KEY")
-    ALBERT_BASE_URL: str | None = os.getenv("ALBERT_BASE_URL")
-    ENCODING_MODEL: str = os.getenv("ENCORING_MODEL", "gpt-4")
-    ALBERT_SMALL_MODEL = "albert-small"
-    ALBERT_LARGE_MODEL = "albert-large"
+    OPENAI_API_KEY: str | None = os.getenv("OPENAI_API_KEY")
+    OPENAI_BASE_URL: str | None = os.getenv("OPENAI_BASE_URL")
+    OPENAI_ENCODING_MODEL: str = os.getenv("OPENAI_ENCODING_MODEL", "gpt-4")
 
 
 openai_settings = OpenAISettings()

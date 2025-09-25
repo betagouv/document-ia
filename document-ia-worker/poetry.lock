@@ -287,7 +287,7 @@ files = [
 
 [[package]]
 name = "document-ia-infra"
-version = "0.1.0"
+version = "0.1.1"
 description = "Code des briques d'infrastructure pour Document IA"
 optional = false
 python-versions = "^3.11"

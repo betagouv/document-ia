@@ -8,7 +8,7 @@ import jinja2
 from document_ia_worker.core.prompt.prompt_configuration import (
     PromptConfiguration,
     TaskType,
-    SupportedDocumentCategory,
+    SupportedDocumentType,
 )
 
 
@@ -31,7 +31,7 @@ class PromptService:
         }
 
     def get_classification_prompt(
-        self, document_type_list: list[SupportedDocumentCategory]
+        self, document_type_list: list[SupportedDocumentType]
     ) -> str:
         prompt_template = self.template_env.get_template(
             self.allowed_tasks[TaskType.CLASSIFICATION].template_file
@@ -39,20 +39,17 @@ class PromptService:
 
         document_category_schema: List[Dict[str, Any]] = []
         for document_type in document_type_list:
-            document_category_schema.extend(
+            document_category_schema.append(
                 self._load_schema_from_document_type(document_type)
             )
 
         return prompt_template.render(document_categories=document_category_schema)
 
     def _load_schema_from_document_type(
-        self, document_type: SupportedDocumentCategory
-    ) -> List[Dict[str, Any]]:
-        loaded_files: List[Dict[str, Any]] = []
-        for sub_type in document_type.value:
-            schema_path = os.path.join(
-                self.schemas_directory, f"document_{sub_type}_schema.json"
-            )
-            with open(schema_path, "r") as file:
-                loaded_files.append(json.load(file))
-        return loaded_files
+        self, document_type: SupportedDocumentType
+    ) -> Dict[str, Any]:
+        schema_path = os.path.join(
+            self.schemas_directory, f"document_{document_type.value}_schema.json"
+        )
+        with open(schema_path, "r") as file:
+            return json.load(file)
