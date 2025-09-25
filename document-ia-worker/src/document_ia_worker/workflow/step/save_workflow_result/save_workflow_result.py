@@ -47,14 +47,17 @@ class SaveWorkflowResultStep(BaseStep[None]):
 
     async def _execute_internal(self) -> None:
         assert self.llm_result is not None
-        end_time = datetime.now().timestamp()
+        end_time = datetime.now(UTC)
         event = WorkflowExecutionCompletedEvent(
             workflow_id=self.workflow_id,
             execution_id=self.execution_id,
             created_at=datetime.now(UTC),
             final_result=self.llm_result.data.model_dump(),
             total_processing_time_ms=int(
-                (end_time - self.main_workflow_context.start_time) * 1000
+                int(
+                    (end_time - self.main_workflow_context.start_time).total_seconds()
+                    * 1000
+                )
             ),
             output_summary={},
             steps_completed=self.main_workflow_context.number_of_step_executed + 1,

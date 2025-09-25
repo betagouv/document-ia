@@ -6,7 +6,7 @@ from typing import Annotated, Literal, Union, Optional
 from pydantic import BaseModel, Field, HttpUrl
 
 
-class ExecutionPendingData(BaseModel):
+class ExecutionStartedData(BaseModel):
     created_at: datetime
     file_name: str
     content_type: str
@@ -19,7 +19,7 @@ class ExecutionDoneResult(BaseModel):
     explanation: str
 
 
-class ExecutionDoneData(BaseModel):
+class ExecutionSuccessData(BaseModel):
     total_processing_time_ms: int
     result: ExecutionDoneResult
 
@@ -32,16 +32,16 @@ class ExecutionFailedData(BaseModel):
     error_message: str
 
 
-class ExecutionPendingModel(BaseModel):
+class ExecutionStartedModel(BaseModel):
     id: str
-    status: Literal["PENDING"]
-    data: ExecutionPendingData
+    status: Literal["STARTED"]
+    data: ExecutionStartedData
 
 
-class ExecutionDoneModel(BaseModel):
+class ExecutionSuccessModel(BaseModel):
     id: str
-    status: Literal["DONE"]
-    data: ExecutionDoneData
+    status: Literal["SUCCESS"]
+    data: ExecutionSuccessData
 
 
 class ExecutionFailedModel(BaseModel):
@@ -52,6 +52,6 @@ class ExecutionFailedModel(BaseModel):
 
 # Discriminated union on "status"
 ExecutionResponse = Annotated[
-    Union[ExecutionPendingModel, ExecutionDoneModel, ExecutionFailedModel],
+    Union[ExecutionStartedModel, ExecutionSuccessModel, ExecutionFailedModel],
     Field(discriminator="status"),
 ]

@@ -7,10 +7,10 @@ from document_ia_api.api.auth import verify_api_key
 from document_ia_api.api.contracts.api_error import ApiErrorResponse
 from document_ia_api.api.contracts.executions import (
     ExecutionResponse,
-    ExecutionPendingModel,
-    ExecutionPendingData,
-    ExecutionDoneModel,
-    ExecutionDoneData,
+    ExecutionStartedModel,
+    ExecutionStartedData,
+    ExecutionSuccessModel,
+    ExecutionSuccessData,
     ExecutionDoneResult,
     ExecutionFailedModel,
     ExecutionFailedData,
@@ -112,7 +112,7 @@ async def get_execution(
     execution_id: str,
     api_key: str = Depends(verify_api_key),
     db_session: AsyncSession = Depends(database_manager.async_get_db),
-) -> ExecutionPendingModel | ExecutionDoneModel | ExecutionFailedModel:
+) -> ExecutionStartedModel | ExecutionSuccessModel | ExecutionFailedModel:
     logger.info(
         "Execution details requested",
         extra={"endpoint": "get_execution", "execution_id": execution_id},
@@ -125,10 +125,10 @@ async def get_execution(
         )
         if last_event.event_type == EventType.WORKFLOW_EXECUTION_STARTED:
             event_data = WorkflowExecutionStartedEvent(**last_event.event)
-            return ExecutionPendingModel(
+            return ExecutionStartedModel(
                 id=execution_id,
-                status="PENDING",
-                data=ExecutionPendingData(
+                status="STARTED",
+                data=ExecutionStartedData(
                     created_at=last_event.created_at,
                     file_name=event_data.file_info.filename,
                     content_type=event_data.file_info.content_type,
@@ -137,10 +137,10 @@ async def get_execution(
             )
         if last_event.event_type == EventType.WORKFLOW_EXECUTION_COMPLETED:
             event_data = WorkflowExecutionCompletedEvent(**last_event.event)
-            return ExecutionDoneModel(
+            return ExecutionSuccessModel(
                 id=execution_id,
-                status="DONE",
-                data=ExecutionDoneData(
+                status="SUCCESS",
+                data=ExecutionSuccessData(
                     total_processing_time_ms=event_data.total_processing_time_ms,
                     result=ExecutionDoneResult(
                         confidence=event_data.final_result["confidence"],

@@ -10,7 +10,7 @@ from document_ia_worker.core.prompt.model.DocumentClassification import (
     DocumentClassification,
 )
 from document_ia_worker.core.prompt.prompt_configuration import (
-    SupportedDocumentCategory,
+    SupportedDocumentType,
 )
 from document_ia_worker.core.prompt.prompt_service import PromptService
 from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
@@ -24,8 +24,9 @@ logger = logging.getLogger(__name__)
 class LLMClassifyDocumentStep(BaseStep[LLMResult]):
     ocr_result: Optional[OcrResult] = None
 
-    def __init__(self, main_workflow_context: MainWorkflowContext):
+    def __init__(self, main_workflow_context: MainWorkflowContext, model: str):
         self.execution_id = main_workflow_context.execution_id
+        self.model = model
         self.openai_manager = OpenAIManager()
         self.prompt_service = PromptService()
 
@@ -48,7 +49,11 @@ class LLMClassifyDocumentStep(BaseStep[LLMResult]):
     async def _execute_internal(self) -> LLMResult:
         assert self.ocr_result is not None
         system_prompt = self.prompt_service.get_classification_prompt(
-            [SupportedDocumentCategory.IDENTIFICATION]
+            [
+                SupportedDocumentType.CNI,
+                SupportedDocumentType.PASSEPORT,
+                SupportedDocumentType.PERMIS_CONDUIRE,
+            ],
         )
         user_prompt = ""
         for page in self.ocr_result.pages:
@@ -56,7 +61,10 @@ class LLMClassifyDocumentStep(BaseStep[LLMResult]):
 
         try:
             response = await self.openai_manager.generate_typped_response(
-                system_prompt, user_prompt, DocumentClassification
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                response_class=DocumentClassification,
+                model=self.model,
             )
         except OpenAIAuthentificationError as e:
             raise RetryableException(e.message)

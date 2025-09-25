@@ -19,17 +19,19 @@ T = TypeVar("T", bound=BaseModel)
 class OpenAIManager:
     def __init__(self):
         self.client = AsyncOpenAI(
-            base_url=openai_settings.ALBERT_BASE_URL,
-            api_key=openai_settings.ALBERT_API_KEY,
+            base_url=openai_settings.OPENAI_BASE_URL,
+            api_key=openai_settings.OPENAI_API_KEY,
         )
-        self.encoding = tiktoken.encoding_for_model(openai_settings.ENCODING_MODEL)
+        self.encoding = tiktoken.encoding_for_model(
+            openai_settings.OPENAI_ENCODING_MODEL
+        )
 
     async def generate_typped_response(
         self,
         system_prompt: str,
         user_prompt: str,
         response_class: type[T],
-        model: str = openai_settings.ALBERT_LARGE_MODEL,
+        model: str,
         temperature: float = 0.7,
     ) -> T:
         tokens = self.encoding.encode(system_prompt) + self.encoding.encode(user_prompt)
