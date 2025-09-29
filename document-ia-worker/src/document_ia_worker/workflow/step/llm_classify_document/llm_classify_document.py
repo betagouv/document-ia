@@ -60,7 +60,7 @@ class LLMClassifyDocumentStep(BaseStep[LLMResult]):
             user_prompt += f"{page.text}\n\n"
 
         try:
-            response = await self.openai_manager.generate_typped_response(
+            response = await self.openai_manager.generate_typed_response(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 response_class=DocumentClassification,

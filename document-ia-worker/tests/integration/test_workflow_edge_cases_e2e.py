@@ -88,11 +88,10 @@ class TestWorkflowEdgeCasesE2E:
             assert "not injected" in payload.get("error_message", "") or "not found" in payload.get("error_message", "")
             assert payload.get("retry_count") == 0
 
+    @pytest.mark.skipif(not _s3_available(), reason="S3 not available")
     @pytest.mark.asyncio
     async def test_ocr_without_preprocess_fails(self, monkeypatch):
         """Workflow 'download_file' then 'extract_content_ocr' without preprocess must fail in ExtractContentOcrStep."""
-        if not _s3_available():
-            pytest.skip("S3 not available; skipping test")
         assert PDF_FIXTURE.exists(), "Fixture PDF is missing"
 
         wf_id = "wf-missing-preprocess"

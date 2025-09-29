@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 
 
 class ApiErrorResponse(BaseModel):
@@ -11,7 +11,14 @@ class ApiErrorResponse(BaseModel):
     details: Optional[Dict[str, Any]] = Field(
         default=None, description="Additional error details"
     )
-    timestamp: str = Field(
-        default_factory=lambda: datetime.now().isoformat(),
-        description="Error timestamp",
+    timestamp: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="Error timestamp (UTC)",
     )
+
+    # Optional: control JSON serialization format for datetime
+    @field_serializer("timestamp")
+    def _serialize_timestamp(self, value: datetime) -> str:
+        # ISO 8601 with trailing 'Z' for UTC (RFC 3339 style)
+        s = value.isoformat()
+        return s.replace("+00:00", "Z")

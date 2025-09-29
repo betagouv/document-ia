@@ -23,18 +23,21 @@ docker-compose.yml                 # Docker Compose file for local development
 ### Using Docker Compose
 
 1. **Start the services**
+
 ```bash
 # Start PostgreSQL and Redis in detached mode
 docker-compose up -d
 ```
 
 2. **Stop the services**
+
 ```bash
 # Stop and remove containers
 docker-compose down
 ```
 
 3. **View service logs**
+
 ```bash
 # View all service logs
 docker-compose logs
@@ -49,6 +52,7 @@ docker-compose logs -f
 ```
 
 4. **Check service status**
+
 ```bash
 # List running containers
 docker-compose ps
@@ -61,7 +65,8 @@ docker-compose exec minio mc admin info local
 
 ### Environment Variables
 
-The `docker-compose.yml` file uses environment variables from your `.env` file. Make sure your `.env` file includes the following variables (see `env.example` for reference):
+The `docker-compose.yml` file uses environment variables from your `.env` file. Make sure your `.env` file includes the
+following variables (see `env.example` for reference):
 
 ```bash
 # PostgreSQL Configuration
@@ -80,7 +85,8 @@ MINIO_API_PORT=9000
 MINIO_CONSOLE_PORT=9001
 ```
 
-These variables are used by Docker Compose to configure the PostgreSQL, Redis, and MinIO services. The application will connect to these services using the same configuration.
+These variables are used by Docker Compose to configure the PostgreSQL, Redis, and MinIO services. The application will
+connect to these services using the same configuration.
 
 ### MinIO Access
 
@@ -99,6 +105,7 @@ python scripts/init-s3-bucket.py
 ```
 
 This script will:
+
 - Connect to your MinIO instance
 - Create the default bucket (`document-ia`) if it doesn't exist
 - Verify the bucket is accessible
@@ -136,17 +143,26 @@ This project uses pre-commit hooks to ensure code quality. The setup includes:
 #### Setup Pre-commit Hooks
 
 1. **Install dependencies** (if not already done):
+
 ```bash
 poetry install
 ```
 
 2. **Install pre-commit hooks**:
+
 ```bash
 # Manual installation
 pre-commit install
 ```
 
+3. **To make changes on the api without having to bump the version code**
+```bash
+# This will create a symlink to the infra package
+poetry run pip install -e ../document-ia-infra
+```
+
 #### Code Quality Standards
+
 - Python 3.11+ features
 - PEP 8 style guidelines (enforced by ruff)
 - Type hints for all function parameters and return values
@@ -154,6 +170,7 @@ pre-commit install
 - Structured logging with data sanitization
 
 ### Testing
+
 - Unit tests for all business logic
 - Integration tests for external dependencies
 - Async test support
@@ -161,6 +178,7 @@ pre-commit install
 - Test idempotency behavior
 
 ### Security
+
 - Proper authentication and authorization
 - Input sanitization
 - Rate limiting
@@ -170,6 +188,7 @@ pre-commit install
 ## Deployment
 
 The project is configured for production deployment on Heroku with:
+
 - Procfile for process management
 - Heroku Postgres and Redis add-ons
 - Environment variable configuration

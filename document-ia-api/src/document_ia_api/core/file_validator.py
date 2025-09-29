@@ -1,5 +1,6 @@
 import logging
 from typing import Tuple, Optional
+from pathlib import Path
 
 import magic
 from fastapi import UploadFile, HTTPException
@@ -18,6 +19,11 @@ class FileValidator:
     for mime_type, extensions in settings.ALLOWED_MIME_TYPES.items():
         for ext in extensions:
             EXTENSION_TO_MIME[ext.lower()] = mime_type
+
+    @staticmethod
+    def _extension_of(filename: str) -> str:
+        """Return normalized extension (with dot), lowercased, or '' if none."""
+        return Path(filename).suffix.lower()
 
     @classmethod
     def validate_file(
@@ -71,9 +77,10 @@ class FileValidator:
 
             # Cross-validate extension vs detected MIME type
             if not cls._cross_validate_extension_and_mime(file, detected_mime):
+                ext = cls._extension_of(file.filename).lstrip(".")
                 return (
                     False,
-                    f"File extension '{file.filename.split('.')[-1]}' does not match detected content type '{detected_mime}'",
+                    f"File extension '{ext}' does not match detected content type '{detected_mime}'",
                     None,
                 )
 
@@ -104,10 +111,9 @@ class FileValidator:
     @classmethod
     def _validate_file_extension(cls, file: UploadFile) -> bool:
         """Validate file extension."""
-        if not file.filename or "." not in file.filename:
+        if not file.filename:
             return False
-
-        extension = "." + file.filename.split(".")[-1].lower()
+        extension = cls._extension_of(file.filename)
         return extension in cls.EXTENSION_TO_MIME
 
     @classmethod
@@ -131,12 +137,14 @@ class FileValidator:
         cls, file: UploadFile, detected_mime: str
     ) -> bool:
         """Cross-validate file extension with detected MIME type."""
-        if not file.filename or "." not in file.filename:
+        if not file.filename:
             return False
 
-        extension = "." + file.filename.split(".")[-1].lower()
-        expected_mime = cls.EXTENSION_TO_MIME.get(extension)
+        extension = cls._extension_of(file.filename)
+        if not extension:
+            return False
 
+        expected_mime = cls.EXTENSION_TO_MIME.get(extension)
         if not expected_mime:
             return False
 
@@ -159,11 +167,7 @@ class FileValidator:
             if file.filename is None:
                 raise ValueError("Filename is None")
 
-            extension = (
-                "." + file.filename.split(".")[-1].lower()
-                if "." in file.filename
-                else ""
-            )
+            extension = cls._extension_of(file.filename)
 
             allowed_types = list(settings.ALLOWED_MIME_TYPES.keys())
 
@@ -202,7 +206,7 @@ def validate_uploaded_file(file: UploadFile) -> str:
             detail={
                 "error": "file_validation_error",
                 "message": error_message,
-                "file_info": file_info.model_dump() if file_info else None,
+                "file_info": file_info.model_dump(mode="json") if file_info else None,
             },
         )
 

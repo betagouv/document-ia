@@ -1,6 +1,5 @@
 import json
-import os.path
-from pathlib import Path
+import importlib.resources as resources
 from typing import Dict, Any, List
 
 import jinja2
@@ -16,13 +15,11 @@ class PromptService:
     allowed_tasks: Dict[TaskType, PromptConfiguration]
 
     def __init__(self):
-        # Resolve directories relative to this file to avoid CWD issues
-        base_dir = Path(__file__).resolve().parent  # .../core/prompt
-        self.prompts_directory = base_dir / "prompts"
-        self.schemas_directory = base_dir / "schemas"
-
+        # Use package resources to locate templates and schemas (no __file__/Path)
+        # Templates live in the package subdirectory `prompts` and schemas in `schemas`.
+        # jinja2.PackageLoader will load templates from the package resources.
         self.template_env = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(searchpath=str(self.prompts_directory))
+            loader=jinja2.PackageLoader("document_ia_worker.core.prompt", "prompts")
         )
         self.allowed_tasks = {
             TaskType.CLASSIFICATION: PromptConfiguration(
@@ -48,8 +45,9 @@ class PromptService:
     def _load_schema_from_document_type(
         self, document_type: SupportedDocumentType
     ) -> Dict[str, Any]:
-        schema_path = os.path.join(
-            self.schemas_directory, f"document_{document_type.value}_schema.json"
-        )
-        with open(schema_path, "r") as file:
+        filename = f"document_{document_type.value}_schema.json"
+        # Read schema JSON from package resources (schemas subpackage)
+        with resources.open_text(
+            "document_ia_worker.core.prompt.schemas", filename
+        ) as file:
             return json.load(file)

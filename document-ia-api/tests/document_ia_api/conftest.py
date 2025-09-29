@@ -16,6 +16,8 @@ from dotenv import load_dotenv
 # Add the src directory to Python path for imports
 import sys
 
+from pydantic import SecretStr
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from document_ia_api.api.rate_limiting import RateLimitMiddleware
@@ -42,7 +44,7 @@ def create_test_app(api_key: str = None):
     # Create test settings
     class TestSettings:
         APP_VERSION = "1.0.0-test"
-        API_KEY = api_key
+        API_KEY = SecretStr(api_key) if api_key else None
 
     # TODO: Do not copy and paste the app configuration from the main.py file
     # Create FastAPI application

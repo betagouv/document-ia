@@ -1,14 +1,21 @@
-import os
+from pydantic import SecretStr, Field
 
-from dotenv import load_dotenv
-
-load_dotenv()
+from document_ia_infra.core.BaseDocumentIaSettings import BaseDocumentIaSettings
 
 
-class OpenAISettings:
-    OPENAI_API_KEY: str | None = os.getenv("OPENAI_API_KEY")
-    OPENAI_BASE_URL: str | None = os.getenv("OPENAI_BASE_URL")
-    OPENAI_ENCODING_MODEL: str = os.getenv("OPENAI_ENCODING_MODEL", "gpt-4")
+class OpenAISettings(BaseDocumentIaSettings):
+    OPENAI_API_KEY: SecretStr | None = Field(default=None)
+    OPENAI_BASE_URL: str | None = Field(default=None)
+    OPENAI_ENCODING_MODEL: str = Field(
+        default="gpt-4",
+        description="Model used for token encoding to calculate request /response size",
+    )
+    OPENAI_TIMEOUT: int = Field(
+        default=30, description="Timeout for OpenAI API requests in seconds"
+    )
+    OPENAI_MAX_RETRIES: int = Field(
+        default=3, description="Maximum number of retries for OpenAI API requests"
+    )
 
 
 openai_settings = OpenAISettings()

@@ -14,6 +14,7 @@ from document_ia_api.api.contracts.executions import (
     ExecutionDoneResult,
     ExecutionFailedModel,
     ExecutionFailedData,
+    ExecutionStatus,
 )
 from document_ia_api.api.exceptions.entity_not_found_exception import (
     HttpEntityNotFoundException,
@@ -127,7 +128,7 @@ async def get_execution(
             event_data = WorkflowExecutionStartedEvent(**last_event.event)
             return ExecutionStartedModel(
                 id=execution_id,
-                status="STARTED",
+                status=ExecutionStatus.STARTED,
                 data=ExecutionStartedData(
                     created_at=last_event.created_at,
                     file_name=event_data.file_info.filename,
@@ -139,7 +140,7 @@ async def get_execution(
             event_data = WorkflowExecutionCompletedEvent(**last_event.event)
             return ExecutionSuccessModel(
                 id=execution_id,
-                status="SUCCESS",
+                status=ExecutionStatus.SUCCESS,
                 data=ExecutionSuccessData(
                     total_processing_time_ms=event_data.total_processing_time_ms,
                     result=ExecutionDoneResult(
@@ -153,7 +154,7 @@ async def get_execution(
             event_data = WorkflowExecutionFailedEvent(**last_event.event)
             return ExecutionFailedModel(
                 id=execution_id,
-                status="FAILED",
+                status=ExecutionStatus.FAILED,
                 data=ExecutionFailedData(
                     error_type=event_data.error_type,
                     failed_step=event_data.failed_step,

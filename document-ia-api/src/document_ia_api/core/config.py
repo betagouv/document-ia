@@ -1,11 +1,15 @@
-import os
 from typing import Dict, List
-from pydantic_settings import BaseSettings
+
+from pydantic import Field
+
+from document_ia_infra.core.BaseDocumentIaSettings import BaseDocumentIaSettings
 
 
-class FileSettings(BaseSettings):
+class FileSettings(BaseDocumentIaSettings):
     # File upload configuration
-    MAX_FILE_SIZE: int = int(os.getenv("MAX_FILE_SIZE", "26214400"))  # 25MB in bytes
+    MAX_FILE_SIZE: int = Field(
+        default=26214400, validation_alias="MAX_FILE_SIZE"
+    )  # 25MB in bytes
 
     ALLOWED_MIME_TYPES: Dict[str, List[str]] = {
         "application/pdf": [".pdf"],

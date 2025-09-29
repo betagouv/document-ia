@@ -39,13 +39,12 @@ def _make_text_image(path: Path, text: str) -> Path:
 
 class TestExtractContentOcrStep:
 
+    @pytest.mark.skipif(not _tesseract_available(), reason="Tesseract not available")
     @pytest.mark.asyncio
     async def test_ocr_from_pdf_fixture_two_pages_and_cleanup(self):
         """Run OCR starting from the PDF fixture via PreprocessFileStep, then ExtractContentOcrStep.
         Use the fixture as-is, assert we get OCR text for all pages, and verify cleanup removes temp files.
         """
-        if not _tesseract_available():
-            pytest.skip("Tesseract is not available on this system")
 
         # Locate PDF fixture and ensure it exists
         fixtures_dir = Path(__file__).resolve().parents[1] / "fixtures"
@@ -102,13 +101,12 @@ class TestExtractContentOcrStep:
         await preprocess.cleanup()
         assert not tmp_dir.exists(), f"Temporary directory should be deleted: {tmp_dir}"
 
+    @pytest.mark.skipif(not _tesseract_available(), reason="Tesseract not available")
     @pytest.mark.asyncio
     async def test_ocr_timeout_is_handled(self, monkeypatch, tmp_path):
         """Simulate a Tesseract timeout and verify the exception path is handled gracefully.
         The first page raises a timeout-like exception; the second succeeds.
         """
-        if not _tesseract_available():
-            pytest.skip("Tesseract is not available on this system")
 
         # Prepare two synthetic images
         img_timeout = _make_text_image(tmp_path / "timeout.png", "WILL TIMEOUT")
