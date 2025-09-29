@@ -51,17 +51,6 @@ test = ["anyio[trio]", "coverage[toml] (>=4.5)", "hypothesis (>=4.0)", "mock (>=
 trio = ["trio (<0.22)"]
 
 [[package]]
-name = "async-timeout"
-version = "5.0.1"
-description = "Timeout context manager for asyncio programs"
-optional = false
-python-versions = ">=3.8"
-files = [
-    {file = "async_timeout-5.0.1-py3-none-any.whl", hash = "sha256:39e3809566ff85354557ec2398b55e096c8364bacac9405a7a1fa429e77fe76c"},
-    {file = "async_timeout-5.0.1.tar.gz", hash = "sha256:d9321a7a3d5a6a5e187e824d2fa0793ce379a202935782d555d6e9d2735677d3"},
-]
-
-[[package]]
 name = "asyncpg"
 version = "0.30.0"
 description = "An asyncio PostgreSQL driver"
@@ -164,7 +153,6 @@ mypy-boto3-rds = {version = ">=1.40.0,<1.41.0", optional = true, markers = "extr
 mypy-boto3-s3 = {version = ">=1.40.0,<1.41.0", optional = true, markers = "extra == \"essential\""}
 mypy-boto3-sqs = {version = ">=1.40.0,<1.41.0", optional = true, markers = "extra == \"essential\""}
 types-s3transfer = "*"
-typing-extensions = {version = ">=4.1.0", markers = "python_version < \"3.12\""}
 
 [package.extras]
 accessanalyzer = ["mypy-boto3-accessanalyzer (>=1.40.0,<1.41.0)"]
@@ -782,7 +770,7 @@ name = "document-ia-infra"
 version = "0.1.1"
 description = "Code des briques d'infrastructure pour Document IA"
 optional = false
-python-versions = "^3.11"
+python-versions = "^3.13"
 files = []
 develop = false
 
@@ -1230,9 +1218,6 @@ files = [
     {file = "mypy_boto3_cloudformation-1.40.24.tar.gz", hash = "sha256:e2b00afc6aab1311b258c93148eeea5b3eead94c7203e28ff9fd38e9fce28488"},
 ]
 
-[package.dependencies]
-typing-extensions = {version = "*", markers = "python_version < \"3.12\""}
-
 [[package]]
 name = "mypy-boto3-dynamodb"
 version = "1.40.20"
@@ -1243,9 +1228,6 @@ files = [
     {file = "mypy_boto3_dynamodb-1.40.20-py3-none-any.whl", hash = "sha256:276f12132b19e5cd9c8c2e551899128acfad39fb56fc77c7e0b005b29d86c844"},
     {file = "mypy_boto3_dynamodb-1.40.20.tar.gz", hash = "sha256:2f424315d299ccf0b3b4e3b2b2300f90f09cd0b7c69fc473d0cdc0b6be6c30d6"},
 ]
-
-[package.dependencies]
-typing-extensions = {version = "*", markers = "python_version < \"3.12\""}
 
 [[package]]
 name = "mypy-boto3-ec2"
@@ -1258,9 +1240,6 @@ files = [
     {file = "mypy_boto3_ec2-1.40.37.tar.gz", hash = "sha256:fdf8ecbc56ebc96eb10fe075ad04fe5e93e6c074bd2a56d8a204edc68f6d1603"},
 ]
 
-[package.dependencies]
-typing-extensions = {version = "*", markers = "python_version < \"3.12\""}
-
 [[package]]
 name = "mypy-boto3-lambda"
 version = "1.40.7"
@@ -1271,9 +1250,6 @@ files = [
     {file = "mypy_boto3_lambda-1.40.7-py3-none-any.whl", hash = "sha256:398c9dd051278430168e907b6b6c2078a3a1bca3948c2bf4d47eda8d7da28573"},
     {file = "mypy_boto3_lambda-1.40.7.tar.gz", hash = "sha256:e8bedf03a67fade5db861fe902df063064292352eed5f785f74cd0e591948db9"},
 ]
-
-[package.dependencies]
-typing-extensions = {version = "*", markers = "python_version < \"3.12\""}
 
 [[package]]
 name = "mypy-boto3-rds"
@@ -1286,9 +1262,6 @@ files = [
     {file = "mypy_boto3_rds-1.40.29.tar.gz", hash = "sha256:82ba0c8c5a2951d0da4ceb90941520205e1f03fd3f9f5df7c0b1b6a164992764"},
 ]
 
-[package.dependencies]
-typing-extensions = {version = "*", markers = "python_version < \"3.12\""}
-
 [[package]]
 name = "mypy-boto3-s3"
 version = "1.40.26"
@@ -1300,9 +1273,6 @@ files = [
     {file = "mypy_boto3_s3-1.40.26.tar.gz", hash = "sha256:8d2bfd1052894d0e84c9fb9358d838ba0eed0265076c7dd7f45622c770275c99"},
 ]
 
-[package.dependencies]
-typing-extensions = {version = "*", markers = "python_version < \"3.12\""}
-
 [[package]]
 name = "mypy-boto3-sqs"
 version = "1.40.35"
@@ -1313,9 +1283,6 @@ files = [
     {file = "mypy_boto3_sqs-1.40.35-py3-none-any.whl", hash = "sha256:719967d5973ab99a1298381023add28da45ee0dca2b5bf4969b7b5e4fc1a5db8"},
     {file = "mypy_boto3_sqs-1.40.35.tar.gz", hash = "sha256:c11f95ee72bddb84f7fecf3000372e01547f36737064b785f1cf34191b87e03f"},
 ]
-
-[package.dependencies]
-typing-extensions = {version = "*", markers = "python_version < \"3.12\""}
 
 [[package]]
 name = "nodeenv"
@@ -1864,7 +1831,6 @@ files = [
 ]
 
 [package.dependencies]
-async-timeout = {version = ">=4.0.3", markers = "python_full_version < \"3.11.3\""}
 PyJWT = ">=2.9.0"
 
 [package.extras]
@@ -2395,5 +2361,5 @@ test = ["covdefaults (>=2.3)", "coverage (>=7.2.7)", "coverage-enable-subprocess
 
 [metadata]
 lock-version = "2.0"
-python-versions = "^3.11"
-content-hash = "69eabe98bf176631ad705c70b946677c345231396a66085265001085382d09b9"
+python-versions = "^3.13"
+content-hash = "b1102c84fadf08b64e42721c58334060314986b7a8761cf2abf9640f391b8063"

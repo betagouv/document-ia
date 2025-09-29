@@ -9,7 +9,7 @@ packages = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = "^3.13"
 fastapi = "^0.104.0"
 python-dotenv = "^1.0.0"
 pydantic-settings = "^2.1.0"
@@ -44,7 +44,7 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.ruff]
-target-version = "py312"
+target-version = "py313"
 line-length = 88
 
 [tool.ruff.format]

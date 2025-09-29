@@ -1,6 +1,0 @@
-# Liste des sous-projets gérés par la CI (un par ligne)
-# Lignes vides ou commençant par # sont ignorées
-
-document-ia-api
-document-ia-infra
-document-ia-worker

@@ -2,8 +2,15 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Annotated, Literal, Union, Optional
+from enum import Enum
 
 from pydantic import BaseModel, Field, HttpUrl
+
+
+class ExecutionStatus(str, Enum):
+    STARTED = "STARTED"
+    SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
 
 
 class ExecutionStartedData(BaseModel):
@@ -34,19 +41,19 @@ class ExecutionFailedData(BaseModel):
 
 class ExecutionStartedModel(BaseModel):
     id: str
-    status: Literal["STARTED"]
+    status: Literal[ExecutionStatus.STARTED]
     data: ExecutionStartedData
 
 
 class ExecutionSuccessModel(BaseModel):
     id: str
-    status: Literal["SUCCESS"]
+    status: Literal[ExecutionStatus.SUCCESS]
     data: ExecutionSuccessData
 
 
 class ExecutionFailedModel(BaseModel):
     id: str
-    status: Literal["FAILED"]
+    status: Literal[ExecutionStatus.FAILED]
     data: ExecutionFailedData
 
 

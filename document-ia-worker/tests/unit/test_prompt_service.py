@@ -14,6 +14,7 @@ def _load_schema(doc_type: SupportedDocumentType) -> dict:
     schemas_dir = base_dir / "schemas"
     return json.loads((schemas_dir / f"document_{doc_type.value}_schema.json").read_text())
 
+
 class TestPromptService:
 
     def test_classification_prompt_injects_document_categories_and_descriptions(self):
@@ -68,8 +69,10 @@ class TestPromptService:
 
     def test_get_classification_prompt_raises_if_schema_missing(self, tmp_path):
         service = PromptService()
-        # Point schemas_directory to an empty temp dir
-        service.schemas_directory = tmp_path
+        # Instead of swapping a schemas_directory (no longer used), request a document type
+        # for which no schema exists. We pass a lightweight object with a .value attribute.
+        class FakeDocType:
+            value = "this_schema_does_not_exist"
 
         with pytest.raises(FileNotFoundError):
-            service.get_classification_prompt([SupportedDocumentType.CNI])
+            service.get_classification_prompt([FakeDocType()])

@@ -20,13 +20,17 @@ class OpenAIManager:
     def __init__(self):
         self.client = AsyncOpenAI(
             base_url=openai_settings.OPENAI_BASE_URL,
-            api_key=openai_settings.OPENAI_API_KEY,
+            api_key=openai_settings.OPENAI_API_KEY.get_secret_value()
+            if openai_settings.OPENAI_API_KEY is not None
+            else None,
+            timeout=openai_settings.OPENAI_TIMEOUT,
+            max_retries=openai_settings.OPENAI_MAX_RETRIES,
         )
         self.encoding = tiktoken.encoding_for_model(
             openai_settings.OPENAI_ENCODING_MODEL
         )
 
-    async def generate_typped_response(
+    async def generate_typed_response(
         self,
         system_prompt: str,
         user_prompt: str,
@@ -59,7 +63,7 @@ class OpenAIManager:
                 raise Exception(f"Failed to generate response: {response}")
 
             response_tokens = self.encoding.encode(result)
-            logger.info(f"Reponse size : {len(response_tokens)}")
+            logger.info(f"Response size : {len(response_tokens)}")
 
             return response_class.model_validate_json(result)
 

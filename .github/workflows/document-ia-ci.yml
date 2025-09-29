@@ -12,34 +12,54 @@ concurrency:
 
 jobs:
   lint-and-test:
-    name: Ruff lint and Pytest
+    name: Ruff lint and Pytest (${{ matrix.name }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            project: document-ia-api
+            pythonpath: document-ia-api/src
+            needs_docker_stack: true
+            needs_tesseract: false
+          - name: infra
+            project: document-ia-infra
+            pythonpath: document-ia-infra/src
+            needs_docker_stack: false
+            needs_tesseract: false
+          - name: worker
+            project: document-ia-worker
+            pythonpath: document-ia-worker/src
+            needs_docker_stack: true
+            needs_tesseract: true
     env:
-      # Python path for imports
-      PYTHONPATH: document-ia-api/src
-      # Configuration de l'API
+      # Python path per project
+      PYTHONPATH: ${{ matrix.pythonpath }}
+
+      # API configuration
       API_KEY: your-secret-api-key-here
 
-      # Configuration PostgreSQL
+      # PostgreSQL
       POSTGRES_DB: document_ia_test
       POSTGRES_HOST: localhost
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: your-secure-postgres-password
       POSTGRES_PORT: 5432
 
-      # Configuration Redis
+      # Redis
       REDIS_HOST: localhost
       REDIS_PORT: 6379
       REDIS_DB: 0
       REDIS_PASSWORD: your-secure-redis-password
 
-      # Configuration MinIO (S3 compatible, only for dev)
+      # MinIO (S3 compatible)
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
       MINIO_API_PORT: 9000
       MINIO_CONSOLE_PORT: 9001
 
-      # Configuration S3/MinIO Storage
+      # S3 settings
       S3_ENDPOINT_URL: http://localhost:9000
       S3_ACCESS_KEY_ID: minioadmin
       S3_SECRET_ACCESS_KEY: minioadmin
@@ -47,10 +67,11 @@ jobs:
       S3_REGION_NAME: us-east-1
       S3_USE_SSL: false
 
+      # OpenAI / Albert
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
 
-      # Tesseract configuration for tests
+      # Tesseract
       TESSERACT_LANG: fra
 
     steps:
@@ -71,41 +92,25 @@ jobs:
 
       # Install Tesseract OCR and French trained data
       - name: Install Tesseract OCR (with French language)
+        if: ${{ matrix.needs_tesseract == true }}
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-fra
           tesseract --version
           tesseract --list-langs | grep -i '\bfra\b' || (echo "French language not found" && exit 1)
 
-      - name: Install dependencies (all sub-projects)
+      - name: Install dependencies (matrix project)
         run: |
-          echo "== Reading .project-file =="
-          if [ ! -f .project-file ]; then echo ".project-file manquant"; exit 1; fi
-          grep -v '^[# ]' .project-file | while read project; do
-            [ -z "$project" ] && continue
-            echo "---- Installing $project ----"
-            if [ -f "$project/pyproject.toml" ]; then
-              (cd "$project" && poetry install --no-interaction --no-ansi --with dev)
-            else
-              echo "Skip: $project (pas de pyproject.toml)"
-            fi
-          done
+          cd ${{ matrix.project }}
+          poetry install --no-interaction --no-ansi --with dev
 
       - name: Ruff - Lint sources
         run: |
-          echo "== Reading .project-file =="
-          if [ ! -f .project-file ]; then echo ".project-file manquant"; exit 1; fi
-          grep -v '^[# ]' .project-file | while read project; do
-            [ -z "$project" ] && continue
-            echo "---- Linting sources ----"
-            if [ -f "$project/pyproject.toml" ]; then
-              (cd "$project" && poetry run ruff check src)
-            else
-              echo "Skip: $project (pas de pyproject.toml)"
-            fi
-          done
+          cd ${{ matrix.project }}
+          poetry run ruff check src
 
       - name: Start PostgreSQL
+        if: ${{ matrix.needs_docker_stack == true }}
         run: |
           docker run -d \
             --name postgres-test \
@@ -116,6 +121,7 @@ jobs:
             postgres:17-alpine
 
       - name: Start Redis
+        if: ${{ matrix.needs_docker_stack == true }}
         run: |
           docker run -d \
             --name redis-test \
@@ -123,6 +129,7 @@ jobs:
             redis:8-alpine
 
       - name: Start MinIO
+        if: ${{ matrix.needs_docker_stack == true }}
         run: |
           docker run -d \
             --name minio-test \
@@ -133,42 +140,45 @@ jobs:
             minio/minio:latest-cicd server /data --console-address ":9001"
 
       - name: Wait for PostgreSQL to be ready
+        if: ${{ matrix.needs_docker_stack == true }}
         run: |
-          timeout 60s bash -c 'until docker exec postgres-test pg_isready -U postgres; do sleep 1; done'
+          timeout 60s bash -c 'until docker exec postgres-test pg_isready -U ${POSTGRES_USER}; do sleep 1; done'
           echo "PostgreSQL is ready!"
 
       - name: Wait for Redis to be ready
+        if: ${{ matrix.needs_docker_stack == true }}
         run: |
           timeout 60s bash -c 'until docker exec redis-test redis-cli ping | grep -q PONG; do sleep 1; done'
           echo "Redis is ready!"
 
       - name: Wait for MinIO to be ready
+        if: ${{ matrix.needs_docker_stack == true }}
         run: |
-          timeout 60s bash -c 'until curl -f http://localhost:9000/minio/health/live; do sleep 1; done'
+          timeout 60s bash -c 'until curl -f http://localhost:${MINIO_API_PORT}/minio/health/live; do sleep 1; done'
           echo "MinIO is ready!"
 
       - name: Run migrations
-        run: (cd document-ia-api && poetry run alembic upgrade head)
+        if: ${{ matrix.needs_docker_stack == true }}
+        # We need to install deps of the API to run alembic migrations even on the worker
+        run: |
+          cd document-ia-api
+          poetry install --no-interaction --no-ansi --with dev
+          poetry run alembic upgrade head
 
       - name: Init S3 bucket
-        run: (cd document-ia-api && poetry run python ../scripts/init-s3-bucket.py)
-
-      - name: Pytest - Tests
+        if: ${{ matrix.needs_docker_stack == true }}
         run: |
-          echo "== Reading .project-file =="
-          if [ ! -f .project-file ]; then echo ".project-file manquant"; exit 1; fi
-          grep -v '^[# ]' .project-file | while read project; do
-            [ -z "$project" ] && continue
-            echo "---- Running Tests ----"
-            if [ -f "$project/pyproject.toml" ]; then
-              (cd "$project" && poetry run pytest --maxfail=1 --disable-warnings)
-            else
-              echo "Skip: $project (pas de pyproject.toml)"
-            fi
-          done
+          cd ${{ matrix.project }}
+          # Le script est à la racine du repo; on remonte et on l'exécute dans le venv courant
+          poetry run python ../scripts/init-s3-bucket.py
+
+      - name: Pytest - Tests (matrix project)
+        run: |
+          cd ${{ matrix.project }}
+          poetry run pytest --maxfail=1 --disable-warnings
 
       - name: Cleanup Docker containers
-        if: always()
+        if: ${{ always() && matrix.needs_docker_stack == true }}
         run: |
           docker stop postgres-test redis-test minio-test || true
           docker rm postgres-test redis-test minio-test || true

@@ -1,7 +1,9 @@
+from typing import Optional
+
 from fastapi import Security, HTTPException, Header
 from fastapi.security import APIKeyHeader
+
 from document_ia_api.api.config import settings
-from typing import Optional
 
 # Security scheme for API Key authentication
 security = APIKeyHeader(name="X-API-KEY")
@@ -17,7 +19,7 @@ def verify_api_key(api_key: str = Security(security)):
             },
         )
 
-    if api_key != settings.API_KEY:
+    if api_key != settings.API_KEY.get_secret_value():
         raise HTTPException(
             status_code=401,
             detail={"error": "unauthorized", "message": "Invalid API key"},

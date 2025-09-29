@@ -1,22 +1,20 @@
-import os
-from pydantic_settings import BaseSettings
-from dotenv import load_dotenv
+from pydantic import Field, SecretStr
 
-load_dotenv()
+from document_ia_infra.core.BaseDocumentIaSettings import BaseDocumentIaSettings
 
 
-class AppSettings(BaseSettings):
+class AppSettings(BaseDocumentIaSettings):
     # API configuration
     APP_VERSION: str = "1.0.0"
 
-    # Server configuration
-    SERVER_HOST: str = os.getenv("HOST", "0.0.0.0")
-    SERVER_PORT: int = int(os.getenv("PORT", 8000))
+    # Server configuration (let Pydantic parse env and cast types)
+    SERVER_HOST: str = Field(default="0.0.0.0", validation_alias="HOST")
+    SERVER_PORT: int = Field(default=8000, validation_alias="PORT")
 
 
-class AuthenticationSettings(BaseSettings):
-    # Hardcoded API Key for authentication
-    API_KEY: str | None = os.getenv("API_KEY")
+class AuthenticationSettings(BaseDocumentIaSettings):
+    # API Key for authentication (optional)
+    API_KEY: SecretStr | None = Field(default=None, validation_alias="API_KEY")
 
 
 class Settings(AppSettings, AuthenticationSettings):

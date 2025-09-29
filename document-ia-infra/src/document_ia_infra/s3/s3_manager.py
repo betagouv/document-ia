@@ -24,8 +24,8 @@ class S3Manager:
         self.s3_client: S3Client = boto3.client(  # pyright: ignore [reportUnknownMemberType]
             "s3",
             endpoint_url=s3_settings.S3_ENDPOINT_URL,
-            aws_access_key_id=s3_settings.S3_ACCESS_KEY_ID,
-            aws_secret_access_key=s3_settings.S3_SECRET_ACCESS_KEY,
+            aws_access_key_id=s3_settings.S3_ACCESS_KEY_ID.get_secret_value(),
+            aws_secret_access_key=s3_settings.S3_SECRET_ACCESS_KEY.get_secret_value(),
             region_name=s3_settings.S3_REGION_NAME,
             use_ssl=s3_settings.S3_USE_SSL,
         )

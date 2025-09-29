@@ -28,10 +28,9 @@ def _ensure_s3_available() -> bool:
 
 
 class TestDownloadFileStepIntegration:
+    @pytest.mark.skipif(not _ensure_s3_available(), reason="S3 not available")
     @pytest.mark.asyncio
     async def test_download_file_step_success(self, tmp_path):
-        if not _ensure_s3_available():
-            pytest.skip("S3 unavailable: integration test skipped")
 
         assert (
             SOURCE_PDF.exists()
@@ -88,10 +87,9 @@ class TestDownloadFileStepIntegration:
             # Delete S3 object
             s3.delete_file(key)
 
+    @pytest.mark.skipif(not _ensure_s3_available(), reason="S3 not available")
     @pytest.mark.asyncio
     async def test_download_file_step_missing_key_raises_retryable(self, tmp_path):
-        if not _ensure_s3_available():
-            pytest.skip("S3 unavailable: integration test skipped")
 
         # Nonexistent key
         key = f"integration/tests/{uuid4()}/missing.pdf"

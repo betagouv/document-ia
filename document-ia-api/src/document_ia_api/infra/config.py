@@ -1,21 +1,15 @@
-import os
+from pydantic import Field
 
-from dotenv import load_dotenv
-
-load_dotenv()
+from document_ia_infra.core.BaseDocumentIaSettings import BaseDocumentIaSettings
 
 
-class Settings:
+class Settings(BaseDocumentIaSettings):
     # Application settings
-    AUTO_MIGRATE: bool = os.getenv("AUTO_MIGRATE", "true").lower() == "true"
+    AUTO_MIGRATE: bool = Field(default=True)
 
     # Rate limiting configuration
-    RATE_LIMIT_REQUESTS_PER_MINUTE: int = int(
-        os.getenv("RATE_LIMIT_REQUESTS_PER_MINUTE", "300")
-    )
-    RATE_LIMIT_REQUESTS_PER_DAY: int = int(
-        os.getenv("RATE_LIMIT_REQUESTS_PER_DAY", "5000")
-    )
+    RATE_LIMIT_REQUESTS_PER_MINUTE: int = Field(default=300)
+    RATE_LIMIT_REQUESTS_PER_DAY: int = Field(default=5000)
 
 
 # Global settings instance

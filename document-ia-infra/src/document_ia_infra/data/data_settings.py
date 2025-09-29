@@ -1,22 +1,21 @@
-import os
 import ssl
 from urllib.parse import urlparse
 
-from dotenv import load_dotenv
+from pydantic import Field, SecretStr
 
-load_dotenv()
+from document_ia_infra.core.BaseDocumentIaSettings import BaseDocumentIaSettings
 
 
-class DatabaseSettings:
-    POSTGRES_DB: str | None = os.getenv("POSTGRES_DB")
-    POSTGRES_HOST: str | None = os.getenv("POSTGRES_HOST")
-    POSTGRES_PORT: int | None = int(os.getenv("POSTGRES_PORT", "5432"))
-    POSTGRES_SSL_MODE: str | None = os.getenv("POSTGRES_SSL_MODE")
+class DatabaseSettings(BaseDocumentIaSettings):
+    POSTGRES_DB: str | None = Field(default=None)
+    POSTGRES_HOST: str | None = Field(default=None)
+    POSTGRES_PORT: int = Field(default=5432)
+    POSTGRES_SSL_MODE: str | None = Field(default=None)
 
-    POSTGRES_USER: str | None = os.getenv("POSTGRES_USER")
-    POSTGRES_PASSWORD: str | None = os.getenv("POSTGRES_PASSWORD")
+    POSTGRES_USER: str | None = Field(default=None)
+    POSTGRES_PASSWORD: SecretStr | None = Field(default=None)
 
-    POSTGRESQL_URL: str | None = os.getenv("POSTGRESQL_URL")
+    POSTGRESQL_URL: str | None = Field(default=None)
 
     def _sanitize_postgresql_url(self, url: str, async_connection: bool = False) -> str:
         """Sanitize PostgreSQL URL by removing unsupported SSL parameters."""
@@ -58,7 +57,6 @@ class DatabaseSettings:
         if not all(
             [
                 self.POSTGRES_HOST is not None,
-                self.POSTGRES_PORT is not None,
                 self.POSTGRES_DB is not None,
                 self.POSTGRES_USER is not None,
                 self.POSTGRES_PASSWORD is not None,
@@ -66,9 +64,12 @@ class DatabaseSettings:
         ):
             raise ValueError("Missing required PostgreSQL configuration")
 
+        assert self.POSTGRES_PASSWORD is not None
+        password = self.POSTGRES_PASSWORD.get_secret_value()
+
         return self._create_postgresql_url(
             self.POSTGRES_USER or "",
-            self.POSTGRES_PASSWORD or "",
+            password,
             self.POSTGRES_HOST or "",
             self.POSTGRES_PORT or 5432,
             self.POSTGRES_DB or "",
