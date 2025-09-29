@@ -47,6 +47,12 @@ jobs:
       S3_REGION_NAME: us-east-1
       S3_USE_SSL: false
 
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+
+      # Tesseract configuration for tests
+      TESSERACT_LANG: fra
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -62,6 +68,14 @@ jobs:
           virtualenvs-create: true
           virtualenvs-in-project: true
           installer-parallel: true
+
+      # Install Tesseract OCR and French trained data
+      - name: Install Tesseract OCR (with French language)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-fra
+          tesseract --version
+          tesseract --list-langs | grep -i '\bfra\b' || (echo "French language not found" && exit 1)
 
       - name: Install dependencies (all sub-projects)
         run: |
