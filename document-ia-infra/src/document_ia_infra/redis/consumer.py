@@ -11,15 +11,14 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import TypeVar, Generic, Optional, Any, Coroutine, cast
 
-from redis import ResponseError
-from redis.asyncio import Redis
-from redis.typing import FieldT, EncodableT
-
 from document_ia_infra.exception.retryable_exception import RetryableException
 from document_ia_infra.redis.redis_manager import (
     redis_manager as redis_manager_main_thread,
 )
 from document_ia_infra.redis.serializable_message import SerializableMessage
+from redis import ResponseError
+from redis.asyncio import Redis
+from redis.typing import FieldT, EncodableT
 
 logger = logging.getLogger(__name__)
 
