@@ -19,9 +19,6 @@
 - Stocker le temps d'éxecution de chaques steps. (uniquement logs)
 # RAF
 
-- Publier un message dans la queue Redis pour execution du workflow
-- Mise en oeuvre d'un (ou plusieurs) consumer pour consommer le message
-- Mise en oeuvre du service LLM compatible OpenAI (prévoir de pouvoir surcharger la config et choix modèle dans le workflow)
 - Mise en oeuvre de la brique OCR (dans un premier temps simple librairie), prévoir de pouvoir choisir la brique OCR (Tesseract, easy-OCR, HTTPMarker)
 - Mise en oeuvre des schémas, prompts et du service de classification (reprendre le code https://github.com/MTES-MCT/dossierfacile-ocr-extractor)
 - Mise en oeuvre des schémas, prompts et du service d'extraction

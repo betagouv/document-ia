@@ -1,18 +1,11 @@
 import json
 import os
-from pathlib import Path
 
 import pytest
 
-import document_ia_worker.core.prompt.prompt_service as ps_mod
-from document_ia_worker.core.prompt.prompt_service import PromptService
 from document_ia_worker.core.prompt.prompt_configuration import SupportedDocumentType
-
-
-def _load_schema(doc_type: SupportedDocumentType) -> dict:
-    base_dir = Path(ps_mod.__file__).resolve().parent
-    schemas_dir = base_dir / "schemas"
-    return json.loads((schemas_dir / f"document_{doc_type.value}_schema.json").read_text())
+from document_ia_worker.core.prompt.prompt_service import PromptService
+from document_ia_worker.exception.unsupported_document_type import UnsupportedDocumentType
 
 
 class TestPromptService:
@@ -32,13 +25,13 @@ class TestPromptService:
 
         # Then the bullet list should include each category.type, plus 'autre'
         for dt in doc_types:
-            schema = _load_schema(dt)
+            schema = service._load_schema_from_document_type(dt)
             assert f"- {schema['type']}" in rendered
         assert "- autre" in rendered
 
         # And the distinctive characteristics section should include headers and each description item
         for dt in doc_types:
-            schema = _load_schema(dt)
+            schema = service._load_schema_from_document_type(dt)
             header = f"**{schema['name']}** ({schema['type']})"
             assert header in rendered
             for item in schema.get("description", []):
@@ -49,7 +42,6 @@ class TestPromptService:
         assert '"confidence"' in rendered
         assert '"explanation"' in rendered
 
-
     def test_classification_prompt_is_cwd_independent(self, tmp_path, monkeypatch):
         # Change CWD to a temporary directory to ensure PromptService resolves paths relative to its file
         old_cwd = os.getcwd()
@@ -58,7 +50,7 @@ class TestPromptService:
             service = PromptService()
             rendered = service.get_classification_prompt([SupportedDocumentType.CNI])
             # Minimal assertions: contains the CNI type and the response JSON keys
-            cni_schema = _load_schema(SupportedDocumentType.CNI)
+            cni_schema = service._load_schema_from_document_type(SupportedDocumentType.CNI)
             assert f"- {cni_schema['type']}" in rendered
             assert '"document_type"' in rendered
             assert '"confidence"' in rendered
@@ -66,13 +58,51 @@ class TestPromptService:
         finally:
             os.chdir(old_cwd)
 
-
     def test_get_classification_prompt_raises_if_schema_missing(self, tmp_path):
         service = PromptService()
+
         # Instead of swapping a schemas_directory (no longer used), request a document type
         # for which no schema exists. We pass a lightweight object with a .value attribute.
         class FakeDocType:
             value = "this_schema_does_not_exist"
 
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(UnsupportedDocumentType):
             service.get_classification_prompt([FakeDocType()])
+
+    def test_get_extraction_prompt_returns_schema_and_model_for_cni(self):
+        """Ensure get_extraction_prompt('cni') returns the schema content and the CNIExtract model class."""
+        service = PromptService()
+
+        prompt_text, model_class = service.get_extraction_prompt("cni")
+
+        # The model class should be the CNIExtract defined in the cni model module
+        from document_ia_worker.core.prompt.document_type.cni.model.cni_extract import CNIExtract
+
+        assert model_class is CNIExtract
+
+        # Load the schema that should have been injected into the template
+        import importlib.resources as pkg_resources
+
+        schema_text = pkg_resources.read_text(
+            "document_ia_worker.core.prompt.document_type.cni.schema", "schema.json"
+        )
+        json_schema = json.loads(schema_text)
+
+        # The template should have been rendered with the document name
+        assert json_schema["name"] in prompt_text
+
+        # And each description item should appear in the prompt
+        for desc in json_schema.get("description", []):
+            assert desc in prompt_text
+
+        # The template iterates document_json_properties: ensure keys and property descriptions are present
+        for key, prop in json_schema.get("json_schema", {}).get("properties", {}).items():
+            assert key in prompt_text
+            if isinstance(prop, dict) and prop.get("description"):
+                assert prop.get("description") in prompt_text
+
+    def test_get_extraction_prompt_raises_for_unknown_document(self):
+        """Requesting a prompt for an unknown document type should raise UnsupportedDocumentType."""
+        service = PromptService()
+        with pytest.raises(UnsupportedDocumentType):
+            service.get_extraction_prompt("type_inconnu")

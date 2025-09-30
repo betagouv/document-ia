@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
-from document_ia_worker.workflow.step.save_workflow_result.save_workflow_result import (
+from document_ia_worker.workflow.step.save_classification_workflow_result.save_workflow_result import (
     SaveWorkflowResultStep,
 )
 from document_ia_worker.workflow.step.step_result.llm_result import LLMResult

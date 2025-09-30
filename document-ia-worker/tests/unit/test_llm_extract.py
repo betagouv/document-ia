@@ -1,0 +1,100 @@
+import json
+from datetime import datetime
+from pathlib import Path
+from uuid import uuid4
+
+import pytest
+
+from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
+from document_ia_worker.workflow.step.llm_extract_document.llm_extract_document import (
+    LLMExtractDocument,
+)
+from document_ia_worker.workflow.step.step_result.llm_result import (
+    LLMResult,
+    LLMClassificationResult,
+)
+from document_ia_worker.workflow.step.step_result.ocr_result import (
+    OcrResult,
+    OcrResultPage,
+)
+from document_ia_worker.core.prompt.model.document_classification import (
+    DocumentClassification,
+)
+
+
+FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures"
+SNAPSHOT_PATH = FIXTURES_DIR / "ocr_result_cni.json"
+
+
+class TestLLMExtract:
+    @pytest.mark.skipif(not SNAPSHOT_PATH.exists(), reason="OCR snapshot not found")
+    @pytest.mark.asyncio
+    async def test_extract_with_cni_fixture_and_mocked_classification(self, monkeypatch):
+
+        # Build OcrResult from snapshot
+        data = json.loads(SNAPSHOT_PATH.read_text())
+        pages = [OcrResultPage(**p) for p in data.get("pages", [])]
+        assert pages, "OCR snapshot has no pages"
+        ocr_result = OcrResult(pages=pages)
+
+        # Mock classification result to 'cni'
+        classification = DocumentClassification(
+            explanation="static mock",
+            document_type="cni",
+            confidence=0.99,
+        )
+        llm_classification_result = LLMClassificationResult(data=classification)
+
+        # Monkeypatch OpenAIManager to avoid real API calls
+        class FakeOpenAIManager:
+            async def generate_typed_response(
+                self,
+                system_prompt: str,
+                user_prompt: str,
+                response_class,
+                model: str,
+                temperature: float = 0.7,
+            ):
+                payload = {
+                    "title": "Extraction CNI",
+                    "type": "cni",
+                    "properties": {
+                        "numero_document": "123456789012",
+                        "nom": "DUPONT",
+                        "prenom": "JEAN",
+                        "lieu_naissance": "PARIS",
+                        "nationalite": "Française",
+                    },
+                }
+                return response_class.model_validate(payload)
+
+        monkeypatch.setattr(
+            "document_ia_worker.workflow.step.llm_extract_document.llm_extract_document.OpenAIManager",
+            lambda: FakeOpenAIManager(),
+        )
+
+        # Build context and run the extract step
+        ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now())
+        step = LLMExtractDocument(main_workflow_context=ctx, model="dummy-model")
+
+        step.inject_workflow_context(
+            {
+                OcrResult.__name__: ocr_result,
+                LLMClassificationResult.__name__: llm_classification_result,
+            }
+        )
+
+        result = await step.execute()
+
+        # Assertions
+        assert isinstance(result, LLMResult)
+        data_out = result.data
+        assert getattr(data_out, "title", None) == "Extraction CNI"
+        assert getattr(data_out, "type", None) == "cni"
+
+        props = getattr(data_out, "properties", None)
+        assert props is not None
+        from document_ia_worker.core.prompt.document_type.cni.model.cni_extract import CNIExtract
+        assert isinstance(props, CNIExtract)
+        assert props.numero_document == "123456789012"
+        assert props.nom == "DUPONT" and props.prenom == "JEAN"

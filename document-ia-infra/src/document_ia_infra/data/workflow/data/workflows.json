@@ -15,7 +15,7 @@
       "preprocess_file",
       "extract_content_ocr",
       "llm_classify_document",
-      "save_results"
+      "save_classification_workflow_result"
     ],
     "llm_model": "albert-large",
     "max_file_size_mb": 50,
@@ -24,9 +24,9 @@
     "updated_at": "2025-09-01T10:00:00Z"
   },
   {
-    "id": "invoice-processing-v1",
-    "name": "Invoice Processing v1",
-    "description": "Specialized workflow for processing invoice documents",
+    "id": "document-processing-v1",
+    "name": "Document processing v1",
+    "description": "Generic workflow to extract and process document content",
     "version": "1.0.0",
     "enabled": true,
     "supported_file_types": [
@@ -37,9 +37,10 @@
     "steps": [
       "download_file",
       "preprocess_file",
-      "extract_text",
-      "classify_document",
-      "save_results"
+      "extract_content_ocr",
+      "llm_classify_document",
+      "llm_extract_data",
+      "save_extract_workflow_result"
     ],
     "llm_model": "albert-large",
     "max_file_size_mb": 25,
