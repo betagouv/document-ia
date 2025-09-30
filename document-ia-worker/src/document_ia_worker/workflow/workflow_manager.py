@@ -35,8 +35,8 @@ from document_ia_worker.workflow.step.llm_classify_document.llm_classify_documen
 from document_ia_worker.workflow.step.preprocess_file.preprocess_file import (
     PreprocessFileStep,
 )
-from document_ia_worker.workflow.step.save_workflow_result.save_workflow_result import (
-    SaveWorkflowResultStep,
+from document_ia_worker.workflow.step.save_classification_workflow_result.save_classification_workflow_result import (
+    SaveClassificationWorkflowResultStep,
 )
 
 logger = logging.getLogger(__name__)
@@ -149,9 +149,9 @@ class WorkflowManager:
                             self.main_workflow_context, self.workflow.llm_model
                         )
                     )
-                if step == "save_results":
+                if step == "save_classification_workflow_result":
                     self.step_list.append(
-                        SaveWorkflowResultStep(
+                        SaveClassificationWorkflowResultStep(
                             self.main_workflow_context, self.workflow.id, session
                         )
                     )

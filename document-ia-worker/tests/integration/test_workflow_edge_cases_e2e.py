@@ -162,7 +162,7 @@ class TestWorkflowEdgeCasesE2E:
     async def test_save_results_without_llm_fails(self, monkeypatch):
         """Workflow with only 'save_results': missing LLMResult must fail in SaveWorkflowResultStep."""
         wf_id = "wf-missing-llm"
-        fake_workflow = SimpleNamespace(id=wf_id, steps=["save_results"], llm_model="albert-large")
+        fake_workflow = SimpleNamespace(id=wf_id, steps=["save_classification_workflow_result"], llm_model="albert-large")
 
         import document_ia_infra.data.workflow.repository.worflow as wf_repo_mod
 
@@ -211,7 +211,7 @@ class TestWorkflowEdgeCasesE2E:
             assert last_event is not None
             assert last_event.event_type == EventType.WORKFLOW_EXECUTION_FAILED
             payload = last_event.event
-            assert payload.get("failed_step") == "SaveWorkflowResultStep"
+            assert payload.get("failed_step") == "SaveClassificationWorkflowResultStep"
             assert payload.get("error_type") in ("ValueError", "Exception")
             assert "not" in payload.get("error_message", "").lower()
             assert payload.get("retry_count") == 0

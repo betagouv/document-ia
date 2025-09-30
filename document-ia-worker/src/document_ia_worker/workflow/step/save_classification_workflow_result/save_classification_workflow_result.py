@@ -9,13 +9,15 @@ from document_ia_infra.data.event.repository.event import EventRepository
 from document_ia_infra.data.event.schema.event import WorkflowExecutionCompletedEvent
 from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
 from document_ia_worker.workflow.step.base_step import BaseStep
-from document_ia_worker.workflow.step.step_result.llm_result import LLMResult
+from document_ia_worker.workflow.step.step_result.llm_result import (
+    LLMClassificationResult,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class SaveWorkflowResultStep(BaseStep[None]):
-    llm_result: Optional[LLMResult] = None
+class SaveClassificationWorkflowResultStep(BaseStep[None]):
+    llm_result: Optional[LLMClassificationResult] = None
 
     def __init__(
         self,
@@ -40,10 +42,9 @@ class SaveWorkflowResultStep(BaseStep[None]):
             raise ValueError("LLMResult not injected in context")
 
     def inject_workflow_context(self, context: dict[str, Any]):
-        not_typed_data = context.get(LLMResult.__name__)
-        if not_typed_data is None or not isinstance(not_typed_data, LLMResult):
-            raise ValueError("LLM result not found in context")
-        self.llm_result = not_typed_data
+        self.llm_result = self._get_safe_workflow_context_key(
+            LLMClassificationResult, context
+        )
 
     async def _execute_internal(self) -> None:
         assert self.llm_result is not None
