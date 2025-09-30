@@ -19,7 +19,7 @@ class TestExecutions:
     def _event_dto_started(self, execution_id: str) -> EventDTO:
         created = datetime(2024, 1, 15, 10, 30, tzinfo=timezone.utc)
         event_payload = {
-            "workflow_id": "document-analysis-v1",
+            "workflow_id": "document-classification-v1",
             "execution_id": execution_id,
             "created_at": created.isoformat(),
             "file_info": {
@@ -35,7 +35,7 @@ class TestExecutions:
         }
         return EventDTO(
             id=uuid4(),
-            workflow_id="document-analysis-v1",
+            workflow_id="document-classification-v1",
             execution_id=execution_id,
             created_at=created,
             event_type=EventType.WORKFLOW_EXECUTION_STARTED,
@@ -45,7 +45,7 @@ class TestExecutions:
     def _event_dto_completed(self, execution_id: str) -> EventDTO:
         created = datetime(2024, 1, 15, 10, 31, tzinfo=timezone.utc)
         event_payload = {
-            "workflow_id": "document-analysis-v1",
+            "workflow_id": "document-classification-v1",
             "execution_id": execution_id,
             "created_at": created.isoformat(),
             "final_result": {
@@ -60,7 +60,7 @@ class TestExecutions:
         }
         return EventDTO(
             id=uuid4(),
-            workflow_id="document-analysis-v1",
+            workflow_id="document-classification-v1",
             execution_id=execution_id,
             created_at=created,
             event_type=EventType.WORKFLOW_EXECUTION_COMPLETED,

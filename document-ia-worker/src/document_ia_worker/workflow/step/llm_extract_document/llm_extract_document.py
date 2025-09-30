@@ -19,7 +19,7 @@ from document_ia_worker.workflow.step.step_result.ocr_result import OcrResult
 logger = logging.getLogger(__name__)
 
 
-class LLMExtractDocument(BaseStep[LLMResult]):
+class LLMExtractDocumentStep(BaseStep[LLMResult]):
     ocr_result: Optional[OcrResult] = None
     llm_classification_result: Optional[LLMClassificationResult] = None
 

@@ -19,15 +19,8 @@ FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures"
 PDF_FIXTURE = FIXTURES_DIR / "test_download_file.pdf"
 
 
-def _s3_available() -> bool:
-    try:
-        return S3Manager().check_bucket_exists()
-    except Exception:
-        return False
-
-
 @pytest.mark.asyncio
-async def test_workflow_classification_end_to_end():
+async def test_workflow_extraction_end_to_end():
     # Preconditions
     assert PDF_FIXTURE.exists(), "Fixture PDF is missing"
 
@@ -39,7 +32,7 @@ async def test_workflow_classification_end_to_end():
 
     # Prepare FileInfo and Started event
     execution_id = str(uuid4())
-    workflow_id = "document-classification-v1"
+    workflow_id = "document-extraction-v1"
     file_info = FileInfo(
         filename=PDF_FIXTURE.name,
         s3_key=key,
@@ -81,7 +74,7 @@ async def test_workflow_classification_end_to_end():
         last_event = await repo.get_last_event_by_execution_id(execution_id)
         assert last_event is not None, "No event found after workflow execution"
         assert (
-                last_event.event_type == EventType.WORKFLOW_EXECUTION_COMPLETED
+            last_event.event_type == EventType.WORKFLOW_EXECUTION_COMPLETED
         ), f"Unexpected last event type: {last_event.event_type}"
 
         payload = last_event.event
@@ -89,16 +82,21 @@ async def test_workflow_classification_end_to_end():
         assert payload.get("workflow_id") == workflow_id
         assert payload.get("execution_id") == execution_id
         assert isinstance(payload.get("total_processing_time_ms"), int)
-        assert payload.get("steps_completed") == 5  # download, preprocess, ocr, llm, save
+        # For extraction workflow: download, preprocess, ocr, llm_classify, llm_extract, save
+        assert payload.get("steps_completed") == 6
         assert payload.get("version") == 1
 
-        # Final result checks
+        # Final result checks (extraction result)
         final_result = payload.get("final_result")
         assert isinstance(final_result, dict)
-        assert final_result.get("document_type", "").strip().lower() == "cni"
-        assert isinstance(final_result.get("explanation"), str) and final_result["explanation"].strip() != ""
-        conf = final_result.get("confidence")
-        assert conf is not None and isinstance(conf, (int, float))
+        # Should contain a type (classified document type) and a properties object
+        assert final_result.get("classification").get("document_type", "").strip().lower() == "cni"
+        props = final_result.get("extraction").get("properties")
+        assert isinstance(props, dict)
+        # Optionally check for some typical keys if present
+        for key in ("numero_document", "nom", "prenom"):
+            if key in props:
+                assert isinstance(props[key], str)
 
     # Cleanup S3 object
     s3.delete_file(key)

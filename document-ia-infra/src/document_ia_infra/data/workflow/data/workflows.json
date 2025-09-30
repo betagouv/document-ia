@@ -1,7 +1,7 @@
 [
   {
-    "id": "document-analysis-v1",
-    "name": "Document Analysis v1",
+    "id": "document-classification-v1",
+    "name": "Document Classification v1",
     "description": "Analyzes uploaded documents for content extraction and classification",
     "version": "1.0.0",
     "enabled": true,
@@ -15,8 +15,9 @@
       "preprocess_file",
       "extract_content_ocr",
       "llm_classify_document",
-      "save_classification_workflow_result"
+      "save_workflow_result"
     ],
+    "type": "classification",
     "llm_model": "albert-large",
     "max_file_size_mb": 50,
     "processing_timeout_minutes": 2,
@@ -24,8 +25,8 @@
     "updated_at": "2025-09-01T10:00:00Z"
   },
   {
-    "id": "document-processing-v1",
-    "name": "Document processing v1",
+    "id": "document-extraction-v1",
+    "name": "Document extraction v1",
     "description": "Generic workflow to extract and process document content",
     "version": "1.0.0",
     "enabled": true,
@@ -40,8 +41,9 @@
       "extract_content_ocr",
       "llm_classify_document",
       "llm_extract_data",
-      "save_extract_workflow_result"
+      "save_workflow_result"
     ],
+    "type": "extraction",
     "llm_model": "albert-large",
     "max_file_size_mb": 25,
     "processing_timeout_minutes": 5,

@@ -1,23 +1,23 @@
-from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
 
 import pytest
 
+from document_ia_infra.data.workflow.dto.workflow_dto import WorkflowType
+from document_ia_worker.core.prompt.model.document_classification import DocumentClassification
 from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
-from document_ia_worker.workflow.step.save_classification_workflow_result.save_workflow_result import (
+from document_ia_worker.workflow.step.save_workflow_result.save_workflow_result import (
     SaveWorkflowResultStep,
 )
-from document_ia_worker.workflow.step.step_result.llm_result import LLMResult
-from document_ia_worker.core.prompt.model.DocumentClassification import (
-    DocumentClassification,
-)
-from document_ia_infra.data.event.dto.event_type_enum import EventType
+from document_ia_worker.workflow.step.step_result.llm_result import LLMClassificationResult
+
 
 class TestSaveWorkflowResult:
 
     @pytest.mark.asyncio
-    async def test_save_workflow_result_persists_event_with_expected_payload(self):
+    async def test_save_workflow_classification_result_persists_event_with_expected_payload(self, monkeypatch):
         # Arrange: context with deterministic start_time (timezone-aware to match code using UTC)
         start_time = datetime.now(timezone.utc) - timedelta(seconds=2)
         ctx = MainWorkflowContext(execution_id="exec-123", start_time=start_time, number_of_step_executed=3)
@@ -31,49 +31,59 @@ class TestSaveWorkflowResult:
             document_type="cni",
             confidence=0.97,
         )
-        llm_result = LLMResult(data=classification)
+        llm_classification_result = LLMClassificationResult(data=classification)
 
-        # Instantiate step and inject a mocked repository
-        step = SaveWorkflowResultStep(main_workflow_context=ctx, workflow_id="wf-001", database_session=fake_session)
-        put_event_mock = AsyncMock(return_value=SimpleNamespace(id="evt-42"))
-        step.event_repository = SimpleNamespace(put_event=put_event_mock)
+        # Instantiate step
+        step = SaveWorkflowResultStep(
+            main_workflow_context=ctx,
+            workflow_id="wf-001",
+            workflow_type=WorkflowType.CLASSIFICATION,
+            database_session=fake_session,
+        )
+
+        # Remplace event_service par un stub avec la même signature que EventStoreService.emit_workflow_completed
+        captured: dict[str, object] = {}
+
+        async def fake_emit(*, workflow_id: str, execution_id: str, final_result: dict, total_processing_time_ms: int,
+                            output_summary: dict, steps_completed: int):
+            captured.update({
+                "workflow_id": workflow_id,
+                "execution_id": execution_id,
+                "final_result": final_result,
+                "total_processing_time_ms": total_processing_time_ms,
+                "output_summary": output_summary,
+                "steps_completed": steps_completed,
+            })
+            return SimpleNamespace(id="evt-42")
+
+        step.event_service = SimpleNamespace(
+            emit_workflow_completed=AsyncMock(side_effect=fake_emit)
+        )
 
         # Inject workflow context
-        step.inject_workflow_context({LLMResult.__name__: llm_result})
+        step.inject_workflow_context({LLMClassificationResult.__name__: llm_classification_result})
 
         # Act
         await step.execute()
 
-        # Assert: repository was called once with proper args
-        assert put_event_mock.await_count == 1
-        wf_id, exec_id, event_type, payload = put_event_mock.await_args.args
-
-        assert wf_id == "wf-001"
-        assert exec_id == "exec-123"
-        assert event_type == EventType.WORKFLOW_EXECUTION_COMPLETED
-
-        # Payload should be a dict produced by WorkflowExecutionCompletedEvent.model_dump(mode="json")
-        assert isinstance(payload, dict)
-        # Core fields present
-        assert payload.get("workflow_id") == "wf-001"
-        assert payload.get("execution_id") == "exec-123"
-        assert "created_at" in payload
-        assert "final_result" in payload and isinstance(payload["final_result"], dict)
-        assert "total_processing_time_ms" in payload and isinstance(payload["total_processing_time_ms"], int)
-        assert payload.get("steps_completed") == 4  # number_of_step_executed + 1
-        assert payload.get("version") == 1
-
-        # final_result matches the serialized LLM data
-        assert payload["final_result"] == classification.model_dump()
-
-        # processing time should be positive (not asserting exact value to avoid flakiness)
-        assert payload["total_processing_time_ms"] >= 0
-
+        # Assert: le stub a bien été appelé avec les bons paramètres
+        assert captured, "event_service.emit_workflow_completed n'a pas été appelé"
+        assert captured["workflow_id"] == "wf-001"
+        assert captured["execution_id"] == "exec-123"
+        assert captured["final_result"] == classification.model_dump()
+        assert isinstance(captured["total_processing_time_ms"], int) and captured["total_processing_time_ms"] >= 0
+        assert captured["output_summary"] == {}
+        assert captured["steps_completed"] == 4  # number_of_step_executed + 1
 
     @pytest.mark.asyncio
     async def test_prepare_step_requires_llm_result(self):
         ctx = MainWorkflowContext(execution_id="exec-xyz", start_time=datetime.now(timezone.utc))
-        step = SaveWorkflowResultStep(main_workflow_context=ctx, workflow_id="wf-abc", database_session=MagicMock())
+        step = SaveWorkflowResultStep(
+            main_workflow_context=ctx,
+            workflow_id="wf-abc",
+            workflow_type=WorkflowType.CLASSIFICATION,
+            database_session=MagicMock(),
+        )
 
         with pytest.raises(ValueError):
             await step._prepare_step()
