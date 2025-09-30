@@ -7,7 +7,7 @@ import pytest
 
 from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
 from document_ia_worker.workflow.step.llm_extract_document.llm_extract_document import (
-    LLMExtractDocument,
+    LLMExtractDocumentStep,
 )
 from document_ia_worker.workflow.step.step_result.llm_result import (
     LLMResult,
@@ -75,7 +75,7 @@ class TestLLMExtract:
 
         # Build context and run the extract step
         ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now())
-        step = LLMExtractDocument(main_workflow_context=ctx, model="dummy-model")
+        step = LLMExtractDocumentStep(main_workflow_context=ctx, model="dummy-model")
 
         step.inject_workflow_context(
             {

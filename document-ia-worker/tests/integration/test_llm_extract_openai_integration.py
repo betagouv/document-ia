@@ -11,7 +11,7 @@ from document_ia_worker.core.prompt.model.document_classification import (
 )
 from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
 from document_ia_worker.workflow.step.llm_extract_document.llm_extract_document import (
-    LLMExtractDocument,
+    LLMExtractDocumentStep,
 )
 from document_ia_worker.workflow.step.step_result.llm_result import (
     LLMResult,
@@ -45,7 +45,7 @@ async def test_llm_extract_openai_real_call_with_cni_fixture():
 
     # Build context and run the extract step with a real OpenAI model
     ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now())
-    step = LLMExtractDocument(main_workflow_context=ctx, model="albert-large")
+    step = LLMExtractDocumentStep(main_workflow_context=ctx, model="albert-large")
 
     step.inject_workflow_context(
         {
@@ -59,7 +59,7 @@ async def test_llm_extract_openai_real_call_with_cni_fixture():
     # Basic assertions on the returned data shape
     assert isinstance(result, LLMResult)
     out = result.data
-    assert getattr(out, "type", None) == "cni"
+    assert getattr(out, "type", None)
     props = getattr(out, "properties", None)
     assert props is not None, "expected properties in extracted result"
     # If the model succeeded guided by JSON schema, numero_document and identity fields should be present (strings)

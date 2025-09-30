@@ -5,28 +5,38 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from document_ia_api.api.auth import verify_api_key
 from document_ia_api.api.contracts.api_error import ApiErrorResponse
-from document_ia_api.api.contracts.executions import (
-    ExecutionResponse,
-    ExecutionStartedModel,
-    ExecutionStartedData,
-    ExecutionSuccessModel,
-    ExecutionSuccessData,
-    ExecutionDoneResult,
+from document_ia_api.api.contracts.execution.failed import (
     ExecutionFailedModel,
     ExecutionFailedData,
-    ExecutionStatus,
 )
+from document_ia_api.api.contracts.execution.response import ExecutionResponse
+from document_ia_api.api.contracts.execution.result import (
+    ClassificationResult,
+    ExtractionResult,
+)
+from document_ia_api.api.contracts.execution.started import (
+    ExecutionStartedModel,
+    ExecutionStartedData,
+)
+from document_ia_api.api.contracts.execution.success import (
+    ExecutionSuccessModel,
+    ClassificationSuccessData,
+    ExtractionSuccessData,
+)
+from document_ia_api.api.contracts.execution.types import ExecutionStatus
 from document_ia_api.api.exceptions.entity_not_found_exception import (
     HttpEntityNotFoundException,
 )
-
 from document_ia_infra.data.database import database_manager
+from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.schema.event import (
     WorkflowExecutionStartedEvent,
     WorkflowExecutionCompletedEvent,
     WorkflowExecutionFailedEvent,
 )
+from document_ia_infra.data.workflow.dto.workflow_dto import WorkflowDTO, WorkflowType
+from document_ia_infra.data.workflow.repository.worflow import workflow_repository
 from document_ia_infra.exception.entity_not_found_exception import (
     EntityNotFoundException,
 )
@@ -124,6 +134,10 @@ async def get_execution(
         last_event = await event_store_service.get_last_event_for_execution_id(
             execution_id
         )
+        workflow = await workflow_repository.get_workflow_by_id(last_event.workflow_id)
+        if workflow is None:
+            raise EntityNotFoundException("Workflow", last_event.workflow_id)
+
         if last_event.event_type == EventType.WORKFLOW_EXECUTION_STARTED:
             event_data = WorkflowExecutionStartedEvent(**last_event.event)
             return ExecutionStartedModel(
@@ -136,20 +150,10 @@ async def get_execution(
                     presigned_url=event_data.file_info.presigned_url,
                 ),
             )
+
         if last_event.event_type == EventType.WORKFLOW_EXECUTION_COMPLETED:
-            event_data = WorkflowExecutionCompletedEvent(**last_event.event)
-            return ExecutionSuccessModel(
-                id=execution_id,
-                status=ExecutionStatus.SUCCESS,
-                data=ExecutionSuccessData(
-                    total_processing_time_ms=event_data.total_processing_time_ms,
-                    result=ExecutionDoneResult(
-                        confidence=event_data.final_result["confidence"],
-                        document_type=event_data.final_result["document_type"],
-                        explanation=event_data.final_result["explanation"],
-                    ),
-                ),
-            )
+            return _get_success_response(execution_id, last_event, workflow)
+
         if last_event.event_type == EventType.WORKFLOW_EXECUTION_FAILED:
             event_data = WorkflowExecutionFailedEvent(**last_event.event)
             return ExecutionFailedModel(
@@ -181,3 +185,42 @@ async def get_execution(
         )
         raise HTTPException(status_code=500, detail=str(e))
     raise HTTPException(status_code=404, detail="Execution not found")
+
+
+def _get_success_response(
+    execution_id: str, last_event: EventDTO, workflow: WorkflowDTO
+):
+    event_data = WorkflowExecutionCompletedEvent(**last_event.event)
+    if workflow.type == WorkflowType.CLASSIFICATION:
+        return_data = ClassificationSuccessData(
+            workflow_type=WorkflowType.CLASSIFICATION,
+            total_processing_time_ms=event_data.total_processing_time_ms,
+            result=ClassificationResult(
+                confidence=event_data.final_result["confidence"],
+                document_type=event_data.final_result["document_type"],
+                explanation=event_data.final_result["explanation"],
+            ),
+        )
+    elif workflow.type == WorkflowType.EXTRACTION:
+        return_data = ExtractionSuccessData(
+            workflow_type=WorkflowType.EXTRACTION,
+            total_processing_time_ms=event_data.total_processing_time_ms,
+            result=ExtractionResult(
+                classification_result=ClassificationResult(
+                    confidence=event_data.final_result["classification"]["confidence"],
+                    document_type=event_data.final_result["classification"][
+                        "document_type"
+                    ],
+                    explanation=event_data.final_result["classification"][
+                        "explanation"
+                    ],
+                ),
+                extraction_result=event_data.final_result["extraction"],
+            ),
+        )
+    else:
+        raise ValueError(f"Unsupported workflow type: {workflow.type}")
+
+    return ExecutionSuccessModel(
+        id=execution_id, status=ExecutionStatus.SUCCESS, data=return_data
+    )

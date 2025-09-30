@@ -32,11 +32,14 @@ from document_ia_worker.workflow.step.extract_content_ocr.extract_content_ocr im
 from document_ia_worker.workflow.step.llm_classify_document.llm_classify_document import (
     LLMClassifyDocumentStep,
 )
+from document_ia_worker.workflow.step.llm_extract_document.llm_extract_document import (
+    LLMExtractDocumentStep,
+)
 from document_ia_worker.workflow.step.preprocess_file.preprocess_file import (
     PreprocessFileStep,
 )
-from document_ia_worker.workflow.step.save_classification_workflow_result.save_classification_workflow_result import (
-    SaveClassificationWorkflowResultStep,
+from document_ia_worker.workflow.step.save_workflow_result.save_workflow_result import (
+    SaveWorkflowResultStep,
 )
 
 logger = logging.getLogger(__name__)
@@ -149,10 +152,19 @@ class WorkflowManager:
                             self.main_workflow_context, self.workflow.llm_model
                         )
                     )
-                if step == "save_classification_workflow_result":
+                if step == "llm_extract_data":
                     self.step_list.append(
-                        SaveClassificationWorkflowResultStep(
-                            self.main_workflow_context, self.workflow.id, session
+                        LLMExtractDocumentStep(
+                            self.main_workflow_context, self.workflow.llm_model
+                        )
+                    )
+                if step == "save_workflow_result":
+                    self.step_list.append(
+                        SaveWorkflowResultStep(
+                            self.main_workflow_context,
+                            self.workflow.id,
+                            self.workflow.type,
+                            session,
                         )
                     )
         except Exception as e:
