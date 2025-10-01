@@ -18,7 +18,9 @@
 - [WORKER - LLM] remonté les infos de consommation (tokens) dans les requêtes llm
 - Stocker le temps d'éxecution de chaques steps. (uniquement logs)
 # RAF
-
+- Mettre sentry
+- Supprimer les fichiers S3 après l'éxecution
+- Anonymisation des entrées en db.
 - Mise en oeuvre de la brique OCR (dans un premier temps simple librairie), prévoir de pouvoir choisir la brique OCR (Tesseract, easy-OCR, HTTPMarker)
 - Mise en oeuvre des schémas, prompts et du service de classification (reprendre le code https://github.com/MTES-MCT/dossierfacile-ocr-extractor)
 - Mise en oeuvre des schémas, prompts et du service d'extraction
