@@ -8,6 +8,8 @@ __pycache__/
 
 .idea
 
+*/logs
+
 # Typescript
 node_modules/
 
