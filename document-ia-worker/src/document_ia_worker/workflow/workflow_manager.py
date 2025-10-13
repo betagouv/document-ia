@@ -14,6 +14,13 @@ from document_ia_infra.redis.model.workflow_execution_message import (
     WorkflowExecutionMessage,
 )
 from document_ia_infra.service.event_store_service import EventStoreService
+from document_ia_worker.core.logging_setup import (
+    setup_logging_worker,
+    execution_id_var,
+    agg_buffer_var,
+    start_time_var,
+    handle_finish_execution,
+)
 from document_ia_worker.exception.no_event_attached_to_execution_exception import (
     NoEventAttachedToExecutionException,
 )
@@ -66,11 +73,21 @@ class WorkflowManager:
         self.workflow_context = {}
         self.main_workflow_context = None
 
+        # Aggregated logging context init (per workflow execution)
+        setup_logging_worker()
+        self._agg_token_exec = execution_id_var.set(self.message.workflow_execution_id)
+        self._agg_token_buf = agg_buffer_var.set([])
+        self._agg_token_started_at = start_time_var.set(datetime.now(UTC))
+
     async def start(self):
         self.main_workflow_context = MainWorkflowContext(
             execution_id=self.message.workflow_execution_id,
             start_time=datetime.now(UTC),
         )
+        is_success = True
+        err_type: Optional[str] = None
+        err_message: Optional[str] = None
+        failed_step: Optional[str] = None
         async with self.database_manager.local_session() as session:
             try:
                 await self._prepare_workflow(session)
@@ -79,15 +96,41 @@ class WorkflowManager:
                 await self._execute_workflow()
             except Exception as e:
                 logger.error(f"Workflow execution failed: {e}")
+                is_success = False
                 # We use the WorkflowStepException to know in which step the error happened
                 # and we dispatch the inner exception to have the original exception
+                if isinstance(e, WorkflowStepException):
+                    failed_step = e.step_name
+                    inner_exc = e.inner_exception
+                else:
+                    inner_exc = e
+                err_type = (
+                    RetryableException.__name__
+                    if isinstance(inner_exc, RetryableException)
+                    else inner_exc.__class__.__name__
+                )
+                err_message = str(inner_exc)
                 await self._save_failure_event(session, e)
                 if isinstance(e, WorkflowStepException):
                     raise e.inner_exception
                 else:
                     raise e
             finally:
+                # Persist DB changes
                 await session.commit()
+                handle_finish_execution(
+                    logger,
+                    self.workflow.id if self.workflow else "unknown",
+                    is_success,
+                    self.retry_count,
+                    self.workflow.steps if self.workflow else [],
+                    self._agg_token_exec,
+                    self._agg_token_buf,
+                    self._agg_token_started_at,
+                    err_type,
+                    err_message,
+                    failed_step,
+                )
 
     async def _prepare_workflow(self, session: AsyncSession):
         try:

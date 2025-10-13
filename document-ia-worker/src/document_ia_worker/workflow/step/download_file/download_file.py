@@ -38,11 +38,13 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
     async def _execute_internal(self) -> DownloadFileResult:
         logger.info(f"Downloading file from S3: {self.file_info.s3_key}")
         file_path = Path(self.tmp_folder_path).joinpath(
-            self.file_info.s3_key.split("/")[-1]
+            self.file_info.s3_key.get_secret_value().split("/")[-1]
         )
         s3_manager = S3Manager()
         try:
-            s3_manager.download_file(self.file_info.s3_key, str(file_path))
+            s3_manager.download_file(
+                self.file_info.s3_key.get_secret_value(), str(file_path)
+            )
             logger.info(f"File downloaded successfully to: {file_path}")
             return DownloadFileResult(
                 file_path=str(file_path), content_type=self.file_info.content_type

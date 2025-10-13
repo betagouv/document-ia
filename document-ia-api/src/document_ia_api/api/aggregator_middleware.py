@@ -3,6 +3,7 @@ import json
 import logging
 import time
 import uuid
+from pathlib import Path
 from typing import (
     Any,
     Dict,
@@ -29,9 +30,11 @@ from document_ia_infra.core.model.types.secret import (
     SecretPayloadStr,
     SecretPayloadBytes,
 )
+from document_ia_infra.core.util.resolve_root_folder import resolve_project_root
 
-# TODO : remove this file and send logs to a proper logging system (ELK, Loki, ...)
-AGGREGATOR_OUTPUT_FILE = "aggregator.jsonl"
+ROOT_FOLDER: Path = resolve_project_root("document_ia_api")
+AGGREGATOR_OUTPUT_FILE: Path = ROOT_FOLDER / "logs" / "aggregator.jsonl"
+
 logger = logging.getLogger(__name__)
 
 MAX_BODY_BYTES = 4096  # prevent writing too much data inside the logs
@@ -383,6 +386,9 @@ class AggregationMiddleware(BaseHTTPMiddleware):
                 entry["request_body_preview"] = query_payload.get("body_preview")
 
             try:
+                log_path = AGGREGATOR_OUTPUT_FILE
+                # Ensure parent directory exists
+                log_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(AGGREGATOR_OUTPUT_FILE, "a", encoding="utf-8") as f:
                     f.write(json.dumps(entry, ensure_ascii=False) + "\n")
             except Exception as e:
