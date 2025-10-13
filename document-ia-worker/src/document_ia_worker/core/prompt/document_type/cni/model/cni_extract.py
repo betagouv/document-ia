@@ -1,6 +1,6 @@
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class CNIExtract(BaseModel):
@@ -9,7 +9,7 @@ class CNIExtract(BaseModel):
     prenom: str
     lieu_naissance: str
     nationalite: str
-    date_delivrance: Optional[str] = Field(default=None)
-    date_expiration: Optional[str] = Field(default=None)
-    date_naissance: Optional[str] = Field(default=None)
-    bande_mrz: Optional[str] = Field(default=None)
+    date_delivrance: Optional[str] = None
+    date_expiration: Optional[str] = None
+    date_naissance: Optional[str] = None
+    bande_mrz: Optional[str] = None

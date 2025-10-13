@@ -21,6 +21,17 @@ from document_ia_worker.exception.unsupported_document_type import (
 logger = logging.getLogger(__name__)
 
 
+def _dict_to_bullets(value: Dict[str, Any]) -> str:
+    """Render a dict as a Markdown bullet list: - **key**: value
+    Values are stringified; missing/None become empty strings.
+    """
+    lines: List[str] = []
+    for k, v in value.items():
+        desc = "" if v is None else str(v)
+        lines.append(f"- **{k}**: {desc}")
+    return "\n".join(lines)
+
+
 class PromptService:
     allowed_tasks: Dict[TaskType, PromptConfiguration]
 
@@ -31,6 +42,17 @@ class PromptService:
         self.template_env = jinja2.Environment(
             loader=jinja2.PackageLoader("document_ia_worker.core.prompt", "prompts")
         )
+        # Ensure JSON output keeps insertion order and preserves unicode (no \uXXXX)
+        self.template_env.policies.setdefault("json.dumps_kwargs", {})
+        self.template_env.policies["json.dumps_kwargs"].update(
+            {
+                "sort_keys": False,
+                "ensure_ascii": False,
+            }
+        )
+        # Register custom filters
+        self.template_env.filters["dict_to_bullets"] = _dict_to_bullets
+
         self.allowed_tasks = {
             TaskType.CLASSIFICATION: PromptConfiguration(
                 task_type=TaskType.CLASSIFICATION,
@@ -88,15 +110,32 @@ class PromptService:
 
         extraction_model_type = self._get_extraction_type(document_type)
 
+        # Extract simplified map: field_name -> description from JSON schema properties
+        properties: Dict[str, Any] = json_schema.get("json_schema", {}).get(
+            "properties", {}
+        )
+        document_json_properties_with_description: Dict[str, str] = {
+            key: value.get("description") for key, value in properties.items()
+        }
+        document_json_properties_with_type: Dict[str, str] = {
+            key: value.get("type", "string") for key, value in properties.items()
+        }
+        document_json_properties_with_example: Dict[str, Any] = {
+            key: value.get("example", "") for key, value in properties.items()
+        }
+
         # Render a template if one exists for extraction, otherwise return empty prompt
         # Template convention: extraction_agent_system_prompt.md.j2
         prompt_template = self.template_env.get_template(
             self.allowed_tasks[TaskType.EXTRACTION].get_template_file()
         )
+
         prompt_text = prompt_template.render(
             document_name=json_schema["name"],
             document_description=json_schema["description"],
-            document_json_properties=json_schema["json_schema"]["properties"],
+            document_json_properties_with_description=document_json_properties_with_description,
+            document_json_properties_with_type=document_json_properties_with_type,
+            document_json_properties_with_example=document_json_properties_with_example,
         )
 
         return prompt_text, extraction_model_type

@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 class PermisConduireExtract(BaseModel):
     numero_document: str = Field(
-        title="Numero du permis",
+        title="Numéro du permis",
         description="Identifiant unique du permis de conduire (format alphanumérique).",
     )
     nom: str = Field(
