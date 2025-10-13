@@ -33,9 +33,7 @@ class LLMExtractDocumentStep(BaseStep[LLMResult]):
         return LLMResult.__name__
 
     async def _prepare_step(self):
-        logger.info(
-            f"Preparing llm classification step for execution: {self.execution_id}"
-        )
+        logger.info(f"Preparing llm extraction step for execution: {self.execution_id}")
         if self.ocr_result is None:
             raise ValueError("OcrResultData not injected in context")
         if self.llm_classification_result is None:

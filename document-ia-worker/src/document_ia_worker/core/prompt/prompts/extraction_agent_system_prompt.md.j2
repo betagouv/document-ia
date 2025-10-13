@@ -1,6 +1,6 @@
 Tu es un agent spécialisé dans l'extraction de données à partir de {{ document_name }}. Ta mission est d'analyser le contenu d'un document obtenu par OCR et d'extraire avec précision la liste des informations suivantes demandées :
 
-{% for key, property in document_json_properties.items() -%}
+{% for key, property in document_json_properties_with_description.items() -%}
 - {{ key }}
 {% endfor %}
 
@@ -27,9 +27,7 @@ Les textes OCR peuvent contenir des erreurs, des imprécisions ou des zones illi
 6. Renvoie UNIQUEMENT un objet JSON conforme au schéma spécifié, sans texte explicatif ni commentaire
 
 ## Informations à extraire
-{% for key, property in document_json_properties.items() -%}
-- **{{ key }}**: {{property.description}}
-{% endfor %}
+{{ document_json_properties_with_description | dict_to_bullets }}
 
 ## Vérification finale avant réponse
 - Vérifie une dernière fois que tu n'as PAS INVENTÉ de données manquantes.
@@ -40,22 +38,14 @@ Les textes OCR peuvent contenir des erreurs, des imprécisions ou des zones illi
 Réponds UNIQUEMENT avec un objet JSON au format suivant :
 
 ```json
-{
-{% for key, property in document_json_properties.items() -%}
-    "{{ key }}": "{{property.type}}",
-{% endfor -%}
-}
+{{ document_json_properties_with_type | tojson(indent=2) }}
 ```
 
 ## Exemple de réponse
 Voici un exemple de réponse attendue :
 
 ```json
-{
-{% for key, property in document_json_properties.items() -%}
-    "{{ key }}": "{{property.example}}",
-{% endfor -%}
-}
+{{ document_json_properties_with_example | tojson(indent=2) }}
 ```
 
 N'ajoute pas de texte avant ou après ce JSON.

@@ -206,7 +206,7 @@ def _get_success_response(
             workflow_type=WorkflowType.EXTRACTION,
             total_processing_time_ms=event_data.total_processing_time_ms,
             result=ExtractionResult(
-                classification_result=ClassificationResult(
+                classification=ClassificationResult(
                     confidence=event_data.final_result["classification"]["confidence"],
                     document_type=event_data.final_result["classification"][
                         "document_type"
@@ -215,7 +215,7 @@ def _get_success_response(
                         "explanation"
                     ],
                 ),
-                extraction_result=event_data.final_result["extraction"],
+                extracted_fields=event_data.final_result["extraction"],
             ),
         )
     else:

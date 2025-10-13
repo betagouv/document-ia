@@ -1,14 +1,14 @@
-from typing import Any
+from typing import Any, Annotated
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ClassificationResult(BaseModel):
     document_type: str
-    confidence: float
+    confidence: Annotated[float, Field(strict=True, ge=0, le=1)]
     explanation: str
 
 
 class ExtractionResult(BaseModel):
-    classification_result: ClassificationResult
-    extraction_result: dict[str, Any]
+    classification: ClassificationResult
+    extracted_fields: dict[str, Any]

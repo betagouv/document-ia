@@ -1,32 +1,32 @@
-from typing import Annotated, Literal, Union
+from typing import Union, Literal, TypeVar, Generic
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from document_ia_infra.data.workflow.dto.workflow_dto import WorkflowType
-from document_ia_api.api.contracts.execution.types import ExecutionStatus
 from document_ia_api.api.contracts.execution.result import (
     ClassificationResult,
     ExtractionResult,
 )
+from document_ia_api.api.contracts.execution.types import ExecutionStatus
+from document_ia_infra.data.workflow.dto.workflow_dto import WorkflowType
+
+T = TypeVar("T")
 
 
-class ClassificationSuccessData(BaseModel):
-    workflow_type: Literal[WorkflowType.CLASSIFICATION]
+class SuccessData(BaseModel, Generic[T]):
+    workflow_type: WorkflowType
     total_processing_time_ms: int
-    result: ClassificationResult
+    result: T
 
 
-class ExtractionSuccessData(BaseModel):
-    workflow_type: Literal[WorkflowType.EXTRACTION]
-    total_processing_time_ms: int
-    result: ExtractionResult
+class ClassificationSuccessData(SuccessData[ClassificationResult]):
+    workflow_type: WorkflowType = WorkflowType.CLASSIFICATION
+
+
+class ExtractionSuccessData(SuccessData[ExtractionResult]):
+    workflow_type: WorkflowType = WorkflowType.EXTRACTION
 
 
 class ExecutionSuccessModel(BaseModel):
     id: str
     status: Literal[ExecutionStatus.SUCCESS]
-    # Discriminated union for success data by workflow type
-    data: Annotated[
-        Union[ExtractionSuccessData, ClassificationSuccessData],
-        Field(discriminator="workflow_type"),
-    ]
+    data: Union[ExtractionSuccessData, ClassificationSuccessData]
