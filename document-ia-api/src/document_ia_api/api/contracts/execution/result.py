@@ -1,6 +1,8 @@
 from typing import Any, Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
+
+from document_ia_infra.core.model.types.secret import SecretPayloadDict
 
 
 class ClassificationResult(BaseModel):
@@ -10,5 +12,7 @@ class ClassificationResult(BaseModel):
 
 
 class ExtractionResult(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     classification: ClassificationResult
-    extracted_fields: dict[str, Any]
+    extracted_fields: SecretPayloadDict[Any]
