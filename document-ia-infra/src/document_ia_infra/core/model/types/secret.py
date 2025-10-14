@@ -1,7 +1,45 @@
-from typing import Annotated, Optional, TypeAlias
+from typing import Annotated, Optional, TypeAlias, TypeVar, Generic, Any
 
-from pydantic import SecretStr, SecretBytes
+from pydantic import SecretStr, SecretBytes, BeforeValidator
 from pydantic.functional_serializers import PlainSerializer
+
+V = TypeVar("V")
+
+
+class SecretDict(Generic[V]):
+    def __init__(self, inner_dict: dict[str, V]) -> None:
+        self.inner_dict = inner_dict
+
+    def __str__(self):
+        items: list[str] = []
+        for k, _ in self.inner_dict.items():
+            items.append(f"{repr(k)}: ***")
+        return "{" + ", ".join(items) + "}"
+
+    def __repr__(self):
+        items: list[str] = []
+        for k in self.inner_dict.keys():
+            items.append(f"{repr(k)}: ***")
+        return f"{self.__class__.__name__}(" + "{" + ", ".join(items) + "})"
+
+
+def _to_secret_dict(v: Any) -> SecretDict[V]:  # type: ignore[arg-type]
+    if v is None:
+        return SecretDict({})  # type: ignore[arg-type]
+    if isinstance(v, SecretDict):
+        return v  # type: ignore[arg-type]
+    if isinstance(v, dict):
+        return SecretDict(v)  # type: ignore[arg-type]
+    raise TypeError("expected dict or SecretDict")
+
+
+def _secret_dict_to_json(v: Optional[SecretDict[V]]) -> dict[str, V]:
+    if v is None:
+        return {}
+    try:
+        return v.inner_dict
+    except Exception:
+        return {}
 
 
 def _secret_str_to_json(v: Optional[SecretStr]) -> Optional[str]:
@@ -37,4 +75,9 @@ SecretPayloadStr: TypeAlias = Annotated[
 SecretPayloadBytes: TypeAlias = Annotated[
     SecretBytes,
     PlainSerializer(_secret_bytes_to_json, when_used="json"),
+]
+type SecretPayloadDict[T] = Annotated[
+    SecretDict[T],
+    BeforeValidator(_to_secret_dict),
+    PlainSerializer(_secret_dict_to_json, when_used="json"),
 ]

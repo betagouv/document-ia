@@ -147,7 +147,7 @@ async def get_execution(
                     created_at=last_event.created_at,
                     file_name=event_data.file_info.filename,
                     content_type=event_data.file_info.content_type,
-                    presigned_url=event_data.file_info.presigned_url,
+                    presigned_url=str(event_data.file_info.presigned_url),
                 ),
             )
 
