@@ -31,8 +31,9 @@ class AggregatorHandler(Handler):
             return  # hors requête, on ne collecte pas
         try:
             log_dict: Dict[str, Any] = {
-                "ts": datetime.fromtimestamp(record.created, timezone.utc).isoformat()
-                + "Z",
+                "ts": datetime.fromtimestamp(record.created, timezone.utc).strftime(
+                    "%Y-%m-%dT%H:%M:%S.%fZ"
+                ),
                 "logger": record.name,
                 "level": record.levelname,
                 "message": record.getMessage(),
