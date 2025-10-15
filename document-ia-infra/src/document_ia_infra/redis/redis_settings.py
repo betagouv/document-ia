@@ -9,6 +9,8 @@ class RedisSettings(BaseDocumentIaSettings):
     REDIS_DB: int = Field(default=0)
     REDIS_PASSWORD: SecretStr = Field(default_factory=lambda: SecretStr("password"))
 
+    REDIS_WORKER_NUMBER: int = Field(default=1)
+
     REDIS_URL: str | None = Field(default=None)
 
     EVENT_STREAM_NAME: str = Field(default="event_stream")
