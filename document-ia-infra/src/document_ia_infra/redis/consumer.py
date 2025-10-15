@@ -15,6 +15,7 @@ from document_ia_infra.exception.retryable_exception import RetryableException
 from document_ia_infra.redis.redis_manager import (
     redis_manager as redis_manager_main_thread,
 )
+from document_ia_infra.redis.redis_settings import redis_settings
 from document_ia_infra.redis.serializable_message import SerializableMessage
 from redis import ResponseError
 from redis.asyncio import Redis
@@ -37,7 +38,7 @@ class Consumer(Generic[T]):
         block_time: int,
         message_class: type[T],
         process_message_callable: Callable[[T, int], Coroutine[Any, Any, None]],
-        worker_number: int = 1,
+        worker_number: int = redis_settings.REDIS_WORKER_NUMBER,
         max_retry_number: int = 3,
     ):
         self.redis: Optional[Redis] = None
@@ -61,7 +62,9 @@ class Consumer(Generic[T]):
         self.executor = ThreadPoolExecutor(max_workers=self.worker_number)
 
     async def start_consumer(self):
-        logger.info(f"Start consumer {self.consumer_name}")
+        logger.info(
+            f"Start consumer {self.consumer_name} with {self.worker_number} workers"
+        )
         logger.debug("Establishing connection to Redis...")
 
         try:
