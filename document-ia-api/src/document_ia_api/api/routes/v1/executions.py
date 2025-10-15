@@ -200,6 +200,7 @@ def _get_success_response(
                 document_type=event_data.final_result["document_type"],
                 explanation=event_data.final_result["explanation"],
             ),
+            extracted_barcodes=event_data.final_result.get("barcode_data"),
         )
     elif workflow.type == WorkflowType.EXTRACTION:
         return_data = ExtractionSuccessData(
@@ -217,6 +218,7 @@ def _get_success_response(
                 ),
                 extracted_fields=event_data.final_result["extraction"],
             ),
+            extracted_barcodes=event_data.final_result.get("barcode_data"),
         )
     else:
         raise ValueError(f"Unsupported workflow type: {workflow.type}")

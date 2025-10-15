@@ -83,7 +83,7 @@ async def test_workflow_extraction_end_to_end():
         assert payload.get("execution_id") == execution_id
         assert isinstance(payload.get("total_processing_time_ms"), int)
         # For extraction workflow: download, preprocess, ocr, llm_classify, llm_extract, save
-        assert payload.get("steps_completed") == 6
+        assert payload.get("steps_completed") == 7
         assert payload.get("version") == 1
 
         # Final result checks (extraction result)
