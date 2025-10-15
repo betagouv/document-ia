@@ -10,7 +10,7 @@ from document_ia_worker.core.prompt.model.document_classification import (
     DocumentClassification,
 )
 from document_ia_worker.core.prompt.prompt_configuration import (
-    SupportedDocumentType,
+    GENERIC_CLASSIFICATION_MODEL,
 )
 from document_ia_worker.core.prompt.prompt_service import PromptService
 from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
@@ -49,11 +49,7 @@ class LLMClassifyDocumentStep(BaseStep[LLMClassificationResult]):
         assert self.ocr_result is not None
 
         system_prompt = self.prompt_service.get_classification_prompt(
-            [
-                SupportedDocumentType.CNI,
-                SupportedDocumentType.PASSEPORT,
-                SupportedDocumentType.PERMIS_CONDUIRE,
-            ],
+            GENERIC_CLASSIFICATION_MODEL
         )
         user_prompt = ""
         for page in self.ocr_result.pages:

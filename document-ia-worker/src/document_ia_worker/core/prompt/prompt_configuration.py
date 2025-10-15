@@ -22,6 +22,14 @@ class SupportedDocumentType(str, Enum):
             raise ValueError(f"Unknown SupportedDocumentType: {label}")
 
 
+GENERIC_CLASSIFICATION_MODEL: list[SupportedDocumentType] = [
+    SupportedDocumentType.CNI,
+    SupportedDocumentType.PASSEPORT,
+    SupportedDocumentType.PERMIS_CONDUIRE,
+    SupportedDocumentType.AVIS_IMPOSITION,
+]
+
+
 @dataclass
 class PromptConfiguration:
     task_type: TaskType
