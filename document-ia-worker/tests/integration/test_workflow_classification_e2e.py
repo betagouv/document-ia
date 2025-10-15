@@ -89,7 +89,7 @@ async def test_workflow_classification_end_to_end():
         assert payload.get("workflow_id") == workflow_id
         assert payload.get("execution_id") == execution_id
         assert isinstance(payload.get("total_processing_time_ms"), int)
-        assert payload.get("steps_completed") == 5  # download, preprocess, ocr, llm, save
+        assert payload.get("steps_completed") == 6  # download, preprocess, ocr, llm, save
         assert payload.get("version") == 1
 
         # Final result checks

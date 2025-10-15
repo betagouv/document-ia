@@ -29,3 +29,13 @@ class BaseStep(ABC, Generic[T]):
         if not_typed_data is None or not isinstance(not_typed_data, cls):
             raise ValueError(f"{cls.__name__} not found in context")
         return not_typed_data
+
+    def _get_not_mandatory_workflow_context_key(
+        self, cls: type[WCT], context: dict[str, Any]
+    ) -> WCT | None:
+        not_typed_data = context.get(cls.__name__)
+        if not_typed_data is None:
+            return None
+        if not isinstance(not_typed_data, cls):
+            raise ValueError(f"{cls.__name__} found in context but has wrong type")
+        return not_typed_data

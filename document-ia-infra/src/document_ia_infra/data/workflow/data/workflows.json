@@ -13,6 +13,7 @@
     "steps": [
       "download_file",
       "preprocess_file",
+      "extract_barcode_data",
       "extract_content_ocr",
       "llm_classify_document",
       "save_workflow_result"
@@ -38,6 +39,7 @@
     "steps": [
       "download_file",
       "preprocess_file",
+      "extract_barcode_data",
       "extract_content_ocr",
       "llm_classify_document",
       "llm_extract_data",
