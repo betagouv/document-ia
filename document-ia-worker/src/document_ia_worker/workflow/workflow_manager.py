@@ -14,7 +14,7 @@ from document_ia_infra.redis.model.workflow_execution_message import (
     WorkflowExecutionMessage,
 )
 from document_ia_infra.service.event_store_service import EventStoreService
-from document_ia_worker.core.logging_setup import (
+from document_ia_worker.core.aggregator_log import (
     setup_logging_worker,
     execution_id_var,
     agg_buffer_var,
