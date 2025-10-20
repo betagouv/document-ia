@@ -6,9 +6,6 @@ from contextvars import ContextVar, Token
 from datetime import datetime, timezone, UTC
 from logging import Filter, LogRecord, Handler
 from typing import Any, Dict, List, Optional
-from pathlib import Path
-
-from document_ia_infra.core.util.resolve_root_folder import resolve_project_root
 
 execution_id_var: ContextVar[Optional[str]] = ContextVar(
     "worker_execution_id", default=None
@@ -19,10 +16,6 @@ agg_buffer_var: ContextVar[Optional[List[Dict[str, Any]]]] = ContextVar(
 start_time_var: ContextVar[Optional[datetime]] = ContextVar(
     "worker_start_time", default=None
 )
-
-
-ROOT_FOLDER: Path = resolve_project_root("document_ia_worker")
-WORKER_AGGREGATOR_OUTPUT_FILE: Path = ROOT_FOLDER / "logs" / "aggregator.jsonl"
 
 
 class ContextExecutionIdFilter(Filter):
@@ -71,13 +64,10 @@ def setup_logging_worker() -> None:
     root.addHandler(handler)
 
 
-def write_worker_aggregated_entry(entry: Dict[str, Any]) -> None:
+def write_worker_aggregated_entry(entry: Dict[str, Any], tags: dict[str, Any]) -> None:
     try:
-        log_path = WORKER_AGGREGATOR_OUTPUT_FILE
-        # Ensure parent directory exists
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        with log_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        agg_logger = logging.getLogger("aggregator")
+        agg_logger.info(json.dumps(entry), extra={"tags": tags})
     except Exception as e:
         logging.getLogger(__name__).error(
             f"Failed to write worker aggregator entry: {e}"
@@ -129,7 +119,13 @@ def handle_finish_execution(
                     "failed_step": failed_step or "unknown",
                 }
             )
-        write_worker_aggregated_entry(entry)
+
+        tags = {
+            "workflow_id": workflow_id,
+            "status": entry["status"],
+            "retry_count": entry["retry_count"],
+        }
+        write_worker_aggregated_entry(entry, tags)
     except Exception as log_e:
         logger.error(f"Failed to write aggregated worker log: {log_e}")
     finally:

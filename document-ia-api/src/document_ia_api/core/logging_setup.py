@@ -4,10 +4,16 @@ from logging import Filter, LogRecord, Handler
 from logging.config import dictConfig
 from typing import Optional, Any, Dict, List
 
+from document_ia_infra.core.loki_settings import LokiTagsFilter, build_loki_handler
+
 request_id_var: ContextVar[Optional[str]] = ContextVar("request_id", default=None)
 agg_buffer_var: ContextVar[Optional[List[Dict[str, Any]]]] = ContextVar(
     "agg_buffer", default=None
 )
+
+
+def build_loki_handler_for_app():
+    return build_loki_handler(app_name="document-ia-api")
 
 
 class ContextRequestIdFilter(Filter):
@@ -20,15 +26,12 @@ class ContextRequestIdFilter(Filter):
 
 
 class AggregatorHandler(Handler):
-    """
-    Handler global qui, pour chaque LogRecord, si on est dans une requête (agg_buffer existe),
-    copie le log transformé en dict dans le buffer d'agrégation.
-    """
+    """During a request (when `agg_buffer` exists), copy the log (as a dict) into the aggregation buffer."""
 
     def emit(self, record: LogRecord) -> None:
         buf = agg_buffer_var.get()
         if buf is None:
-            return  # hors requête, on ne collecte pas
+            return
         try:
             log_dict: Dict[str, Any] = {
                 "ts": datetime.fromtimestamp(record.created, timezone.utc).strftime(
@@ -41,12 +44,9 @@ class AggregatorHandler(Handler):
                 "lineno": record.lineno,
                 "funcName": record.funcName,
                 "request_id": getattr(record, "request_id", None),
-                # Tu peux ajouter d'autres champs utiles :
-                # "extra": getattr(record, "extra", None),
             }
             buf.append(log_dict)
         except Exception:
-            # On n'écrase pas la stack si la collecte échoue
             pass
 
 
@@ -55,7 +55,10 @@ def setup_logging():
         {
             "version": 1,
             "disable_existing_loggers": False,
-            "filters": {"add_request_id": {"()": ContextRequestIdFilter}},
+            "filters": {
+                "add_request_id": {"()": ContextRequestIdFilter},
+                "add_loki_tags": {"()": LokiTagsFilter},
+            },
             "formatters": {
                 "std": {
                     "format": "%(asctime)s - %(name)s - %(levelname)s - %(request_id)s - %(message)s",
@@ -63,6 +66,7 @@ def setup_logging():
                 "uvicorn_access": {
                     "format": "%(asctime)s - uvicorn.access - %(levelname)s - %(message)s",
                 },
+                "message_only": {"format": "%(message)s"},
             },
             "handlers": {
                 "console": {
@@ -82,16 +86,40 @@ def setup_logging():
                     "level": "DEBUG",
                     "filters": ["add_request_id"],
                 },
+                "loki": {
+                    "()": "document_ia_api.core.logging_setup.build_loki_handler_for_app",
+                    "level": "INFO",
+                    "formatter": "std",
+                    "filters": ["add_request_id", "add_loki_tags"],
+                },
+                "loki_json": {
+                    "()": "document_ia_api.core.logging_setup.build_loki_handler_for_app",
+                    "level": "INFO",
+                    "formatter": "message_only",
+                    "filters": ["add_loki_tags"],
+                },
             },
             "loggers": {
+                # Uvicorn
                 "uvicorn.access": {
-                    "handlers": ["access_console"],
+                    "handlers": ["access_console", "loki"],
+                    "level": "INFO",
+                    "propagate": False,
+                },
+                "uvicorn.error": {
+                    "handlers": ["console", "loki"],
+                    "level": "INFO",
+                    "propagate": False,
+                },
+                "aggregator": {
+                    "handlers": ["loki_json"],
                     "level": "INFO",
                     "propagate": False,
                 },
             },
+            # Root logger: tout le reste (librairies, ton code)
             "root": {
-                "handlers": ["console", "aggregator"],
+                "handlers": ["console", "aggregator", "loki"],
                 "level": "INFO",
             },
         }
