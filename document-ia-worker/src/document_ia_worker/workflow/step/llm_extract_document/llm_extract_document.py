@@ -7,6 +7,7 @@ from document_ia_infra.exception.openai_authentification_error import (
 from document_ia_infra.exception.retryable_exception import RetryableException
 from document_ia_infra.openai.openai_manager import OpenAIManager
 from document_ia_worker.core.prompt.model.document_extraction import DocumentExtraction
+from document_ia_worker.core.prompt.prompt_configuration import SupportedDocumentType
 from document_ia_worker.core.prompt.prompt_service import PromptService
 from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
 from document_ia_worker.workflow.step.base_step import BaseStep
@@ -50,7 +51,9 @@ class LLMExtractDocumentStep(BaseStep[LLMResult]):
         assert self.llm_classification_result is not None
 
         system_prompt, extract_class = self.prompt_service.get_extraction_prompt(
-            self.llm_classification_result.data.document_type
+            SupportedDocumentType.from_str(
+                self.llm_classification_result.data.document_type
+            )
         )
 
         user_prompt = ""

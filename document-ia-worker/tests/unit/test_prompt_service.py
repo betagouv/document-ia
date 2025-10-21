@@ -1,4 +1,3 @@
-import json
 import os
 
 import pytest
@@ -25,16 +24,16 @@ class TestPromptService:
 
         # Then the bullet list should include each category.type, plus 'autre'
         for dt in doc_types:
-            schema = service._load_schema_from_document_type(dt)
-            assert f"- {schema['type']}" in rendered
+            schema = service._get_schema_class_instance(dt)
+            assert f"- {schema.type}" in rendered
         assert "- autre" in rendered
 
         # And the distinctive characteristics section should include headers and each description item
         for dt in doc_types:
-            schema = service._load_schema_from_document_type(dt)
-            header = f"**{schema['name']}** ({schema['type']})"
+            schema = service._get_schema_class_instance(dt)
+            header = f"**{schema.name}** ({schema.type})"
             assert header in rendered
-            for item in schema.get("description", []):
+            for item in schema.description:
                 assert f"- {item}" in rendered
 
         # And the response format JSON keys should be present
@@ -50,8 +49,8 @@ class TestPromptService:
             service = PromptService()
             rendered = service.get_classification_prompt([SupportedDocumentType.CNI])
             # Minimal assertions: contains the CNI type and the response JSON keys
-            cni_schema = service._load_schema_from_document_type(SupportedDocumentType.CNI)
-            assert f"- {cni_schema['type']}" in rendered
+            cni_schema = service._get_schema_class_instance(SupportedDocumentType.CNI)
+            assert f"- {cni_schema.type}" in rendered
             assert '"document_type"' in rendered
             assert '"confidence"' in rendered
             assert '"explanation"' in rendered
@@ -73,30 +72,24 @@ class TestPromptService:
         """Ensure get_extraction_prompt('cni') returns the schema content and the CNIExtract model class."""
         service = PromptService()
 
-        prompt_text, model_class = service.get_extraction_prompt("cni")
+        prompt_text, model_class = service.get_extraction_prompt(SupportedDocumentType.CNI)
 
         # The model class should be the CNIExtract defined in the cni model module
-        from document_ia_worker.core.prompt.document_type.cni.model.cni_extract import CNIExtract
+        from document_ia_worker.core.prompt.document_type.cni import CNIModel
 
-        assert model_class is CNIExtract
+        assert model_class is CNIModel
 
-        # Load the schema that should have been injected into the template
-        import importlib.resources as pkg_resources
-
-        schema_text = pkg_resources.read_text(
-            "document_ia_worker.core.prompt.document_type.cni.schema", "schema.json"
-        )
-        json_schema = json.loads(schema_text)
+        schema_instance = service._get_schema_class_instance(SupportedDocumentType.CNI)
 
         # The template should have been rendered with the document name
-        assert json_schema["name"] in prompt_text
+        assert schema_instance.name in prompt_text
 
         # And each description item should appear in the prompt
-        for desc in json_schema.get("description", []):
+        for desc in schema_instance.description:
             assert desc in prompt_text
 
         # The template iterates document_json_properties: ensure keys and property descriptions are present
-        for key, prop in json_schema.get("json_schema", {}).get("properties", {}).items():
+        for key, prop in schema_instance.get_json_schema_dict().get("properties", {}).items():
             assert key in prompt_text
             if isinstance(prop, dict) and prop.get("description"):
                 assert prop.get("description") in prompt_text
