@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 
+from document_ia_worker.core.prompt.document_type.cni import CNIModel
 from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
 from document_ia_worker.workflow.step.llm_extract_document.llm_extract_document import (
     LLMExtractDocumentStep,
@@ -66,7 +67,7 @@ class TestLLMExtract:
                         "nationalite": "Française",
                     },
                 }
-                return response_class.model_validate(payload)
+                return response_class.model_validate(payload, by_name=True, by_alias=False)
 
         monkeypatch.setattr(
             "document_ia_worker.workflow.step.llm_extract_document.llm_extract_document.OpenAIManager",
@@ -94,7 +95,6 @@ class TestLLMExtract:
 
         props = getattr(data_out, "properties", None)
         assert props is not None
-        from document_ia_worker.core.prompt.document_type.cni.model.cni_extract import CNIExtract
-        assert isinstance(props, CNIExtract)
+        assert isinstance(props, CNIModel)
         assert props.numero_document == "123456789012"
         assert props.nom == "DUPONT" and props.prenom == "JEAN"
