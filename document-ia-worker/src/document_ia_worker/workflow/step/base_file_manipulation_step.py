@@ -23,7 +23,7 @@ class BaseFileManipulationStep(BaseStep[T], ABC):
             tmp_path = tmp_path.joinpath(subfolder)
         self.tmp_folder_path = str(tmp_path)
 
-    async def cleanup(self):
+    async def cleanup(self, is_last_cleanup: bool = False):
         tmp_dir = Path(self.tmp_folder_path)
         if tmp_dir.exists() and tmp_dir.is_dir():
             for file in tmp_dir.iterdir():

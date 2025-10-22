@@ -99,7 +99,7 @@ async def test_consumer_happy_path(monkeypatch):
 
     processed = asyncio.Event()
 
-    async def process_ok(msg: SampleMessage, rc: int):
+    async def process_ok(msg: SampleMessage, rc: int, _is_last: bool):
         assert msg.payload == payload
         assert rc == 0
         processed.set()
@@ -147,7 +147,7 @@ async def test_consumer_retryable_error_requeues(monkeypatch):
     from document_ia_infra.redis import redis_manager as rm_module
     monkeypatch.setattr(rm_module.redis_manager, "get_connection", fake_get_connection)
 
-    async def process_retry(msg: SampleMessage, rc: int):
+    async def process_retry(msg: SampleMessage, rc: int, _is_last: bool):
         raise RetryableException("temporary")
 
     c = Consumer[SampleMessage](
@@ -195,7 +195,7 @@ async def test_consumer_not_retryable_goes_to_dlq(monkeypatch):
     from document_ia_infra.redis import redis_manager as rm_module
     monkeypatch.setattr(rm_module.redis_manager, "get_connection", fake_get_connection)
 
-    async def process_fail(msg: SampleMessage, rc: int):
+    async def process_fail(msg: SampleMessage, rc: int, _is_last: bool):
         raise RuntimeError("boom")
 
     c = Consumer[SampleMessage](
@@ -243,7 +243,7 @@ async def test_consumer_decode_error_goes_to_dlq(monkeypatch):
     from document_ia_infra.redis import redis_manager as rm_module
     monkeypatch.setattr(rm_module.redis_manager, "get_connection", fake_get_connection)
 
-    async def process_noop(msg: SampleMessage, rc: int):
+    async def process_noop(msg: SampleMessage, rc: int, _is_last: bool):
         pass
 
     c = Consumer[SampleMessage](
@@ -293,7 +293,7 @@ async def test_reclaimer_requeues_or_dlq(monkeypatch, caplog):
         batch_size=10,
         block_time=50,
         message_class=SampleMessage,
-        process_message_callable=lambda m, r: asyncio.sleep(0),
+        process_message_callable=lambda m, r, _: asyncio.sleep(0),
         worker_number=1,
         max_retry_number=2,
     )
@@ -343,7 +343,7 @@ async def test_ack_failure_does_not_crash_or_dlq(monkeypatch):
 
     mock_redis.xack = failing_xack  # type: ignore
 
-    async def process_ok(msg: SampleMessage, rc: int):
+    async def process_ok(msg: SampleMessage, rc: int, _is_last: bool):
         return None
 
     c = Consumer[SampleMessage](
@@ -386,7 +386,7 @@ async def test_requeue_failure_sends_to_dlq_and_ack(monkeypatch):
     from document_ia_infra.redis import redis_manager as rm_module
     monkeypatch.setattr(rm_module.redis_manager, "get_connection", fake_get_connection)
 
-    async def process_retry(_msg: SampleMessage, _rc: int):
+    async def process_retry(_msg: SampleMessage, _rc: int, _is_last: bool):
         raise RetryableException("temp")
 
     # Monkeypatch xadd to fail on requeue but succeed for DLQ
@@ -445,7 +445,7 @@ async def test_init_creates_consumer_group(monkeypatch):
         batch_size=1,
         block_time=10,
         message_class=SampleMessage,
-        process_message_callable=lambda m, r: asyncio.sleep(0),
+        process_message_callable=lambda m, r, _ : asyncio.sleep(0),
     )
 
     await c._init_consumer()
@@ -467,7 +467,7 @@ async def test_no_message_loop_and_stop(monkeypatch):
     from document_ia_infra.redis import redis_manager as rm_module
     monkeypatch.setattr(rm_module.redis_manager, "get_connection", fake_get_connection)
 
-    async def process_noop(msg: SampleMessage, rc: int):
+    async def process_noop(msg: SampleMessage, rc: int, _is_last: bool):
         return None
 
     c = Consumer[SampleMessage](
@@ -516,7 +516,7 @@ async def test_shutdown_waits_for_inflight_processing(monkeypatch):
 
     started_evt = threading.Event()
 
-    async def process_slow(msg: SampleMessage, rc: int):
+    async def process_slow(msg: SampleMessage, rc: int, _is_last: bool):
         # signal processing start
         started_evt.set()
         # simulate a long processing
