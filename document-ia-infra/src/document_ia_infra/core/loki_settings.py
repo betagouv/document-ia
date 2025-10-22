@@ -10,6 +10,9 @@ from document_ia_infra.core.BaseDocumentIaSettings import BaseDocumentIaSettings
 class LoggingSettings(BaseDocumentIaSettings):
     LOKI_URL: str = Field(default="", validation_alias="LOKI_URL")
     APP_ENV: str = Field(default="prod", validation_alias="APP_ENV")
+    LOKI_LOGGING_ENABLED: bool = Field(
+        default=True, validation_alias="LOKI_LOGGING_ENABLED"
+    )
 
 
 logging_settings = LoggingSettings()
