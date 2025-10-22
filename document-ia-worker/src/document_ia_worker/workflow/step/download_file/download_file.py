@@ -52,3 +52,15 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
         except S3AuthentificationException as e:
             logger.error("S3 authentication failed during file download.")
             raise RetryableException(e)
+
+    async def cleanup(self, is_last_cleanup: bool = False):
+        await super().cleanup(is_last_cleanup)
+        if is_last_cleanup:
+            logger.info(f"Cleaning up S3 files for execution: {self.execution_id}")
+            s3_manager = S3Manager()
+            try:
+                s3_manager.delete_file(self.file_info.s3_key.get_secret_value())
+                logger.info(f"S3 file deleted successfully: {self.file_info.s3_key}")
+            except S3AuthentificationException as e:
+                logger.error("S3 authentication failed during file deletion.", e)
+                raise RuntimeError("Error while deleting S3 file") from e

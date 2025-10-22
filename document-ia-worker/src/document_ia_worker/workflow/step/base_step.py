@@ -15,7 +15,11 @@ class BaseStep(ABC, Generic[T]):
 
     def get_context_result_key(self) -> str: ...
 
-    async def cleanup(self):
+    # The field is_finished indicates whether the message that is being processed will not be retried.
+    # For example, if the message has exceeded the maximum number of retries, is_finished will be True.
+    # If the message is a success is_finished will be True as well.
+    # In case of a failure that will be retried, is_finished will be False.
+    async def cleanup(self, is_last_cleanup: bool):
         pass
 
     async def _prepare_step(self): ...

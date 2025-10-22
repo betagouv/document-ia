@@ -63,7 +63,12 @@ class WorkflowManager:
     workflow_context: dict[str, Any]
     main_workflow_context: Optional[MainWorkflowContext]
 
-    def __init__(self, message: WorkflowExecutionMessage, retry_count: int):
+    def __init__(
+        self,
+        message: WorkflowExecutionMessage,
+        retry_count: int,
+        is_last_retry: bool = False,
+    ):
         self.message = message
         logger.info("New workflow_manager instance")
         # We can't use the singleton here because we need a new session for each thread
@@ -71,6 +76,7 @@ class WorkflowManager:
 
         # Instance-scoped state to avoid cross-thread leakage
         self.retry_count = retry_count
+        self.is_last_retry = is_last_retry
         self.event_dto = None
         self.event_data = None
         self.step_list = []
@@ -234,6 +240,7 @@ class WorkflowManager:
             raise WorkflowStepException("parse_start_event", e)
 
     async def _execute_workflow(self):
+        is_last_cleanup = True
         if len(self.step_list) == 0:
             raise WorkflowStepException(
                 "execute_workflow", Exception("No workflow steps found")
@@ -255,6 +262,13 @@ class WorkflowManager:
                 except Exception as e:
                     raise WorkflowStepException(step.__class__.__name__, e)
         except Exception as e:
+            # If the exception is retryable, and we have retries left, we don't do the last cleanup to prevent S3 files to be deleted
+            if (
+                WorkflowStepException.is_retryable_exception(e)
+                and not self.is_last_retry
+            ):
+                is_last_cleanup = False
+
             logger.error(
                 f"Failed to execute workflow {self.message.workflow_execution_id}: {e}"
             )
@@ -263,7 +277,7 @@ class WorkflowManager:
             logger.info(f"Cleaning up workflow {self.message.workflow_execution_id}")
             # We clean up the data in the reverse order because the first step need to be the last
             for step in reversed(self.step_list):
-                await step.cleanup()
+                await step.cleanup(is_last_cleanup)
 
     async def _save_failure_event(self, db: AsyncSession, exception: Exception):
         if self.workflow is None or self.event_dto is None:

@@ -37,7 +37,7 @@ class Consumer(Generic[T]):
         batch_size: int,
         block_time: int,
         message_class: type[T],
-        process_message_callable: Callable[[T, int], Coroutine[Any, Any, None]],
+        process_message_callable: Callable[[T, int, bool], Coroutine[Any, Any, None]],
         worker_number: int = redis_settings.REDIS_WORKER_NUMBER,
         max_retry_number: int = 3,
     ):
@@ -255,7 +255,11 @@ class Consumer(Generic[T]):
         loop = asyncio.new_event_loop()
         try:
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(self.process_message_callable(message, retry_count))
+            loop.run_until_complete(
+                self.process_message_callable(
+                    message, retry_count, retry_count >= self.max_retry_number - 1
+                )
+            )
         finally:
             try:
                 loop.run_until_complete(loop.shutdown_asyncgens())
