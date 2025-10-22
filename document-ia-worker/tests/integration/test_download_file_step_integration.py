@@ -65,7 +65,7 @@ class TestDownloadFileStepIntegration:
             step = DownloadFileStep(main_workflow_context=ctx, file_info=file_info)
 
             # Execute the step (actual download from S3)
-            result = await step.execute()
+            result, metadata = await step.execute()
 
             # Assertions before cleanup
             downloaded_path = Path(result.file_path)
@@ -77,14 +77,29 @@ class TestDownloadFileStepIntegration:
                 downloaded_size == source_size
             ), f"Different size: expected {source_size}, got {downloaded_size}"
 
-            # Cleanup and assertions after cleanup
-            await step.cleanup()
+            # Validate returned metadata (StepMetadata)
+            assert metadata.step_name == "DownloadFileStep"
+            assert metadata.execution_time >= 0
+
+            # Local cleanup (not last): tmp directory should be removed, S3 object should still exist
+            await step.cleanup(False)
             assert (
                 not tmp_dir.exists()
             ), f"Temporary folder should be deleted: {tmp_dir}"
 
+            # S3 object still present after non-last cleanup
+            info = s3.get_file_info(key)
+            assert info is not None, "S3 object should still exist after non-last cleanup"
+
+            # Final cleanup: request deletion from S3
+            await step.cleanup(True)
+
+            # After last cleanup the S3 object should be deleted
+            info_after = s3.get_file_info(key)
+            assert info_after is None, "S3 object should be deleted on last cleanup"
+
         finally:
-            # Delete S3 object
+            # Ensure S3 object removed (idempotent)
             s3.delete_file(key)
 
     @pytest.mark.skipif(not _ensure_s3_available(), reason="S3 not available")
@@ -103,7 +118,7 @@ class TestDownloadFileStepIntegration:
             presigned_url="",
         )
 
-        ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now())
+        ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now(), steps_metadata=[])
         step = DownloadFileStep(main_workflow_context=ctx, file_info=file_info)
 
         # Preparation creates the temporary folder even if the download fails
@@ -114,7 +129,10 @@ class TestDownloadFileStepIntegration:
         assert tmp_dir.exists(), "Temporary folder should exist after _prepare_step"
 
         # Local cleanup and assertion
-        await step.cleanup()
+        await step.cleanup(False)
         assert (
             not tmp_dir.exists()
         ), f"Temporary folder should be deleted: {tmp_dir}"
+
+        # Last cleanup should attempt to delete from S3 but not raise even if object missing
+        await step.cleanup(True)

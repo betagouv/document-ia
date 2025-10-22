@@ -5,6 +5,7 @@ import cv2
 import zxingcpp
 from fr_2ddoc_parser.api import decode_2d_doc
 
+from document_ia_worker.workflow.main_workflow_context import StepMetadata
 from document_ia_worker.workflow.step.base_step import BaseStep
 from document_ia_worker.workflow.step.step_result.barcode_result import (
     BarcodeResult,
@@ -61,7 +62,7 @@ class ExtractBarcodeData(BaseStep[BarcodeResult]):
         if self.preprocess_file_result is None:
             raise ValueError("DownloadFileReturnData not injected in context")
 
-    async def _execute_internal(self) -> BarcodeResult:
+    async def _execute_internal(self) -> tuple[BarcodeResult, Optional[StepMetadata]]:
         assert self.preprocess_file_result is not None
 
         barcodes_data: list[PageResult] = []
@@ -102,9 +103,9 @@ class ExtractBarcodeData(BaseStep[BarcodeResult]):
                     logger.warning(f"Unsupported barcode format: {barcode.format}")
                     continue
             barcodes_data.append(
-                PageResult(page_number=idx, barcodes=page_barcode_data)
+                PageResult(page_number=idx + 1, barcodes=page_barcode_data)
             )
-        return BarcodeResult(pages=barcodes_data)
+        return BarcodeResult(pages=barcodes_data), None
 
     def _map_position_like_to_model(self, position: PositionLike) -> BarcodePosition:
         return BarcodePosition(

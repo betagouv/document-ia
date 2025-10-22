@@ -11,7 +11,7 @@ from document_ia_worker.workflow.step.llm_extract_document.llm_extract_document 
     LLMExtractDocumentStep,
 )
 from document_ia_worker.workflow.step.step_result.llm_result import (
-    LLMResult,
+    LLMExtractionResult,
     LLMClassificationResult,
 )
 from document_ia_worker.workflow.step.step_result.ocr_result import (
@@ -44,7 +44,7 @@ class TestLLMExtract:
             document_type="cni",
             confidence=0.99,
         )
-        llm_classification_result = LLMClassificationResult(data=classification)
+        llm_classification_result = LLMClassificationResult(data=classification, request_tokens=1, response_tokens=1)
 
         # Monkeypatch OpenAIManager to avoid real API calls
         class FakeOpenAIManager:
@@ -67,7 +67,7 @@ class TestLLMExtract:
                         "nationalite": "Française",
                     },
                 }
-                return response_class.model_validate(payload, by_name=True, by_alias=False)
+                return (response_class.model_validate(payload, by_name=True, by_alias=False), 1, 1)
 
         monkeypatch.setattr(
             "document_ia_worker.workflow.step.llm_extract_document.llm_extract_document.OpenAIManager",
@@ -75,7 +75,7 @@ class TestLLMExtract:
         )
 
         # Build context and run the extract step
-        ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now())
+        ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now(), steps_metadata=[])
         step = LLMExtractDocumentStep(main_workflow_context=ctx, model="dummy-model")
 
         step.inject_workflow_context(
@@ -85,10 +85,13 @@ class TestLLMExtract:
             }
         )
 
-        result = await step.execute()
+        result, metadata = await step.execute()
 
         # Assertions
-        assert isinstance(result, LLMResult)
+        assert metadata.step_name == "LLMExtractDocumentStep"
+        assert metadata.execution_time >= 0
+
+        assert isinstance(result, LLMExtractionResult)
         data_out = result.data
         assert getattr(data_out, "title", None) == "Extraction CNI"
         assert getattr(data_out, "type", None) == "cni"

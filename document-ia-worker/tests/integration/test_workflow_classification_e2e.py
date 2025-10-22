@@ -72,7 +72,8 @@ async def test_workflow_classification_end_to_end():
 
     # Execute the workflow
     message = WorkflowExecutionMessage(workflow_execution_id=execution_id)
-    manager = WorkflowManager(message=message, retry_count=0)
+    # WorkflowManager signature requires is_last_retry now
+    manager = WorkflowManager(message=message, retry_count=0, is_last_retry=False)
     await manager.start()
 
     # Verify the last event is Completed and has expected payload
@@ -92,13 +93,26 @@ async def test_workflow_classification_end_to_end():
         assert payload.get("steps_completed") == 6  # download, preprocess, ocr, llm, save
         assert payload.get("version") == 1
 
-        # Final result checks
+        # Final result checks: classification is stored under 'classification'
         final_result = payload.get("final_result")
         assert isinstance(final_result, dict)
-        assert final_result.get("document_type", "").strip().lower() == "cni"
-        assert isinstance(final_result.get("explanation"), str) and final_result["explanation"].strip() != ""
-        conf = final_result.get("confidence")
+        classification = final_result.get("classification")
+        assert isinstance(classification, dict), "classification result missing"
+        assert classification.get("document_type", "").strip().lower() == "cni"
+        assert isinstance(classification.get("explanation"), str) and classification["explanation"].strip() != ""
+        conf = classification.get("confidence")
         assert conf is not None and isinstance(conf, (int, float))
+
+        # Workflow metadata checks: ensure metadata is present and correctly structured
+        workflow_meta = payload.get("workflow_metadata")
+        assert isinstance(workflow_meta, list), "workflow_metadata should be a list"
+        # If there is at least one metadata entry, validate its structure
+        if workflow_meta:
+            first_meta = workflow_meta[0]
+            assert "step_name" in first_meta
+            assert "execution_time" in first_meta
+            assert isinstance(first_meta["step_name"], str)
+            assert isinstance(first_meta["execution_time"], (int, float))
 
     # Cleanup S3 object
     s3.delete_file(key)

@@ -13,7 +13,11 @@ from document_ia_worker.core.prompt.prompt_configuration import (
     GENERIC_CLASSIFICATION_MODEL,
 )
 from document_ia_worker.core.prompt.prompt_service import PromptService
-from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
+from document_ia_worker.workflow.main_workflow_context import (
+    MainWorkflowContext,
+    StepMetadata,
+    StepLLMMetadata,
+)
 from document_ia_worker.workflow.step.base_step import BaseStep
 from document_ia_worker.workflow.step.step_result.llm_result import (
     LLMClassificationResult,
@@ -45,7 +49,7 @@ class LLMClassifyDocumentStep(BaseStep[LLMClassificationResult]):
     def inject_workflow_context(self, context: dict[str, Any]):
         self.ocr_result = self._get_safe_workflow_context_key(OcrResult, context)
 
-    async def _execute_internal(self) -> LLMClassificationResult:
+    async def _execute_internal(self) -> tuple[LLMClassificationResult, StepMetadata]:
         assert self.ocr_result is not None
 
         system_prompt = self.prompt_service.get_classification_prompt(
@@ -56,7 +60,11 @@ class LLMClassifyDocumentStep(BaseStep[LLMClassificationResult]):
             user_prompt += f"{page.text}\n\n"
 
         try:
-            response = await self.openai_manager.generate_typed_response(
+            (
+                response,
+                request_token,
+                response_token,
+            ) = await self.openai_manager.generate_typed_response(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 response_class=DocumentClassification,
@@ -66,4 +74,12 @@ class LLMClassifyDocumentStep(BaseStep[LLMClassificationResult]):
             raise RetryableException(e.message)
 
         logger.debug(f"LLM classification response: {response}")
-        return LLMClassificationResult(data=response)
+
+        return (
+            LLMClassificationResult(data=response),
+            StepLLMMetadata(
+                step_name=self.__class__.__name__,
+                request_tokens=request_token,
+                response_tokens=response_token,
+            ),
+        )

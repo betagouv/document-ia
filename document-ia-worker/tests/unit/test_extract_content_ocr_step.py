@@ -60,7 +60,7 @@ class TestExtractContentOcrStep:
         assert page_count >= 1, "Fixture PDF must have at least 1 page"
 
         # Build context and preprocess step
-        ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now())
+        ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now(), steps_metadata=[])
         preprocess = PreprocessFileStep(main_workflow_context=ctx)
         # Inject a fake download result pointing to the fixture
         from document_ia_worker.workflow.step.step_result.download_file_result import (
@@ -72,7 +72,7 @@ class TestExtractContentOcrStep:
         )
 
         # Execute preprocessing to generate page images
-        preprocess_result = await preprocess.execute()
+        preprocess_result, preprocess_meta = await preprocess.execute()
         assert len(preprocess_result.output_files_path) == page_count, (
             f"Expected {page_count} images from preprocessing, got {len(preprocess_result.output_files_path)}"
         )
@@ -85,7 +85,7 @@ class TestExtractContentOcrStep:
         ocr_step.inject_workflow_context({
             PreprocessFileResult.__name__: PreprocessFileResult(output_files_path=preprocess_result.output_files_path)
         })
-        ocr_result = await ocr_step.execute()
+        ocr_result, ocr_meta = await ocr_step.execute()
 
         # Validate OCR output for all pages
         assert len(ocr_result.pages) == page_count, (
@@ -98,7 +98,7 @@ class TestExtractContentOcrStep:
         # Cleanup and ensure temp dir is removed
         tmp_dir = Path(preprocess.tmp_folder_path)
         assert tmp_dir.exists(), "Temporary directory should exist before cleanup"
-        await preprocess.cleanup()
+        await preprocess.cleanup(False)
         assert not tmp_dir.exists(), f"Temporary directory should be deleted: {tmp_dir}"
 
     @pytest.mark.skipif(not _tesseract_available(), reason="Tesseract not available")
@@ -113,7 +113,7 @@ class TestExtractContentOcrStep:
         img_ok = _make_text_image(tmp_path / "ok.png", "OK")
 
         # Build context and OCR step
-        ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now())
+        ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now(), steps_metadata=[])
         step = ExtractContentOcrStep(main_workflow_context=ctx)
         step.tesseract_lang = "eng"
         step.tesseract_timeout = 1  # very small, though we simulate timeout via monkeypatch
@@ -139,7 +139,7 @@ class TestExtractContentOcrStep:
         monkeypatch.setattr(ocr_mod, "image_to_string", fake_image_to_string)
 
         # Execute OCR step
-        result = await step.execute()
+        result, meta = await step.execute()
 
         # Assertions: first page failed due to timeout, second succeeded
         assert len(result.pages) == 2

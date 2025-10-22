@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from typing import Optional
 
 from document_ia_infra.core.model.file_info import FileInfo
 from document_ia_infra.exception.retryable_exception import RetryableException
@@ -7,7 +8,10 @@ from document_ia_infra.exception.s3_authentification_exception import (
     S3AuthentificationException,
 )
 from document_ia_infra.s3.s3_manager import S3Manager
-from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
+from document_ia_worker.workflow.main_workflow_context import (
+    MainWorkflowContext,
+    StepMetadata,
+)
 from document_ia_worker.workflow.step.base_file_manipulation_step import (
     BaseFileManipulationStep,
 )
@@ -35,7 +39,9 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
         else:
             logger.debug(f"Temp directory already exists: {tmp_dir}")
 
-    async def _execute_internal(self) -> DownloadFileResult:
+    async def _execute_internal(
+        self,
+    ) -> tuple[DownloadFileResult, Optional[StepMetadata]]:
         logger.info(f"Downloading file from S3: {self.file_info.s3_key}")
         file_path = Path(self.tmp_folder_path).joinpath(
             self.file_info.s3_key.get_secret_value().split("/")[-1]
@@ -46,8 +52,11 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
                 self.file_info.s3_key.get_secret_value(), str(file_path)
             )
             logger.info(f"File downloaded successfully to: {file_path}")
-            return DownloadFileResult(
-                file_path=str(file_path), content_type=self.file_info.content_type
+            return (
+                DownloadFileResult(
+                    file_path=str(file_path), content_type=self.file_info.content_type
+                ),
+                None,
             )
         except S3AuthentificationException as e:
             logger.error("S3 authentication failed during file download.")

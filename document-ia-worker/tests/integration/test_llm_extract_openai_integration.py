@@ -14,7 +14,7 @@ from document_ia_worker.workflow.step.llm_extract_document.llm_extract_document 
     LLMExtractDocumentStep,
 )
 from document_ia_worker.workflow.step.step_result.llm_result import (
-    LLMResult,
+    LLMExtractionResult,
     LLMClassificationResult,
 )
 from document_ia_worker.workflow.step.step_result.ocr_result import (
@@ -41,10 +41,11 @@ async def test_llm_extract_openai_real_call_with_cni_fixture():
         document_type="cni",
         confidence=0.9,
     )
-    llm_classification_result = LLMClassificationResult(data=classification)
+    # LLMClassificationResult requires token counts
+    llm_classification_result = LLMClassificationResult(data=classification, request_tokens=1, response_tokens=1)
 
     # Build context and run the extract step with a real OpenAI model
-    ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now())
+    ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now(), steps_metadata=[])
     step = LLMExtractDocumentStep(main_workflow_context=ctx, model="albert-large")
 
     step.inject_workflow_context(
@@ -54,10 +55,14 @@ async def test_llm_extract_openai_real_call_with_cni_fixture():
         }
     )
 
-    result = await step.execute()
+    result, metadata = await step.execute()
+
+    # Validate returned metadata
+    assert metadata.step_name == "LLMExtractDocumentStep"
+    assert metadata.execution_time >= 0
 
     # Basic assertions on the returned data shape
-    assert isinstance(result, LLMResult)
+    assert isinstance(result, LLMExtractionResult)
     out = result.data
     assert getattr(out, "type", None)
     props = getattr(out, "properties", None)

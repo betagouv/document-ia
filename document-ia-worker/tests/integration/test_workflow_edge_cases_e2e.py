@@ -70,8 +70,8 @@ class TestWorkflowEdgeCasesE2E:
             )
             await session.commit()
 
-        # Run manager
-        manager = WorkflowManager(message=SimpleNamespace(workflow_execution_id=execution_id), retry_count=0)
+        # Run manager (pass is_last_retry per new signature)
+        manager = WorkflowManager(message=SimpleNamespace(workflow_execution_id=execution_id), retry_count=0, is_last_retry=False)
         with pytest.raises(ValueError):
             await manager.start()
 
@@ -140,7 +140,7 @@ class TestWorkflowEdgeCasesE2E:
             )
             await session.commit()
 
-        manager = WorkflowManager(message=SimpleNamespace(workflow_execution_id=execution_id), retry_count=0)
+        manager = WorkflowManager(message=SimpleNamespace(workflow_execution_id=execution_id), retry_count=0, is_last_retry=False)
         with pytest.raises(ValueError):
             await manager.start()
 
@@ -201,7 +201,7 @@ class TestWorkflowEdgeCasesE2E:
             )
             await session.commit()
 
-        manager = WorkflowManager(message=SimpleNamespace(workflow_execution_id=execution_id), retry_count=0)
+        manager = WorkflowManager(message=SimpleNamespace(workflow_execution_id=execution_id), retry_count=0, is_last_retry=False)
         with pytest.raises(ValueError):
             await manager.start()
 

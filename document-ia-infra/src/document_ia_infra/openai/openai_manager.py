@@ -37,9 +37,11 @@ class OpenAIManager:
         response_class: type[T],
         model: str,
         temperature: float = 0.7,
-    ) -> T:
-        tokens = self.encoding.encode(system_prompt) + self.encoding.encode(user_prompt)
-        logger.info(f"Request size : {len(tokens)}")
+    ) -> tuple[T, int, int]:
+        request_tokens = len(self.encoding.encode(system_prompt)) + len(
+            self.encoding.encode(user_prompt)
+        )
+        logger.info(f"Request size : {request_tokens}")
 
         message = [
             {"role": "system", "content": system_prompt},
@@ -62,10 +64,14 @@ class OpenAIManager:
             if result is None:
                 raise Exception(f"Failed to generate response: {response}")
 
-            response_tokens = self.encoding.encode(result)
-            logger.info(f"Response size : {len(response_tokens)}")
+            response_tokens = len(self.encoding.encode(result))
+            logger.info(f"Response size : {response_tokens}")
 
-            return response_class.model_validate_json(result)
+            return (
+                response_class.model_validate_json(result),
+                request_tokens,
+                response_tokens,
+            )
 
         except AuthenticationError:
             raise OpenAIAuthentificationError()

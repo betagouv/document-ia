@@ -49,14 +49,50 @@ class TestExecutions:
             "execution_id": execution_id,
             "created_at": created.isoformat(),
             "final_result": {
-                "document_type": "cni",
-                "confidence": 0.9,
-                "explanation": "blabla",
+                "classification": {
+                     "document_type": "cni",
+                     "confidence": 0.9,
+                     "explanation": "blabla",
+                }
             },
             "total_processing_time_ms": 1200,
             "output_summary": {},
             "steps_completed": 4,
             "version": 1,
+        }
+        return EventDTO(
+            id=uuid4(),
+            workflow_id="document-classification-v1",
+            execution_id=execution_id,
+            created_at=created,
+            event_type=EventType.WORKFLOW_EXECUTION_COMPLETED,
+            event=event_payload,
+        )
+
+    def _event_dto_completed_with_metadata(self, execution_id: str) -> EventDTO:
+        """Helper to create a completed event that contains workflow_metadata."""
+        created = datetime(2024, 1, 15, 10, 32, tzinfo=timezone.utc)
+        # example metadata can be any JSON-serializable value; use a list of dicts
+        workflow_metadata = [
+            {"step": "ocr", "duration_ms": 150},
+            {"note": "debug-info", "value": 42},
+        ]
+        event_payload = {
+            "workflow_id": "document-classification-v1",
+            "execution_id": execution_id,
+            "created_at": created.isoformat(),
+            "final_result": {
+                "classification": {
+                     "document_type": "cni",
+                     "confidence": 0.9,
+                     "explanation": "blabla",
+                }
+            },
+            "total_processing_time_ms": 1200,
+            "output_summary": {},
+            "steps_completed": 4,
+            "version": 1,
+            "workflow_metadata": workflow_metadata,
         }
         return EventDTO(
             id=uuid4(),
@@ -113,9 +149,60 @@ class TestExecutions:
         assert data["id"] == execution_id
         assert data["status"] == "SUCCESS"
         assert data["data"]["total_processing_time_ms"] == 1200
-        assert data["data"]["result"]["document_type"] == "cni"
-        assert data["data"]["result"]["confidence"] == 0.9
-        assert data["data"]["result"]["explanation"] == "blabla"
+        assert data["data"]["result"]["classification_result"]["document_type"] == "cni"
+        assert data["data"]["result"]["classification_result"]["confidence"] == 0.9
+        assert data["data"]["result"]["classification_result"]["explanation"] == "blabla"
+
+    def test_get_execution_includes_workflow_metadata_when_debug_true(
+            self, client_with_api_key, valid_api_key, execution_id
+    ):
+        async def fake_get_last_event(execution_id_param: str):
+            return self._event_dto_completed_with_metadata(execution_id_param)
+
+        with patch(
+                "document_ia_infra.service.event_store_service."
+                "EventStoreService.get_last_event_for_execution_id",
+                new=AsyncMock(side_effect=fake_get_last_event),
+        ):
+            response = client_with_api_key.get(
+                f"/api/v1/executions/{execution_id}?is_debug_mode=true",
+                headers={"X-API-KEY": valid_api_key},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == execution_id
+        assert data["status"] == "SUCCESS"
+        # workflow_metadata should be present under result when debug flag is true
+        assert "workflow_metadata" in data["data"]["result"]
+        assert isinstance(data["data"]["result"]["workflow_metadata"], list)
+        assert data["data"]["result"]["workflow_metadata"][0]["step"] == "ocr"
+
+    def test_get_execution_excludes_workflow_metadata_when_no_debug_param(
+            self, client_with_api_key, valid_api_key, execution_id
+    ):
+        """When the query param `is_debug_mode` is not provided, workflow_metadata must not be included."""
+        async def fake_get_last_event(execution_id_param: str):
+            # return an event that *does* contain workflow_metadata in the payload
+            return self._event_dto_completed_with_metadata(execution_id_param)
+
+        with patch(
+                "document_ia_infra.service.event_store_service."
+                "EventStoreService.get_last_event_for_execution_id",
+                new=AsyncMock(side_effect=fake_get_last_event),
+        ):
+            # call without the query param
+            response = client_with_api_key.get(
+                f"/api/v1/executions/{execution_id}",
+                headers={"X-API-KEY": valid_api_key},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == execution_id
+        assert data["status"] == "SUCCESS"
+        # workflow_metadata should NOT be present under result when debug flag is absent
+        assert "workflow_metadata" not in data["data"]["result"]
 
     def test_get_execution_not_found(
             self, client_with_api_key, valid_api_key, execution_id
