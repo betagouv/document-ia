@@ -41,11 +41,15 @@ class TestLLMClassificationIntegration:
         ocr_result = OcrResult(pages=pages)
 
         # Build context and run LLM classification via Albert
-        ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now())
+        ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now(), steps_metadata=[])
         model = os.getenv("ALBERT_MODEL", "albert-large")
         llm = LLMClassifyDocumentStep(main_workflow_context=ctx, model=model)
         llm.inject_workflow_context({OcrResult.__name__: ocr_result})
-        llm_result = await llm.execute()
+        llm_result, metadata = await llm.execute()
+
+        # Validate returned metadata
+        assert metadata.step_name == "LLMClassifyDocumentStep"
+        assert metadata.execution_time >= 0
 
         # Validate JSON shape and expected category
         out = llm_result.data.model_dump()
@@ -86,11 +90,15 @@ class TestLLMClassificationIntegration:
         ocr_result = OcrResult(pages=[tax_page_1, tax_page_2])
 
         # Build context and run LLM classification via Albert
-        ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now())
+        ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now(), steps_metadata=[])
         model = os.getenv("ALBERT_MODEL", "albert-large")
         llm = LLMClassifyDocumentStep(main_workflow_context=ctx, model=model)
         llm.inject_workflow_context({OcrResult.__name__: ocr_result})
-        llm_result = await llm.execute()
+        llm_result, metadata = await llm.execute()
+
+        # Validate returned metadata
+        assert metadata.step_name == "LLMClassifyDocumentStep"
+        assert metadata.execution_time >= 0
 
         # Validate JSON shape and ensure category is not 'cni'
         out = llm_result.data.model_dump()

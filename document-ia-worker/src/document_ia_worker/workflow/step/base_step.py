@@ -1,14 +1,42 @@
+import logging
+import time
 from abc import ABC
-from typing import TypeVar, Generic, Any
+from typing import TypeVar, Generic, Any, Optional
+
+from document_ia_worker.workflow.main_workflow_context import StepMetadata
 
 T = TypeVar("T")
 WCT = TypeVar("WCT")
 
 
+logger = logging.getLogger(__name__)
+
+
 class BaseStep(ABC, Generic[T]):
-    async def execute(self) -> T:
-        await self._prepare_step()
-        return await self._execute_internal()
+    async def execute(self) -> tuple[T, StepMetadata]:
+        start = time.perf_counter()
+        try:
+            await self._prepare_step()
+            result, metadata = await self._execute_internal()
+        finally:
+            elapsed = time.perf_counter() - start
+            logger.info(
+                "Step %s executed in %.3f seconds",
+                self.__class__.__name__,
+                elapsed,
+            )
+        return result, self._compute_metadata(elapsed, metadata)
+
+    def _compute_metadata(
+        self, elapsed: float, custom_metadata: Optional[StepMetadata]
+    ) -> StepMetadata:
+        if custom_metadata is None:
+            return StepMetadata(
+                step_name=self.__class__.__name__, execution_time=elapsed
+            )
+        else:
+            custom_metadata.execution_time = elapsed
+            return custom_metadata
 
     def inject_workflow_context(self, context: dict[str, Any]):
         pass
@@ -24,7 +52,7 @@ class BaseStep(ABC, Generic[T]):
 
     async def _prepare_step(self): ...
 
-    async def _execute_internal(self) -> T: ...
+    async def _execute_internal(self) -> tuple[T, Optional[StepMetadata]]: ...
 
     def _get_safe_workflow_context_key(
         self, cls: type[WCT], context: dict[str, Any]

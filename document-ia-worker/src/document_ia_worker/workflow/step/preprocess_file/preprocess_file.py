@@ -5,7 +5,10 @@ from typing import Optional, Any, Iterable, Protocol, runtime_checkable, cast
 
 from pymupdf import pymupdf, Document
 
-from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
+from document_ia_worker.workflow.main_workflow_context import (
+    MainWorkflowContext,
+    StepMetadata,
+)
 from document_ia_worker.workflow.step.base_file_manipulation_step import (
     BaseFileManipulationStep,
 )
@@ -67,18 +70,20 @@ class PreprocessFileStep(BaseFileManipulationStep[PreprocessFileResult]):
         # Ensure output directory exists
         Path(self.tmp_folder_path).mkdir(parents=True, exist_ok=True)
 
-    async def _execute_internal(self) -> PreprocessFileResult:
+    async def _execute_internal(
+        self,
+    ) -> tuple[PreprocessFileResult, Optional[StepMetadata]]:
         if self.download_file_result is None:
             raise ValueError("DownloadFileReturnData not injected in context")
 
         if self.download_file_result.content_type == "application/pdf":
             logger.info("File is a PDF, preprocessing accordingly.")
-            return self._preprocess_pdf()
+            return self._preprocess_pdf(), None
         else:
             logger.info("File is a Picture, no preprocessing needed.")
             return PreprocessFileResult(
                 output_files_path=[self.download_file_result.file_path]
-            )
+            ), None
 
     def _preprocess_pdf(self) -> PreprocessFileResult:
         image_paths: list[str] = []

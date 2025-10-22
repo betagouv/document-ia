@@ -9,10 +9,14 @@ from document_ia_infra.openai.openai_manager import OpenAIManager
 from document_ia_worker.core.prompt.model.document_extraction import DocumentExtraction
 from document_ia_worker.core.prompt.prompt_configuration import SupportedDocumentType
 from document_ia_worker.core.prompt.prompt_service import PromptService
-from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
+from document_ia_worker.workflow.main_workflow_context import (
+    MainWorkflowContext,
+    StepMetadata,
+    StepLLMMetadata,
+)
 from document_ia_worker.workflow.step.base_step import BaseStep
 from document_ia_worker.workflow.step.step_result.llm_result import (
-    LLMResult,
+    LLMExtractionResult,
     LLMClassificationResult,
 )
 from document_ia_worker.workflow.step.step_result.ocr_result import OcrResult
@@ -20,7 +24,7 @@ from document_ia_worker.workflow.step.step_result.ocr_result import OcrResult
 logger = logging.getLogger(__name__)
 
 
-class LLMExtractDocumentStep(BaseStep[LLMResult]):
+class LLMExtractDocumentStep(BaseStep[LLMExtractionResult]):
     ocr_result: Optional[OcrResult] = None
     llm_classification_result: Optional[LLMClassificationResult] = None
 
@@ -31,7 +35,7 @@ class LLMExtractDocumentStep(BaseStep[LLMResult]):
         self.prompt_service = PromptService()
 
     def get_context_result_key(self) -> str:
-        return LLMResult.__name__
+        return LLMExtractionResult.__name__
 
     async def _prepare_step(self):
         logger.info(f"Preparing llm extraction step for execution: {self.execution_id}")
@@ -46,7 +50,7 @@ class LLMExtractDocumentStep(BaseStep[LLMResult]):
             LLMClassificationResult, context
         )
 
-    async def _execute_internal(self) -> LLMResult:
+    async def _execute_internal(self) -> tuple[LLMExtractionResult, StepMetadata]:
         assert self.ocr_result is not None
         assert self.llm_classification_result is not None
 
@@ -67,7 +71,11 @@ class LLMExtractDocumentStep(BaseStep[LLMResult]):
         response_class = cast(Any, DocumentExtraction[extract_class])
 
         try:
-            response = await self.openai_manager.generate_typed_response(
+            (
+                response,
+                request_tokens,
+                response_tokens,
+            ) = await self.openai_manager.generate_typed_response(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 response_class=response_class,
@@ -77,4 +85,13 @@ class LLMExtractDocumentStep(BaseStep[LLMResult]):
             raise RetryableException(e.message)
 
         logger.debug(f"LLM extraction response: {response}")
-        return LLMResult(data=response)
+        return (
+            LLMExtractionResult(
+                data=response,
+            ),
+            StepLLMMetadata(
+                step_name=self.__class__.__name__,
+                request_tokens=request_tokens,
+                response_tokens=response_tokens,
+            ),
+        )

@@ -49,7 +49,7 @@ class TestPreprocessFileStep:
         assert _count_pdf_pages(pdf_path) == 2, "The fixture PDF must have 2 pages"
 
         # Build the context and the step
-        ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now())
+        ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now(), steps_metadata=[])
         step = PreprocessFileStep(main_workflow_context=ctx)
 
         # Inject a simulated download result (unit test => no S3)
@@ -59,7 +59,9 @@ class TestPreprocessFileStep:
         step.inject_workflow_context({DownloadFileResult.__name__: dl_result})
 
         # Execute the step
-        result = await step.execute()
+        result, metadata = await step.execute()
+        assert metadata.step_name == "PreprocessFileStep"
+        assert metadata.execution_time >= 0
 
         # Verify exactly 2 images are created
         assert len(result.output_files_path) == 2, (
@@ -76,7 +78,7 @@ class TestPreprocessFileStep:
         assert tmp_dir.exists() and tmp_dir.is_dir(), "The temporary folder must exist"
 
         # Cleanup and post-cleanup assertions
-        await step.cleanup()
+        await step.cleanup(False)
         assert not tmp_dir.exists(), f"The temporary folder should be deleted: {tmp_dir}"
         for img in result.output_files_path:
             assert not Path(img).exists(), f"The file should be deleted: {img}"

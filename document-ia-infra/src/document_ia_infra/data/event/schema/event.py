@@ -58,6 +58,9 @@ class WorkflowExecutionCompletedEvent(BaseEvent):
     )
     output_summary: Dict[str, Any] = Field(description="Summary of all outputs")
     steps_completed: int = Field(description="Number of steps completed")
+    workflow_metadata: Optional[List[Any]] = Field(
+        default=None, description="Workflow metadata"
+    )
 
 
 class WorkflowExecutionFailedEvent(BaseEvent):

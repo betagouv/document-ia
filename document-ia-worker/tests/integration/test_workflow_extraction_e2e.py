@@ -65,7 +65,7 @@ async def test_workflow_extraction_end_to_end():
 
     # Execute the workflow
     message = WorkflowExecutionMessage(workflow_execution_id=execution_id)
-    manager = WorkflowManager(message=message, retry_count=0)
+    manager = WorkflowManager(message=message, retry_count=0, is_last_retry=False)
     await manager.start()
 
     # Verify the last event is Completed and has expected payload

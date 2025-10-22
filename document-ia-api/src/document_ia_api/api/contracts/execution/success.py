@@ -1,35 +1,29 @@
-from typing import Union, Literal, TypeVar, Generic, Any, Optional
+from typing import Literal, TypeVar, Any, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from document_ia_api.api.contracts.execution.result import (
-    ClassificationResult,
-    ExtractionResult,
-)
+from document_ia_api.api.contracts.execution.result import ClassificationResult
 from document_ia_api.api.contracts.execution.types import ExecutionStatus
 from document_ia_infra.core.model.types.secret import SecretPayloadDict
-from document_ia_infra.data.workflow.dto.workflow_dto import WorkflowType
 
 T = TypeVar("T")
 
 
-class SuccessData(BaseModel, Generic[T]):
+class SuccessResult(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    workflow_type: WorkflowType
+    classification_result: Optional[ClassificationResult] = Field(default=None)
+    extraction_result: Optional[SecretPayloadDict[Any]] = Field(default=None)
+    extracted_barcodes: Optional[SecretPayloadDict[Any]] = Field(default=None)
+    workflow_metadata: Optional[list[Any]] = Field(default=None)
+
+
+class SuccessData(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
     total_processing_time_ms: int
-    result: T
-    extracted_barcodes: Optional[SecretPayloadDict[Any]]
-
-
-class ClassificationSuccessData(SuccessData[ClassificationResult]):
-    workflow_type: WorkflowType = WorkflowType.CLASSIFICATION
-
-
-class ExtractionSuccessData(SuccessData[ExtractionResult]):
-    workflow_type: WorkflowType = WorkflowType.EXTRACTION
+    result: SuccessResult
 
 
 class ExecutionSuccessModel(BaseModel):
     id: str
     status: Literal[ExecutionStatus.SUCCESS]
-    data: Union[ExtractionSuccessData, ClassificationSuccessData]
+    data: SuccessData

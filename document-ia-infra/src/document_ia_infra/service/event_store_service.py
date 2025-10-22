@@ -207,6 +207,7 @@ class EventStoreService:
         total_processing_time_ms: int,
         output_summary: Dict[str, Any],
         steps_completed: int,
+        workflow_metadata: Optional[list[Any]] = None,
     ) -> WorkflowExecutionCompletedEvent:
         """Create a WorkflowExecutionCompletedEvent."""
         return WorkflowExecutionCompletedEvent(
@@ -219,6 +220,7 @@ class EventStoreService:
             total_processing_time_ms=total_processing_time_ms,
             output_summary=output_summary,
             steps_completed=steps_completed,
+            workflow_metadata=workflow_metadata,
         )
 
     def create_workflow_failed_event(
@@ -289,6 +291,7 @@ class EventStoreService:
         total_processing_time_ms: int,
         output_summary: Dict[str, Any],
         steps_completed: int,
+        workflow_metadata: Optional[list[Any]] = None,
     ) -> EventStoreRecord:
         """Emit and store a workflow completed event."""
         event = self.create_workflow_completed_event(
@@ -298,6 +301,7 @@ class EventStoreService:
             total_processing_time_ms=total_processing_time_ms,
             output_summary=output_summary,
             steps_completed=steps_completed,
+            workflow_metadata=workflow_metadata,
         )
         return await self.store_event(event)
 

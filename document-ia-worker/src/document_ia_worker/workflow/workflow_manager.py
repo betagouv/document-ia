@@ -93,6 +93,7 @@ class WorkflowManager:
         self.main_workflow_context = MainWorkflowContext(
             execution_id=self.message.workflow_execution_id,
             start_time=datetime.now(UTC),
+            steps_metadata=[],
         )
         is_success = True
         err_type: Optional[str] = None
@@ -140,6 +141,7 @@ class WorkflowManager:
                     err_type,
                     err_message,
                     failed_step,
+                    self.main_workflow_context.steps_metadata,
                 )
 
     async def _prepare_workflow(self, session: AsyncSession):
@@ -218,7 +220,6 @@ class WorkflowManager:
                         SaveWorkflowResultStep(
                             self.main_workflow_context,
                             self.workflow.id,
-                            self.workflow.type,
                             session,
                         )
                     )
@@ -254,11 +255,12 @@ class WorkflowManager:
                 try:
                     logger.info(f"Executing step {step.__class__.__name__}")
                     step.inject_workflow_context(self.workflow_context)
-                    result = await step.execute()
+                    result, step_metadata = await step.execute()
                     self.workflow_context[step.get_context_result_key()] = result
                     self.main_workflow_context.number_of_step_executed = (
                         self.main_workflow_context.number_of_step_executed + 1
                     )
+                    self.main_workflow_context.steps_metadata.append(step_metadata)
                 except Exception as e:
                     raise WorkflowStepException(step.__class__.__name__, e)
         except Exception as e:

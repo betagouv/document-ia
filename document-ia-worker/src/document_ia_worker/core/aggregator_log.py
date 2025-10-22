@@ -7,6 +7,8 @@ from datetime import datetime, timezone, UTC
 from logging import Filter, LogRecord, Handler
 from typing import Any, Dict, List, Optional
 
+from document_ia_worker.workflow.main_workflow_context import StepMetadata
+
 execution_id_var: ContextVar[Optional[str]] = ContextVar(
     "worker_execution_id", default=None
 )
@@ -86,6 +88,7 @@ def handle_finish_execution(
     err_type: Optional[str] = None,
     err_message: Optional[str] = None,
     failed_step: Optional[str] = None,
+    workflow_metadata: Optional[list[StepMetadata]] = None,
 ) -> None:
     # Write aggregated log entry for this execution
     try:
@@ -110,6 +113,9 @@ def handle_finish_execution(
             "finished_at": finished_at.isoformat() + "Z",
             "elapsed_time_ms": elapsed_time_ms,
             "logs": logs,
+            "workflow_metadata": [
+                meta.model_dump(mode="json") for meta in (workflow_metadata or [])
+            ],
         }
         if not is_success:
             entry.update(

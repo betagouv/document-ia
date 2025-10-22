@@ -5,7 +5,10 @@ import cv2
 from cv2.typing import MatLike
 from pytesseract import image_to_string  # pyright: ignore [reportUnknownVariableType]
 
-from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
+from document_ia_worker.workflow.main_workflow_context import (
+    MainWorkflowContext,
+    StepMetadata,
+)
 from document_ia_worker.workflow.step.base_step import BaseStep
 from document_ia_worker.workflow.step.step_result.ocr_result import (
     OcrResult,
@@ -45,7 +48,7 @@ class ExtractContentOcrStep(BaseStep[OcrResult]):
             raise ValueError("PreprocessFileReturnData not found in context")
         self.preprocess_file_result = not_typed_data
 
-    async def _execute_internal(self) -> OcrResult:
+    async def _execute_internal(self) -> tuple[OcrResult, Optional[StepMetadata]]:
         assert self.preprocess_file_result is not None
         results: list[OcrResultPage] = []
         index = 1
@@ -85,4 +88,4 @@ class ExtractContentOcrStep(BaseStep[OcrResult]):
                 del gray
                 index += 1
 
-        return OcrResult(pages=results)
+        return OcrResult(pages=results), None

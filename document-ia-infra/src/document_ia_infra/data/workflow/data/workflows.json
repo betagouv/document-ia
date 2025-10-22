@@ -18,7 +18,6 @@
       "llm_classify_document",
       "save_workflow_result"
     ],
-    "type": "classification",
     "llm_model": "albert-large",
     "max_file_size_mb": 50,
     "processing_timeout_minutes": 2,
@@ -45,7 +44,6 @@
       "llm_extract_data",
       "save_workflow_result"
     ],
-    "type": "extraction",
     "llm_model": "albert-large",
     "max_file_size_mb": 25,
     "processing_timeout_minutes": 5,
