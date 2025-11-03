@@ -4,6 +4,8 @@ from typing import Optional, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from document_ia_infra.data.event.schema.barcode import BarcodeVariant
+from document_ia_infra.data.event.schema.event import CompletedEventResult
 from document_ia_infra.service.event_store_service import EventStoreService
 from document_ia_worker.workflow.main_workflow_context import (
     MainWorkflowContext,
@@ -59,20 +61,19 @@ class SaveWorkflowResultStep(BaseStep[None]):
 
     async def _execute_internal(self) -> tuple[None, Optional[StepMetadata]]:
         end_time = datetime.now(UTC)
-        final_result: dict[str, Any] = {}
+        final_result: CompletedEventResult = CompletedEventResult()
 
         if self.llm_classification is not None:
-            final_result["classification"] = self.llm_classification.data.model_dump(
-                mode="json"
-            )
+            final_result.classification = self.llm_classification.data
 
         if self.llm_extraction_result is not None:
-            final_result["extraction"] = self.llm_extraction_result.data.model_dump(
-                mode="json"
-            )
+            final_result.extraction = self.llm_extraction_result.data
 
         if self.barcode_data is not None:
-            final_result["barcode_data"] = self.barcode_data.model_dump(mode="json")
+            list_of_barcodes: list[BarcodeVariant] = []
+            for page in self.barcode_data.pages:
+                list_of_barcodes.extend(page.barcodes)
+            final_result.barcodes = list_of_barcodes
         try:
             await self.event_service.emit_workflow_completed(
                 workflow_id=self.workflow_id,

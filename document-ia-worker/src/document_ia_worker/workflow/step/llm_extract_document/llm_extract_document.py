@@ -1,12 +1,12 @@
 import logging
 from typing import Optional, Any, cast
 
+from document_ia_infra.data.event.schema.event import DocumentExtraction
 from document_ia_infra.exception.openai_authentification_error import (
     OpenAIAuthentificationError,
 )
 from document_ia_infra.exception.retryable_exception import RetryableException
 from document_ia_infra.openai.openai_manager import OpenAIManager
-from document_ia_worker.core.prompt.model.document_extraction import DocumentExtraction
 from document_ia_worker.core.prompt.prompt_configuration import SupportedDocumentType
 from document_ia_worker.core.prompt.prompt_service import PromptService
 from document_ia_worker.workflow.main_workflow_context import (
@@ -84,7 +84,6 @@ class LLMExtractDocumentStep(BaseStep[LLMExtractionResult]):
         except OpenAIAuthentificationError as e:
             raise RetryableException(e.message)
 
-        logger.debug(f"LLM extraction response: {response}")
         return (
             LLMExtractionResult(
                 data=response,

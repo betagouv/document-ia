@@ -2,12 +2,9 @@ import logging
 from typing import Dict, Any, List, Tuple, Type, cast
 
 import jinja2
+from document_ia_schemas import BaseDocumentTypeSchema, resolve_extract_schema
 from pydantic import BaseModel
 
-from document_ia_worker.core.prompt.document_type import resolve_extract_schema
-from document_ia_worker.core.prompt.document_type.base_document_type_schema import (
-    BaseDocumentTypeSchema,
-)
 from document_ia_worker.core.prompt.prompt_configuration import (
     PromptConfiguration,
     TaskType,

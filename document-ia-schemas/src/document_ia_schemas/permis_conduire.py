@@ -2,9 +2,7 @@ from typing import Optional, Type
 
 from pydantic import BaseModel, Field
 
-from document_ia_worker.core.prompt.document_type.base_document_type_schema import (
-    BaseDocumentTypeSchema,
-)
+from document_ia_schemas import BaseDocumentTypeSchema
 
 
 class PermisConduireModel(BaseModel):

@@ -5,14 +5,16 @@ import cv2
 import zxingcpp
 from fr_2ddoc_parser.api import decode_2d_doc
 
+from document_ia_infra.data.event.schema.barcode import (
+    Ants2DDoc,
+    QrCode,
+    BarcodePosition,
+    BarcodeVariant,
+)
 from document_ia_worker.workflow.main_workflow_context import StepMetadata
 from document_ia_worker.workflow.step.base_step import BaseStep
 from document_ia_worker.workflow.step.step_result.barcode_result import (
     BarcodeResult,
-    BarcodeData,
-    Ants2DDoc,
-    QrCode,
-    BarcodePosition,
     PageResult,
 )
 from document_ia_worker.workflow.step.step_result.preprocess_file_result import (
@@ -68,7 +70,7 @@ class ExtractBarcodeData(BaseStep[BarcodeResult]):
         barcodes_data: list[PageResult] = []
 
         for idx, file in enumerate(self.preprocess_file_result.output_files_path):
-            page_barcode_data: list[BarcodeData] = []
+            page_barcode_data: list[BarcodeVariant] = []
             img = cv2.imread(file)
             barcodes: list[BarcodeLike] = cast(
                 list[BarcodeLike],
@@ -87,6 +89,7 @@ class ExtractBarcodeData(BaseStep[BarcodeResult]):
                                 ),
                                 is_valid=result.is_valid,
                                 data=result.typed,
+                                page_number=idx + 1,
                             )
                         )
                     except Exception:
@@ -97,6 +100,7 @@ class ExtractBarcodeData(BaseStep[BarcodeResult]):
                         QrCode(
                             position=self._map_position_like_to_model(barcode.position),
                             data=barcode.text,
+                            page_number=idx + 1,
                         )
                     )
                 else:

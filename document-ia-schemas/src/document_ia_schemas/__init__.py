@@ -1,5 +1,6 @@
 import importlib
 import inspect
+from enum import Enum
 from typing import Any, Type, cast
 
 from pydantic import BaseModel
@@ -8,7 +9,7 @@ from .base_document_type_schema import BaseDocumentTypeSchema
 
 
 def _find_extract_schema_in_module(
-    module: Any,
+        module: Any,
 ) -> Type[BaseDocumentTypeSchema[BaseModel]] | None:
     """Search the given module for a class that represents an extract schema.
 
@@ -26,7 +27,7 @@ def _find_extract_schema_in_module(
             continue
         try:
             if issubclass(obj, BaseDocumentTypeSchema) and obj.__name__.endswith(
-                "ExtractSchema"
+                    "ExtractSchema"
             ):
                 return cast(Type[BaseDocumentTypeSchema[BaseModel]], obj)
         except TypeError:
@@ -61,3 +62,18 @@ def resolve_extract_schema(name: str) -> BaseDocumentTypeSchema[BaseModel]:
     if schema_cls is None:
         raise ImportError(f"No ExtractSchema class found for {name}")
     return schema_cls()  # type: ignore[call-arg]
+
+
+class SupportedDocumentType(str, Enum):
+    CNI = "cni"
+    PASSEPORT = "passeport"
+    PERMIS_CONDUIRE = "permis_conduire"
+    AVIS_IMPOSITION = "avis_imposition"
+
+    @staticmethod
+    def from_str(label: str) -> "SupportedDocumentType":
+        label = label.lower()
+        try:
+            return SupportedDocumentType(label)
+        except ValueError:
+            raise ValueError(f"Unknown SupportedDocumentType: {label}")

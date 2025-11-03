@@ -1,0 +1,38 @@
+# Fichiers Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.egg
+*.egg-info/
+dist/
+build/
+*.log
+
+# Environnements virtuels
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# Fichiers de configuration et dossiers IntelliJ/PyCharm
+.idea/
+*.iml
+
+# Fichiers de configuration VS Code
+.vscode/
+
+# Fichiers système
+.DS_Store
+
+# Fichiers de test
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+.cache/
