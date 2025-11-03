@@ -149,9 +149,9 @@ class TestExecutions:
         assert data["id"] == execution_id
         assert data["status"] == "SUCCESS"
         assert data["data"]["total_processing_time_ms"] == 1200
-        assert data["data"]["result"]["classification_result"]["document_type"] == "cni"
-        assert data["data"]["result"]["classification_result"]["confidence"] == 0.9
-        assert data["data"]["result"]["classification_result"]["explanation"] == "blabla"
+        assert data["data"]["result"]["classification"]["document_type"] == "cni"
+        assert data["data"]["result"]["classification"]["confidence"] == 0.9
+        assert data["data"]["result"]["classification"]["explanation"] == "blabla"
 
     def test_get_execution_includes_workflow_metadata_when_debug_true(
             self, client_with_api_key, valid_api_key, execution_id

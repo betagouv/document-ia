@@ -1,14 +1,12 @@
 import json
-import os
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
 
-from document_ia_worker.core.prompt.model.document_classification import (
-    DocumentClassification,
-)
+from document_ia_infra.data.event.schema.event import DocumentClassification
+from document_ia_schemas import SupportedDocumentType
 from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
 from document_ia_worker.workflow.step.llm_extract_document.llm_extract_document import (
     LLMExtractDocumentStep,
@@ -38,7 +36,7 @@ async def test_llm_extract_openai_real_call_with_cni_fixture():
     # Inject a dummy classification result for CNI
     classification = DocumentClassification(
         explanation="integration test",
-        document_type="cni",
+        document_type=SupportedDocumentType.CNI,
         confidence=0.9,
     )
     # LLMClassificationResult requires token counts

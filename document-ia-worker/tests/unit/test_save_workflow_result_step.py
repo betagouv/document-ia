@@ -1,10 +1,12 @@
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from document_ia_worker.core.prompt.model.document_classification import DocumentClassification
+from document_ia_infra.data.event.schema.event import DocumentClassification, CompletedEventResult
+from document_ia_schemas import SupportedDocumentType
 from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext, StepMetadata
 from document_ia_worker.workflow.step.save_workflow_result.save_workflow_result import (
     SaveWorkflowResultStep,
@@ -26,7 +28,7 @@ class TestSaveWorkflowResult:
         # Mock LLM result (Pydantic model inside LLMResult.data)
         classification = DocumentClassification(
             explanation="Detected as CNI with strong confidence",
-            document_type="cni",
+            document_type=SupportedDocumentType.CNI,
             confidence=0.97,
         )
         llm_classification_result = LLMClassificationResult(data=classification, request_tokens=5, response_tokens=7)
@@ -41,7 +43,7 @@ class TestSaveWorkflowResult:
         # Replace event_service by a stub with the same signature as EventStoreService.emit_workflow_completed
         captured: dict[str, object] = {}
 
-        async def fake_emit(*, workflow_id: str, execution_id: str, final_result: dict, total_processing_time_ms: int,
+        async def fake_emit(*, workflow_id: str, execution_id: str, final_result, total_processing_time_ms: int,
                             output_summary: dict, steps_completed: int, workflow_metadata):
             captured.update({
                 "workflow_id": workflow_id,
@@ -68,8 +70,11 @@ class TestSaveWorkflowResult:
         assert captured, "event_service.emit_workflow_completed was not called"
         assert captured["workflow_id"] == "wf-001"
         assert captured["execution_id"] == "exec-123"
-        # The step uses model_dump(mode="json") for classification payload
-        assert captured["final_result"] == {"classification": classification.model_dump(mode="json")}
+        final_result = cast(CompletedEventResult, captured["final_result"])
+        assert isinstance(final_result, CompletedEventResult)
+        assert final_result.classification == classification
+        assert final_result.extraction is None
+        assert final_result.barcodes == []
         assert isinstance(captured["total_processing_time_ms"], int) and captured["total_processing_time_ms"] >= 0
         assert captured["output_summary"] == {}
         assert captured["steps_completed"] == 4  # number_of_step_executed + 1
@@ -94,15 +99,6 @@ class TestSaveWorkflowResult:
         ctx = MainWorkflowContext(execution_id="exec-extr", start_time=start_time, steps_metadata=[], number_of_step_executed=1)
         fake_session = MagicMock()
 
-        # Create a fake extraction pydantic model (reuse DocumentClassification shape minimally)
-        class FakeExtractionModel:
-            def __init__(self, payload: dict):
-                self._payload = payload
-
-            def model_dump(self, mode: str = None):
-                return self._payload
-
-        extraction_model = FakeExtractionModel({"field": "value"})
         # LLMExtractionResult expects a pydantic BaseModel for data; create a minimal one
         from pydantic import BaseModel
 
@@ -110,13 +106,20 @@ class TestSaveWorkflowResult:
             field: str
 
         extraction_model = SimpleExtractionModel(field="value")
-        llm_extraction_result = LLMExtractionResult(data=extraction_model, request_tokens=3, response_tokens=4)
+        from document_ia_infra.data.event.schema.event import DocumentExtraction
+        from document_ia_schemas import SupportedDocumentType
+        extraction_payload = DocumentExtraction[SimpleExtractionModel](
+            title="simple",
+            type=SupportedDocumentType.CNI,
+            properties=extraction_model,
+        )
+        llm_extraction_result = LLMExtractionResult(data=extraction_payload, request_tokens=3, response_tokens=4)
 
         step = SaveWorkflowResultStep(main_workflow_context=ctx, workflow_id="wf-extr", database_session=fake_session)
 
         captured = {}
 
-        async def fake_emit(*, workflow_id: str, execution_id: str, final_result: dict, total_processing_time_ms: int,
+        async def fake_emit(*, workflow_id: str, execution_id: str, final_result, total_processing_time_ms: int,
                             output_summary: dict, steps_completed: int, workflow_metadata):
             captured.update({"final_result": final_result, "workflow_metadata": workflow_metadata})
             return SimpleNamespace(id="evt-99")
@@ -129,7 +132,10 @@ class TestSaveWorkflowResult:
         await step.execute()
 
         # Assert
-        assert captured["final_result"] == {"extraction": extraction_model.model_dump(mode="json")}
+        final_result = cast(CompletedEventResult, captured["final_result"])
+        assert isinstance(final_result, CompletedEventResult)
+        assert final_result.extraction == extraction_payload
+        assert final_result.classification is None
         assert captured["workflow_metadata"] == []
 
     @pytest.mark.asyncio
@@ -142,7 +148,7 @@ class TestSaveWorkflowResult:
 
         classification = DocumentClassification(
             explanation="ok",
-            document_type="cni",
+            document_type=SupportedDocumentType.CNI,
             confidence=0.5,
         )
         llm_classification_result = LLMClassificationResult(data=classification, request_tokens=2, response_tokens=2)
@@ -151,7 +157,7 @@ class TestSaveWorkflowResult:
 
         captured = {}
 
-        async def fake_emit(*, workflow_id: str, execution_id: str, final_result: dict, total_processing_time_ms: int,
+        async def fake_emit(*, workflow_id: str, execution_id: str, final_result, total_processing_time_ms: int,
                             output_summary: dict, steps_completed: int, workflow_metadata):
             captured.update({"workflow_metadata": workflow_metadata})
             return SimpleNamespace(id="evt-meta")

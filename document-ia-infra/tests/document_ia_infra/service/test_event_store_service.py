@@ -13,13 +13,14 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from document_ia_infra.core.model.file_info import FileInfo
+from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.repository.event import EventRepository
 from document_ia_infra.data.event.schema.event import (
     WorkflowExecutionStartedEvent,
     WorkflowExecutionStepCompletedEvent,
     WorkflowExecutionCompletedEvent,
-    WorkflowExecutionFailedEvent, EventStoreRecord,
+    WorkflowExecutionFailedEvent, EventStoreRecord, CompletedEventResult,
 )
 from document_ia_infra.service.event_store_service import EventStoreService
 
@@ -74,7 +75,7 @@ def sample_event():
 @pytest.fixture
 def sample_event_record():
     """Sample event record for testing."""
-    return EventStoreRecord(
+    return EventDTO(
         id=uuid4(),
         workflow_id="test_workflow_001",
         execution_id="test_execution_001",
@@ -87,7 +88,7 @@ def sample_event_record():
             "created_at": datetime.now(UTC).isoformat(),
             "version": 1,
             "event_type": "WorkflowExecutionStarted",
-            "file_info": {"filename": "test.pdf"},
+            "file_info": _sample_file_info(),
             "metadata": {"source": "test"},
         },
     )
@@ -101,13 +102,13 @@ class TestEventStoreService:
     ):
         """Test successful event storage."""
         # Arrange
-        mock_stored_event = EventStoreRecord(
+        mock_stored_event = EventDTO(
             id=uuid4(),
             workflow_id="test_workflow_001",
             execution_id="test_execution_001",
             created_at=datetime.now(UTC),
             event_type=EventType.WORKFLOW_EXECUTION_STARTED,
-            event=sample_event.model_dump(),
+            event=sample_event.model_dump(mode="python"),
         )
 
         mock_repository.put_event.return_value = mock_stored_event
@@ -186,7 +187,7 @@ class TestEventStoreService:
         event = event_store_service.create_workflow_completed_event(
             workflow_id="test_workflow_001",
             execution_id="test_execution_001",
-            final_result={"status": "completed"},
+            final_result=CompletedEventResult(),
             total_processing_time_ms=5000,
             output_summary={"steps": 3, "success": True},
             steps_completed=3,
@@ -196,7 +197,7 @@ class TestEventStoreService:
         assert isinstance(event, WorkflowExecutionCompletedEvent)
         assert event.workflow_id == "test_workflow_001"
         assert event.execution_id == "test_execution_001"
-        assert event.final_result == {"status": "completed"}
+        assert event.final_result is not None
         assert event.total_processing_time_ms == 5000
         assert event.output_summary == {"steps": 3, "success": True}
         assert event.steps_completed == 3

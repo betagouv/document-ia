@@ -2,6 +2,7 @@ import os
 
 import pytest
 
+from document_ia_schemas.cni import CNIModel
 from document_ia_worker.core.prompt.prompt_configuration import SupportedDocumentType
 from document_ia_worker.core.prompt.prompt_service import PromptService
 from document_ia_worker.exception.unsupported_document_type import UnsupportedDocumentType
@@ -75,7 +76,6 @@ class TestPromptService:
         prompt_text, model_class = service.get_extraction_prompt(SupportedDocumentType.CNI)
 
         # The model class should be the CNIExtract defined in the cni model module
-        from document_ia_worker.core.prompt.document_type.cni import CNIModel
 
         assert model_class is CNIModel
 
