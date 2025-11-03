@@ -6,13 +6,15 @@ functionality with real database interactions.
 """
 
 from datetime import datetime, UTC
+from typing import cast
 from uuid import uuid4
 
 import pytest
 
 from document_ia_infra.core.model.file_info import FileInfo
 from document_ia_infra.data.database import database_manager
-from document_ia_infra.data.event.schema.event import EventStoreRecord, EventStream
+from document_ia_infra.data.event.schema.event import EventStoreRecord, EventStream, WorkflowExecutionStartedEvent, \
+    WorkflowExecutionStepCompletedEvent, WorkflowExecutionCompletedEvent
 from document_ia_infra.service.event_store_service import EventStoreService
 
 
@@ -108,14 +110,14 @@ class TestEventStoreIntegration:
         assert events[2].event_type == "WorkflowExecutionCompleted"
 
         # Assert - Verify event data integrity
-        started_data = events[0].event
-        assert started_data["file_info"]["filename"] == "integration_test.pdf"
-        assert started_data["metadata"]["source"] == "integration_test"
+        started_data: WorkflowExecutionStartedEvent = cast(WorkflowExecutionStartedEvent, events[0].event)
+        assert started_data.file_info.filename == "integration_test.pdf"
+        assert started_data.metadata["source"] == "integration_test"
 
-        step_data = events[1].event
-        assert step_data["step_name"] == "preprocessing"
-        assert step_data["execution_time_ms"] == 1500
+        step_data: WorkflowExecutionStepCompletedEvent = cast(WorkflowExecutionStepCompletedEvent, events[1].event)
+        assert step_data.step_name == "preprocessing"
+        assert step_data.execution_time_ms == 1500
 
-        completed_data = events[2].event
-        assert completed_data["final_result"]["status"] == "completed"
-        assert completed_data["steps_completed"] == 3
+        completed_data: WorkflowExecutionCompletedEvent = cast(WorkflowExecutionCompletedEvent, events[2].event)
+        assert completed_data.final_result is not None
+        assert completed_data.steps_completed == 3

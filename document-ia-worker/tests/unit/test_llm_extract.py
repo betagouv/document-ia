@@ -5,7 +5,9 @@ from uuid import uuid4
 
 import pytest
 
-from document_ia_worker.core.prompt.document_type.cni import CNIModel
+from document_ia_infra.data.event.schema.event import DocumentClassification
+from document_ia_schemas import SupportedDocumentType
+from document_ia_schemas.cni import CNIModel
 from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
 from document_ia_worker.workflow.step.llm_extract_document.llm_extract_document import (
     LLMExtractDocumentStep,
@@ -17,9 +19,6 @@ from document_ia_worker.workflow.step.step_result.llm_result import (
 from document_ia_worker.workflow.step.step_result.ocr_result import (
     OcrResult,
     OcrResultPage,
-)
-from document_ia_worker.core.prompt.model.document_classification import (
-    DocumentClassification,
 )
 
 
@@ -41,7 +40,7 @@ class TestLLMExtract:
         # Mock classification result to 'cni'
         classification = DocumentClassification(
             explanation="static mock",
-            document_type="cni",
+            document_type=SupportedDocumentType.CNI,
             confidence=0.99,
         )
         llm_classification_result = LLMClassificationResult(data=classification, request_tokens=1, response_tokens=1)
