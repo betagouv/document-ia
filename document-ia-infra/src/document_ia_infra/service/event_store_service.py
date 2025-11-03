@@ -23,6 +23,7 @@ from document_ia_infra.data.event.schema.event import (
     WorkflowExecutionFailedEvent,
     EventStoreRecord,
     EventStream,
+    CompletedEventResult,
 )
 from document_ia_infra.data.event.schema.mappers.event_mapper import convert_event_dto
 from document_ia_infra.exception.entity_not_found_exception import (
@@ -203,7 +204,7 @@ class EventStoreService:
         self,
         workflow_id: str,
         execution_id: str,
-        final_result: Dict[str, Any],
+        final_result: CompletedEventResult,
         total_processing_time_ms: int,
         output_summary: Dict[str, Any],
         steps_completed: int,
@@ -287,7 +288,7 @@ class EventStoreService:
         self,
         workflow_id: str,
         execution_id: str,
-        final_result: Dict[str, Any],
+        final_result: CompletedEventResult,
         total_processing_time_ms: int,
         output_summary: Dict[str, Any],
         steps_completed: int,

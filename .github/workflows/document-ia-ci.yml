@@ -33,6 +33,11 @@ jobs:
             pythonpath: document-ia-worker/src
             needs_docker_stack: true
             needs_tesseract: true
+          - name: schemas
+            project: document-ia-schemas
+            pythonpath: document-ia-schemas/src
+            needs_docker_stack: false
+            needs_tesseract: false
     env:
       # Python path per project
       PYTHONPATH: ${{ matrix.pythonpath }}

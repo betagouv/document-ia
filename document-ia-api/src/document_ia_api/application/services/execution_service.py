@@ -1,0 +1,174 @@
+import logging
+from typing import Any, Literal, cast
+
+from fastapi import HTTPException
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from document_ia_api.api.contracts.execution.failed import (
+    ExecutionFailedModel,
+    ExecutionFailedData,
+)
+from document_ia_api.api.contracts.execution.result import (
+    ClassificationResult,
+    ExtractionResult,
+    ExtractionProperty,
+)
+from document_ia_api.api.contracts.execution.started import (
+    ExecutionStartedModel,
+    ExecutionStartedData,
+)
+from document_ia_api.api.contracts.execution.success import (
+    ExecutionSuccessModel,
+    SuccessResult,
+    SuccessData,
+)
+from document_ia_api.api.contracts.execution.types import ExecutionStatus
+from document_ia_infra.data.event.dto.event_dto import EventDTO
+from document_ia_infra.data.event.dto.event_type_enum import EventType
+from document_ia_infra.data.event.schema.event import (
+    WorkflowExecutionStartedEvent,
+    WorkflowExecutionFailedEvent,
+    WorkflowExecutionCompletedEvent,
+    DocumentExtraction,
+)
+from document_ia_schemas import resolve_extract_schema, BaseDocumentTypeSchema
+
+logger = logging.getLogger(__name__)
+
+
+class ExecutionService:
+    """Service for handling execution business logic."""
+
+    def __init__(self, db_session: AsyncSession):
+        self.db_session = db_session
+
+    def get_event_model(
+        self, event_dto: EventDTO, execution_id: str, is_debug_mode: bool
+    ) -> ExecutionStartedModel | ExecutionSuccessModel | ExecutionFailedModel:
+        if event_dto.event_type == EventType.WORKFLOW_EXECUTION_STARTED:
+            event_data = WorkflowExecutionStartedEvent(**event_dto.event)
+            return ExecutionStartedModel(
+                id=execution_id,
+                status=ExecutionStatus.STARTED,
+                data=ExecutionStartedData(
+                    created_at=event_dto.created_at,
+                    file_name=event_data.file_info.filename,
+                    content_type=event_data.file_info.content_type,
+                    presigned_url=event_data.file_info.presigned_url,
+                ),
+            )
+
+        if event_dto.event_type == EventType.WORKFLOW_EXECUTION_FAILED:
+            event_data = WorkflowExecutionFailedEvent(**event_dto.event)
+            return ExecutionFailedModel(
+                id=execution_id,
+                status=ExecutionStatus.FAILED,
+                data=ExecutionFailedData(
+                    error_type=event_data.error_type,
+                    failed_step=event_data.failed_step,
+                    retry_count=event_data.retry_count,
+                    workflow_id=event_data.workflow_id,
+                    error_message=event_data.error_message,
+                ),
+            )
+
+        if event_dto.event_type == EventType.WORKFLOW_EXECUTION_COMPLETED:
+            return self._get_success_response(execution_id, event_dto, is_debug_mode)
+
+        raise HTTPException(status_code=400, detail="Event type not supported")
+
+    def _get_success_response(
+        self, execution_id: str, last_event: EventDTO, is_debug_mode: bool
+    ):
+        event_data = WorkflowExecutionCompletedEvent(**last_event.event)
+
+        success_result = SuccessResult()
+
+        if event_data.final_result.classification is not None:
+            success_result.classification = ClassificationResult(
+                confidence=event_data.final_result.classification.confidence,
+                document_type=event_data.final_result.classification.document_type,
+                explanation=event_data.final_result.classification.explanation,
+            )
+
+        if event_data.final_result.extraction is not None:
+            extraction_class = resolve_extract_schema(
+                event_data.final_result.extraction.type.value
+            )
+            success_result.extraction = self._convert_extraction_result(
+                event_data.final_result.extraction, extraction_class
+            )
+
+        success_result.barcodes = event_data.final_result.barcodes
+
+        if is_debug_mode and event_data.workflow_metadata is not None:
+            success_result.workflow_metadata = event_data.workflow_metadata
+
+        success_data = SuccessData(
+            total_processing_time_ms=event_data.total_processing_time_ms,
+            result=success_result,
+        )
+
+        return ExecutionSuccessModel(
+            id=execution_id, status=ExecutionStatus.SUCCESS, data=success_data
+        )
+
+    def _infer_value_type(
+        self, value: Any
+    ) -> Literal["str", "float", "int", "bool", "object"]:
+        if isinstance(value, bool):
+            return "bool"
+        if isinstance(value, int):
+            return "int"
+        if isinstance(value, float):
+            return "float"
+        if isinstance(value, str):
+            return "str"
+        return "object"
+
+    def _convert_extraction_result(
+        self,
+        extraction_data: DocumentExtraction[Any],
+        extraction_class: BaseDocumentTypeSchema[BaseModel],
+    ) -> ExtractionResult:
+        """
+        Build an ExtractionResult from a DocumentExtraction and the associated schema class.
+
+        - Iterate over the pydantic model declared on extraction_class.document_model
+        - Use field aliases (if any) as the displayed property name
+        - Skip None values
+        - Infer a simple type tag: str | float | int | bool | object
+        """
+        model_cls: type[BaseModel] = extraction_class.document_model
+
+        props_raw: Any = extraction_data.properties
+        props_dict_by_name: dict[str, Any]
+        if isinstance(props_raw, BaseModel):
+            props_dict_by_name = props_raw.model_dump(by_alias=False)
+        elif isinstance(props_raw, dict):
+            props_dict_by_name = cast(dict[str, Any], props_raw)
+        else:
+            # Default we try to access __dict__
+            props_dict_by_name = getattr(props_raw, "__dict__", {})
+
+        properties: list[ExtractionProperty] = []
+
+        # Pydantic v2: model_fields holds FieldInfo; iterate in declared order
+        for field_name, _ in getattr(model_cls, "model_fields", {}).items():
+            raw_value = props_dict_by_name.get(field_name, None)
+            if raw_value is None:
+                # skip missing/None values
+                continue
+
+            # we are not using the alias here, but the field name directly
+            display_name = field_name
+            value_type = self._infer_value_type(raw_value)
+            properties.append(
+                ExtractionProperty(name=display_name, value=raw_value, type=value_type)
+            )
+
+        return ExtractionResult(
+            type=extraction_data.type,
+            properties=properties,
+        )

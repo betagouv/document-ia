@@ -1,7 +1,8 @@
 from pydantic import BaseModel
 
-from document_ia_worker.core.prompt.model.document_classification import (
+from document_ia_infra.data.event.schema.event import (
     DocumentClassification,
+    DocumentExtraction,
 )
 
 
@@ -19,4 +20,4 @@ class LLMClassificationResult(LLMResult):
 
 
 class LLMExtractionResult(LLMResult):
-    data: BaseModel
+    data: DocumentExtraction[BaseModel]

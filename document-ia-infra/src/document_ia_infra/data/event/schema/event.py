@@ -1,12 +1,16 @@
 from abc import ABC
 from datetime import datetime
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Generic, TypeVar, cast
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer, model_validator
 
 from document_ia_infra.core.model.file_info import FileInfo
 from document_ia_infra.data.event.dto.event_type_enum import EventType
+from document_ia_infra.data.event.schema.barcode import BarcodeVariant
+from document_ia_schemas import SupportedDocumentType, resolve_extract_schema
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class BaseEvent(BaseModel, ABC):
@@ -46,13 +50,77 @@ class WorkflowExecutionStepCompletedEvent(BaseEvent):
     )
 
 
+class DocumentExtraction(BaseModel, Generic[T]):
+    title: str
+    type: SupportedDocumentType
+    properties: T = Field(description="Document properties")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_properties_from_type(cls, data: Any) -> Any:
+        """If properties is a dict, use `type` to instantiate the proper Pydantic model.
+
+        This preserves the generic usage while ensuring round-trip (de)serialization.
+        """
+        try:
+            if isinstance(data, dict):
+                dict_data = cast(dict[str, Any], data)
+                props_raw = dict_data.get("properties")
+                doc_type_raw = dict_data.get("type")
+                if isinstance(props_raw, dict) and isinstance(
+                    doc_type_raw, (str, SupportedDocumentType)
+                ):
+                    props = cast(dict[str, Any], props_raw)
+                    # normalize doc_type to string
+                    doc_type_str: str = (
+                        doc_type_raw.value
+                        if isinstance(doc_type_raw, SupportedDocumentType)
+                        else doc_type_raw
+                    )
+                    schema_cls = resolve_extract_schema(doc_type_str)
+                    model_cls = getattr(schema_cls, "document_model", None)
+                    if model_cls is not None:
+                        # Replace raw dict with a concrete BaseModel instance
+                        return cast(
+                            Any, {**dict_data, "properties": model_cls(**props)}
+                        )
+        except Exception:
+            # Fail-soft: keep original data if anything goes wrong
+            return cast(Any, data)
+        return cast(Any, data)
+
+    @field_serializer("properties")
+    def _serialize_properties(self, value: BaseModel) -> Any:
+        # Render nested Pydantic model as dict (keep aliases, drop None)
+        return value.model_dump(by_alias=True, exclude_none=True)
+
+
+class DocumentClassification(BaseModel):
+    explanation: str
+    document_type: SupportedDocumentType
+    confidence: float
+
+
+class CompletedEventResult(BaseModel):
+    extraction: Optional[DocumentExtraction[BaseModel]] = Field(
+        default=None, description="Extraction result"
+    )
+    classification: Optional[DocumentClassification] = Field(
+        default=None, description="Classification result"
+    )
+    # Preserve subclass fields by using a discriminated union on 'type'
+    barcodes: List[BarcodeVariant] = Field(
+        default=[], description="List of barcodes extracted from the document"
+    )
+
+
 class WorkflowExecutionCompletedEvent(BaseEvent):
     """Event triggered when entire workflow completes successfully."""
 
     event_type: EventType = Field(
         default=EventType.WORKFLOW_EXECUTION_COMPLETED, description="Event type"
     )
-    final_result: Dict[str, Any] = Field(description="Final workflow result")
+    final_result: CompletedEventResult = Field(description="Final workflow result")
     total_processing_time_ms: int = Field(
         description="Total processing time in milliseconds"
     )
@@ -85,8 +153,7 @@ class EventStoreRecord(BaseModel):
     execution_id: str = Field(description="Execution instance identifier")
     created_at: datetime = Field(description="Event timestamp")
     event_type: EventType = Field(description="Type of event")
-    # TODO: change to Event (breaking tests...)
-    event: Dict[str, Any] = Field(description="Event payload as JSON")
+    event: BaseEvent = Field(description="Event payload as JSON")
 
 
 class EventStream(BaseModel):

@@ -1,14 +1,12 @@
 import logging
 from typing import Optional, Any
 
+from document_ia_infra.data.event.schema.event import DocumentClassification
 from document_ia_infra.exception.openai_authentification_error import (
     OpenAIAuthentificationError,
 )
 from document_ia_infra.exception.retryable_exception import RetryableException
 from document_ia_infra.openai.openai_manager import OpenAIManager
-from document_ia_worker.core.prompt.model.document_classification import (
-    DocumentClassification,
-)
 from document_ia_worker.core.prompt.prompt_configuration import (
     GENERIC_CLASSIFICATION_MODEL,
 )

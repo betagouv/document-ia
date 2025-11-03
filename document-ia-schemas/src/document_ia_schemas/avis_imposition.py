@@ -1,10 +1,7 @@
 from typing import Optional, Type
-
 from pydantic import BaseModel, Field
 
-from document_ia_worker.core.prompt.document_type.base_document_type_schema import (
-    BaseDocumentTypeSchema,
-)
+from document_ia_schemas import BaseDocumentTypeSchema
 
 
 class AvisImpositionModel(BaseModel):
@@ -15,6 +12,9 @@ class AvisImpositionModel(BaseModel):
         ),
         alias="Référence d'avis d'impôt",
         examples=["1234567890123"],
+        json_schema_extra={
+            "metrics": "equality"
+        }
     )
     annee_revenus: str = Field(
         description="Année fiscale concernée par la déclaration de revenus (format AAAA)",
