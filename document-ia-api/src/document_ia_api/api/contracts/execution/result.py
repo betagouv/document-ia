@@ -17,7 +17,7 @@ class ExtractionProperty(BaseModel):
         description="Value of the extraction property",
         json_schema_extra={"x-mask": True},
     )
-    type: Literal["str", "float", "int", "bool", "object"] = Field(
+    type: Literal["string", "number", "boolean", "object"] = Field(
         description="Type of the extraction property"
     )
 

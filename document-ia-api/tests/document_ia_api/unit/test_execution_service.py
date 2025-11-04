@@ -170,5 +170,5 @@ def test__convert_extraction_result_unit(service: ExecutionService, monkeypatch:
     assert "first_name" in names and "age" in names
     # type inference
     types = {p.name: p.type for p in result.properties}
-    assert types["first_name"] == "str"
-    assert types["age"] == "int"
+    assert types["first_name"] == "string"
+    assert types["age"] == "number"
