@@ -13,8 +13,12 @@ import pytest
 
 from document_ia_infra.core.model.file_info import FileInfo
 from document_ia_infra.data.database import database_manager
-from document_ia_infra.data.event.schema.event import EventStoreRecord, EventStream, WorkflowExecutionStartedEvent, \
-    WorkflowExecutionStepCompletedEvent, WorkflowExecutionCompletedEvent
+from document_ia_infra.data.event.schema.event import EventStoreRecord, EventStream
+from document_ia_infra.data.event.schema.workflow.workflow_execution_completed_event import \
+    WorkflowExecutionCompletedEvent
+from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import WorkflowExecutionStartedEvent
+from document_ia_infra.data.event.schema.workflow.workflow_execution_step_completed_event import \
+    WorkflowExecutionStepCompletedEvent
 from document_ia_infra.service.event_store_service import EventStoreService
 
 

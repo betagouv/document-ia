@@ -4,8 +4,11 @@ from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from pydantic import BaseModel
 
-from document_ia_infra.data.event.schema.event import DocumentClassification, CompletedEventResult
+from document_ia_infra.data.document.schema.document_classification import DocumentClassification
+from document_ia_infra.data.document.schema.document_extraction import DocumentExtraction
+from document_ia_infra.data.event.schema.workflow.workflow_execution_completed_event import CompletedEventResult
 from document_ia_schemas import SupportedDocumentType
 from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext, StepMetadata
 from document_ia_worker.workflow.step.save_workflow_result.save_workflow_result import (
@@ -100,14 +103,11 @@ class TestSaveWorkflowResult:
         fake_session = MagicMock()
 
         # LLMExtractionResult expects a pydantic BaseModel for data; create a minimal one
-        from pydantic import BaseModel
 
         class SimpleExtractionModel(BaseModel):
             field: str
 
         extraction_model = SimpleExtractionModel(field="value")
-        from document_ia_infra.data.event.schema.event import DocumentExtraction
-        from document_ia_schemas import SupportedDocumentType
         extraction_payload = DocumentExtraction[SimpleExtractionModel](
             title="simple",
             type=SupportedDocumentType.CNI,

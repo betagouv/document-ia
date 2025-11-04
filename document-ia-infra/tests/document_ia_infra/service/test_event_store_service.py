@@ -16,12 +16,13 @@ from document_ia_infra.core.model.file_info import FileInfo
 from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.repository.event import EventRepository
-from document_ia_infra.data.event.schema.event import (
-    WorkflowExecutionStartedEvent,
-    WorkflowExecutionStepCompletedEvent,
-    WorkflowExecutionCompletedEvent,
-    WorkflowExecutionFailedEvent, EventStoreRecord, CompletedEventResult,
-)
+from document_ia_infra.data.event.schema.event import EventStoreRecord
+from document_ia_infra.data.event.schema.workflow.workflow_execution_completed_event import CompletedEventResult, \
+    WorkflowExecutionCompletedEvent
+from document_ia_infra.data.event.schema.workflow.workflow_execution_failed_event import WorkflowExecutionFailedEvent
+from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import WorkflowExecutionStartedEvent
+from document_ia_infra.data.event.schema.workflow.workflow_execution_step_completed_event import \
+    WorkflowExecutionStepCompletedEvent
 from document_ia_infra.service.event_store_service import EventStoreService
 
 

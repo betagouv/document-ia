@@ -1,7 +1,9 @@
 from pydantic import BaseModel
 
-from document_ia_infra.data.event.schema.event import (
+from document_ia_infra.data.document.schema.document_classification import (
     DocumentClassification,
+)
+from document_ia_infra.data.document.schema.document_extraction import (
     DocumentExtraction,
 )
 

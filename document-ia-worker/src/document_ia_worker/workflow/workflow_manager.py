@@ -7,7 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from document_ia_infra.data.database import DatabaseManager
 from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.repository.event import EventRepository
-from document_ia_infra.data.event.schema.event import WorkflowExecutionStartedEvent
+from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import (
+    WorkflowExecutionStartedEvent,
+)
 from document_ia_infra.data.workflow.repository.worflow import workflow_repository
 from document_ia_infra.exception.retryable_exception import RetryableException
 from document_ia_infra.redis.model.workflow_execution_message import (

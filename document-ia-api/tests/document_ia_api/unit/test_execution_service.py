@@ -10,17 +10,16 @@ from unittest.mock import AsyncMock
 from document_ia_api.application.services.execution_service import ExecutionService
 from document_ia_api.api.contracts.execution.types import ExecutionStatus
 from document_ia_infra.core.model.file_info import FileInfo
+from document_ia_infra.data.document.schema.document_classification import DocumentClassification
+from document_ia_infra.data.document.schema.document_extraction import DocumentExtraction
 from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.dto.event_type_enum import EventType
-from document_ia_infra.data.event.schema.event import (
-    WorkflowExecutionStartedEvent,
-    WorkflowExecutionFailedEvent,
-    WorkflowExecutionCompletedEvent,
-    DocumentExtraction,
-    DocumentClassification,
-    CompletedEventResult,
-)
 from document_ia_schemas import SupportedDocumentType
+
+from document_ia_infra.data.event.schema.workflow.workflow_execution_completed_event import \
+    WorkflowExecutionCompletedEvent, CompletedEventResult
+from document_ia_infra.data.event.schema.workflow.workflow_execution_failed_event import WorkflowExecutionFailedEvent
+from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import WorkflowExecutionStartedEvent
 
 
 class SampleProps(BaseModel):
@@ -131,7 +130,7 @@ def test_get_event_model_completed_with_extraction_and_classification(service: E
         document_model = SampleProps
 
     monkeypatch.setattr("document_ia_api.application.services.execution_service.resolve_extract_schema", lambda name: DummySchema())
-    monkeypatch.setattr("document_ia_infra.data.event.schema.event.resolve_extract_schema", lambda name: DummySchema())
+    monkeypatch.setattr("document_ia_infra.data.document.schema.document_extraction.resolve_extract_schema", lambda name: DummySchema())
 
     dto = EventDTO(
         id=uuid4(),

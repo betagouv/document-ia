@@ -8,7 +8,7 @@ from document_ia_infra.core.model.file_info import FileInfo
 from document_ia_infra.data.database import DatabaseManager
 from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.repository.event import EventRepository
-from document_ia_infra.data.event.schema.event import WorkflowExecutionStartedEvent
+from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import WorkflowExecutionStartedEvent
 from document_ia_infra.s3.s3_manager import S3Manager
 
 from document_ia_worker.workflow.workflow_manager import WorkflowManager
