@@ -12,7 +12,6 @@ from document_ia_api.infra.redis.redis_connectivity_status import (
 )
 from document_ia_api.schemas.rate_limiting import RateLimitInfo
 
-# TODO: add a proper logging service (remove pii and sanitize data)
 logger = logging.getLogger(__name__)
 
 

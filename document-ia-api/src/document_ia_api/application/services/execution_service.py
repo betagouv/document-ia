@@ -24,15 +24,22 @@ from document_ia_api.api.contracts.execution.success import (
     SuccessData,
 )
 from document_ia_api.api.contracts.execution.types import ExecutionStatus
-from document_ia_infra.data.event.dto.event_dto import EventDTO
-from document_ia_infra.data.event.dto.event_type_enum import EventType
-from document_ia_infra.data.event.schema.event import (
-    WorkflowExecutionStartedEvent,
-    WorkflowExecutionFailedEvent,
-    WorkflowExecutionCompletedEvent,
+from document_ia_infra.data.document.schema.document_extraction import (
     DocumentExtraction,
 )
+from document_ia_infra.data.event.dto.event_dto import EventDTO
+from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_schemas import resolve_extract_schema, BaseDocumentTypeSchema
+
+from document_ia_infra.data.event.schema.workflow.workflow_execution_completed_event import (
+    WorkflowExecutionCompletedEvent,
+)
+from document_ia_infra.data.event.schema.workflow.workflow_execution_failed_event import (
+    WorkflowExecutionFailedEvent,
+)
+from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import (
+    WorkflowExecutionStartedEvent,
+)
 
 logger = logging.getLogger(__name__)
 

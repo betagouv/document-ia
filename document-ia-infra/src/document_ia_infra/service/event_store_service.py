@@ -17,15 +17,23 @@ from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.repository.event import EventRepository
 from document_ia_infra.data.event.schema.event import (
     BaseEvent,
-    WorkflowExecutionStartedEvent,
-    WorkflowExecutionStepCompletedEvent,
-    WorkflowExecutionCompletedEvent,
-    WorkflowExecutionFailedEvent,
     EventStoreRecord,
     EventStream,
-    CompletedEventResult,
 )
 from document_ia_infra.data.event.schema.mappers.event_mapper import convert_event_dto
+from document_ia_infra.data.event.schema.workflow.workflow_execution_completed_event import (
+    CompletedEventResult,
+    WorkflowExecutionCompletedEvent,
+)
+from document_ia_infra.data.event.schema.workflow.workflow_execution_failed_event import (
+    WorkflowExecutionFailedEvent,
+)
+from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import (
+    WorkflowExecutionStartedEvent,
+)
+from document_ia_infra.data.event.schema.workflow.workflow_execution_step_completed_event import (
+    WorkflowExecutionStepCompletedEvent,
+)
 from document_ia_infra.exception.entity_not_found_exception import (
     EntityNotFoundException,
 )

@@ -1,7 +1,9 @@
 import logging
 from typing import Optional, Any, cast
 
-from document_ia_infra.data.event.schema.event import DocumentExtraction
+from document_ia_infra.data.document.schema.document_extraction import (
+    DocumentExtraction,
+)
 from document_ia_infra.exception.openai_authentification_error import (
     OpenAIAuthentificationError,
 )

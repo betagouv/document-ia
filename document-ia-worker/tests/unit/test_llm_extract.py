@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 
-from document_ia_infra.data.event.schema.event import DocumentClassification
+from document_ia_infra.data.document.schema.document_classification import DocumentClassification
 from document_ia_schemas import SupportedDocumentType
 from document_ia_schemas.cni import CNIModel
 from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext

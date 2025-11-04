@@ -5,7 +5,9 @@ from typing import Optional, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from document_ia_infra.data.event.schema.barcode import BarcodeVariant
-from document_ia_infra.data.event.schema.event import CompletedEventResult
+from document_ia_infra.data.event.schema.workflow.workflow_execution_completed_event import (
+    CompletedEventResult,
+)
 from document_ia_infra.service.event_store_service import EventStoreService
 from document_ia_worker.workflow.main_workflow_context import (
     MainWorkflowContext,

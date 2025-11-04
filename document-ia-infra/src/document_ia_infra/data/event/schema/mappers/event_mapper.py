@@ -3,6 +3,15 @@ from typing import Any
 from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.schema.event import EventStoreRecord, BaseEvent
+from document_ia_infra.data.event.schema.workflow.workflow_execution_completed_event import (
+    WorkflowExecutionCompletedEvent,
+)
+from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import (
+    WorkflowExecutionStartedEvent,
+)
+from document_ia_infra.data.event.schema.workflow.workflow_execution_step_completed_event import (
+    WorkflowExecutionStepCompletedEvent,
+)
 
 
 def convert_event_dto(dto: EventDTO) -> EventStoreRecord:
@@ -19,22 +28,10 @@ def convert_event_dto(dto: EventDTO) -> EventStoreRecord:
 def convert_inner_event_dto(data: dict[str, Any], event_type: EventType) -> BaseEvent:
     match event_type:
         case EventType.WORKFLOW_EXECUTION_STARTED:
-            from document_ia_infra.data.event.schema.event import (
-                WorkflowExecutionStartedEvent,
-            )
-
             return WorkflowExecutionStartedEvent(**data)
         case EventType.WORKFLOW_EXECUTION_STEP_COMPLETED:
-            from document_ia_infra.data.event.schema.event import (
-                WorkflowExecutionStepCompletedEvent,
-            )
-
             return WorkflowExecutionStepCompletedEvent(**data)
         case EventType.WORKFLOW_EXECUTION_COMPLETED:
-            from document_ia_infra.data.event.schema.event import (
-                WorkflowExecutionCompletedEvent,
-            )
-
             return WorkflowExecutionCompletedEvent(**data)
         case _:
             raise ValueError(f"Unsupported event type: {event_type}")
