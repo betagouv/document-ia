@@ -363,3 +363,30 @@ The project is configured for production deployment on Heroku with:
 ## License
 
 [License information here]
+
+## Aggregator middleware masking (x-mask)
+
+To prevent sensitive data from leaking into logs, the aggregator middleware supports masking fields declared in Pydantic models using a vendor extension.
+
+- Mark any Pydantic field you want to mask in logs with:
+  - `Field(..., json_schema_extra={"x-mask": True})`
+- At log time only, values of fields with `x-mask: True` are replaced by `"***"`.
+- If the value is `None`, it is not masked (kept as `null`).
+- This does not affect your OpenAPI schema or runtime responses; masking applies only to request/response previews emitted by the aggregator.
+
+Example:
+
+```python
+from pydantic import BaseModel, Field
+
+class ExtractionProperty(BaseModel):
+    name: str
+    value: str | float | int | bool | None = Field(
+        json_schema_extra={"x-mask": True}
+    )
+```
+
+Notes:
+- Masking is recursive for nested Pydantic models and lists. If a field is a model or list of models, the aggregator walks the schema and applies `x-mask` to any nested fields where it’s set.
+- For query/path/form parameters, existing secret types (e.g. SecretPayloadStr/Bytes) remain supported and are masked as before.
+- Only small JSON bodies are parsed and masked (up to 4096 bytes) to keep logging safe and efficient.

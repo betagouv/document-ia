@@ -1,6 +1,7 @@
 import inspect
 import json
 import logging
+import sys
 import time
 import uuid
 from typing import (
@@ -16,6 +17,9 @@ from typing import (
     AsyncIterator,
     cast,
 )
+from typing import ForwardRef, Mapping, Sequence
+import types as _pytypes
+from typing import get_type_hints as _get_type_hints
 
 from fastapi import Request
 from fastapi.params import Query as QueryParam, Path as PathParam, Form as FormParam
@@ -29,6 +33,7 @@ from document_ia_infra.core.model.types.secret import (
     SecretPayloadStr,
     SecretPayloadBytes,
 )
+from pydantic import SecretStr as _PydSecretStr, SecretBytes as _PydSecretBytes
 
 logger = logging.getLogger(__name__)
 
@@ -36,22 +41,39 @@ MAX_BODY_BYTES = 4096  # prevent writing too much data inside the logs
 
 
 def _unwrap_is_secret_type(tp: Any) -> bool:
-    """Return True if the annotation corresponds to a Secret type (SecretStr/SecretBytes),
-    possibly wrapped in Optional/Union/Annotated.
+    """Return True if the annotation corresponds to a secret payload type,
+    supporting wrappers like Annotated[...] and Union/Optional.
+    Recognizes our SecretPayloadStr/Bytes aliases and underlying Pydantic SecretStr/SecretBytes.
     """
+    # Fast path for our aliases
     if tp is SecretPayloadStr or tp is SecretPayloadBytes:
         return True
-    origin = get_origin(tp)
-    if origin is None:
-        return False
-    # Annotated[Inner, ...]
-    if origin is getattr(__import__("typing"), "Annotated", None):
-        args = get_args(tp)
-        return any(_unwrap_is_secret_type(a) for a in args)
-    # Union / Optional
-    if origin is getattr(__import__("typing"), "Union", None):
-        args = get_args(tp)
-        return any(_unwrap_is_secret_type(a) for a in args)
+
+    # Iteratively unwrap Annotated[...] to its inner type
+    while True:
+        origin = get_origin(tp)
+        if origin is getattr(__import__("typing"), "Annotated", None):
+            args = get_args(tp)
+            if not args:
+                break
+            tp = args[0]
+            continue
+        # Union/Optional (typing.Union or types.UnionType)
+        if origin in (
+            getattr(__import__("typing"), "Union", None),
+            getattr(_pytypes, "UnionType", None),
+        ):
+            return any(
+                _unwrap_is_secret_type(t) for t in get_args(tp) if t is not type(None)
+            )
+        break
+
+    # Check underlying pydantic secret primitives
+    try:
+        if tp is _PydSecretStr or tp is _PydSecretBytes:
+            return True
+    except Exception:
+        pass
     return False
 
 
@@ -104,6 +126,129 @@ def _find_body_model_cls(request: Request) -> Optional[Type[BaseModel]]:
     except Exception:
         return None
     return None
+
+
+def _resolve_forward_ref(
+    name: str, context_model: type[BaseModel]
+) -> Optional[type[BaseModel]]:
+    try:
+        module = sys.modules.get(context_model.__module__)
+        if module is None:
+            return None
+        resolved = getattr(module, name, None)
+        if isinstance(resolved, type) and issubclass(resolved, BaseModel):
+            return resolved
+    except Exception:
+        return None
+    return None
+
+
+def _unwrap_model_type(
+    anno: Any, context_model: type[BaseModel]
+) -> Optional[type[BaseModel]]:
+    # Direct BaseModel subclass
+    if isinstance(anno, type) and issubclass(anno, BaseModel):
+        return anno
+    # String forward ref (from future annotations) or typing.ForwardRef
+    if isinstance(anno, str):
+        return _resolve_forward_ref(anno, context_model)
+    if isinstance(anno, ForwardRef):
+        return _resolve_forward_ref(anno.__forward_arg__, context_model)
+
+    origin = get_origin(anno)
+    if origin is None:
+        return None
+
+    args = get_args(anno)
+    # Annotated[T, ...]
+    if origin is getattr(__import__("typing"), "Annotated", None) and args:
+        return _unwrap_model_type(args[0], context_model)
+    # Optional/Union (support typing.Union and types.UnionType)
+    if origin in (
+        getattr(__import__("typing"), "Union", None),
+        getattr(_pytypes, "UnionType", None),
+    ):
+        for t in args:
+            if t is type(None):
+                continue
+            sub = _unwrap_model_type(t, context_model)
+            if sub is not None:
+                return sub
+        return None
+    # List[T] / Sequence[T]
+    if origin in (list, List, Sequence) and args:
+        return _unwrap_model_type(args[0], context_model)
+    # Dict[str, T] / Mapping[str, T]
+    if origin in (dict, Dict, Mapping) and len(args) == 2:
+        return _unwrap_model_type(args[1], context_model)
+
+    return None
+
+
+def _build_mask_map(model_cls: type[BaseModel]) -> Dict[str, Any]:
+    """Build a mask map from a Pydantic model class by reading json_schema_extra['x-mask'].
+    The map mirrors the field structure using python field names; for nested models/lists, it nests accordingly.
+    """
+    mask_map: Dict[str, Any] = {}
+    try:
+        # Ensure forward refs are resolved for this model
+        try:
+            model_cls.model_rebuild()
+        except Exception:
+            pass
+        for fname, finfo in getattr(model_cls, "model_fields", {}).items():
+            extra = cast(
+                Dict[str, Any], (getattr(finfo, "json_schema_extra", None) or {})
+            )
+            xmask = bool(extra.get("x-mask", False))
+            sub_map: Optional[Dict[str, Any]] = None
+            # Discover sub-model types for recursion (robust unwrapping)
+            anno = _resolved_field_type(model_cls, fname) or finfo.annotation
+            sub_model = _unwrap_model_type(anno, model_cls)
+            if sub_model is not None:
+                sub_map = _build_mask_map(sub_model)
+
+            # Record masking directive; if x-mask True, store True; else store sub_map if non-empty
+            if xmask:
+                mask_map[fname] = True
+            elif sub_map:
+                mask_map[fname] = sub_map
+    except Exception:
+        return {}
+    return mask_map
+
+
+def _apply_mask(value: Any, mask_map: Any) -> Any:
+    """Apply masking rules to a Python value based on mask_map.
+
+    - If mask_map is True: mask whole value unless it's None.
+    - If value is a dict and mask_map is a dict: recurse per matching keys.
+    - If value is a list: apply same mask_map to each element.
+    - Otherwise: return value unchanged.
+    """
+    try:
+        if mask_map is True:
+            return value if value is None else "***"
+
+        if isinstance(value, dict):
+            if not isinstance(mask_map, dict):
+                return cast(Any, value)
+            d: Dict[str, Any] = cast(Dict[str, Any], value)
+            mm: Dict[str, Any] = cast(Dict[str, Any], mask_map)
+            out: Dict[str, Any] = {}
+            for k, v in d.items():
+                m: Any = mm.get(k)
+                out[k] = _apply_mask(v, m) if m is not None else v
+            return out
+
+        if isinstance(value, list):
+            lst: List[Any] = cast(List[Any], value)
+            result_list: List[Any] = [_apply_mask(elem, mask_map) for elem in lst]
+            return result_list
+
+        return value
+    except Exception:
+        return cast(Any, value)
 
 
 async def get_request_payload_safely(request: Request):
@@ -183,7 +328,11 @@ async def get_request_payload_safely(request: Request):
                     model_cls = _find_body_model_cls(request)
                     if model_cls is not None:
                         instance = model_cls.model_validate_json(body)
-                        preview_text = f"{instance.model_dump(mode='python')}"
+                        # Dump with aliases to match external names in logs
+                        payload = instance.model_dump(by_alias=True)
+                        mask_map = _build_mask_map(model_cls)
+                        masked = _apply_mask(payload, mask_map) if mask_map else payload
+                        preview_text = f"{masked}"
                         request.state.aggregator_payload = {
                             **base_info,
                             "body_preview": preview_text,
@@ -303,8 +452,18 @@ async def _wrap_response_and_capture(
                 adapter = _get_response_type_adapter(request)
                 if adapter is not None:
                     typed_val = adapter.validate_json(body_bytes)
-                    preview_obj = typed_val.model_dump()
-                    meta["body_preview"] = f"{preview_obj}"
+                    # Convert to pydantic model if possible for mask map discovery
+                    payload = (
+                        typed_val.model_dump(by_alias=True)
+                        if isinstance(typed_val, BaseModel)
+                        else typed_val
+                    )
+                    model_cls = (
+                        type(typed_val) if isinstance(typed_val, BaseModel) else None
+                    )
+                    mask_map = _build_mask_map(model_cls) if model_cls else {}
+                    masked = _apply_mask(payload, mask_map) if mask_map else payload
+                    meta["body_preview"] = f"{masked}"
                     return new_response, meta
             except Exception:
                 # fall back to generic preview below
@@ -398,3 +557,18 @@ class AggregationMiddleware(BaseHTTPMiddleware):
         finally:
             agg_buffer_var.reset(token_buf)
             request_id_var.reset(token_rid)
+
+
+def _resolved_field_type(model_cls: type[BaseModel], field_name: str) -> Optional[Any]:
+    """Return the resolved annotation for a field on a Pydantic model class.
+    Uses typing.get_type_hints with the model's module globals to resolve ForwardRef and Annotated.
+    """
+    try:
+        module = sys.modules.get(model_cls.__module__)
+        gns = getattr(module, "__dict__", {}) if module else {}
+        hints = _get_type_hints(
+            model_cls, globalns=gns, localns=gns, include_extras=True
+        )
+        return hints.get(field_name)
+    except Exception:
+        return None
