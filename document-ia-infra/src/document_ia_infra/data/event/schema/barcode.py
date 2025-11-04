@@ -30,13 +30,13 @@ class Ants2DDoc(BarcodeModel):
     type: Literal[BarcodeType.DATA_MATRIX] = BarcodeType.DATA_MATRIX
     position: BarcodePosition
     is_valid: bool
-    data: Any
+    data: Any = Field(json_schema_extra={"x-mask": True})
 
 
 class QrCode(BarcodeModel):
     type: Literal[BarcodeType.QR] = BarcodeType.QR
     position: BarcodePosition
-    data: str
+    data: str = Field(json_schema_extra={"x-mask": True})
 
 
 BarcodeVariant = Annotated[Union[Ants2DDoc, QrCode], Field(discriminator="type")]

@@ -13,8 +13,9 @@ class ClassificationResult(BaseModel):
 
 class ExtractionProperty(BaseModel):
     name: str = Field(description="Name of the extraction property")
-    value: "str | float | int | bool | ExtractionProperty" = Field(
-        description="Value of the extraction property"
+    value: "str | float | int | bool | ExtractionProperty | None" = Field(
+        description="Value of the extraction property",
+        json_schema_extra={"x-mask": True},
     )
     type: Literal["str", "float", "int", "bool", "object"] = Field(
         description="Type of the extraction property"
