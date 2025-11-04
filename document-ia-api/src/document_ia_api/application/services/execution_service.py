@@ -123,15 +123,15 @@ class ExecutionService:
 
     def _infer_value_type(
         self, value: Any
-    ) -> Literal["str", "float", "int", "bool", "object"]:
+    ) -> Literal["string", "number", "boolean", "object"]:
         if isinstance(value, bool):
-            return "bool"
+            return "boolean"
         if isinstance(value, int):
-            return "int"
+            return "number"
         if isinstance(value, float):
-            return "float"
+            return "number"
         if isinstance(value, str):
-            return "str"
+            return "string"
         return "object"
 
     def _convert_extraction_result(
