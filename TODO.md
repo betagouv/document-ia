@@ -3,9 +3,7 @@
 
 - FastAPI OpenAPI documentation
   - Plus finement comprendre son fonctionnement et corriger la documentation (notamment les status code d'erreur)
-- Schéma des events (afin de pouvoir plus facilement anonymiser les logs, cela serait plus simple d'avoir un sous-objet $event aux schéma d'event, ex: WorkflowExecutionStartedEvent)
 - La logique de retry de connexion du Service Redis ne fonctionne pas encore correctement (voir fichier redis_service.py)
-- Créer des exceptions HTTP pour les status code classique (400 BadRequest, 404 NotFound, 429 Too Many Requests etc). Supprimer la dépendance $fastcrud
 - Faire en sorte que l'exécution d'un workflow soit déclenché **si et seulement si** les 3 actions suivantes sont un succès :
   - publication event redis,
   - dépot fichier S3,

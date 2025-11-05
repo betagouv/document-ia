@@ -3,7 +3,7 @@ import logging
 
 from document_ia_api.api.contracts.common import APIStatusResponse
 from document_ia_api.api.auth import verify_api_key
-from document_ia_api.api.rate_limiting import check_rate_limit
+from document_ia_api.api.middleware.rate_limiting_middleware import check_rate_limit
 from document_ia_api.schemas.rate_limiting import RateLimitInfo
 from document_ia_api.api.config import settings
 from document_ia_api.api.routes.v1 import router as v1_router

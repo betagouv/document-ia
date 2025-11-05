@@ -39,10 +39,12 @@ class TestAPIAuthentication:
 
         # Assert: Should return 401 Unauthorized
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
-        assert "detail" in response.json()
-        detail = response.json()["detail"]
-        assert detail["error"] == "unauthorized"
-        assert detail["message"] == "Invalid API key"
+        body = response.json()
+        assert body.get("title") == "Unauthorized"
+        assert body.get("code") == "http.unauthorized"
+        assert "errors" in body
+        assert body["errors"]["error"] == "unauthorized"
+        assert body["errors"]["message"] == "Invalid API key"
 
     def test_valid_api_key_returns_200(self, client_with_api_key, valid_api_key):
         """
@@ -79,10 +81,12 @@ class TestAPIAuthentication:
 
         # Assert: Should return 500 Internal Server Error
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-        assert "detail" in response.json()
-        detail = response.json()["detail"]
-        assert detail["error"] == "server_configuration_error"
-        assert detail["message"] == "API_KEY not configured on server"
+        body = response.json()
+        assert body.get("title") == "Internal Server Error"
+        assert body.get("code") in ("http.error", "internal.error")
+        assert "errors" in body
+        assert body["errors"]["error"] == "server_configuration_error"
+        assert body["errors"]["message"] == "API_KEY not configured on server"
 
     def test_api_key_case_sensitive(self, client_with_api_key, valid_api_key):
         """
@@ -102,9 +106,11 @@ class TestAPIAuthentication:
 
         # Assert: Should return 401 Unauthorized due to case mismatch
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
-        detail = response.json()["detail"]
-        assert detail["error"] == "unauthorized"
-        assert detail["message"] == "Invalid API key"
+        body = response.json()
+        assert body.get("title") == "Unauthorized"
+        assert body.get("code") == "http.unauthorized"
+        assert body["errors"]["error"] == "unauthorized"
+        assert body["errors"]["message"] == "Invalid API key"
 
     def test_empty_api_key_returns_403(self, client_with_api_key):
         """
@@ -130,9 +136,11 @@ class TestAPIAuthentication:
 
         # Assert: Should return 401 Unauthorized
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
-        detail = response.json()["detail"]
-        assert detail["error"] == "unauthorized"
-        assert detail["message"] == "Invalid API key"
+        body = response.json()
+        assert body.get("title") == "Unauthorized"
+        assert body.get("code") == "http.unauthorized"
+        assert body["errors"]["error"] == "unauthorized"
+        assert body["errors"]["message"] == "Invalid API key"
 
 
 class TestAPIAuthenticationHeaders:
@@ -181,9 +189,11 @@ class TestAPIAuthenticationHeaders:
         # Assert: FastAPI seems to use the last header or reject the request
         # This test documents the actual behavior
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
-        detail = response.json()["detail"]
-        assert detail["error"] == "unauthorized"
-        assert detail["message"] == "Invalid API key"
+        body = response.json()
+        assert body.get("title") == "Unauthorized"
+        assert body.get("code") == "http.unauthorized"
+        assert body["errors"]["error"] == "unauthorized"
+        assert body["errors"]["message"] == "Invalid API key"
 
 
 class TestAPIAuthenticationErrorMessages:
@@ -204,7 +214,8 @@ class TestAPIAuthenticationErrorMessages:
 
             # Assert: All should return the same error format
             assert response.status_code == status.HTTP_401_UNAUTHORIZED
-            assert "detail" in response.json()
-            detail = response.json()["detail"]
-            assert detail["error"] == "unauthorized"
-            assert detail["message"] == "Invalid API key"
+            body = response.json()
+            assert body.get("title") == "Unauthorized"
+            assert body.get("code") == "http.unauthorized"
+            assert body["errors"]["error"] == "unauthorized"
+            assert body["errors"]["message"] == "Invalid API key"

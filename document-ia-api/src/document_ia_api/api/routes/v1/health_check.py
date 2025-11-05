@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from document_ia_api.api.config import settings
 from document_ia_api.api.contracts.common import HealthCheckResponse
+from document_ia_api.api.contracts.error.errors import AppError, ProblemDetail
 from document_ia_api.infra.database_service import database_service
 from document_ia_api.infra.redis_service import redis_service
 from document_ia_api.infra.s3_service import s3_service
@@ -60,32 +61,54 @@ router = APIRouter()
             },
         },
         503: {
-            "model": HealthCheckResponse,
-            "description": "Service is unhealthy",
+            "model": ProblemDetail,
+            "description": "Service is unhealthy (ProblemDetail)",
             "content": {
                 "application/json": {
                     "example": {
-                        "status": "unhealthy",
-                        "timestamp": "2024-01-15T10:30:00.000Z",
-                        "service": "Document IA API",
-                        "version": "1.0.0",
-                        "s3": {
-                            "connected": False,
-                            "credentials_valid": False,
-                            "bucket_exists": False,
-                            "is_healthy": False,
-                            "errors": ["S3 connection failed"],
+                        "type": "about:blank",
+                        "title": "Service Unavailable",
+                        "status": 503,
+                        "detail": "Service is currently unavailable - one or more dependencies are unhealthy",
+                        "instance": "/api/v1/health",
+                        "code": "health_check.unhealthy",
+                        "trace_id": "3e4f4b2a-1c2d-4ef8-9a0b-123456789abc",
+                        "errors": {
+                            "s3": {
+                                "connected": False,
+                                "credentials_valid": False,
+                                "bucket_exists": False,
+                                "is_healthy": False,
+                                "errors": ["S3 connection failed"],
+                            },
+                            "redis": {
+                                "connected": False,
+                                "is_healthy": False,
+                                "errors": ["Redis connection failed"],
+                            },
+                            "database": {
+                                "connected": False,
+                                "is_healthy": False,
+                                "errors": ["Database connection failed"],
+                            },
                         },
-                        "redis": {
-                            "connected": False,
-                            "is_healthy": False,
-                            "errors": ["Redis connection failed"],
-                        },
-                        "database": {
-                            "connected": False,
-                            "is_healthy": False,
-                            "errors": ["Database connection failed"],
-                        },
+                    }
+                }
+            },
+        },
+        500: {
+            "model": ProblemDetail,
+            "description": "Internal Server Error (ProblemDetail)",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "type": "about:blank",
+                        "title": "Internal Server Error",
+                        "status": 500,
+                        "detail": "Internal Server Error - Health check failed with error: <message>",
+                        "instance": "/api/v1/health",
+                        "code": "http.error",
+                        "trace_id": "3e4f4b2a-1c2d-4ef8-9a0b-123456789abc",
                     }
                 }
             },
@@ -163,13 +186,22 @@ async def health_check(
                 f"Service unhealthy - S3: {s3_connectivity.is_healthy}, Redis: {redis_connectivity.is_healthy}, Database: {database_connectivity.is_healthy}",
                 extra={"endpoint": "health_check"},
             )
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            raise AppError(
+                status=503,
+                title="Service Unavailable",
                 detail="Service is currently unavailable - one or more dependencies are unhealthy",
+                code="health_check.unhealthy",
+                errors={
+                    "s3": s3_health,
+                    "redis": redis_health,
+                    "database": database_health,
+                },
             )
 
     except HTTPException:
         # Re-raise HTTP exceptions (like 503 above)
+        raise
+    except AppError:
         raise
     except Exception as e:
         logger.error(f"Health check failed: {e}", extra={"endpoint": "health_check"})
