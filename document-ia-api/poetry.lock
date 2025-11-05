@@ -856,23 +856,6 @@ typing-extensions = ">=4.8.0"
 all = ["email-validator (>=2.0.0)", "httpx (>=0.23.0)", "itsdangerous (>=1.1.0)", "jinja2 (>=2.11.2)", "orjson (>=3.2.1)", "pydantic-extra-types (>=2.0.0)", "pydantic-settings (>=2.0.0)", "python-multipart (>=0.0.5)", "pyyaml (>=5.3.1)", "ujson (>=4.0.1,!=4.0.2,!=4.1.0,!=4.2.0,!=4.3.0,!=5.0.0,!=5.1.0)", "uvicorn[standard] (>=0.12.0)"]
 
 [[package]]
-name = "fastcrud"
-version = "0.16.0"
-description = "FastCRUD is a Python package for FastAPI, offering robust async CRUD operations and flexible endpoint creation utilities."
-optional = false
-python-versions = "<4,>=3.9.2"
-files = [
-    {file = "fastcrud-0.16.0-py3-none-any.whl", hash = "sha256:74f975d46b19b8c8df30040be2043439139f25207d418dd367aab547ead0ffee"},
-    {file = "fastcrud-0.16.0.tar.gz", hash = "sha256:1bafaf6420cb5e96c2e59b296b167b6e59323c2c7f1afcf392256085f453d9e9"},
-]
-
-[package.dependencies]
-fastapi = ">=0.100.0"
-pydantic = ">=2.0.0,<3"
-sqlalchemy = ">=2.0.0,<3"
-sqlalchemy-utils = ">=0.41.2,<0.42"
-
-[[package]]
 name = "filelock"
 version = "3.20.0"
 description = "A platform independent file lock."
@@ -2299,34 +2282,6 @@ pymysql = ["pymysql"]
 sqlcipher = ["sqlcipher3_binary"]
 
 [[package]]
-name = "sqlalchemy-utils"
-version = "0.41.2"
-description = "Various utility functions for SQLAlchemy."
-optional = false
-python-versions = ">=3.7"
-files = [
-    {file = "SQLAlchemy-Utils-0.41.2.tar.gz", hash = "sha256:bc599c8c3b3319e53ce6c5c3c471120bd325d0071fb6f38a10e924e3d07b9990"},
-    {file = "SQLAlchemy_Utils-0.41.2-py3-none-any.whl", hash = "sha256:85cf3842da2bf060760f955f8467b87983fb2e30f1764fd0e24a48307dc8ec6e"},
-]
-
-[package.dependencies]
-SQLAlchemy = ">=1.3"
-
-[package.extras]
-arrow = ["arrow (>=0.3.4)"]
-babel = ["Babel (>=1.3)"]
-color = ["colour (>=0.0.4)"]
-encrypted = ["cryptography (>=0.6)"]
-intervals = ["intervals (>=0.7.1)"]
-password = ["passlib (>=1.6,<2.0)"]
-pendulum = ["pendulum (>=2.0.5)"]
-phone = ["phonenumbers (>=5.9.2)"]
-test = ["Jinja2 (>=2.3)", "Pygments (>=1.2)", "backports.zoneinfo", "docutils (>=0.10)", "flake8 (>=2.4.0)", "flexmock (>=0.9.7)", "isort (>=4.2.2)", "pg8000 (>=1.12.4)", "psycopg (>=3.1.8)", "psycopg2 (>=2.5.1)", "psycopg2cffi (>=2.8.1)", "pymysql", "pyodbc", "pytest (==7.4.4)", "python-dateutil (>=2.6)", "pytz (>=2014.2)"]
-test-all = ["Babel (>=1.3)", "Jinja2 (>=2.3)", "Pygments (>=1.2)", "arrow (>=0.3.4)", "backports.zoneinfo", "colour (>=0.0.4)", "cryptography (>=0.6)", "docutils (>=0.10)", "flake8 (>=2.4.0)", "flexmock (>=0.9.7)", "furl (>=0.4.1)", "intervals (>=0.7.1)", "isort (>=4.2.2)", "passlib (>=1.6,<2.0)", "pendulum (>=2.0.5)", "pg8000 (>=1.12.4)", "phonenumbers (>=5.9.2)", "psycopg (>=3.1.8)", "psycopg2 (>=2.5.1)", "psycopg2cffi (>=2.8.1)", "pymysql", "pyodbc", "pytest (==7.4.4)", "python-dateutil", "python-dateutil (>=2.6)", "pytz (>=2014.2)"]
-timezone = ["python-dateutil"]
-url = ["furl (>=0.4.1)"]
-
-[[package]]
 name = "starlette"
 version = "0.27.0"
 description = "The little ASGI library that shines."
@@ -2516,4 +2471,4 @@ test = ["covdefaults (>=2.3)", "coverage (>=7.2.7)", "coverage-enable-subprocess
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.13"
-content-hash = "01a13322cc144c70450c4d4890f0a34dd10ffb747037885a6bc47a65a3a6f233"
+content-hash = "ae00f2e973fe17bd97313eaff03b5417f5e14160a617a44b03ab4f6e621bc0cb"

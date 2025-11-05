@@ -20,9 +20,10 @@ from pydantic import SecretStr
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from document_ia_api.api.rate_limiting import RateLimitMiddleware
+from document_ia_api.api.middleware.rate_limiting_middleware import RateLimitMiddleware
 from document_ia_api.api.routes import router
 from document_ia_api.schemas.rate_limiting import RateLimitInfo
+from document_ia_api.api.exceptions.handler.exception_handlers import setup_exception_handlers
 
 # Load test environment variables
 test_env_path = os.path.join(os.path.dirname(__file__), ".env.test")
@@ -60,6 +61,9 @@ def create_test_app(api_key: str = None):
     )
 
     app.add_middleware(RateLimitMiddleware)
+
+    # Register problem+json exception handlers for tests
+    setup_exception_handlers(app)
 
     # Override the settings in auth module
     import document_ia_api.api.auth
@@ -125,17 +129,17 @@ def client_with_api_key(valid_api_key, mock_redis_service):
         TestClient: A test client with API key configured
     """
     # Patch the redis_service with our mock
-    import document_ia_api.api.rate_limiting
+    import document_ia_api.api.middleware.rate_limiting_middleware
 
-    original_redis_service = document_ia_api.api.rate_limiting.redis_service
-    document_ia_api.api.rate_limiting.redis_service = mock_redis_service
+    original_redis_service = document_ia_api.api.middleware.rate_limiting_middleware.redis_service
+    document_ia_api.api.middleware.rate_limiting_middleware.redis_service = mock_redis_service
 
     client = TestClient(create_test_app(api_key=valid_api_key))
 
     # Restore original service after test
     yield client
 
-    document_ia_api.api.rate_limiting.redis_service = original_redis_service
+    document_ia_api.api.middleware.rate_limiting_middleware.redis_service = original_redis_service
 
 
 @pytest.fixture
@@ -150,14 +154,14 @@ def client_without_api_key(mock_redis_service):
         TestClient: A test client without API key
     """
     # Patch the redis_service with our mock
-    import document_ia_api.api.rate_limiting
+    import document_ia_api.api.middleware.rate_limiting_middleware
 
-    original_redis_service = document_ia_api.api.rate_limiting.redis_service
-    document_ia_api.api.rate_limiting.redis_service = mock_redis_service
+    original_redis_service = document_ia_api.api.middleware.rate_limiting_middleware.redis_service
+    document_ia_api.api.middleware.rate_limiting_middleware.redis_service = mock_redis_service
 
     client = TestClient(create_test_app(api_key=None))
 
     # Restore original service after test
     yield client
 
-    document_ia_api.api.rate_limiting.redis_service = original_redis_service
+    document_ia_api.api.middleware.rate_limiting_middleware.redis_service = original_redis_service

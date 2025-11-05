@@ -10,6 +10,7 @@ class AppSettings(BaseDocumentIaSettings):
     # Server configuration (let Pydantic parse env and cast types)
     SERVER_HOST: str = Field(default="0.0.0.0", validation_alias="HOST")
     SERVER_PORT: int = Field(default=8000, validation_alias="PORT")
+    BASE_URL: str = Field(default="", validation_alias="BASE_URL")
 
 
 class AuthenticationSettings(BaseDocumentIaSettings):

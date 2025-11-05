@@ -219,7 +219,7 @@ class TestExecutions:
 
         assert response.status_code == 404
         body = response.json()
-        assert body["detail"]["error"] == "entity_not_found"
+        assert body["errors"]["error"] == "entity_not_found"
 
     def test_get_execution_internal_error(
             self, client_with_api_key, valid_api_key, execution_id

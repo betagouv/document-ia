@@ -1,14 +1,15 @@
 import logging
+from typing import Optional
 
 from fastapi import APIRouter, Depends, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from document_ia_api.api.auth import verify_api_key
-from document_ia_api.api.contracts.api_error import ApiErrorResponse
+from document_ia_api.api.contracts.error.errors import ProblemDetail
 from document_ia_api.api.contracts.workflow import (
     WorkflowExecuteResponse,
 )
-from document_ia_api.api.rate_limiting import check_rate_limit
+from document_ia_api.api.middleware.rate_limiting_middleware import check_rate_limit
 from document_ia_api.application.services.workflow_service import WorkflowService
 from document_ia_api.schemas.rate_limiting import RateLimitInfo
 from document_ia_infra.data.database import database_manager
@@ -38,8 +39,11 @@ router = APIRouter(prefix="/workflows")
                             "created_at": "2024-01-15T10:30:00.000Z",
                             "file_info": {
                                 "filename": "document.pdf",
+                                "s3_key": "uploads/2024/01/15/document.pdf",
                                 "size": 1024000,
                                 "content_type": "application/pdf",
+                                "uploaded_at": "2024-01-15T10:29:40.000Z",
+                                "presigned_url": "https://minio.local/presigned/abc123",
                             },
                             "metadata": {"source": "email", "priority": "high"},
                         },
@@ -50,42 +54,107 @@ router = APIRouter(prefix="/workflows")
             },
         },
         400: {
-            "model": ApiErrorResponse,
-            "description": "Invalid request data or file validation error",
+            "model": ProblemDetail,
+            "description": "Bad Request (ProblemDetail) — file validation error or bad input",
             "content": {
                 "application/json": {
                     "example": {
-                        "status": "error",
-                        "error": "ValidationError",
-                        "message": "Invalid file format. Supported formats: PDF, JPG, PNG",
-                        "details": {"supported_formats": ["pdf", "jpg", "png"]},
-                        "timestamp": "2024-01-15T10:30:00.000Z",
+                        "type": "about:blank",
+                        "title": "Bad Request",
+                        "status": 400,
+                        "code": "http.validation_error",
+                        "instance": "/api/v1/workflows/{workflow_id}/execute",
+                        "errors": {
+                            "error": "file_validation_error",
+                            "message": "Invalid file format. Supported formats: PDF, JPG, PNG",
+                            "file_info": {
+                                "filename": "document.txt",
+                                "size": 1024,
+                                "content_type": "text/plain",
+                            },
+                        },
+                    }
+                }
+            },
+        },
+        401: {
+            "model": ProblemDetail,
+            "description": "Unauthorized (ProblemDetail) — missing or invalid API key",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "type": "about:blank",
+                        "title": "Unauthorized",
+                        "status": 401,
+                        "code": "http.unauthorized",
+                        "detail": "Unauthorized",
+                        "instance": "/api/v1/workflows/{workflow_id}/execute",
                     }
                 }
             },
         },
         422: {
-            "description": "Erreur de validation (schéma Pydantic) – champs manquants ou invalides",
+            "model": ProblemDetail,
+            "description": "Validation failed (ProblemDetail) — request schema validation errors",
             "content": {
                 "application/json": {
                     "example": {
-                        "detail": [
-                            {
-                                "loc": ["path", "workflow_id"],
-                                "msg": "field required",
-                                "type": "value_error.missing",
-                            },
-                            {
-                                "loc": ["body", "file"],
-                                "msg": "field required",
-                                "type": "value_error.missing",
-                            },
-                            {
-                                "loc": ["body", "metadata"],
-                                "msg": "field required",
-                                "type": "value_error.missing",
-                            },
-                        ]
+                        "type": "about:blank",
+                        "title": "Validation failed",
+                        "status": 422,
+                        "code": "validation.failed",
+                        "instance": "/api/v1/workflows/{workflow_id}/execute",
+                        "errors": {
+                            "__root__": [
+                                {
+                                    "loc": ["path", "workflow_id"],
+                                    "msg": "field required",
+                                    "type": "value_error.missing",
+                                },
+                                {
+                                    "loc": ["body", "file"],
+                                    "msg": "field required",
+                                    "type": "value_error.missing",
+                                },
+                                {
+                                    "loc": ["body", "metadata"],
+                                    "msg": "field required",
+                                    "type": "value_error.missing",
+                                },
+                            ]
+                        },
+                    }
+                }
+            },
+        },
+        429: {
+            "model": ProblemDetail,
+            "description": "Too Many Requests (ProblemDetail) — rate limit exceeded",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "type": "about:blank",
+                        "title": "Too Many Requests",
+                        "status": 429,
+                        "code": "http.rate_limited",
+                        "detail": "Rate limit exceeded. Please try again later.",
+                        "instance": "/api/v1/workflows/{workflow_id}/execute",
+                    }
+                }
+            },
+        },
+        500: {
+            "model": ProblemDetail,
+            "description": "Internal Server Error (ProblemDetail)",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "type": "about:blank",
+                        "title": "Internal Server Error",
+                        "status": 500,
+                        "code": "internal.error",
+                        "detail": "An unexpected error occurred while executing the workflow.",
+                        "instance": "/api/v1/workflows/{workflow_id}/execute",
                     }
                 }
             },
@@ -125,7 +194,9 @@ async def execute_workflow(
         ...,
         description="Document file to process (PDF, JPG, PNG, max 25MB)",
     ),
-    metadata: str = Form(..., description="JSON string containing metadata object"),
+    metadata: Optional[str] = Form(
+        default=None, description="JSON string containing metadata object"
+    ),
     api_key: str = Depends(verify_api_key),
     rate_limit_info: RateLimitInfo = Depends(check_rate_limit),
     db_session: AsyncSession = Depends(database_manager.async_get_db),

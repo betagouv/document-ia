@@ -390,3 +390,120 @@ Notes:
 - Masking is recursive for nested Pydantic models and lists. If a field is a model or list of models, the aggregator walks the schema and applies `x-mask` to any nested fields where it’s set.
 - For query/path/form parameters, existing secret types (e.g. SecretPayloadStr/Bytes) remain supported and are masked as before.
 - Only small JSON bodies are parsed and masked (up to 4096 bytes) to keep logging safe and efficient.
+
+## API Error Handling (Problem Details)
+
+All API errors are returned as a structured JSON response following the Problem Details (RFC 7807) conventions. This ensures consistent error shapes across the API and makes it easier for clients to handle failures in a predictable way.
+
+Payload shape (ProblemDetail):
+- type: RFC7807 type URI (default: "about:blank")
+- title: Short, human-readable summary of the problem
+- status: HTTP status code
+- detail: Optional human-readable detail (short string)
+- instance: Request path
+- code: Stable application-level error code (for programmatic handling)
+- trace_id: Correlation ID to find the request in the logs (set by aggregator middleware)
+- errors: Optional dictionary with structured error data (field -> messages or additional objects)
+
+Error mappings
+- 422 Validation failed (Request body/query/path validation)
+  - title: "Validation failed"
+  - code: "validation.failed"
+  - errors: { "__root__": fastapi.exc.errors() }
+- Starlette/FastAPI HTTP exceptions (HTTPException)
+  - 400 -> code: "http.validation_error" (or specific content if detail is a dict)
+  - 401 -> code: "http.unauthorized"
+  - 403 -> code: "http.forbidden"
+  - 404 -> code: "http.not_found"
+  - 405 -> code: "http.method_not_allowed"
+  - 413 -> code: "http.payload_too_large"
+  - 429 -> code: "http.rate_limited"
+  - other -> code: "http.error"
+  - If the HTTPException.detail is a dict, it will be placed under ProblemDetail.errors.
+- AppError (domain/application errors)
+  - Raise AppError(status=..., title=..., code=..., errors=...) to return a custom ProblemDetail.
+  - Example usage: health check returns 503 with detailed dependency status.
+- Unhandled exceptions
+  - 500 Internal Server Error
+  - code: "internal.error"
+
+Examples
+- 401 Unauthorized
+  {
+    "type": "about:blank",
+    "title": "Unauthorized",
+    "status": 401,
+    "code": "http.unauthorized",
+    "detail": "Unauthorized",
+    "instance": "/api/v1/resource"
+  }
+
+- 404 Not Found
+  {
+    "type": "about:blank",
+    "title": "Not Found",
+    "status": 404,
+    "code": "http.not_found",
+    "instance": "/api/v1/executions/exec_123",
+    "errors": { "entity": "Execution", "id": "exec_123", "message": "Execution not found" }
+  }
+
+- 429 Too Many Requests
+  {
+    "type": "about:blank",
+    "title": "Too Many Requests",
+    "status": 429,
+    "code": "http.rate_limited",
+    "detail": "Rate limit exceeded. Please try again later.",
+    "instance": "/api/v1/workflows/{workflow_id}/execute"
+  }
+
+- 500 Internal Server Error
+  {
+    "type": "about:blank",
+    "title": "Internal Server Error",
+    "status": 500,
+    "code": "internal.error",
+    "instance": "/api/v1/executions/exec_123",
+    "trace_id": "3e4f4b2a-1c2d-4ef8-9a0b-123456789abc"
+  }
+
+- 503 Service Unavailable (health)
+  {
+    "type": "about:blank",
+    "title": "Service Unavailable",
+    "status": 503,
+    "code": "health_check.unhealthy",
+    "instance": "/api/v1/health",
+    "errors": {
+      "s3": {"connected": false, "credentials_valid": false, "bucket_exists": false, "is_healthy": false, "errors": ["S3 connection failed"]},
+      "redis": {"connected": false, "is_healthy": false, "errors": ["Redis connection failed"]},
+      "database": {"connected": false, "is_healthy": false, "errors": ["Database connection failed"]}
+    }
+  }
+
+- 400 Bad Request (file validation example)
+  If a service raises HTTPException with a dict detail, the dict is mapped into ProblemDetail.errors:
+  {
+    "type": "about:blank",
+    "title": "Bad Request",
+    "status": 400,
+    "code": "http.validation_error",
+    "instance": "/api/v1/workflows/{workflow_id}/execute",
+    "errors": {
+      "error": "file_validation_error",
+      "message": "Invalid file format. Supported formats: PDF, JPG, PNG",
+      "file_info": {"filename": "document.txt", "size": 1024, "content_type": "text/plain"}
+    }
+  }
+
+Developer guidelines
+- Prefer raising AppError for domain-level failures where you control the title/code and want to return structured `errors`.
+- For request-specific 400 errors, raise HTTPException with a dict `detail`; it will be exposed under ProblemDetail.errors.
+- Do not raise raw strings for complex errors; put machine-readable fields under `errors`.
+- Always log with the `trace_id` (available in ProblemDetail) for correlation.
+
+Consumer guidelines
+- Inspect `code` to branch logic programmatically (e.g., http.unauthorized, http.rate_limited, validation.failed).
+- Use `errors` for structured details (validation errors, domain-specific fields).
+- Use `trace_id` to correlate with server logs when reporting incidents.

@@ -4,7 +4,7 @@ from typing import Annotated, Optional, Union, Any
 
 from pydantic import BaseModel, Field
 
-from document_ia_api.api.aggregator_middleware import (
+from document_ia_api.api.middleware.aggregator_middleware import (
     _unwrap_is_secret_type,
     _unwrap_model_type,
     _build_mask_map,

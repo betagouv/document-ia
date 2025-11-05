@@ -4,13 +4,17 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.config import settings
-from api.rate_limiting import RateLimitMiddleware
+from document_ia_api.api.config import settings
+from document_ia_api.api.middleware.rate_limiting_middleware import RateLimitMiddleware
 from api.routes import router
-from document_ia_api.api.aggregator_middleware import (
+from document_ia_api.api.exceptions.handler.exception_handlers import (
+    setup_exception_handlers,
+)
+from document_ia_api.api.middleware.aggregator_middleware import (
     AggregationMiddleware,
     get_request_payload_safely,
 )
+from document_ia_api.api.middleware.request_id_middleware import RequestIDMiddleware
 from document_ia_api.core.logging_setup import setup_logging
 from document_ia_api.infra.database_service import database_service
 from document_ia_infra.data.database import database_manager
@@ -68,9 +72,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.add_middleware(AggregationMiddleware)
+# The last one added is the first one to be executed
 # Add rate limiting middleware
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(AggregationMiddleware)
+app.add_middleware(RequestIDMiddleware)
+
+setup_exception_handlers(app)
 
 # Include API routes
 # We use a dependency here to ensure the request body is read

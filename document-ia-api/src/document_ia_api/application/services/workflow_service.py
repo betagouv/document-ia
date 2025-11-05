@@ -7,6 +7,9 @@ from typing import Dict, Any, Optional
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from document_ia_api.api.exceptions.entity_not_found_exception import (
+    HttpEntityNotFoundException,
+)
 from document_ia_api.core.file_validator import validate_uploaded_file
 from document_ia_api.infra.s3_service import s3_service
 from document_ia_api.schemas.workflow import WorkflowExecutionData
@@ -32,7 +35,7 @@ class WorkflowService:
         )
 
     async def execute_workflow(
-        self, workflow_id: str, file: UploadFile, metadata_json: str
+        self, workflow_id: str, file: UploadFile, metadata_json: Optional[str]
     ) -> WorkflowExecutionData:
         """
         Execute a workflow with file upload and metadata processing.
@@ -53,12 +56,8 @@ class WorkflowService:
 
             # Validate workflow ID
             if not workflow:
-                raise HTTPException(
-                    status_code=404,
-                    detail={
-                        "error": "workflow_not_found",
-                        "message": f"Workflow with ID '{workflow_id}' not found or disabled",
-                    },
+                raise HttpEntityNotFoundException(
+                    entity_name="workflow", entity_id=workflow_id
                 )
 
             # Validate and parse metadata
@@ -141,7 +140,7 @@ class WorkflowService:
                 },
             )
 
-    def _parse_metadata(self, metadata_json: str) -> Dict[str, Any]:
+    def _parse_metadata(self, metadata_json: Optional[str]) -> Dict[str, Any]:
         """
         Parse and validate metadata JSON string.
 
@@ -154,6 +153,10 @@ class WorkflowService:
         Raises:
             HTTPException: If metadata parsing fails
         """
+
+        if not metadata_json:
+            return {}
+
         try:
             metadata: dict[str, Any] = json.loads(metadata_json)
 

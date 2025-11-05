@@ -4,8 +4,11 @@ from unittest.mock import patch, Mock
 import pytest
 
 from document_ia_api.api.exceptions.rate_limit_exception import RateLimitException
-from document_ia_api.api.rate_limiting import check_rate_limit, RateLimitMiddleware
+from document_ia_api.api.middleware.rate_limiting_middleware import RateLimitMiddleware, check_rate_limit
 from document_ia_api.schemas.rate_limiting import RateLimitInfo
+
+RATE_LIMITING_MODULE = "document_ia_api.api.middleware.rate_limiting_middleware"
+REDIS_SERVICE_PATH = f"{RATE_LIMITING_MODULE}.redis_service"
 
 
 class TestRateLimiting:
@@ -32,7 +35,7 @@ class TestRateLimiting:
         mock_request.state = Mock()
 
         with patch(
-            "document_ia_api.api.rate_limiting.redis_service", mock_redis_service
+            REDIS_SERVICE_PATH, mock_redis_service
         ):
             result = await check_rate_limit(mock_request, "test-api-key")
 
@@ -62,7 +65,7 @@ class TestRateLimiting:
         mock_request.state = Mock()
 
         with patch(
-            "document_ia_api.api.rate_limiting.redis_service", mock_redis_service
+            REDIS_SERVICE_PATH, mock_redis_service
         ):
             # Test that the dependency raises RateLimitException
             with pytest.raises(RateLimitException) as exc_info:
@@ -128,7 +131,7 @@ class TestRateLimiting:
         mock_request.state = Mock()
 
         with patch(
-            "document_ia_api.api.rate_limiting.redis_service", mock_redis_service
+            REDIS_SERVICE_PATH, mock_redis_service
         ):
             # Should still allow the request when Redis is unavailable
             result = await check_rate_limit(mock_request, "test-api-key")
@@ -236,7 +239,7 @@ class TestFixedWindowResetBehavior:
 
         # Patch le bon module (sans prefixe src)
         with patch(
-            "document_ia_api.api.rate_limiting.redis_service", mock_redis_service
+            REDIS_SERVICE_PATH, mock_redis_service
         ):
             result = await check_rate_limit(mock_request, "test-api-key")
 

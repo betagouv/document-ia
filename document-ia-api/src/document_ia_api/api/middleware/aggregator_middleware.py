@@ -3,7 +3,6 @@ import json
 import logging
 import sys
 import time
-import uuid
 from typing import (
     Any,
     Dict,
@@ -484,13 +483,11 @@ async def _wrap_response_and_capture(
 class AggregationMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint):
         start = time.perf_counter()
-        request_id = str(uuid.uuid4())
+        request_id = request.state.request_id
 
         # Initialize context vars
         token_rid = request_id_var.set(request_id)
         token_buf = agg_buffer_var.set([])
-
-        request.state.request_id = request_id
 
         # Request informations
         req_info = {
