@@ -35,6 +35,9 @@ poetry run alembic history
 
 # Downgrade to previous migration
 poetry run alembic downgrade -1
+
+# Dry run a migration for dev purposes
+poetry run alembic upgrade head --sql > migration.sql
 ```
 
 ## Migration Workflow

@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from document_ia_api.api.auth import verify_api_key
+from document_ia_api.api.auth import verify_api_key, get_current_organization
 from document_ia_api.api.contracts.error.errors import ProblemDetail
 from document_ia_api.api.contracts.execution.failed import (
     ExecutionFailedModel,
@@ -20,6 +20,7 @@ from document_ia_api.api.exceptions.entity_not_found_exception import (
 )
 from document_ia_api.application.services.execution_service import ExecutionService
 from document_ia_infra.data.database import database_manager
+from document_ia_infra.data.organization.dto.organization_dto import OrganizationDTO
 from document_ia_infra.data.workflow.repository.worflow import workflow_repository
 from document_ia_infra.exception.entity_not_found_exception import (
     EntityNotFoundException,
@@ -162,6 +163,7 @@ router = APIRouter(prefix="/executions")
 async def get_execution(
     execution_id: str,
     api_key: str = Depends(verify_api_key),
+    organization: OrganizationDTO = Depends(get_current_organization),
     db_session: AsyncSession = Depends(database_manager.async_get_db),
     is_debug_mode: bool = Query(False),
 ) -> ExecutionStartedModel | ExecutionSuccessModel | ExecutionFailedModel:

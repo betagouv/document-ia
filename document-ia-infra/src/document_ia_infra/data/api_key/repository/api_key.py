@@ -10,6 +10,9 @@ from document_ia_infra.data.api_key.entity.api_key import ApiKeyEntity
 from document_ia_infra.data.api_key.enum.api_key_status import ApiKeyStatus
 from document_ia_infra.data.api_key.mapper.api_key_mapper import entity_to_dto
 
+## Need to import this to avoid joinLoad issues when organizationEntity is not in context
+from document_ia_infra.data.organization.entity.organization import OrganizationEntity
+
 
 class ApiKeyRepository:
     def __init__(self, session: AsyncSession):
@@ -42,10 +45,24 @@ class ApiKeyRepository:
         return entity_to_dto(entity) if entity else None
 
     async def get_by_id_with_relation(self, api_key_id: UUID) -> Optional[ApiKeyDTO]:
+        assert OrganizationEntity
         result = await self.session.execute(
             select(ApiKeyEntity)
             .options(joinedload(ApiKeyEntity.organization))
             .where(ApiKeyEntity.id == api_key_id)
+        )
+        entity = result.scalars().first()
+        return entity_to_dto(entity) if entity else None
+
+    async def get_by_prefix_with_relation(self, prefix: str) -> Optional[ApiKeyDTO]:
+        assert OrganizationEntity
+        result = await self.session.execute(
+            select(ApiKeyEntity)
+            .options(joinedload(ApiKeyEntity.organization))
+            .where(
+                (ApiKeyEntity.prefix == prefix)
+                & (ApiKeyEntity.status == ApiKeyStatus.ACTIVE.value)
+            )
         )
         entity = result.scalars().first()
         return entity_to_dto(entity) if entity else None

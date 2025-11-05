@@ -63,6 +63,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# The last one added is the first one to be executed
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -71,10 +73,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# The last one added is the first one to be executed
 # Add rate limiting middleware
 app.add_middleware(RateLimitMiddleware)
+
 app.add_middleware(AggregationMiddleware)
 app.add_middleware(RequestIDMiddleware)
 
