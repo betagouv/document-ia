@@ -544,6 +544,12 @@ class AggregationMiddleware(BaseHTTPMiddleware):
                     "normalized_path": normalized_path,
                     "method": req_info["method"],
                 }
+
+                if request.state.organization is not None and hasattr(
+                    request.state.organization, "id"
+                ):
+                    tags["organization_id"] = str(request.state.organization.id)
+
                 agg_logger = logging.getLogger("aggregator")
                 agg_logger.info(json.dumps(entry), extra={"tags": tags})
             except Exception:

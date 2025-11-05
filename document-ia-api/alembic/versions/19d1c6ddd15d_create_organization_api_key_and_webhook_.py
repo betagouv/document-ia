@@ -172,8 +172,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.drop_column("event_store", "organization_id")
+
     op.drop_table("webhook")
     op.drop_table("api_key")
     op.drop_table("organization")
-
-    op.drop_column("event_store", "organization_id")
