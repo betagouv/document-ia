@@ -234,18 +234,31 @@ async def get_organization_details(
                 }
             },
         },
-        400: {
+        422: {
             "model": ProblemDetail,
-            "description": "Bad Request (ProblemDetail)",
+            "description": "Validation failed (ProblemDetail) — request schema validation errors",
             "content": {
                 "application/json": {
                     "example": {
                         "type": "about:blank",
-                        "title": "Bad Request",
-                        "status": 400,
-                        "code": "http.bad_request",
-                        "detail": "Invalid payload: name and contact_email are required",
+                        "title": "Validation failed",
+                        "status": 422,
+                        "code": "validation.failed",
                         "instance": "/api/v1/admin/organizations",
+                        "errors": {
+                            "body": [
+                                {
+                                    "loc": ["body", "name"],
+                                    "msg": "field required",
+                                    "type": "value_error.missing",
+                                },
+                                {
+                                    "loc": ["body", "contact_email"],
+                                    "msg": "field required",
+                                    "type": "value_error.missing",
+                                },
+                            ]
+                        },
                     }
                 }
             },
@@ -277,22 +290,6 @@ async def get_organization_details(
                         "status": 403,
                         "code": "http.forbidden",
                         "detail": "Admin role required",
-                        "instance": "/api/v1/admin/organizations",
-                    }
-                }
-            },
-        },
-        409: {
-            "model": ProblemDetail,
-            "description": "Conflict (ProblemDetail)",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "type": "about:blank",
-                        "title": "Conflict",
-                        "status": 409,
-                        "code": "http.conflict",
-                        "detail": "Organization with this email already exists",
                         "instance": "/api/v1/admin/organizations",
                     }
                 }

@@ -21,7 +21,7 @@ async def verify_api_key(
 ):
     apikey_service = ApiKeyService(db_session)
 
-    api_key_dto = await apikey_service.get_api_key_from_presented_key(api_key)
+    api_key_dto = await apikey_service.get_from_presented_key(api_key)
 
     if not api_key_dto:
         raise HTTPException(status_code=401, detail="Invalid API key")
