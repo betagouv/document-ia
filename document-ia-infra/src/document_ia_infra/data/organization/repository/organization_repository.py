@@ -47,7 +47,7 @@ class OrganizationRepository:
         entity = result.scalars().first()
         return entity_to_dto(entity) if entity else None
 
-    async def get_with_api_keys(self, org_id: UUID) -> Optional[OrganizationDTO]:
+    async def get_with_api_keys(self, org_id: str) -> Optional[OrganizationDTO]:
         result = await self.session.execute(
             select(OrganizationEntity)
             .options(joinedload(OrganizationEntity.api_keys))

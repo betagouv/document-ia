@@ -1,0 +1,11 @@
+from pydantic import BaseModel, Field
+
+from document_ia_infra.data.api_key.enum.api_key_status import ApiKeyStatus
+
+
+class APIKeyResult(BaseModel):
+    id: str = Field(description="API key ID")
+    prefix: str = Field(description="API key prefix (public part)")
+    status: ApiKeyStatus = Field(description="API key status")
+    created_at: str = Field(description="API key creation time (ISO8601)")
+    updated_at: str = Field(description="API key update time (ISO8601)")
