@@ -128,7 +128,7 @@ class TestOrganizationRepository:
                 await session.commit()
 
                 # Fetch with eager-loaded api_keys
-                fetched = await org_repo.get_with_api_keys(created_org_id)
+                fetched = await org_repo.get_with_api_keys(str(created_org_id))
                 assert fetched is not None
                 assert fetched.api_keys is not None
                 assert len(fetched.api_keys) == 2
