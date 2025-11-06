@@ -44,6 +44,18 @@ class ApiKeyRepository:
         entity = result.scalars().first()
         return entity_to_dto(entity) if entity else None
 
+    async def get_by_id_and_organization_id(
+        self, api_key_id: UUID, organization_id: UUID
+    ) -> Optional[ApiKeyDTO]:
+        result = await self.session.execute(
+            select(ApiKeyEntity).where(
+                (ApiKeyEntity.id == api_key_id)
+                & (ApiKeyEntity.organization_id == organization_id)
+            )
+        )
+        entity = result.scalars().first()
+        return entity_to_dto(entity) if entity else None
+
     async def get_by_id_with_relation(self, api_key_id: UUID) -> Optional[ApiKeyDTO]:
         assert OrganizationEntity
         result = await self.session.execute(
@@ -107,10 +119,27 @@ class ApiKeyRepository:
         await self.session.flush()
         return await self.get_by_id(api_key_id)
 
-    async def delete(self, api_key_id: UUID) -> bool:
+    async def update_status_by_id(
+        self, *, organization_id: UUID, status: ApiKeyStatus, api_key_id: UUID
+    ) -> Optional[ApiKeyDTO]:
+        await self.session.execute(
+            update(ApiKeyEntity)
+            .where(
+                (ApiKeyEntity.organization_id == organization_id)
+                & (ApiKeyEntity.id == api_key_id)
+            )
+            .values(status=status.value)
+        )
+        await self.session.flush()
+        return await self.get_by_id_and_organization_id(api_key_id, organization_id)
+
+    async def delete(self, organization_id: UUID, api_key_id: UUID) -> bool:
         result = await self.session.execute(
             delete(ApiKeyEntity)
-            .where(ApiKeyEntity.id == api_key_id)
+            .where(
+                (ApiKeyEntity.organization_id == organization_id)
+                & (ApiKeyEntity.id == api_key_id)
+            )
             .returning(ApiKeyEntity.id)
         )
         return len(result.scalars().all()) > 0
