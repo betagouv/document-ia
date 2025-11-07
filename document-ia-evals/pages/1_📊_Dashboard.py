@@ -6,8 +6,6 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
-
-from document_ia_evals.components.sidebar import render_sidebar
 from document_ia_evals.utils.config import Config
 
 # Page configuration
