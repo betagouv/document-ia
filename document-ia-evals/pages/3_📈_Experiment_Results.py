@@ -6,10 +6,14 @@ import json
 from dotenv import load_dotenv
 from label_studio_sdk import Client
 from typing import Optional, Any, Dict
+from uuid import UUID
 
 from src.components.sidebar import render_sidebar
 from src.utils.config import Config
+from src.utils.label_studio import get_project_url
 from metrics import metric_registry
+from src.services.experiment_service import save_experiment
+from src.database.connection import test_db_connection, init_db
 
 # Load environment variables
 load_dotenv()
@@ -210,11 +214,21 @@ def main():
     
     st.title("📈 Experiment Results")
     
+    # Check database connection
+    if 'db_initialized' not in st.session_state:
+        with st.spinner("Initializing database..."):
+            if test_db_connection():
+                init_db()
+                st.session_state.db_initialized = True
+            else:
+                st.error("⚠️ Database connection failed. Results will not be saved.")
+                st.info("Make sure Docker PostgreSQL is running: `docker-compose up -d`")
+    
     # Check if we have selection in session state
     if 'selected_project' not in st.session_state or 'selected_metric' not in st.session_state:
         st.warning("⚠️ No experiment selected. Please start from the New Experiment page.")
         if st.button("Go to New Experiment"):
-            st.switch_page("pages/3_🎯_New_Experiment.py")
+            st.switch_page("pages/2_🎯_New_Experiment.py")
         st.stop()
     
     project_id = st.session_state.selected_project
@@ -223,16 +237,23 @@ def main():
     if not project_id or not metric_name:
         st.warning("⚠️ Incomplete experiment configuration.")
         if st.button("Go to New Experiment"):
-            st.switch_page("pages/3_🎯_New_Experiment.py")
+            st.switch_page("pages/2_🎯_New_Experiment.py")
         st.stop()
     
-    # Display experiment info
-    st.markdown(f"**Project ID:** {project_id}")
+    # Display experiment info with Label Studio link
+    project_url = get_project_url(project_id)
+    st.markdown(f"**Project ID:** {project_id} - 🔗 [View in Label Studio]({project_url})")
     st.markdown(f"**Metric:** {metric_name}")
     
     # Back button
-    if st.button("⬅️ Back to New Experiment"):
-        st.switch_page("pages/3_🎯_New_Experiment.py")
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        if st.button("⬅️ Back"):
+            st.switch_page("pages/2_🎯_New_Experiment.py")
+    with col2:
+        if st.session_state.get('db_initialized') and 'saved_experiment_id' in st.session_state:
+            if st.button("📚 View History"):
+                st.switch_page("pages/4_📚_Experiment_History.py")
     
     st.divider()
     
@@ -241,30 +262,51 @@ def main():
     if not client:
         st.stop()
     
-    # Run experiment button
+    # Initialize session state
     if 'experiment_results' not in st.session_state:
         st.session_state.experiment_results = None
+    if 'saved_experiment_id' not in st.session_state:
+        st.session_state.saved_experiment_id = None
     
-    col1, col2 = st.columns([1, 3])
+    # Run experiment button
+    col1, col2, col3 = st.columns([1, 1, 2])
     with col1:
         if st.button("▶️ Run Experiment", type="primary", use_container_width=True):
             try:
                 with st.spinner("Running experiment..."):
                     results = run_experiment(project_id, metric_name, client)
                     st.session_state.experiment_results = results
+                    st.session_state.saved_experiment_id = None  # Reset saved ID
+                    st.rerun()
             except Exception as e:
                 st.error(f"Failed to run experiment: {str(e)}")
                 st.exception(e)
     
     with col2:
-        if st.session_state.experiment_results:
-            if st.button("🔄 Refresh Results", use_container_width=True):
-                try:
-                    with st.spinner("Running experiment..."):
-                        results = run_experiment(project_id, metric_name, client)
-                        st.session_state.experiment_results = results
-                except Exception as e:
-                    st.error(f"Failed to run experiment: {str(e)}")
+        if st.session_state.experiment_results and not st.session_state.saved_experiment_id:
+            if st.button("💾 Save Results", type="secondary", use_container_width=True):
+                if st.session_state.get('db_initialized'):
+                    try:
+                        with st.spinner("Saving to database..."):
+                            results = st.session_state.experiment_results
+                            experiment_id = save_experiment(
+                                project_id=results['project_id'],
+                                metric_name=results['metric_name'],
+                                observations_data=results['observations'],
+                                total_tasks=results['total_tasks']
+                            )
+                            st.session_state.saved_experiment_id = experiment_id
+                            st.success(f"✅ Experiment saved! ID: {str(experiment_id)[:8]}...")
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"Failed to save experiment: {str(e)}")
+                        st.exception(e)
+                else:
+                    st.error("Database not initialized. Check connection.")
+    
+    with col3:
+        if st.session_state.saved_experiment_id:
+            st.success(f"✅ Saved: {str(st.session_state.saved_experiment_id)[:8]}...")
     
     # Display results if available
     if st.session_state.experiment_results:
