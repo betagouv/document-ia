@@ -7,8 +7,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
-from src.components.sidebar import render_sidebar
-from src.utils.config import Config
+from document_ia_evals.components.sidebar import render_sidebar
+from document_ia_evals.utils.config import Config
 
 # Page configuration
 st.set_page_config(

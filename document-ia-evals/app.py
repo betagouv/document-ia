@@ -2,8 +2,8 @@
 
 import streamlit as st
 
-from src.components.sidebar import render_sidebar
-from src.utils.config import Config
+from document_ia_evals.components.sidebar import render_sidebar
+from document_ia_evals.utils.config import Config
 
 # Initialize configuration
 Config.ensure_directories()
