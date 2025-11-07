@@ -120,6 +120,164 @@ def calculate_similarity_score(expected_data, extracted_data, diff):
     return score
 
 
+def levenshtein_distance(s1: str, s2: str) -> int:
+    """
+    Calculate the Levenshtein distance between two strings.
+    
+    Args:
+        s1: First string
+        s2: Second string
+    
+    Returns:
+        int: The minimum number of single-character edits required to change s1 into s2
+    """
+    if len(s1) < len(s2):
+        return levenshtein_distance(s2, s1)
+    
+    if len(s2) == 0:
+        return len(s1)
+    
+    previous_row = range(len(s2) + 1)
+    for i, c1 in enumerate(s1):
+        current_row = [i + 1]
+        for j, c2 in enumerate(s2):
+            # Cost of insertions, deletions, or substitutions
+            insertions = previous_row[j + 1] + 1
+            deletions = current_row[j] + 1
+            substitutions = previous_row[j] + (c1 != c2)
+            current_row.append(min(insertions, deletions, substitutions))
+        previous_row = current_row
+    
+    return previous_row[-1]
+
+
+def levenshtein_similarity(s1: str, s2: str) -> float:
+    """
+    Calculate normalized Levenshtein similarity between two strings.
+    
+    Args:
+        s1: First string
+        s2: Second string
+    
+    Returns:
+        float: Similarity score between 0.0 and 1.0, where 1.0 is identical strings
+    """
+    if s1 == s2:
+        return 1.0
+    
+    if not s1 or not s2:
+        return 0.0
+    
+    distance = levenshtein_distance(s1, s2)
+    max_len = max(len(s1), len(s2))
+    
+    return 1.0 - (distance / max_len)
+
+
+def calculate_similarity_score_with_levenshtein(expected_data, extracted_data, diff):
+    """
+    Calculate similarity score with Levenshtein distance for string comparisons.
+    
+    This function uses structural differences from DeepDiff but applies Levenshtein
+    distance to give partial credit for similar (but not identical) strings.
+    
+    Args:
+        expected_data: Ground truth data structure
+        extracted_data: LLM extracted data structure  
+        diff: DeepDiff result between expected and extracted data
+    
+    Returns:
+        float: Score between 0 and 1, where 1 is perfect match
+    """
+    if expected_data is None and extracted_data is None:
+        return 1.0
+    if expected_data is None or extracted_data is None:
+        return 0.0
+    
+    if not diff:
+        return 1.0
+    
+    # Count total values in expected data
+    total_expected_values = count_total_values(expected_data)
+    
+    # Calculate weighted differences
+    diff_score = 0.0
+    
+    # Handle value changes with Levenshtein for strings
+    if 'values_changed' in diff:
+        for path, change in diff['values_changed'].items():
+            old_value = change.get('old_value')
+            new_value = change.get('new_value')
+            
+            # If both values are strings, use Levenshtein distance
+            if isinstance(old_value, str) and isinstance(new_value, str):
+                # Give partial credit based on string similarity
+                similarity = levenshtein_similarity(old_value, new_value)
+                diff_score += (1.0 - similarity)
+            else:
+                # For non-strings, count as complete difference
+                diff_score += 1.0
+    
+    # Count type changes as complete differences
+    diff_score += len(diff.get('type_changes', {}))
+    
+    # Count missing items (in expected but not in extracted)
+    if 'dictionary_item_removed' in diff:
+        diff_score += len(diff['dictionary_item_removed'])
+    
+    if 'iterable_item_removed' in diff:
+        for removed_item in diff['iterable_item_removed'].values():
+            diff_score += count_total_values(removed_item)
+    
+    # Count extra items (in extracted but not in expected)  
+    if 'dictionary_item_added' in diff:
+        diff_score += len(diff['dictionary_item_added'])
+    
+    if 'iterable_item_added' in diff:
+        for added_item in diff['iterable_item_added'].values():
+            diff_score += count_total_values(added_item)
+    
+    # Calculate score
+    if total_expected_values == 0:
+        return 1.0 if diff_score == 0 else 0.0
+    
+    score = max(0.0, 1.0 - (diff_score / total_expected_values))
+    return score
+
+
+def calculate_field_level_scores_with_levenshtein(expected_data, extracted_data):
+    """
+    Calculate similarity scores with Levenshtein for each top-level key.
+    
+    Args:
+        expected_data: Ground truth data structure (dict)
+        extracted_data: LLM extracted data structure (dict)
+    
+    Returns:
+        dict: Dictionary mapping each key to its similarity score
+    """
+    if not isinstance(expected_data, dict) or not isinstance(extracted_data, dict):
+        return {}
+    
+    key_scores = {}
+    all_keys = set(expected_data.keys()) | set(extracted_data.keys())
+    
+    for key in all_keys:
+        expected_value = expected_data.get(key)
+        extracted_value = extracted_data.get(key)
+        
+        # Calculate diff for this specific key
+        key_diff = DeepDiff(expected_value, extracted_value, ignore_order=True)
+        
+        # Calculate score for this key with Levenshtein
+        key_score = calculate_similarity_score_with_levenshtein(
+            expected_value, extracted_value, key_diff
+        )
+        key_scores[key] = key_score
+    
+    return key_scores
+
+
 def calculate_field_level_scores(expected_data, extracted_data):
     """
     Calculate similarity scores for each top-level key in the JSON structure.
@@ -209,6 +367,96 @@ def llm_structured_output_metric(prediction: Any, ground_truth: Any, **kwargs) -
     }
     
     # Add diff details if there are differences
+
+
+@metric_registry.register(
+    name="llm_structured_output_levenshtein",
+    description="Compare JSON LLM output with ground truth using Levenshtein distance for string similarity, providing partial credit for similar strings",
+    metric_type="json_comparison",
+    require=["prediction", "ground_truth"],
+)
+def llm_structured_output_levenshtein_metric(prediction: Any, ground_truth: Any, **kwargs) -> Tuple[float, str, Any]:
+    """
+    Compare predicted JSON output with ground truth using Levenshtein distance.
+    
+    This metric extends the basic structured output comparison by using Levenshtein
+    distance to calculate string similarity, giving partial credit for strings that
+    are close but not exact matches. This is particularly useful for LLM outputs
+    where minor variations in wording or formatting may occur.
+    
+    Args:
+        prediction: The predicted output (can be JSON string or dict)
+        ground_truth: The ground truth output (can be JSON string or dict)
+        **kwargs: Additional parameters (unused)
+    
+    Returns:
+        Tuple of (score, observation_json, output):
+            - score: Overall similarity score (0.0 to 1.0) with partial credit for similar strings
+            - observation_json: JSON string with detailed results including Levenshtein similarities
+            - output: The prediction for reference
+    """
+    # Parse the expected output (ground truth)
+    expected_data = parse_json_from_response(ground_truth)
+    if expected_data is None:
+        error_obs = {
+            "score": 0.0,
+            "error": "Failed to parse ground truth JSON",
+            "ground_truth_raw": str(ground_truth)[:500]
+        }
+        return 0.0, json.dumps(error_obs, indent=2), prediction
+    
+    # Parse the prediction
+    extracted_data = parse_json_from_response(prediction)
+    if extracted_data is None:
+        observation = {
+            "score": 0.0,
+            "error": "Failed to extract valid JSON from prediction",
+            "prediction_raw": str(prediction)[:500],
+            "expected_data": expected_data
+        }
+        return 0.0, json.dumps(observation, indent=2), prediction
+    
+    # Calculate similarity scores with Levenshtein distance
+    diff = DeepDiff(expected_data, extracted_data, ignore_order=True)
+    field_scores = calculate_field_level_scores_with_levenshtein(expected_data, extracted_data)
+    
+    # Calculate overall score
+    overall_score = sum(field_scores.values()) / len(field_scores) if field_scores else 0.0
+    
+    # Collect Levenshtein details for string comparisons
+    levenshtein_details = {}
+    if 'values_changed' in diff:
+        for path, change in diff['values_changed'].items():
+            old_value = change.get('old_value')
+            new_value = change.get('new_value')
+            
+            if isinstance(old_value, str) and isinstance(new_value, str):
+                similarity = levenshtein_similarity(old_value, new_value)
+                distance = levenshtein_distance(old_value, new_value)
+                levenshtein_details[path] = {
+                    "expected": old_value,
+                    "predicted": new_value,
+                    "similarity": round(similarity, 4),
+                    "distance": distance
+                }
+
+    # Build detailed observation
+    observation = {
+        "score": overall_score,
+        "extracted_data": extracted_data,
+        "expected_data": expected_data,
+        "field_scores": field_scores,
+    }
+    
+    # Add Levenshtein details if available
+    if levenshtein_details:
+        observation["levenshtein_details"] = levenshtein_details
+    
+    # Add diff details if there are differences
+    if diff:
+        observation["differences"] = str(diff)[:1000]  # Limit diff size
+    
+    return overall_score, json.dumps(observation, indent=2), prediction
     if diff:
         observation["differences"] = str(diff)[:1000]  # Limit diff size
     
