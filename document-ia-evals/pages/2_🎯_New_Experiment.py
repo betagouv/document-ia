@@ -163,7 +163,7 @@ def main():
                 # Navigate to experiment results page with URL parameters
                 project_id = st.session_state.selected_project
                 metric_name = st.session_state.selected_metric
-                st.switch_page(f"pages/4_📈_Experiment_Results.py")
+                st.switch_page(f"pages/3_📈_Experiment_Results.py")
     else:
         st.info("Please select both a project and a metric to continue.")
         
