@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import NullPool
 from dotenv import load_dotenv
 
-from src.database.models import Base
+from document_ia_evals.database.models import Base
 
 # Load environment variables
 load_dotenv()

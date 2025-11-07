@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Import models for autogenerate support
-from src.database.models import Base
+from document_ia_evals.database.models import Base
 
 # this is the Alembic Config object
 config = context.config

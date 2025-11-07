@@ -5,15 +5,15 @@ import pandas as pd
 from datetime import datetime
 from typing import Optional
 
-from src.components.sidebar import render_sidebar
-from src.utils.config import Config
-from src.services.experiment_service import (
+from document_ia_evals.components.sidebar import render_sidebar
+from document_ia_evals.utils.config import Config
+from document_ia_evals.services.experiment_service import (
     list_experiments,
     load_experiment,
     delete_experiment,
     get_experiment_statistics
 )
-from src.database.connection import test_db_connection, init_db
+from document_ia_evals.database.connection import test_db_connection, init_db
 from metrics import metric_registry
 # Page configuration
 st.set_page_config(

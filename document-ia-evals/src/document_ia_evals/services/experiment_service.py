@@ -8,8 +8,8 @@ from datetime import datetime
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
-from src.database.models import Experiment, Observation
-from src.database.connection import get_session
+from document_ia_evals.database.models import Experiment, Observation
+from document_ia_evals.database.connection import get_session
 
 
 def save_experiment(
