@@ -7,19 +7,20 @@ def render_sidebar():
     """Render the sidebar with navigation and settings."""
     with st.sidebar:
         
-        st.subheader("Settings")
-        theme = st.selectbox(
-            "Theme",
-            ["Light", "Dark", "Auto"],
-            index=0
-        )
+        # # st.subheader("Settings")
+        # # theme = st.selectbox(
+        # #     "Theme",
+        # #     ["Light", "Dark", "Auto"],
+        # #     index=0
+        # # )
         
-        st.markdown("---")
+        # # st.markdown("---")
         
-        st.subheader("About")
-        st.info(
-            "This is a Streamlit application with a clean, "
-            "modular code structure."
-        )
+        # st.subheader("About")
+        # st.info(
+        #     "This is a Streamlit application with a clean, "
+        #     "modular code structure."
+        # )
         
-        return {"theme": theme}
+        return {}
+        # return {"theme": theme}
