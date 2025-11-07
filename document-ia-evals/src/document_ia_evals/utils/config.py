@@ -15,6 +15,9 @@ class Config:
     APP_TITLE = "Streamlit App"
     PAGE_ICON = "📊"
     LAYOUT = "wide"
+
+    # Configuration related to the Document IA API
+    BASE_URL = "https://api.staging.document-ia.beta.gouv.fr/"
     
     @classmethod
     def ensure_directories(cls):
