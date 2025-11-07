@@ -6,8 +6,8 @@ from dotenv import load_dotenv
 from label_studio_sdk import Client
 from typing import Optional
 
-from src.components.sidebar import render_sidebar
-from src.utils.config import Config
+from document_ia_evals.components.sidebar import render_sidebar
+from document_ia_evals.utils.config import Config
 from metrics import metric_registry
 
 # Load environment variables
