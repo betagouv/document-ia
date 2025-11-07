@@ -1,9 +1,10 @@
 [project]
-name = "streamlit-app"
+name = "document-ia-evals"
 version = "0.1.0"
 description = ""
 authors = [
-    {name = "Erwan BOEHM",email = "erwan.boehm@gmail.com"}
+    {name = "Erwan BOEHM",email = "erwan.boehm@gmail.com"},
+    {name = "Olivier DULCY",email = "olivier.dulcy@beta.gouv.fr"}
 ]
 readme = "README.md"
 requires-python = ">=3.12,<4"

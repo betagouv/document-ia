@@ -8,12 +8,12 @@ from label_studio_sdk import Client
 from typing import Optional, Any, Dict
 from uuid import UUID
 
-from src.components.sidebar import render_sidebar
-from src.utils.config import Config
-from src.utils.label_studio import get_project_url
+from document_ia_evals.components.sidebar import render_sidebar
+from document_ia_evals.utils.config import Config
+from document_ia_evals.utils.label_studio import get_project_url
 from metrics import metric_registry
-from src.services.experiment_service import save_experiment
-from src.database.connection import test_db_connection, init_db
+from document_ia_evals.services.experiment_service import save_experiment
+from document_ia_evals.database.connection import test_db_connection, init_db
 
 # Load environment variables
 load_dotenv()
