@@ -77,9 +77,12 @@ class SaveWorkflowResultStep(BaseStep[None]):
                 list_of_barcodes.extend(page.barcodes)
             final_result.barcodes = list_of_barcodes
         try:
+            if self.main_workflow_context.organization_id is None:
+                raise ValueError("Organization ID is not set in workflow context")
             await self.event_service.emit_workflow_completed(
                 workflow_id=self.workflow_id,
                 execution_id=self.execution_id,
+                organization_id=self.main_workflow_context.organization_id,
                 final_result=final_result,
                 total_processing_time_ms=int(
                     (end_time - self.main_workflow_context.start_time).total_seconds()

@@ -51,6 +51,7 @@ def _file_info() -> FileInfo:
 def test_get_event_model_started(service: ExecutionService):
     start_evt = WorkflowExecutionStartedEvent(
         event_id=uuid4(),
+        organization_id=uuid4(),
         workflow_id="wf",
         execution_id="exec",
         created_at=datetime.now(UTC),
@@ -60,6 +61,7 @@ def test_get_event_model_started(service: ExecutionService):
     )
     dto = EventDTO(
         id=uuid4(),
+        organization_id=uuid4(),
         workflow_id="wf",
         execution_id="exec",
         created_at=datetime.now(UTC),
@@ -74,6 +76,7 @@ def test_get_event_model_started(service: ExecutionService):
 def test_get_event_model_failed(service: ExecutionService):
     failed_evt = WorkflowExecutionFailedEvent(
         event_id=uuid4(),
+        organization_id=uuid4(),
         workflow_id="wf",
         execution_id="exec",
         created_at=datetime.now(UTC),
@@ -85,6 +88,7 @@ def test_get_event_model_failed(service: ExecutionService):
     )
     dto = EventDTO(
         id=uuid4(),
+        organization_id=uuid4(),
         workflow_id="wf",
         execution_id="exec",
         created_at=datetime.now(UTC),
@@ -110,6 +114,7 @@ def test_get_event_model_completed_with_extraction_and_classification(service: E
     )
     completed = WorkflowExecutionCompletedEvent(
         event_id=uuid4(),
+        organization_id=uuid4(),
         workflow_id="wf",
         execution_id="exec",
         created_at=datetime.now(UTC),
@@ -134,6 +139,7 @@ def test_get_event_model_completed_with_extraction_and_classification(service: E
 
     dto = EventDTO(
         id=uuid4(),
+        organization_id=uuid4(),
         workflow_id="wf",
         execution_id="exec",
         created_at=datetime.now(UTC),

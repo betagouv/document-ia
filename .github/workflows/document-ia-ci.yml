@@ -26,7 +26,7 @@ jobs:
           - name: infra
             project: document-ia-infra
             pythonpath: document-ia-infra/src
-            needs_docker_stack: false
+            needs_docker_stack: true
             needs_tesseract: false
           - name: worker
             project: document-ia-worker
@@ -71,6 +71,9 @@ jobs:
       S3_BUCKET_NAME: document-ia-test
       S3_REGION_NAME: us-east-1
       S3_USE_SSL: false
+
+      DOCUMENT_IA_API_KEY: dia_dev_1_A222AAAA_A222AAAAAAAAAAAAAAA2A2AA2A2AAAAAAAAA22AAAAA22AA2A2AA_T2BR
+      APP_ENV: dev
 
       # OpenAI / Albert
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

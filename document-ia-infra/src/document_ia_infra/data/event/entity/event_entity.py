@@ -36,6 +36,13 @@ class EventEntity(Base):
         comment="Unique identifier for the event",
     )
 
+    organization_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        nullable=False,
+        index=True,
+        comment="Organization identifier",
+    )
+
     # Event metadata
     workflow_id: Mapped[str] = mapped_column(
         String(255), nullable=False, index=True, comment="Workflow identifier"
@@ -85,6 +92,7 @@ class EventEntity(Base):
         return (
             f"<EventStore(id={self.id}, "
             f"workflow_id={self.workflow_id}, "
+            f"organization_id={self.organization_id}, "
             f"execution_id={self.execution_id}, "
             f"event_type={self.event_type}, "
         )
@@ -94,6 +102,7 @@ class EventEntity(Base):
         return {
             "id": str(self.id),
             "workflow_id": self.workflow_id,
+            "organization_id": str(self.organization_id),
             "execution_id": self.execution_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "event_type": self.event_type,

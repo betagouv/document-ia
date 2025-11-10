@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4, UUID
 
 import pytest
 from pydantic import BaseModel
@@ -23,7 +24,7 @@ class TestSaveWorkflowResult:
     async def test_save_workflow_classification_result_persists_event_with_expected_payload(self, monkeypatch):
         # Arrange: context with deterministic start_time (timezone-aware to match code using UTC)
         start_time = datetime.now(timezone.utc) - timedelta(seconds=2)
-        ctx = MainWorkflowContext(execution_id="exec-123", start_time=start_time, steps_metadata=[], number_of_step_executed=3)
+        ctx = MainWorkflowContext(execution_id="exec-123", start_time=start_time, steps_metadata=[], number_of_step_executed=3,  organization_id=uuid4())
 
         # Fake DB session
         fake_session = MagicMock()
@@ -46,10 +47,11 @@ class TestSaveWorkflowResult:
         # Replace event_service by a stub with the same signature as EventStoreService.emit_workflow_completed
         captured: dict[str, object] = {}
 
-        async def fake_emit(*, workflow_id: str, execution_id: str, final_result, total_processing_time_ms: int,
+        async def fake_emit(*, workflow_id: str, execution_id: str, organization_id: UUID, final_result, total_processing_time_ms: int,
                             output_summary: dict, steps_completed: int, workflow_metadata):
             captured.update({
                 "workflow_id": workflow_id,
+                "organization_id": organization_id,
                 "execution_id": execution_id,
                 "final_result": final_result,
                 "total_processing_time_ms": total_processing_time_ms,
@@ -84,10 +86,9 @@ class TestSaveWorkflowResult:
         assert captured["workflow_metadata"] == []
 
     @pytest.mark.asyncio
-    async def test_prepare_step_requires_llm_result(self):
-        ctx = MainWorkflowContext(execution_id="exec-xyz", start_time=datetime.now(timezone.utc), steps_metadata=[])
+    async def test_prepare_step_requires_llm_result(self, main_workflow_context):
         step = SaveWorkflowResultStep(
-            main_workflow_context=ctx,
+            main_workflow_context=main_workflow_context,
             workflow_id="wf-abc",
             database_session=MagicMock(),
         )
@@ -99,7 +100,7 @@ class TestSaveWorkflowResult:
     async def test_save_workflow_extraction_result_persists_event_with_expected_payload(self):
         # Arrange
         start_time = datetime.now(timezone.utc) - timedelta(seconds=1)
-        ctx = MainWorkflowContext(execution_id="exec-extr", start_time=start_time, steps_metadata=[], number_of_step_executed=1)
+        ctx = MainWorkflowContext(execution_id="exec-extr", start_time=start_time, steps_metadata=[], number_of_step_executed=1,  organization_id=uuid4())
         fake_session = MagicMock()
 
         # LLMExtractionResult expects a pydantic BaseModel for data; create a minimal one
@@ -119,7 +120,7 @@ class TestSaveWorkflowResult:
 
         captured = {}
 
-        async def fake_emit(*, workflow_id: str, execution_id: str, final_result, total_processing_time_ms: int,
+        async def fake_emit(*, workflow_id: str, execution_id: str, organization_id: UUID, final_result, total_processing_time_ms: int,
                             output_summary: dict, steps_completed: int, workflow_metadata):
             captured.update({"final_result": final_result, "workflow_metadata": workflow_metadata})
             return SimpleNamespace(id="evt-99")
@@ -143,7 +144,7 @@ class TestSaveWorkflowResult:
         # Arrange: create context with non-empty steps_metadata
         start_time = datetime.now(timezone.utc) - timedelta(seconds=1)
         steps_md = [StepMetadata(step_name="ocr", execution_time=120.5)]
-        ctx = MainWorkflowContext(execution_id="exec-meta", start_time=start_time, steps_metadata=steps_md, number_of_step_executed=2)
+        ctx = MainWorkflowContext(execution_id="exec-meta", start_time=start_time, steps_metadata=steps_md, number_of_step_executed=2, organization_id=uuid4())
         fake_session = MagicMock()
 
         classification = DocumentClassification(
@@ -157,7 +158,7 @@ class TestSaveWorkflowResult:
 
         captured = {}
 
-        async def fake_emit(*, workflow_id: str, execution_id: str, final_result, total_processing_time_ms: int,
+        async def fake_emit(*, workflow_id: str, execution_id: str, organization_id: UUID, final_result, total_processing_time_ms: int,
                             output_summary: dict, steps_completed: int, workflow_metadata):
             captured.update({"workflow_metadata": workflow_metadata})
             return SimpleNamespace(id="evt-meta")

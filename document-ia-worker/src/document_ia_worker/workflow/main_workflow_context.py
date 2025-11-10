@@ -1,4 +1,6 @@
 from datetime import datetime
+from typing import Optional
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -16,6 +18,7 @@ class StepLLMMetadata(StepMetadata):
 
 class MainWorkflowContext(BaseModel):
     execution_id: str
+    organization_id: Optional[UUID]
     start_time: datetime
     steps_metadata: list[StepMetadata] = Field(default=[])
     number_of_step_executed: int = Field(default=0)

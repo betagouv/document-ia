@@ -43,6 +43,7 @@ def sample_event_data():
     """Sample event data for testing."""
     return {
         "event_id": str(uuid4()),
+        "organization_id": str(uuid4()),
         "workflow_id": "test_workflow_001",
         "execution_id": "test_execution_001",
         "created_at": datetime.now().isoformat(),
@@ -73,6 +74,7 @@ class TestEventRepository:
         # Act
         result = await event_repository.put_event(
             workflow_id="test_workflow_001",
+            organization_id=uuid4(),
             execution_id="test_execution_001",
             event_type="WorkflowExecutionStarted",
             event_data=sample_event_data,
@@ -94,6 +96,7 @@ class TestEventRepository:
             EventDTO(
                 id=uuid4(),
                 created_at=datetime.now(UTC),
+                organization_id=uuid4(),
                 workflow_id="test_workflow_001",
                 execution_id="test_execution_001",
                 event_type=EventType.WORKFLOW_EXECUTION_STARTED,
@@ -102,6 +105,7 @@ class TestEventRepository:
             EventDTO(
                 id=uuid4(),
                 created_at=datetime.now(UTC),
+                organization_id=uuid4(),
                 workflow_id="test_workflow_001",
                 execution_id="test_execution_001",
                 event_type=EventType.WORKFLOW_EXECUTION_COMPLETED,
@@ -133,6 +137,7 @@ class TestEventRepository:
             EventDTO(
                 id=uuid4(),
                 workflow_id="test_workflow_001",
+                organization_id=uuid4(),
                 execution_id="test_execution_001",
                 created_at=datetime.now(UTC),
                 event_type=EventType.WORKFLOW_EXECUTION_STARTED,
@@ -162,6 +167,7 @@ class TestEventRepository:
             EventDTO(
                 id=uuid4(),
                 workflow_id="test_workflow_001",
+                organization_id=uuid4(),
                 execution_id="test_execution_001",
                 created_at=datetime.now(UTC),
                 event_type=EventType.WORKFLOW_EXECUTION_STARTED,

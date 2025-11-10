@@ -1,11 +1,8 @@
-from datetime import datetime
 from pathlib import Path
-from uuid import uuid4
 
-import pytest
 import fitz
+import pytest
 
-from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
 from document_ia_worker.workflow.step.preprocess_file.preprocess_file import (
     PreprocessFileStep,
 )
@@ -20,6 +17,7 @@ SOURCE_PDF = FIXTURES_DIR / "test_download_file.pdf"
 def _count_pdf_pages(pdf_path: Path) -> int:
     with fitz.open(pdf_path) as doc:  # type: ignore[call-arg]
         return doc.page_count
+
 
 def _ensure_two_page_pdf(target_path: Path) -> Path:
     if target_path.exists():
@@ -42,15 +40,13 @@ def _ensure_two_page_pdf(target_path: Path) -> Path:
 
 class TestPreprocessFileStep:
     @pytest.mark.asyncio
-    async def test_preprocess_pdf_creates_two_images_and_cleanup(self):
+    async def test_preprocess_pdf_creates_two_images_and_cleanup(self, main_workflow_context):
         # Ensure the fixture PDF has exactly 2 pages
         pdf_path = _ensure_two_page_pdf(SOURCE_PDF)
         assert pdf_path.exists(), "The fixture PDF is missing"
         assert _count_pdf_pages(pdf_path) == 2, "The fixture PDF must have 2 pages"
 
-        # Build the context and the step
-        ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now(), steps_metadata=[])
-        step = PreprocessFileStep(main_workflow_context=ctx)
+        step = PreprocessFileStep(main_workflow_context=main_workflow_context)
 
         # Inject a simulated download result (unit test => no S3)
         dl_result = DownloadFileResult(

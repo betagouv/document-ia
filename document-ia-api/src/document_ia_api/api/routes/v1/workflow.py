@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from document_ia_api.api.auth import verify_api_key
+from document_ia_api.api.auth import verify_api_key, get_current_organization
 from document_ia_api.api.contracts.error.errors import ProblemDetail
 from document_ia_api.api.contracts.workflow import (
     WorkflowExecuteResponse,
@@ -13,6 +13,7 @@ from document_ia_api.api.middleware.rate_limiting_middleware import check_rate_l
 from document_ia_api.application.services.workflow_service import WorkflowService
 from document_ia_api.schemas.rate_limiting import RateLimitInfo
 from document_ia_infra.data.database import database_manager
+from document_ia_infra.data.organization.dto.organization_dto import OrganizationDTO
 
 logger = logging.getLogger(__name__)
 
@@ -198,6 +199,7 @@ async def execute_workflow(
         default=None, description="JSON string containing metadata object"
     ),
     api_key: str = Depends(verify_api_key),
+    current_org: OrganizationDTO = Depends(get_current_organization),
     rate_limit_info: RateLimitInfo = Depends(check_rate_limit),
     db_session: AsyncSession = Depends(database_manager.async_get_db),
 ) -> WorkflowExecuteResponse:
@@ -237,7 +239,10 @@ async def execute_workflow(
 
         # Execute workflow using the service
         result = await workflow_service.execute_workflow(
-            workflow_id=workflow_id.strip(), file=file, metadata_json=metadata
+            organization_id=current_org.id,
+            workflow_id=workflow_id.strip(),
+            file=file,
+            metadata_json=metadata,
         )
 
         # Commit the database session to persist all changes (including events)

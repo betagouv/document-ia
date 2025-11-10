@@ -1,13 +1,10 @@
 import json
-from datetime import datetime
 from pathlib import Path
-from uuid import uuid4
 
 import pytest
+from document_ia_schemas import SupportedDocumentType
 
 from document_ia_infra.data.document.schema.document_classification import DocumentClassification
-from document_ia_schemas import SupportedDocumentType
-from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
 from document_ia_worker.workflow.step.llm_extract_document.llm_extract_document import (
     LLMExtractDocumentStep,
 )
@@ -26,7 +23,7 @@ SNAPSHOT_PATH = FIXTURES_DIR / "ocr_result_cni.json"
 
 @pytest.mark.skipif(not SNAPSHOT_PATH.exists(), reason="Snapshot file does not exist")
 @pytest.mark.asyncio
-async def test_llm_extract_openai_real_call_with_cni_fixture():
+async def test_llm_extract_openai_real_call_with_cni_fixture(main_workflow_context):
     # Build OcrResult from snapshot
     data = json.loads(SNAPSHOT_PATH.read_text())
     pages = [OcrResultPage(**p) for p in data.get("pages", [])]
@@ -42,9 +39,7 @@ async def test_llm_extract_openai_real_call_with_cni_fixture():
     # LLMClassificationResult requires token counts
     llm_classification_result = LLMClassificationResult(data=classification, request_tokens=1, response_tokens=1)
 
-    # Build context and run the extract step with a real OpenAI model
-    ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now(), steps_metadata=[])
-    step = LLMExtractDocumentStep(main_workflow_context=ctx, model="albert-large")
+    step = LLMExtractDocumentStep(main_workflow_context=main_workflow_context, model="albert-large")
 
     step.inject_workflow_context(
         {

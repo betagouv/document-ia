@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Optional, TYPE_CHECKING
+from typing import Any, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import String, DateTime
@@ -7,11 +7,8 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
+from document_ia_infra.data.api_key.entity.api_key import ApiKeyEntity  # noqa: F401
 from document_ia_infra.data.database import Base
-
-# Use to avoid circular imports
-if TYPE_CHECKING:
-    from document_ia_infra.data.api_key.entity.api_key import ApiKeyEntity
 
 
 class OrganizationEntity(Base):
