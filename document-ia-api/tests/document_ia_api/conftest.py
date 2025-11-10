@@ -115,7 +115,6 @@ def mock_api_key_service_auth(monkeypatch, standard_api_key_value, admin_api_key
     - invalid_api_key_value => None (simule clé invalide)
     - toute autre clé => organization STANDARD (par défaut)
     """
-    from document_ia_api.application.services.api_key import api_key_service as svc_mod
     from document_ia_api.api import auth as auth_mod
 
     now = datetime.now(timezone.utc)

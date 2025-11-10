@@ -18,9 +18,6 @@ from document_ia_api.application.services.organization.organization_service impo
     OrganizationService,
 )
 from document_ia_infra.data.database import database_manager
-from document_ia_infra.exception.entity_not_found_exception import (
-    EntityNotFoundException,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -414,7 +411,7 @@ async def delete_organization(
         service = OrganizationService(db_session)
         await service.delete(str(organization_id))
         return None
-    except EntityNotFoundException:
+    except HttpEntityNotFoundException:
         raise
     except Exception as err:
         logger.error(f"Error deleting organization: {err}")
