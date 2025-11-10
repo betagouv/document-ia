@@ -10,6 +10,8 @@ from unittest.mock import AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from datetime import datetime, timezone
+from uuid import uuid4
 
 from dotenv import load_dotenv
 
@@ -24,6 +26,10 @@ from document_ia_api.api.middleware.rate_limiting_middleware import RateLimitMid
 from document_ia_api.api.routes import router
 from document_ia_api.schemas.rate_limiting import RateLimitInfo
 from document_ia_api.api.exceptions.handler.exception_handlers import setup_exception_handlers
+from document_ia_infra.data.organization.enum.platform_role import PlatformRole
+from document_ia_infra.data.organization.dto.organization_dto import OrganizationDTO
+from document_ia_infra.data.api_key.dto.api_key_dto import ApiKeyDTO
+from document_ia_infra.data.api_key.enum.api_key_status import ApiKeyStatus
 
 # Load test environment variables
 test_env_path = os.path.join(os.path.dirname(__file__), ".env.test")
@@ -34,24 +40,14 @@ if os.path.exists(test_env_path):
 def create_test_app(api_key: str = None):
     """
     Create a FastAPI test application with controlled settings.
-
-    Args:
-        api_key: The API key to use for testing
-
-    Returns:
-        FastAPI: A test application instance
     """
 
-    # Create test settings
     class TestSettings:
         APP_VERSION = "1.0.0-test"
         API_KEY = SecretStr(api_key) if api_key else None
 
-    # TODO: Do not copy and paste the app configuration from the main.py file
-    # Create FastAPI application
     app = FastAPI(title="API Document IA - Test")
 
-    # Add CORS middleware
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -61,37 +57,22 @@ def create_test_app(api_key: str = None):
     )
 
     app.add_middleware(RateLimitMiddleware)
-
-    # Register problem+json exception handlers for tests
     setup_exception_handlers(app)
 
-    # Override the settings in auth module
-    import document_ia_api.api.auth
+    # Override legacy settings object if still referenced somewhere
+    import document_ia_api.api.auth as auth_mod
+    auth_mod.settings = TestSettings()
 
-    document_ia_api.api.auth.settings = TestSettings()
-
-    # Include API routes
     app.include_router(router, prefix="/api", tags=["API"])
-
     return app
 
 
 @pytest.fixture
 def mock_redis_service():
-    """
-    Create a mock Redis service for testing.
-
-    This avoids actual Redis connections during tests.
-
-    Returns:
-        MagicMock: A mocked Redis service
-    """
     mock_service = MagicMock()
-
-    # Mock the check_rate_limit method to return success
     mock_service.check_rate_limit = AsyncMock(
         return_value=(
-            True,  # is_allowed
+            True,
             RateLimitInfo(
                 limit_exceeded=False,
                 remaining_minute=99,
@@ -101,67 +82,135 @@ def mock_redis_service():
             ),
         )
     )
-
     return mock_service
 
+# ---------------------------------------------------------------------------
+# API Key fixtures (values)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="session")
+def standard_api_key_value() -> str:
+    return "standard-test-api-key"
+
+
+@pytest.fixture(scope="session")
+def admin_api_key_value() -> str:
+    return "admin-test-api-key"
+
+
+@pytest.fixture(scope="session")
+def invalid_api_key_value() -> str:
+    return "invalid-test-api-key"
+
+# ---------------------------------------------------------------------------
+# Central auth monkeypatch: mock ApiKeyService.get_from_presented_key
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def mock_api_key_service_auth(monkeypatch, standard_api_key_value, admin_api_key_value, invalid_api_key_value):
+    """Mock ApiKeyService.get_from_presented_key pour retourner des ApiKeyDTO selon la clé.
+
+    - standard_api_key_value => organization rôle STANDARD
+    - admin_api_key_value => organization rôle PLATFORM_ADMIN
+    - invalid_api_key_value => None (simule clé invalide)
+    - toute autre clé => organization STANDARD (par défaut)
+    """
+    from document_ia_api.application.services.api_key import api_key_service as svc_mod
+    from document_ia_api.api import auth as auth_mod
+
+    now = datetime.now(timezone.utc)
+
+    org_standard = OrganizationDTO(
+        id=uuid4(),
+        contact_email="standard@example.org",
+        name="Standard Org",
+        platform_role=PlatformRole.STANDARD,
+        created_at=now,
+        updated_at=now,
+    )
+    org_admin = OrganizationDTO(
+        id=uuid4(),
+        contact_email="admin@example.org",
+        name="Admin Org",
+        platform_role=PlatformRole.PLATFORM_ADMIN,
+        created_at=now,
+        updated_at=now,
+    )
+
+    def _make_api_key(org: OrganizationDTO, prefix: str) -> ApiKeyDTO:
+        return ApiKeyDTO(
+            id=uuid4(),
+            organization_id=org.id,
+            organization=org,
+            key_hash="argon2$dummy_hash",  # not used in tests
+            prefix=prefix[:8].ljust(8, "X"),
+            status=ApiKeyStatus.ACTIVE,
+            created_at=now,
+            updated_at=now,
+        )
+
+    api_key_standard_dto = _make_api_key(org_standard, "STDKEY12")
+    api_key_admin_dto = _make_api_key(org_admin, "ADMKEY12")
+
+    async def fake_get_from_presented_key(self, presented: str):  # noqa: ARG001
+        if presented == invalid_api_key_value or presented == "invalid-api-key":
+            return None
+        if presented == admin_api_key_value:
+            return api_key_admin_dto
+        if presented == standard_api_key_value:
+            return api_key_standard_dto
+        # default fallback: treat as standard
+        return api_key_standard_dto
+
+    # Patch sur la classe ApiKeyService importée dans auth (la source de vérité de verify_api_key)
+    monkeypatch.setattr(
+        auth_mod.ApiKeyService,
+        "get_from_presented_key",
+        fake_get_from_presented_key,
+        raising=True,
+    )
+
+    yield  # Nothing to teardown
+
+# ---------------------------------------------------------------------------
+# Client factory util
+# ---------------------------------------------------------------------------
+
+def _build_client(mock_redis_service) -> TestClient:
+    import document_ia_api.api.middleware.rate_limiting_middleware as rl_mod
+    original = rl_mod.redis_service
+    rl_mod.redis_service = mock_redis_service
+    client = TestClient(create_test_app())
+
+    def _finalizer():
+        rl_mod.redis_service = original
+    # register finalizer via yield pattern in calling fixture
+    return client, _finalizer
+
+# ---------------------------------------------------------------------------
+# Client fixtures
+# ---------------------------------------------------------------------------
 
 @pytest.fixture
-def valid_api_key():
-    """
-    Provide a valid API key for testing.
-
-    Returns:
-        str: A valid API key for authentication
-    """
-    return "test-api-key-12345"
-
-
-@pytest.fixture
-def client_with_api_key(valid_api_key, mock_redis_service):
-    """
-    Create a test client with a valid API key configured.
-
-    Args:
-        valid_api_key: The valid API key to use in settings
-        mock_redis_service: Mocked Redis service
-
-    Returns:
-        TestClient: A test client with API key configured
-    """
-    # Patch the redis_service with our mock
-    import document_ia_api.api.middleware.rate_limiting_middleware
-
-    original_redis_service = document_ia_api.api.middleware.rate_limiting_middleware.redis_service
-    document_ia_api.api.middleware.rate_limiting_middleware.redis_service = mock_redis_service
-
-    client = TestClient(create_test_app(api_key=valid_api_key))
-
-    # Restore original service after test
+def client_with_api_key_standard(mock_redis_service, standard_api_key_value):
+    client, finalizer = _build_client(mock_redis_service)
     yield client
+    finalizer()
 
-    document_ia_api.api.middleware.rate_limiting_middleware.redis_service = original_redis_service
+@pytest.fixture
+def client_with_api_key_admin(mock_redis_service, admin_api_key_value):
+    client, finalizer = _build_client(mock_redis_service)
+    yield client
+    finalizer()
 
+@pytest.fixture
+def client_with_api_key_invalid(mock_redis_service, invalid_api_key_value):
+    client, finalizer = _build_client(mock_redis_service)
+    yield client
+    finalizer()
 
 @pytest.fixture
 def client_without_api_key(mock_redis_service):
-    """
-    Create a test client without API key configured.
-
-    Args:
-        mock_redis_service: Mocked Redis service
-
-    Returns:
-        TestClient: A test client without API key
-    """
-    # Patch the redis_service with our mock
-    import document_ia_api.api.middleware.rate_limiting_middleware
-
-    original_redis_service = document_ia_api.api.middleware.rate_limiting_middleware.redis_service
-    document_ia_api.api.middleware.rate_limiting_middleware.redis_service = mock_redis_service
-
-    client = TestClient(create_test_app(api_key=None))
-
-    # Restore original service after test
+    client, finalizer = _build_client(mock_redis_service)
     yield client
-
-    document_ia_api.api.middleware.rate_limiting_middleware.redis_service = original_redis_service
+    finalizer()

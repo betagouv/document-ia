@@ -15,7 +15,7 @@ class TestHealthCheck:
     """Test cases for health check endpoint."""
 
     @pytest.mark.asyncio
-    async def test_health_check_healthy(self, client_with_api_key):
+    async def test_health_check_healthy(self, client_without_api_key):
         """Test health check when both S3 and Redis are fully operational."""
 
         # Mock S3 connectivity check to return healthy status
@@ -38,7 +38,7 @@ class TestHealthCheck:
             mock_redis_check.return_value = mock_redis_connectivity
             mock_db_check.return_value = mock_db_connectivity
 
-            response = client_with_api_key.get("/api/v1/health")
+            response = client_without_api_key.get("/api/v1/health")
 
             assert response.status_code == 200
             data = response.json()
@@ -61,7 +61,7 @@ class TestHealthCheck:
             assert data["redis"]["errors"] == []
 
     @pytest.mark.asyncio
-    async def test_health_check_unhealthy_s3(self, client_with_api_key):
+    async def test_health_check_unhealthy_s3(self, client_without_api_key):
         """Test health check when S3 is not connected."""
 
         # Mock S3 connectivity check to return unhealthy status
@@ -84,7 +84,7 @@ class TestHealthCheck:
             mock_redis_check.return_value = mock_redis_connectivity
             mock_db_check.return_value = mock_db_connectivity
 
-            response = client_with_api_key.get("/api/v1/health")
+            response = client_without_api_key.get("/api/v1/health")
 
             # Should return 503 when service is unhealthy
             assert response.status_code == 503
@@ -96,7 +96,7 @@ class TestHealthCheck:
             )
 
     @pytest.mark.asyncio
-    async def test_health_check_redis_unhealthy(self, client_with_api_key):
+    async def test_health_check_redis_unhealthy(self, client_without_api_key):
         """Test health check when Redis is not connected."""
 
         # Mock S3 connectivity check to return healthy status
@@ -120,7 +120,7 @@ class TestHealthCheck:
             mock_redis_check.return_value = mock_redis_connectivity
             mock_db_check.return_value = mock_db_connectivity
 
-            response = client_with_api_key.get("/api/v1/health")
+            response = client_without_api_key.get("/api/v1/health")
 
             # Should return 503 when service is unhealthy
             assert response.status_code == 503
@@ -132,7 +132,7 @@ class TestHealthCheck:
             )
 
     @pytest.mark.asyncio
-    async def test_health_check_both_unhealthy(self, client_with_api_key):
+    async def test_health_check_both_unhealthy(self, client_without_api_key):
         """Test health check when both S3 and Redis are unhealthy."""
 
         # Mock S3 connectivity check to return unhealthy status
@@ -156,7 +156,7 @@ class TestHealthCheck:
             mock_redis_check.return_value = mock_redis_connectivity
             mock_db_check.return_value = mock_db_connectivity
 
-            response = client_with_api_key.get("/api/v1/health")
+            response = client_without_api_key.get("/api/v1/health")
 
             # Should return 503 when service is unhealthy
             assert response.status_code == 503
@@ -168,7 +168,7 @@ class TestHealthCheck:
             )
 
     @pytest.mark.asyncio
-    async def test_health_check_s3_exception(self, client_with_api_key):
+    async def test_health_check_s3_exception(self, client_without_api_key):
         """Test health check when S3 connectivity check raises an exception."""
 
         with (
@@ -188,7 +188,7 @@ class TestHealthCheck:
             )
             mock_db_check.return_value = TestHealthCheck._getHealthyDBConnectivity()
 
-            response = client_with_api_key.get("/api/v1/health")
+            response = client_without_api_key.get("/api/v1/health")
 
             # Should return 500 for unexpected exceptions
             assert response.status_code == 500
