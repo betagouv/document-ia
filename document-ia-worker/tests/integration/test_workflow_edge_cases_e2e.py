@@ -27,7 +27,7 @@ def _s3_available() -> bool:
 class TestWorkflowEdgeCasesE2E:
 
     @pytest.mark.asyncio
-    async def test_preprocess_without_download_fails(self, monkeypatch):
+    async def test_preprocess_without_download_fails(self, monkeypatch, organization_id):
         """Workflow with only 'preprocess_file': missing DownloadFileReturnData must fail in PreprocessFileStep."""
         # Build a fake workflow definition (no S3 needed since no download step is run)
         wf_id = "wf-missing-download"
@@ -52,6 +52,7 @@ class TestWorkflowEdgeCasesE2E:
         )
         started_event = WorkflowExecutionStartedEvent(
             workflow_id=wf_id,
+            organization_id=organization_id,
             execution_id=execution_id,
             created_at=datetime.now(timezone.utc),
             version=1,
@@ -64,6 +65,7 @@ class TestWorkflowEdgeCasesE2E:
             repo = EventRepository(session)
             await repo.put_event(
                 workflow_id=wf_id,
+                organization_id=organization_id,
                 execution_id=execution_id,
                 event_type=EventType.WORKFLOW_EXECUTION_STARTED,
                 event_data=started_event,
@@ -90,7 +92,7 @@ class TestWorkflowEdgeCasesE2E:
 
     @pytest.mark.skipif(not _s3_available(), reason="S3 not available")
     @pytest.mark.asyncio
-    async def test_ocr_without_preprocess_fails(self, monkeypatch):
+    async def test_ocr_without_preprocess_fails(self, monkeypatch, organization_id):
         """Workflow 'download_file' then 'extract_content_ocr' without preprocess must fail in ExtractContentOcrStep."""
         assert PDF_FIXTURE.exists(), "Fixture PDF is missing"
 
@@ -122,6 +124,7 @@ class TestWorkflowEdgeCasesE2E:
         )
         started_event = WorkflowExecutionStartedEvent(
             workflow_id=wf_id,
+            organization_id=organization_id,
             execution_id=execution_id,
             created_at=datetime.now(timezone.utc),
             version=1,
@@ -134,6 +137,7 @@ class TestWorkflowEdgeCasesE2E:
             repo = EventRepository(session)
             await repo.put_event(
                 workflow_id=wf_id,
+                organization_id=organization_id,
                 execution_id=execution_id,
                 event_type=EventType.WORKFLOW_EXECUTION_STARTED,
                 event_data=started_event,
@@ -159,7 +163,7 @@ class TestWorkflowEdgeCasesE2E:
         s3.delete_file(key)
 
     @pytest.mark.asyncio
-    async def test_save_results_without_llm_fails(self, monkeypatch):
+    async def test_save_results_without_llm_fails(self, monkeypatch, organization_id):
         """Workflow with only 'save_results': missing LLMResult must fail in SaveWorkflowResultStep."""
         wf_id = "wf-missing-llm"
         fake_workflow = SimpleNamespace(id=wf_id, steps=["save_workflow_result"], llm_model="albert-large", type= "classification")
@@ -183,6 +187,7 @@ class TestWorkflowEdgeCasesE2E:
         )
         started_event = WorkflowExecutionStartedEvent(
             workflow_id=wf_id,
+            organization_id=organization_id,
             execution_id=execution_id,
             created_at=datetime.now(timezone.utc),
             version=1,
@@ -195,6 +200,7 @@ class TestWorkflowEdgeCasesE2E:
             repo = EventRepository(session)
             await repo.put_event(
                 workflow_id=wf_id,
+                organization_id=organization_id,
                 execution_id=execution_id,
                 event_type=EventType.WORKFLOW_EXECUTION_STARTED,
                 event_data=started_event,

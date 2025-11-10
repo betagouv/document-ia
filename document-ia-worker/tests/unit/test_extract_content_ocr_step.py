@@ -1,14 +1,11 @@
-from datetime import datetime
 from pathlib import Path
-from uuid import uuid4
 
-import numpy as np
-import pytest
 import cv2
 import fitz
+import numpy as np
+import pytest
 from pytesseract import get_tesseract_version
 
-from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
 from document_ia_worker.workflow.step.extract_content_ocr.extract_content_ocr import (
     ExtractContentOcrStep,
 )
@@ -41,7 +38,7 @@ class TestExtractContentOcrStep:
 
     @pytest.mark.skipif(not _tesseract_available(), reason="Tesseract not available")
     @pytest.mark.asyncio
-    async def test_ocr_from_pdf_fixture_two_pages_and_cleanup(self):
+    async def test_ocr_from_pdf_fixture_two_pages_and_cleanup(self, main_workflow_context):
         """Run OCR starting from the PDF fixture via PreprocessFileStep, then ExtractContentOcrStep.
         Use the fixture as-is, assert we get OCR text for all pages, and verify cleanup removes temp files.
         """
@@ -59,9 +56,7 @@ class TestExtractContentOcrStep:
             pytest.skip(f"Cannot open PDF fixture to count pages: {e}")
         assert page_count >= 1, "Fixture PDF must have at least 1 page"
 
-        # Build context and preprocess step
-        ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now(), steps_metadata=[])
-        preprocess = PreprocessFileStep(main_workflow_context=ctx)
+        preprocess = PreprocessFileStep(main_workflow_context=main_workflow_context)
         # Inject a fake download result pointing to the fixture
         from document_ia_worker.workflow.step.step_result.download_file_result import (
             DownloadFileResult,
@@ -80,7 +75,7 @@ class TestExtractContentOcrStep:
             assert Path(img_path).exists(), f"Preprocessed image is missing: {img_path}"
 
         # Run OCR step on generated images
-        ocr_step = ExtractContentOcrStep(main_workflow_context=ctx)
+        ocr_step = ExtractContentOcrStep(main_workflow_context=main_workflow_context)
         ocr_step.tesseract_lang = "eng"
         ocr_step.inject_workflow_context({
             PreprocessFileResult.__name__: PreprocessFileResult(output_files_path=preprocess_result.output_files_path)
@@ -103,7 +98,7 @@ class TestExtractContentOcrStep:
 
     @pytest.mark.skipif(not _tesseract_available(), reason="Tesseract not available")
     @pytest.mark.asyncio
-    async def test_ocr_timeout_is_handled(self, monkeypatch, tmp_path):
+    async def test_ocr_timeout_is_handled(self, monkeypatch, tmp_path, main_workflow_context):
         """Simulate a Tesseract timeout and verify the exception path is handled gracefully.
         The first page raises a timeout-like exception; the second succeeds.
         """
@@ -113,8 +108,7 @@ class TestExtractContentOcrStep:
         img_ok = _make_text_image(tmp_path / "ok.png", "OK")
 
         # Build context and OCR step
-        ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now(), steps_metadata=[])
-        step = ExtractContentOcrStep(main_workflow_context=ctx)
+        step = ExtractContentOcrStep(main_workflow_context=main_workflow_context)
         step.tesseract_lang = "eng"
         step.tesseract_timeout = 1  # very small, though we simulate timeout via monkeypatch
 

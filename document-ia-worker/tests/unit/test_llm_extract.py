@@ -8,7 +8,6 @@ import pytest
 from document_ia_infra.data.document.schema.document_classification import DocumentClassification
 from document_ia_schemas import SupportedDocumentType
 from document_ia_schemas.cni import CNIModel
-from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
 from document_ia_worker.workflow.step.llm_extract_document.llm_extract_document import (
     LLMExtractDocumentStep,
 )
@@ -29,7 +28,7 @@ SNAPSHOT_PATH = FIXTURES_DIR / "ocr_result_cni.json"
 class TestLLMExtract:
     @pytest.mark.skipif(not SNAPSHOT_PATH.exists(), reason="OCR snapshot not found")
     @pytest.mark.asyncio
-    async def test_extract_with_cni_fixture_and_mocked_classification(self, monkeypatch):
+    async def test_extract_with_cni_fixture_and_mocked_classification(self, monkeypatch, main_workflow_context):
 
         # Build OcrResult from snapshot
         data = json.loads(SNAPSHOT_PATH.read_text())
@@ -74,8 +73,7 @@ class TestLLMExtract:
         )
 
         # Build context and run the extract step
-        ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now(), steps_metadata=[])
-        step = LLMExtractDocumentStep(main_workflow_context=ctx, model="dummy-model")
+        step = LLMExtractDocumentStep(main_workflow_context=main_workflow_context, model="dummy-model")
 
         step.inject_workflow_context(
             {

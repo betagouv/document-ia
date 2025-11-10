@@ -12,6 +12,7 @@ from document_ia_infra.redis.model.workflow_execution_message import (
     WorkflowExecutionMessage,
 )
 from document_ia_infra.s3.s3_manager import S3Manager
+from pydantic import SecretStr
 
 from document_ia_worker.workflow.workflow_manager import WorkflowManager
 
@@ -20,7 +21,7 @@ PDF_FIXTURE = FIXTURES_DIR / "test_download_file.pdf"
 
 
 @pytest.mark.asyncio
-async def test_workflow_extraction_end_to_end():
+async def test_workflow_extraction_end_to_end(organization_id):
     # Preconditions
     assert PDF_FIXTURE.exists(), "Fixture PDF is missing"
 
@@ -35,16 +36,17 @@ async def test_workflow_extraction_end_to_end():
     workflow_id = "document-extraction-v1"
     file_info = FileInfo(
         filename=PDF_FIXTURE.name,
-        s3_key=key,
+        s3_key=SecretStr(key),
         size=len(content),
         content_type="application/pdf",
         uploaded_at=datetime.now(timezone.utc).isoformat(),
-        presigned_url="",
+        presigned_url=SecretStr(""),
     )
 
     started_event = WorkflowExecutionStartedEvent(
         workflow_id=workflow_id,
         execution_id=execution_id,
+        organization_id=organization_id,
         created_at=datetime.now(timezone.utc),
         version=1,
         file_info=file_info,
@@ -58,6 +60,7 @@ async def test_workflow_extraction_end_to_end():
         await repo.put_event(
             workflow_id=workflow_id,
             execution_id=execution_id,
+            organization_id=organization_id,
             event_type=EventType.WORKFLOW_EXECUTION_STARTED,
             event_data=started_event,
         )
@@ -74,7 +77,7 @@ async def test_workflow_extraction_end_to_end():
         last_event = await repo.get_last_event_by_execution_id(execution_id)
         assert last_event is not None, "No event found after workflow execution"
         assert (
-            last_event.event_type == EventType.WORKFLOW_EXECUTION_COMPLETED
+                last_event.event_type == EventType.WORKFLOW_EXECUTION_COMPLETED
         ), f"Unexpected last event type: {last_event.event_type}"
 
         payload = last_event.event

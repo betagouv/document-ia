@@ -27,7 +27,7 @@ def _s3_available() -> bool:
 
 
 @pytest.mark.asyncio
-async def test_workflow_classification_end_to_end():
+async def test_workflow_classification_end_to_end(organization_id):
     # Preconditions
     assert PDF_FIXTURE.exists(), "Fixture PDF is missing"
 
@@ -51,6 +51,7 @@ async def test_workflow_classification_end_to_end():
 
     started_event = WorkflowExecutionStartedEvent(
         workflow_id=workflow_id,
+        organization_id=organization_id,
         execution_id=execution_id,
         created_at=datetime.now(timezone.utc),
         version=1,
@@ -64,6 +65,7 @@ async def test_workflow_classification_end_to_end():
         repo = EventRepository(session)
         await repo.put_event(
             workflow_id=workflow_id,
+            organization_id=organization_id,
             execution_id=execution_id,
             event_type=EventType.WORKFLOW_EXECUTION_STARTED,
             event_data=started_event,

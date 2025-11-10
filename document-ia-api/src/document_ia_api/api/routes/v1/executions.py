@@ -178,6 +178,10 @@ async def get_execution(
         last_event = await event_store_service.get_last_event_for_execution_id(
             execution_id
         )
+        if last_event.organization_id != organization.id:
+            raise HTTPException(
+                status_code=401, detail="Unauthorized access to execution"
+            )
         workflow = await workflow_repository.get_workflow_by_id(last_event.workflow_id)
         if workflow is None:
             raise EntityNotFoundException("Workflow", last_event.workflow_id)
@@ -191,6 +195,8 @@ async def get_execution(
             entity_name=e.entity_name, entity_id=e.entity_id
         )
     except HttpEntityNotFoundException as e:
+        raise e
+    except HTTPException as e:
         raise e
     except Exception as e:
         logger.error(

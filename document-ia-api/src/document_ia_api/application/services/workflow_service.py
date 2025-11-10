@@ -35,13 +35,18 @@ class WorkflowService:
         )
 
     async def execute_workflow(
-        self, workflow_id: str, file: UploadFile, metadata_json: Optional[str]
+        self,
+        organization_id: uuid.UUID,
+        workflow_id: str,
+        file: UploadFile,
+        metadata_json: Optional[str],
     ) -> WorkflowExecutionData:
         """
         Execute a workflow with file upload and metadata processing.
 
         Args:
             workflow_id: Unique identifier for the workflow
+            organization_id: Organization UUID
             file: Uploaded file
             metadata_json: JSON string containing metadata
 
@@ -99,6 +104,7 @@ class WorkflowService:
                 await event_store_service.emit_workflow_started(
                     workflow_id=workflow_id,
                     execution_id=execution_id,
+                    organization_id=organization_id,
                     file_info=file_info,
                     metadata=metadata,
                 )

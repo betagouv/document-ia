@@ -19,6 +19,7 @@ def convert_event_dto(dto: EventDTO) -> EventStoreRecord:
         id=dto.id,
         workflow_id=dto.workflow_id,
         execution_id=dto.execution_id,
+        organization_id=dto.organization_id,
         created_at=dto.created_at,
         event_type=dto.event_type,
         event=convert_inner_event_dto(dto.event, dto.event_type),

@@ -14,6 +14,7 @@ class BaseEvent(BaseModel, ABC):
     event_id: UUID = Field(
         description="Unique identifier for this event", default_factory=uuid4
     )
+    organization_id: UUID = Field(description="Organization identifier")
     workflow_id: str = Field(description="Workflow identifier")
     execution_id: str = Field(description="Execution instance identifier")
     created_at: datetime = Field(description="Event timestamp")
@@ -27,6 +28,7 @@ class EventStoreRecord(BaseModel):
     id: UUID = Field(description="Primary key")
     workflow_id: str = Field(description="Workflow identifier")
     execution_id: str = Field(description="Execution instance identifier")
+    organization_id: UUID = Field(description="Organization identifier")
     created_at: datetime = Field(description="Event timestamp")
     event_type: EventType = Field(description="Type of event")
     event: BaseEvent = Field(description="Event payload as JSON")
@@ -37,6 +39,7 @@ class EventStream(BaseModel):
 
     execution_id: str = Field(description="Execution instance identifier")
     workflow_id: str = Field(description="Workflow identifier")
+    organization_id: UUID = Field(description="Organization identifier")
     events: List[EventStoreRecord] = Field(description="List of events in the stream")
     total_events: int = Field(description="Total number of events")
     first_event_at: Optional[datetime] = Field(

@@ -1,4 +1,3 @@
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -8,11 +7,9 @@ import pytest
 from document_ia_infra.core.model.file_info import FileInfo
 from document_ia_infra.exception.retryable_exception import RetryableException
 from document_ia_infra.s3.s3_manager import S3Manager
-from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
 from document_ia_worker.workflow.step.download_file.download_file import (
     DownloadFileStep,
 )
-
 
 FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures"
 SOURCE_PDF = FIXTURES_DIR / "test_download_file.pdf"
@@ -30,7 +27,7 @@ def _ensure_s3_available() -> bool:
 class TestDownloadFileStepIntegration:
     @pytest.mark.skipif(not _ensure_s3_available(), reason="S3 not available")
     @pytest.mark.asyncio
-    async def test_download_file_step_success(self, tmp_path):
+    async def test_download_file_step_success(self, tmp_path, main_workflow_context):
 
         assert (
             SOURCE_PDF.exists()
@@ -58,11 +55,7 @@ class TestDownloadFileStepIntegration:
                 presigned_url="",
             )
 
-            # Context and step
-            ctx = MainWorkflowContext(
-                execution_id=str(uuid4()), start_time=datetime.now()
-            )
-            step = DownloadFileStep(main_workflow_context=ctx, file_info=file_info)
+            step = DownloadFileStep(main_workflow_context=main_workflow_context, file_info=file_info)
 
             # Execute the step (actual download from S3)
             result, metadata = await step.execute()
@@ -74,7 +67,7 @@ class TestDownloadFileStepIntegration:
             assert tmp_dir.exists() and tmp_dir.is_dir(), "Temporary folder does not exist"
             downloaded_size = downloaded_path.stat().st_size
             assert (
-                downloaded_size == source_size
+                    downloaded_size == source_size
             ), f"Different size: expected {source_size}, got {downloaded_size}"
 
             # Validate returned metadata (StepMetadata)
@@ -104,7 +97,7 @@ class TestDownloadFileStepIntegration:
 
     @pytest.mark.skipif(not _ensure_s3_available(), reason="S3 not available")
     @pytest.mark.asyncio
-    async def test_download_file_step_missing_key_raises_retryable(self, tmp_path):
+    async def test_download_file_step_missing_key_raises_retryable(self, tmp_path, main_workflow_context):
 
         # Nonexistent key
         key = f"integration/tests/{uuid4()}/missing.pdf"
@@ -118,8 +111,7 @@ class TestDownloadFileStepIntegration:
             presigned_url="",
         )
 
-        ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now(), steps_metadata=[])
-        step = DownloadFileStep(main_workflow_context=ctx, file_info=file_info)
+        step = DownloadFileStep(main_workflow_context=main_workflow_context, file_info=file_info)
 
         # Preparation creates the temporary folder even if the download fails
         with pytest.raises(RetryableException):

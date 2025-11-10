@@ -64,6 +64,7 @@ def sample_event():
     """Sample event for testing."""
     return WorkflowExecutionStartedEvent(
         event_id=uuid4(),
+        organization_id=uuid4(),
         workflow_id="test_workflow_001",
         execution_id="test_execution_001",
         created_at=datetime.now(UTC),
@@ -79,11 +80,13 @@ def sample_event_record():
     return EventDTO(
         id=uuid4(),
         workflow_id="test_workflow_001",
+        organization_id=uuid4(),
         execution_id="test_execution_001",
         created_at=datetime.now(UTC),
         event_type=EventType.WORKFLOW_EXECUTION_STARTED,
         event={
             "event_id": str(uuid4()),
+            "organization_id": str(uuid4()),
             "workflow_id": "test_workflow_001",
             "execution_id": "test_execution_001",
             "created_at": datetime.now(UTC).isoformat(),
@@ -105,6 +108,7 @@ class TestEventStoreService:
         # Arrange
         mock_stored_event = EventDTO(
             id=uuid4(),
+            organization_id=uuid4(),
             workflow_id="test_workflow_001",
             execution_id="test_execution_001",
             created_at=datetime.now(UTC),
@@ -149,6 +153,7 @@ class TestEventStoreService:
         # Act
         event = event_store_service.create_workflow_started_event(
             workflow_id="test_workflow_001",
+            organization_id=uuid4(),
             execution_id="test_execution_001",
             file_info=_sample_file_info(),
             metadata={"source": "test"},
@@ -166,6 +171,7 @@ class TestEventStoreService:
         # Act
         event = event_store_service.create_step_completed_event(
             workflow_id="test_workflow_001",
+            organization_id=uuid4(),
             execution_id="test_execution_001",
             step_name="preprocessing",
             step_result={"status": "success"},
@@ -187,6 +193,7 @@ class TestEventStoreService:
         # Act
         event = event_store_service.create_workflow_completed_event(
             workflow_id="test_workflow_001",
+            organization_id=uuid4(),
             execution_id="test_execution_001",
             final_result=CompletedEventResult(),
             total_processing_time_ms=5000,
@@ -208,6 +215,7 @@ class TestEventStoreService:
         # Act
         event = event_store_service.create_workflow_failed_event(
             workflow_id="test_workflow_001",
+            organization_id=uuid4(),
             execution_id="test_execution_001",
             error_type="ProcessingError",
             error_message="Failed to process document",
@@ -236,6 +244,7 @@ class TestEventStoreService:
         # Act
         result = await event_store_service.emit_workflow_started(
             workflow_id="test_workflow_001",
+            organization_id=uuid4(),
             execution_id="test_execution_001",
             file_info=_sample_file_info(),
             metadata={"source": "test"},
@@ -255,6 +264,7 @@ class TestEventStoreService:
         # Act
         result = await event_store_service.emit_step_completed(
             workflow_id="test_workflow_001",
+            organization_id=uuid4(),
             execution_id="test_execution_001",
             step_name="preprocessing",
             step_result={"status": "success"},
@@ -276,6 +286,7 @@ class TestEventStoreService:
         # Act
         result = await event_store_service.emit_workflow_completed(
             workflow_id="test_workflow_001",
+            organization_id=uuid4(),
             execution_id="test_execution_001",
             final_result={"status": "completed"},
             total_processing_time_ms=5000,
@@ -297,6 +308,7 @@ class TestEventStoreService:
         # Act
         result = await event_store_service.emit_workflow_failed(
             workflow_id="test_workflow_001",
+            organization_id=uuid4(),
             execution_id="test_execution_001",
             error_type="ProcessingError",
             error_message="Failed to process document",

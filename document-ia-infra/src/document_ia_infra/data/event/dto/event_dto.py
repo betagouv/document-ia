@@ -10,6 +10,7 @@ from document_ia_infra.data.event.dto.event_type_enum import EventType
 class EventDTO:
     id: UUID
     workflow_id: str
+    organization_id: UUID
     execution_id: str
     created_at: datetime
     event_type: EventType

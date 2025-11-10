@@ -16,10 +16,15 @@ class TestExecutions:
     def execution_id(self):
         return "exec_test_123"
 
-    def _event_dto_started(self, execution_id: str) -> EventDTO:
+    @pytest.fixture
+    def org_id(self, organization_id):
+        return organization_id
+
+    def _event_dto_started(self, execution_id: str, organization_id):
         created = datetime(2024, 1, 15, 10, 30, tzinfo=timezone.utc)
         event_payload = {
             "workflow_id": "document-classification-v1",
+            "organization_id": str(organization_id),
             "execution_id": execution_id,
             "created_at": created.isoformat(),
             "file_info": {
@@ -35,6 +40,7 @@ class TestExecutions:
         }
         return EventDTO(
             id=uuid4(),
+            organization_id=organization_id,
             workflow_id="document-classification-v1",
             execution_id=execution_id,
             created_at=created,
@@ -42,10 +48,11 @@ class TestExecutions:
             event=event_payload,
         )
 
-    def _event_dto_completed(self, execution_id: str) -> EventDTO:
+    def _event_dto_completed(self, execution_id: str, organization_id):
         created = datetime(2024, 1, 15, 10, 31, tzinfo=timezone.utc)
         event_payload = {
             "workflow_id": "document-classification-v1",
+            "organization_id": str(organization_id),
             "execution_id": execution_id,
             "created_at": created.isoformat(),
             "final_result": {
@@ -62,6 +69,7 @@ class TestExecutions:
         }
         return EventDTO(
             id=uuid4(),
+            organization_id=organization_id,
             workflow_id="document-classification-v1",
             execution_id=execution_id,
             created_at=created,
@@ -69,16 +77,16 @@ class TestExecutions:
             event=event_payload,
         )
 
-    def _event_dto_completed_with_metadata(self, execution_id: str) -> EventDTO:
+    def _event_dto_completed_with_metadata(self, execution_id: str, organization_id):
         """Helper to create a completed event that contains workflow_metadata."""
         created = datetime(2024, 1, 15, 10, 32, tzinfo=timezone.utc)
-        # example metadata can be any JSON-serializable value; use a list of dicts
         workflow_metadata = [
             {"step": "ocr", "duration_ms": 150},
             {"note": "debug-info", "value": 42},
         ]
         event_payload = {
             "workflow_id": "document-classification-v1",
+            "organization_id": str(organization_id),
             "execution_id": execution_id,
             "created_at": created.isoformat(),
             "final_result": {
@@ -96,6 +104,7 @@ class TestExecutions:
         }
         return EventDTO(
             id=uuid4(),
+            organization_id=organization_id,
             workflow_id="document-classification-v1",
             execution_id=execution_id,
             created_at=created,
@@ -104,10 +113,10 @@ class TestExecutions:
         )
 
     def test_get_execution_pending_success(
-            self, client_with_api_key_standard, standard_api_key_value, execution_id
+            self, client_with_api_key_standard, standard_api_key_value, execution_id, org_id
     ):
         async def fake_get_last_event(execution_id_param: str):
-            return self._event_dto_started(execution_id_param)
+            return self._event_dto_started(execution_id_param, org_id)
 
         with patch(
                 "document_ia_infra.service.event_store_service."
@@ -129,10 +138,10 @@ class TestExecutions:
         assert "created_at" in data["data"]
 
     def test_get_execution_done_success(
-            self, client_with_api_key_standard, standard_api_key_value, execution_id
+            self, client_with_api_key_standard, standard_api_key_value, execution_id, org_id
     ):
         async def fake_get_last_event(execution_id_param: str):
-            return self._event_dto_completed(execution_id_param)
+            return self._event_dto_completed(execution_id_param, org_id)
 
         with patch(
                 "document_ia_infra.service.event_store_service."
@@ -154,10 +163,10 @@ class TestExecutions:
         assert data["data"]["result"]["classification"]["explanation"] == "blabla"
 
     def test_get_execution_includes_workflow_metadata_when_debug_true(
-            self, client_with_api_key_standard, standard_api_key_value, execution_id
+            self, client_with_api_key_standard, standard_api_key_value, execution_id, org_id
     ):
         async def fake_get_last_event(execution_id_param: str):
-            return self._event_dto_completed_with_metadata(execution_id_param)
+            return self._event_dto_completed_with_metadata(execution_id_param, org_id)
 
         with patch(
                 "document_ia_infra.service.event_store_service."
@@ -173,25 +182,22 @@ class TestExecutions:
         data = response.json()
         assert data["id"] == execution_id
         assert data["status"] == "SUCCESS"
-        # workflow_metadata should be present under result when debug flag is true
         assert "workflow_metadata" in data["data"]["result"]
         assert isinstance(data["data"]["result"]["workflow_metadata"], list)
         assert data["data"]["result"]["workflow_metadata"][0]["step"] == "ocr"
 
     def test_get_execution_excludes_workflow_metadata_when_no_debug_param(
-            self, client_with_api_key_standard, standard_api_key_value, execution_id
+            self, client_with_api_key_standard, standard_api_key_value, execution_id, org_id
     ):
         """When the query param `is_debug_mode` is not provided, workflow_metadata must not be included."""
         async def fake_get_last_event(execution_id_param: str):
-            # return an event that *does* contain workflow_metadata in the payload
-            return self._event_dto_completed_with_metadata(execution_id_param)
+            return self._event_dto_completed_with_metadata(execution_id_param, org_id)
 
         with patch(
                 "document_ia_infra.service.event_store_service."
                 "EventStoreService.get_last_event_for_execution_id",
                 new=AsyncMock(side_effect=fake_get_last_event),
         ):
-            # call without the query param
             response = client_with_api_key_standard.get(
                 f"/api/v1/executions/{execution_id}",
                 headers={"X-API-KEY": standard_api_key_value},
@@ -201,7 +207,6 @@ class TestExecutions:
         data = response.json()
         assert data["id"] == execution_id
         assert data["status"] == "SUCCESS"
-        # workflow_metadata should NOT be present under result when debug flag is absent
         assert "workflow_metadata" not in data["data"]["result"]
 
     def test_get_execution_not_found(
@@ -249,4 +254,25 @@ class TestExecutions:
             f"/api/v1/executions/{execution_id}",
             headers={"X-API-KEY": invalid_api_key_value},
         )
+        assert response.status_code == 401
+
+    def test_get_execution_unauthorized_when_event_belongs_to_other_org(
+            self, client_with_api_key_standard, standard_api_key_value, execution_id, org_id
+    ):
+        other_org_id = uuid4()  # Organisation différente de celle authentifiée
+
+        async def fake_get_last_event(execution_id_param: str):
+            # Retourne un event dont l’organisation ne correspond pas à l’org authentifiée
+            return self._event_dto_completed(execution_id_param, other_org_id)
+
+        with patch(
+                "document_ia_infra.service.event_store_service."
+                "EventStoreService.get_last_event_for_execution_id",
+                new=AsyncMock(side_effect=fake_get_last_event),
+        ):
+            response = client_with_api_key_standard.get(
+                f"/api/v1/executions/{execution_id}",
+                headers={"X-API-KEY": standard_api_key_value},
+            )
+
         assert response.status_code == 401

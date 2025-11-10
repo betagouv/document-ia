@@ -7,6 +7,7 @@ providing async CRUD operations and event stream reconstruction.
 
 import logging
 from typing import List, Optional, Dict, Any
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -29,6 +30,7 @@ class EventRepository:
     async def put_event(
         self,
         workflow_id: str,
+        organization_id: UUID,
         execution_id: str,
         event_type: str,
         event_data: Dict[str, Any],
@@ -39,6 +41,7 @@ class EventRepository:
         Args:
             workflow_id: Workflow identifier
             execution_id: Execution instance identifier
+            organization_id: Organization identifier
             event_type: Type of event
             event_data: Event payload data
 
@@ -52,6 +55,7 @@ class EventRepository:
             event_record = EventEntity(
                 workflow_id=workflow_id,
                 execution_id=execution_id,
+                organization_id=organization_id,
                 event_type=event_type,
                 event=event_data,
             )
@@ -69,6 +73,7 @@ class EventRepository:
                 id=event_record.id,
                 workflow_id=event_record.workflow_id,
                 execution_id=event_record.execution_id,
+                organization_id=organization_id,
                 created_at=event_record.created_at,
                 event_type=EventType.from_str(event_record.event_type),
                 event=event_record.event,
@@ -134,6 +139,7 @@ class EventRepository:
                     id=event.id,
                     workflow_id=event.workflow_id,
                     execution_id=event.execution_id,
+                    organization_id=event.organization_id,
                     created_at=event.created_at,
                     event_type=EventType.from_str(event.event_type),
                     event=event.event,
@@ -179,6 +185,7 @@ class EventRepository:
                     id=event.id,
                     workflow_id=event.workflow_id,
                     execution_id=event.execution_id,
+                    organization_id=event.organization_id,
                     created_at=event.created_at,
                     event_type=EventType.from_str(event.event_type),
                     event=event.event,
@@ -235,6 +242,7 @@ class EventRepository:
                 id=event.id,
                 workflow_id=event.workflow_id,
                 execution_id=event.execution_id,
+                organization_id=event.organization_id,
                 created_at=event.created_at,
                 event_type=EventType.from_str(event.event_type),
                 event=event.event,

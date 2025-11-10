@@ -1,12 +1,9 @@
 import json
 import os
-from datetime import datetime
 from pathlib import Path
-from uuid import uuid4
 
 import pytest
 
-from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
 from document_ia_worker.workflow.step.llm_classify_document.llm_classify_document import (
     LLMClassifyDocumentStep,
 )
@@ -23,7 +20,7 @@ class TestLLMClassificationIntegration:
     """Integration tests for LLM-based document classification using OCR results."""
 
     @pytest.mark.asyncio
-    async def test_llm_classification_returns_cni_and_fields_non_empty(self):
+    async def test_llm_classification_returns_cni_and_fields_non_empty(self, main_workflow_context):
         """Integration: reuse OCR snapshot (ocr_result.json), pass OcrResult to the LLM, and
         verify the JSON output with document_type == 'cni' and other fields non-empty.
         Skips if Albert credentials or snapshot are not available.
@@ -40,10 +37,8 @@ class TestLLMClassificationIntegration:
         assert pages, "OCR snapshot has no pages"
         ocr_result = OcrResult(pages=pages)
 
-        # Build context and run LLM classification via Albert
-        ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now(), steps_metadata=[])
         model = os.getenv("ALBERT_MODEL", "albert-large")
-        llm = LLMClassifyDocumentStep(main_workflow_context=ctx, model=model)
+        llm = LLMClassifyDocumentStep(main_workflow_context=main_workflow_context, model=model)
         llm.inject_workflow_context({OcrResult.__name__: ocr_result})
         llm_result, metadata = await llm.execute()
 
@@ -59,7 +54,7 @@ class TestLLMClassificationIntegration:
         assert out.get("confidence") is not None and isinstance(out["confidence"], (int, float))
 
     @pytest.mark.asyncio
-    async def test_llm_classification_tax_notice_not_cni(self):
+    async def test_llm_classification_tax_notice_not_cni(self, main_workflow_context):
         """Integration: simulate a French tax notice ("avis d'imposition") OCR content
         and ensure the LLM does NOT classify it as 'cni'. Also check other fields are non-empty.
         Skips if Albert credentials are not available.
@@ -89,10 +84,8 @@ class TestLLMClassificationIntegration:
         )
         ocr_result = OcrResult(pages=[tax_page_1, tax_page_2])
 
-        # Build context and run LLM classification via Albert
-        ctx = MainWorkflowContext(execution_id=str(uuid4()), start_time=datetime.now(), steps_metadata=[])
         model = os.getenv("ALBERT_MODEL", "albert-large")
-        llm = LLMClassifyDocumentStep(main_workflow_context=ctx, model=model)
+        llm = LLMClassifyDocumentStep(main_workflow_context=main_workflow_context, model=model)
         llm.inject_workflow_context({OcrResult.__name__: ocr_result})
         llm_result, metadata = await llm.execute()
 

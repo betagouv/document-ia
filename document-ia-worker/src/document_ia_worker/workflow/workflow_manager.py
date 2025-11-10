@@ -95,6 +95,7 @@ class WorkflowManager:
         self.main_workflow_context = MainWorkflowContext(
             execution_id=self.message.workflow_execution_id,
             start_time=datetime.now(UTC),
+            organization_id=None,
             steps_metadata=[],
         )
         is_success = True
@@ -166,6 +167,9 @@ class WorkflowManager:
             self.workflow = await workflow_repository.get_workflow_by_id(
                 event_dto.workflow_id
             )
+
+            if self.main_workflow_context is not None:
+                self.main_workflow_context.organization_id = event_dto.organization_id
 
             if self.workflow is None:
                 logger.error(f"Workflow {event_dto.workflow_id} not found")
@@ -320,6 +324,7 @@ class WorkflowManager:
         await EventStoreService(db).emit_workflow_failed(
             workflow_id=self.workflow.id,
             execution_id=self.event_dto.execution_id,
+            organization_id=self.event_dto.organization_id,
             error_type=error_type,
             error_message=final_error_message,
             failed_step=final_failed_step,

@@ -8,7 +8,7 @@ providing high-level business logic and event orchestration.
 import logging
 from datetime import datetime, UTC
 from typing import List, Optional, Dict, Any
-from uuid import uuid4
+from uuid import uuid4, UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -85,6 +85,7 @@ class EventStoreService:
             stored_event = await self.repository.put_event(
                 workflow_id=event.workflow_id,
                 execution_id=event.execution_id,
+                organization_id=event.organization_id,
                 event_type=event.event_type.value,
                 event_data=event_data,
             )
@@ -131,7 +132,10 @@ class EventStoreService:
         return [convert_event_dto(event_dto) for event_dto in event_dto_list]
 
     async def get_event_stream(
-        self, execution_id: str, workflow_id: Optional[str] = None
+        self,
+        execution_id: str,
+        organization_id: UUID,
+        workflow_id: Optional[str] = None,
     ) -> EventStream:
         """
         Retrieve complete event stream for an execution.
@@ -152,6 +156,7 @@ class EventStoreService:
             return EventStream(
                 execution_id=execution_id,
                 workflow_id=workflow_id or "",
+                organization_id=organization_id,
                 events=[],
                 total_events=0,
                 first_event_at=None,
@@ -161,6 +166,7 @@ class EventStoreService:
         return EventStream(
             execution_id=execution_id,
             workflow_id=workflow_id or events[0].workflow_id,
+            organization_id=organization_id,
             events=events,
             total_events=len(events),
             first_event_at=events[0].created_at,
@@ -173,6 +179,7 @@ class EventStoreService:
         self,
         workflow_id: str,
         execution_id: str,
+        organization_id: UUID,
         file_info: FileInfo,
         metadata: Dict[str, Any],
     ) -> WorkflowExecutionStartedEvent:
@@ -180,6 +187,7 @@ class EventStoreService:
         return WorkflowExecutionStartedEvent(
             workflow_id=workflow_id,
             execution_id=execution_id,
+            organization_id=organization_id,
             created_at=datetime.now(),
             version=1,  # Will be updated when stored
             file_info=file_info,
@@ -190,6 +198,7 @@ class EventStoreService:
         self,
         workflow_id: str,
         execution_id: str,
+        organization_id: UUID,
         step_name: str,
         step_result: Dict[str, Any],
         execution_time_ms: int,
@@ -200,6 +209,7 @@ class EventStoreService:
             event_id=uuid4(),
             workflow_id=workflow_id,
             execution_id=execution_id,
+            organization_id=organization_id,
             created_at=datetime.now(),
             version=1,  # Will be updated when stored
             step_name=step_name,
@@ -212,6 +222,7 @@ class EventStoreService:
         self,
         workflow_id: str,
         execution_id: str,
+        organization_id: UUID,
         final_result: CompletedEventResult,
         total_processing_time_ms: int,
         output_summary: Dict[str, Any],
@@ -222,6 +233,7 @@ class EventStoreService:
         return WorkflowExecutionCompletedEvent(
             event_id=uuid4(),
             workflow_id=workflow_id,
+            organization_id=organization_id,
             execution_id=execution_id,
             created_at=datetime.now(UTC),
             version=1,  # Will be updated when stored
@@ -236,6 +248,7 @@ class EventStoreService:
         self,
         workflow_id: str,
         execution_id: str,
+        organization_id: UUID,
         error_type: str,
         error_message: str,
         failed_step: Optional[str] = None,
@@ -245,6 +258,7 @@ class EventStoreService:
         return WorkflowExecutionFailedEvent(
             event_id=uuid4(),
             workflow_id=workflow_id,
+            organization_id=organization_id,
             execution_id=execution_id,
             created_at=datetime.now(UTC),
             version=1,  # Will be updated when stored
@@ -260,6 +274,7 @@ class EventStoreService:
         self,
         workflow_id: str,
         execution_id: str,
+        organization_id: UUID,
         file_info: FileInfo,
         metadata: Dict[str, Any],
     ) -> EventStoreRecord:
@@ -267,6 +282,7 @@ class EventStoreService:
         event = self.create_workflow_started_event(
             workflow_id=workflow_id,
             execution_id=execution_id,
+            organization_id=organization_id,
             file_info=file_info,
             metadata=metadata,
         )
@@ -276,6 +292,7 @@ class EventStoreService:
         self,
         workflow_id: str,
         execution_id: str,
+        organization_id: UUID,
         step_name: str,
         step_result: Dict[str, Any],
         execution_time_ms: int,
@@ -285,6 +302,7 @@ class EventStoreService:
         event = self.create_step_completed_event(
             workflow_id=workflow_id,
             execution_id=execution_id,
+            organization_id=organization_id,
             step_name=step_name,
             step_result=step_result,
             execution_time_ms=execution_time_ms,
@@ -296,6 +314,7 @@ class EventStoreService:
         self,
         workflow_id: str,
         execution_id: str,
+        organization_id: UUID,
         final_result: CompletedEventResult,
         total_processing_time_ms: int,
         output_summary: Dict[str, Any],
@@ -306,6 +325,7 @@ class EventStoreService:
         event = self.create_workflow_completed_event(
             workflow_id=workflow_id,
             execution_id=execution_id,
+            organization_id=organization_id,
             final_result=final_result,
             total_processing_time_ms=total_processing_time_ms,
             output_summary=output_summary,
@@ -318,6 +338,7 @@ class EventStoreService:
         self,
         workflow_id: str,
         execution_id: str,
+        organization_id: UUID,
         error_type: str,
         error_message: str,
         failed_step: Optional[str] = None,
@@ -327,6 +348,7 @@ class EventStoreService:
         event = self.create_workflow_failed_event(
             workflow_id=workflow_id,
             execution_id=execution_id,
+            organization_id=organization_id,
             error_type=error_type,
             error_message=error_message,
             failed_step=failed_step,
