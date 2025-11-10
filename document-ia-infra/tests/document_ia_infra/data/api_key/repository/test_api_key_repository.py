@@ -1,17 +1,16 @@
 import uuid
 
 import pytest
-from document_ia_infra.data.organization.repository.organization_repository import OrganizationRepository
 
 from document_ia_infra.data.api_key.enum.api_key_status import ApiKeyStatus
 from document_ia_infra.data.api_key.repository.api_key import ApiKeyRepository
-from document_ia_infra.data.database import database_manager
 from document_ia_infra.data.organization.enum.platform_role import PlatformRole
+from document_ia_infra.data.organization.repository.organization_repository import OrganizationRepository
 
 
 @pytest.mark.asyncio
-async def test_api_key_crud_flow():
-    async with database_manager.local_session() as session:
+async def test_api_key_crud_flow(isolated_database_manager):
+    async with isolated_database_manager.local_session() as session:
         org_repo = OrganizationRepository(session)
         api_repo = ApiKeyRepository(session)
 
@@ -65,7 +64,7 @@ async def test_api_key_crud_flow():
             assert updated.status == ApiKeyStatus.REVOKED
 
             # Delete
-            deleted = await api_repo.delete(created_key.id)
+            deleted = await api_repo.delete(created_org.id, created_key.id)
             await session.commit()
             assert deleted is True
         finally:
@@ -77,7 +76,7 @@ async def test_api_key_crud_flow():
             # Cleanup residue if necessary
             if created_key is not None:
                 try:
-                    await api_repo.delete(created_key.id)
+                    await api_repo.delete(created_org.id, created_key.id)
                 except Exception:
                     pass
             if created_org is not None:
