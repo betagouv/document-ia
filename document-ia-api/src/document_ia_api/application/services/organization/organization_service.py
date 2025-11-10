@@ -1,5 +1,6 @@
-from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from document_ia_api.api.contracts.api_key.api_key import APIKeyResult
 from document_ia_api.api.contracts.organization.organization import (
@@ -15,13 +16,10 @@ from document_ia_api.application.services.api_key.mapper import (
 from document_ia_api.application.services.organization.mapper import (
     map_organization_dto_to_api_result,
 )
+from document_ia_infra.data.organization.enum.platform_role import PlatformRole
 from document_ia_infra.data.organization.repository.organization_repository import (
     OrganizationRepository,
 )
-from document_ia_infra.exception.entity_not_found_exception import (
-    EntityNotFoundException,
-)
-from document_ia_infra.data.organization.enum.platform_role import PlatformRole
 
 
 class OrganizationService:
@@ -80,7 +78,7 @@ class OrganizationService:
             deleted = await self.organization_repository.delete(UUID(organization_id))
             if not deleted:
                 await self.db_session.rollback()
-                raise EntityNotFoundException(
+                raise HttpEntityNotFoundException(
                     entity_name="organization", entity_id=organization_id
                 )
             await self.db_session.commit()
