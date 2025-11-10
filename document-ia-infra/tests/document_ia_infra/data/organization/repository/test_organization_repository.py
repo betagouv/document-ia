@@ -1,17 +1,17 @@
 import uuid
+
 import pytest
 
-from document_ia_infra.data.database import database_manager
+from document_ia_infra.data.api_key.enum.api_key_status import ApiKeyStatus
+from document_ia_infra.data.api_key.repository.api_key import ApiKeyRepository
 from document_ia_infra.data.organization.enum.platform_role import PlatformRole
 from document_ia_infra.data.organization.repository.organization_repository import OrganizationRepository
-from document_ia_infra.data.api_key.repository.api_key import ApiKeyRepository
-from document_ia_infra.data.api_key.enum.api_key_status import ApiKeyStatus
 
 
-@pytest.mark.asyncio(scope="session")
+@pytest.mark.asyncio
 class TestOrganizationRepository:
-    async def test_create_get_update_delete_organization(self):
-        async with database_manager.local_session() as session:
+    async def test_create_get_update_delete_organization(self, isolated_database_manager):
+        async with isolated_database_manager.local_session() as session:
             repo = OrganizationRepository(session)
             created = None
             try:
@@ -54,7 +54,7 @@ class TestOrganizationRepository:
                 assert updated.platform_role == PlatformRole.PLATFORM_ADMIN
             finally:
                 # Perform cleanup in a fresh session to avoid transaction/loop issues
-                async with database_manager.local_session() as clean_session:
+                async with isolated_database_manager.local_session() as clean_session:
                     clean_repo = OrganizationRepository(clean_session)
                     if created is not None:
                         try:
@@ -63,8 +63,8 @@ class TestOrganizationRepository:
                         except Exception:
                             await clean_session.rollback()
 
-    async def test_list_organizations_with_pagination(self):
-        async with database_manager.local_session() as session:
+    async def test_list_organizations_with_pagination(self, isolated_database_manager):
+        async with isolated_database_manager.local_session() as session:
             repo = OrganizationRepository(session)
             created_ids: list = []
             try:
@@ -89,7 +89,7 @@ class TestOrganizationRepository:
                 assert len(page) == 1
             finally:
                 # Cleanup in a fresh session to avoid cross-loop/transaction issues
-                async with database_manager.local_session() as clean_session:
+                async with isolated_database_manager.local_session() as clean_session:
                     clean_repo = OrganizationRepository(clean_session)
                     for oid in created_ids:
                         try:
@@ -101,8 +101,8 @@ class TestOrganizationRepository:
                     except Exception:
                         await clean_session.rollback()
 
-    async def test_get_with_api_keys_and_cascade_delete(self):
-        async with database_manager.local_session() as session:
+    async def test_get_with_api_keys_and_cascade_delete(self, isolated_database_manager):
+        async with isolated_database_manager.local_session() as session:
             org_repo = OrganizationRepository(session)
             key_repo = ApiKeyRepository(session)
             created_org_id = None
@@ -144,7 +144,7 @@ class TestOrganizationRepository:
             finally:
                 # Best-effort cleanup in fresh session if something failed earlier
                 if created_org_id is not None:
-                    async with database_manager.local_session() as clean_session:
+                    async with isolated_database_manager.local_session() as clean_session:
                         clean_repo = OrganizationRepository(clean_session)
                         try:
                             await clean_repo.delete(created_org_id)

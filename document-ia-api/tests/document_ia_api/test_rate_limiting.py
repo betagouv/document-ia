@@ -78,7 +78,7 @@ class TestRateLimiting:
     #  override the rate limit settings for the test (1 request per minute)
 
     def test_rate_limit_headers_in_response(
-        self, client_with_api_key, valid_api_key, mock_redis_service
+        self, client_with_api_key_standard, standard_api_key_value, mock_redis_service
     ):
         """Test that rate limit headers are included in API responses."""
         # Configure the mock to return specific rate limit info
@@ -93,8 +93,8 @@ class TestRateLimiting:
             ),
         )
 
-        response = client_with_api_key.get(
-            "/api/test", headers={"X-API-KEY": valid_api_key}
+        response = client_with_api_key_standard.get(
+            "/api/test", headers={"X-API-KEY": standard_api_key_value}
         )
 
         # The response should exist and include rate limit headers
