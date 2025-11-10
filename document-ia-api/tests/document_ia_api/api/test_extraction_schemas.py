@@ -7,9 +7,9 @@ class TestExtractionSchemas:
     """Integration tests for /extraction-schemas controller."""
 
     @pytest.mark.asyncio
-    async def test_get_all_extraction_schemas_success(self, client_with_api_key):
+    async def test_get_all_extraction_schemas_success(self, client_without_api_key):
         """Should return 200 with a non-empty array of schema entries."""
-        response = client_with_api_key.get("/api/v1/extraction-schemas")
+        response = client_without_api_key.get("/api/v1/extraction-schemas")
         assert response.status_code == 200
 
         data = response.json()
@@ -25,13 +25,13 @@ class TestExtractionSchemas:
             assert first["model"]["type"] == "object"
 
     @pytest.mark.asyncio
-    async def test_get_all_extraction_schemas_internal_error(self, client_with_api_key):
+    async def test_get_all_extraction_schemas_internal_error(self, client_without_api_key):
         """When resolve_extract_schema raises, endpoint should return 500 ProblemDetail."""
         with patch(
             "document_ia_api.api.routes.v1.extraction_schemas.resolve_extract_schema"
         ) as mock_resolve:
             mock_resolve.side_effect = Exception("boom")
-            response = client_with_api_key.get("/api/v1/extraction-schemas")
+            response = client_without_api_key.get("/api/v1/extraction-schemas")
 
             assert response.status_code == 500
             body = response.json()

@@ -104,7 +104,7 @@ class TestExecutions:
         )
 
     def test_get_execution_pending_success(
-            self, client_with_api_key, valid_api_key, execution_id
+            self, client_with_api_key_standard, standard_api_key_value, execution_id
     ):
         async def fake_get_last_event(execution_id_param: str):
             return self._event_dto_started(execution_id_param)
@@ -114,9 +114,9 @@ class TestExecutions:
                 "EventStoreService.get_last_event_for_execution_id",
                 new=AsyncMock(side_effect=fake_get_last_event),
         ):
-            response = client_with_api_key.get(
+            response = client_with_api_key_standard.get(
                 f"/api/v1/executions/{execution_id}",
-                headers={"X-API-KEY": valid_api_key},
+                headers={"X-API-KEY": standard_api_key_value},
             )
 
         assert response.status_code == 200
@@ -129,7 +129,7 @@ class TestExecutions:
         assert "created_at" in data["data"]
 
     def test_get_execution_done_success(
-            self, client_with_api_key, valid_api_key, execution_id
+            self, client_with_api_key_standard, standard_api_key_value, execution_id
     ):
         async def fake_get_last_event(execution_id_param: str):
             return self._event_dto_completed(execution_id_param)
@@ -139,9 +139,9 @@ class TestExecutions:
                 "EventStoreService.get_last_event_for_execution_id",
                 new=AsyncMock(side_effect=fake_get_last_event),
         ):
-            response = client_with_api_key.get(
+            response = client_with_api_key_standard.get(
                 f"/api/v1/executions/{execution_id}",
-                headers={"X-API-KEY": valid_api_key},
+                headers={"X-API-KEY": standard_api_key_value},
             )
 
         assert response.status_code == 200
@@ -154,7 +154,7 @@ class TestExecutions:
         assert data["data"]["result"]["classification"]["explanation"] == "blabla"
 
     def test_get_execution_includes_workflow_metadata_when_debug_true(
-            self, client_with_api_key, valid_api_key, execution_id
+            self, client_with_api_key_standard, standard_api_key_value, execution_id
     ):
         async def fake_get_last_event(execution_id_param: str):
             return self._event_dto_completed_with_metadata(execution_id_param)
@@ -164,9 +164,9 @@ class TestExecutions:
                 "EventStoreService.get_last_event_for_execution_id",
                 new=AsyncMock(side_effect=fake_get_last_event),
         ):
-            response = client_with_api_key.get(
+            response = client_with_api_key_standard.get(
                 f"/api/v1/executions/{execution_id}?is_debug_mode=true",
-                headers={"X-API-KEY": valid_api_key},
+                headers={"X-API-KEY": standard_api_key_value},
             )
 
         assert response.status_code == 200
@@ -179,7 +179,7 @@ class TestExecutions:
         assert data["data"]["result"]["workflow_metadata"][0]["step"] == "ocr"
 
     def test_get_execution_excludes_workflow_metadata_when_no_debug_param(
-            self, client_with_api_key, valid_api_key, execution_id
+            self, client_with_api_key_standard, standard_api_key_value, execution_id
     ):
         """When the query param `is_debug_mode` is not provided, workflow_metadata must not be included."""
         async def fake_get_last_event(execution_id_param: str):
@@ -192,9 +192,9 @@ class TestExecutions:
                 new=AsyncMock(side_effect=fake_get_last_event),
         ):
             # call without the query param
-            response = client_with_api_key.get(
+            response = client_with_api_key_standard.get(
                 f"/api/v1/executions/{execution_id}",
-                headers={"X-API-KEY": valid_api_key},
+                headers={"X-API-KEY": standard_api_key_value},
             )
 
         assert response.status_code == 200
@@ -205,16 +205,16 @@ class TestExecutions:
         assert "workflow_metadata" not in data["data"]["result"]
 
     def test_get_execution_not_found(
-            self, client_with_api_key, valid_api_key, execution_id
+            self, client_with_api_key_standard, standard_api_key_value, execution_id
     ):
         with patch(
                 "document_ia_infra.service.event_store_service."
                 "EventStoreService.get_last_event_for_execution_id",
                 new=AsyncMock(side_effect=HttpEntityNotFoundException("execution", execution_id)),
         ):
-            response = client_with_api_key.get(
+            response = client_with_api_key_standard.get(
                 f"/api/v1/executions/{execution_id}",
-                headers={"X-API-KEY": valid_api_key},
+                headers={"X-API-KEY": standard_api_key_value},
             )
 
         assert response.status_code == 404
@@ -222,16 +222,16 @@ class TestExecutions:
         assert body["errors"]["error"] == "entity_not_found"
 
     def test_get_execution_internal_error(
-            self, client_with_api_key, valid_api_key, execution_id
+            self, client_with_api_key_standard, standard_api_key_value, execution_id
     ):
         with patch(
                 "document_ia_infra.service.event_store_service."
                 "EventStoreService.get_last_event_for_execution_id",
                 new=AsyncMock(side_effect=Exception("db down")),
         ):
-            response = client_with_api_key.get(
+            response = client_with_api_key_standard.get(
                 f"/api/v1/executions/{execution_id}",
-                headers={"X-API-KEY": valid_api_key},
+                headers={"X-API-KEY": standard_api_key_value},
             )
 
         assert response.status_code == 500
@@ -243,10 +243,10 @@ class TestExecutions:
         assert response.status_code == 403
 
     def test_get_execution_invalid_api_key(
-            self, client_with_api_key, execution_id
+            self, client_with_api_key_invalid, invalid_api_key_value, execution_id
     ):
-        response = client_with_api_key.get(
+        response = client_with_api_key_invalid.get(
             f"/api/v1/executions/{execution_id}",
-            headers={"X-API-KEY": "invalid-api-key"},
+            headers={"X-API-KEY": invalid_api_key_value},
         )
         assert response.status_code == 401
