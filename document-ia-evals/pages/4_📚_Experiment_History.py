@@ -15,7 +15,6 @@ from src.services.experiment_service import (
 )
 from src.database.connection import test_db_connection, init_db
 from metrics import metric_registry
-
 # Page configuration
 st.set_page_config(
     page_title=f"Experiment History | {Config.APP_TITLE}",
