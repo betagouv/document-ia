@@ -1,13 +1,15 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, UploadFile, File, Form
+from fastapi import APIRouter, Depends, UploadFile, File, Form, Path
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from document_ia_api.api.auth import verify_api_key, get_current_organization
 from document_ia_api.api.contracts.error.errors import ProblemDetail
 from document_ia_api.api.contracts.workflow import (
     WorkflowExecuteResponse,
+    WorkflowClassificationParameterRequest,
+    WorkflowExtractionParameterRequest,
 )
 from document_ia_api.api.middleware.rate_limiting_middleware import check_rate_limit
 from document_ia_api.application.services.workflow_service import WorkflowService
@@ -190,13 +192,26 @@ router = APIRouter(prefix="/workflows")
     },
 )
 async def execute_workflow(
-    workflow_id: str,
+    workflow_id: str = Path(..., description="ID of the workflow to execute"),
     file: UploadFile = File(
         ...,
         description="Document file to process (PDF, JPG, PNG, max 25MB)",
     ),
+    classification_parameters: Optional[str] = Form(
+        default=None,
+        description="JSON string matching the `WorkflowClassificationParameterRequest` model",
+        alias="classification-parameters",
+        example='{"llm_model": "albert-small"}',
+    ),
+    extraction_parameters: Optional[str] = Form(
+        default=None,
+        description="JSON string matching the `WorkflowExtractionParameterRequest` model",
+        alias="extraction-parameters",
+        example='{"llm_model": "albert-small", "document_type": "passeport"}',
+    ),
     metadata: Optional[str] = Form(
-        default=None, description="JSON string containing metadata object"
+        default=None,
+        description="JSON string containing metadata object",
     ),
     api_key: str = Depends(verify_api_key),
     current_org: OrganizationDTO = Depends(get_current_organization),
@@ -237,12 +252,35 @@ async def execute_workflow(
         # Create workflow service instance with database session
         workflow_service = WorkflowService(db_session)
 
+        parsed_classification_parameters: Optional[
+            WorkflowClassificationParameterRequest
+        ] = None
+        parsed_extraction_parameters: Optional[WorkflowExtractionParameterRequest] = (
+            None
+        )
+
+        if classification_parameters is not None:
+            parsed_classification_parameters = (
+                WorkflowClassificationParameterRequest.model_validate_json(
+                    classification_parameters
+                )
+            )
+
+        if extraction_parameters is not None:
+            parsed_extraction_parameters = (
+                WorkflowExtractionParameterRequest.model_validate_json(
+                    extraction_parameters
+                )
+            )
+
         # Execute workflow using the service
         result = await workflow_service.execute_workflow(
             organization_id=current_org.id,
             workflow_id=workflow_id.strip(),
             file=file,
             metadata_json=metadata,
+            request_classification_parameter=parsed_classification_parameters,
+            request_extraction_parameter=parsed_extraction_parameters,
         )
 
         # Commit the database session to persist all changes (including events)

@@ -30,6 +30,8 @@ from document_ia_infra.data.event.schema.workflow.workflow_execution_failed_even
 )
 from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import (
     WorkflowExecutionStartedEvent,
+    ClassificationParameters,
+    ExtractionParameters,
 )
 from document_ia_infra.data.event.schema.workflow.workflow_execution_step_completed_event import (
     WorkflowExecutionStepCompletedEvent,
@@ -182,6 +184,8 @@ class EventStoreService:
         organization_id: UUID,
         file_info: FileInfo,
         metadata: Dict[str, Any],
+        classification_parameters: Optional[ClassificationParameters] = None,
+        extraction_parameters: Optional[ExtractionParameters] = None,
     ) -> WorkflowExecutionStartedEvent:
         """Create a WorkflowExecutionStartedEvent."""
         return WorkflowExecutionStartedEvent(
@@ -192,6 +196,9 @@ class EventStoreService:
             version=1,  # Will be updated when stored
             file_info=file_info,
             metadata=metadata,
+            classification_parameters=classification_parameters
+            or ClassificationParameters(),
+            extraction_parameters=extraction_parameters or ExtractionParameters(),
         )
 
     def create_step_completed_event(
@@ -277,6 +284,8 @@ class EventStoreService:
         organization_id: UUID,
         file_info: FileInfo,
         metadata: Dict[str, Any],
+        classification_parameters: Optional[ClassificationParameters] = None,
+        extraction_parameters: Optional[ExtractionParameters] = None,
     ) -> EventStoreRecord:
         """Emit and store a workflow started event."""
         event = self.create_workflow_started_event(
@@ -285,6 +294,8 @@ class EventStoreService:
             organization_id=organization_id,
             file_info=file_info,
             metadata=metadata,
+            classification_parameters=classification_parameters,
+            extraction_parameters=extraction_parameters,
         )
         return await self.store_event(event)
 

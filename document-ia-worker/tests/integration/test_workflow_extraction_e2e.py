@@ -7,7 +7,8 @@ from document_ia_infra.core.model.file_info import FileInfo
 from document_ia_infra.data.database import DatabaseManager
 from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.repository.event import EventRepository
-from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import WorkflowExecutionStartedEvent
+from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import WorkflowExecutionStartedEvent, \
+    ClassificationParameters, ExtractionParameters
 from document_ia_infra.redis.model.workflow_execution_message import (
     WorkflowExecutionMessage,
 )
@@ -51,6 +52,8 @@ async def test_workflow_extraction_end_to_end(organization_id):
         version=1,
         file_info=file_info,
         metadata={"source": "integration-test"},
+        classification_parameters=ClassificationParameters(),
+        extraction_parameters=ExtractionParameters(),
     ).model_dump(mode="json")
 
     dbm = DatabaseManager()

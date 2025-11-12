@@ -4,6 +4,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import (
+    ClassificationParameters,
+    ExtractionParameters,
+)
+
 
 class StepMetadata(BaseModel):
     step_name: str
@@ -20,5 +25,7 @@ class MainWorkflowContext(BaseModel):
     execution_id: str
     organization_id: Optional[UUID]
     start_time: datetime
+    classification_parameters: Optional[ClassificationParameters] = Field(default=None)
+    extraction_parameters: Optional[ExtractionParameters] = Field(default=None)
     steps_metadata: list[StepMetadata] = Field(default=[])
     number_of_step_executed: int = Field(default=0)

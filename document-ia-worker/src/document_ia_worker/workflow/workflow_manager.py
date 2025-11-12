@@ -9,6 +9,8 @@ from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.repository.event import EventRepository
 from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import (
     WorkflowExecutionStartedEvent,
+    ClassificationParameters,
+    ExtractionParameters,
 )
 from document_ia_infra.data.workflow.repository.worflow import workflow_repository
 from document_ia_infra.exception.retryable_exception import RetryableException
@@ -35,7 +37,6 @@ from document_ia_worker.workflow.step.base_step import BaseStep
 from document_ia_worker.workflow.step.download_file.download_file import (
     DownloadFileStep,
 )
-
 from document_ia_worker.workflow.step.extract_barcode_data.extract_barcode_data import (
     ExtractBarcodeData,
 )
@@ -171,6 +172,20 @@ class WorkflowManager:
             if self.main_workflow_context is not None:
                 self.main_workflow_context.organization_id = event_dto.organization_id
 
+                if self.event_dto.event["classification_parameters"] is not None:
+                    self.main_workflow_context.classification_parameters = (
+                        ClassificationParameters(
+                            **self.event_dto.event["classification_parameters"]
+                        )
+                    )
+
+                if self.event_dto.event["extraction_parameters"] is not None:
+                    self.main_workflow_context.extraction_parameters = (
+                        ExtractionParameters(
+                            **self.event_dto.event["extraction_parameters"]
+                        )
+                    )
+
             if self.workflow is None:
                 logger.error(f"Workflow {event_dto.workflow_id} not found")
                 raise WorkflowNotFoundException(self.message.workflow_execution_id)
@@ -212,13 +227,27 @@ class WorkflowManager:
                 if step == "llm_classify_document":
                     self.step_list.append(
                         LLMClassifyDocumentStep(
-                            self.main_workflow_context, self.workflow.llm_model
+                            self.main_workflow_context,
+                            self.main_workflow_context.classification_parameters.llm_model
+                            if (
+                                self.main_workflow_context.classification_parameters
+                                and self.main_workflow_context.classification_parameters.llm_model
+                                is not None
+                            )
+                            else self.workflow.llm_model,
                         )
                     )
                 if step == "llm_extract_data":
                     self.step_list.append(
                         LLMExtractDocumentStep(
-                            self.main_workflow_context, self.workflow.llm_model
+                            self.main_workflow_context,
+                            self.main_workflow_context.extraction_parameters.llm_model
+                            if (
+                                self.main_workflow_context.extraction_parameters
+                                and self.main_workflow_context.extraction_parameters.llm_model
+                                is not None
+                            )
+                            else self.workflow.llm_model,
                         )
                     )
                 if step == "save_workflow_result":

@@ -19,7 +19,8 @@ from document_ia_schemas import SupportedDocumentType
 from document_ia_infra.data.event.schema.workflow.workflow_execution_completed_event import \
     WorkflowExecutionCompletedEvent, CompletedEventResult
 from document_ia_infra.data.event.schema.workflow.workflow_execution_failed_event import WorkflowExecutionFailedEvent
-from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import WorkflowExecutionStartedEvent
+from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import WorkflowExecutionStartedEvent, \
+    ClassificationParameters, ExtractionParameters
 
 
 class SampleProps(BaseModel):
@@ -58,6 +59,8 @@ def test_get_event_model_started(service: ExecutionService):
         version=1,
         file_info=_file_info(),
         metadata={"k": "v"},
+        classification_parameters=ClassificationParameters(),
+        extraction_parameters=ExtractionParameters(),
     )
     dto = EventDTO(
         id=uuid4(),

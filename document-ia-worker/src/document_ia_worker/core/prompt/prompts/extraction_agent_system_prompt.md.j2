@@ -38,14 +38,18 @@ Les textes OCR peuvent contenir des erreurs, des imprécisions ou des zones illi
 Réponds UNIQUEMENT avec un objet JSON au format suivant :
 
 ```json
-{{ document_json_properties_with_type | tojson(indent=2) }}
+{{ extraction_response_format | tojson(indent=2) }}
 ```
+
+Pour le champ "type", tu dois mettre la valeur **{{ extraction_response_format["type"] }}** ! (Tu n'as pas le droit de le modifier.)
+
+Pour le champ "title", tu dois mettre la valeur **{{ extraction_response_format["title"] }}** ! (Tu n'as pas le droit de le modifier.)
 
 ## Exemple de réponse
 Voici un exemple de réponse attendue :
 
 ```json
-{{ document_json_properties_with_example | tojson(indent=2) }}
+{{ extraction_response_example | tojson(indent=2) }}
 ```
 
 N'ajoute pas de texte avant ou après ce JSON.

@@ -81,6 +81,3 @@ class OpenAIManager:
                 raise OpenAIAuthentificationError()
             logger.error(f"Error generating response: {e}")
             raise e
-
-
-openai_manager = OpenAIManager()

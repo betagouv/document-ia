@@ -20,7 +20,8 @@ from document_ia_infra.data.event.schema.event import EventStoreRecord
 from document_ia_infra.data.event.schema.workflow.workflow_execution_completed_event import CompletedEventResult, \
     WorkflowExecutionCompletedEvent
 from document_ia_infra.data.event.schema.workflow.workflow_execution_failed_event import WorkflowExecutionFailedEvent
-from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import WorkflowExecutionStartedEvent
+from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import WorkflowExecutionStartedEvent, \
+    ClassificationParameters, ExtractionParameters
 from document_ia_infra.data.event.schema.workflow.workflow_execution_step_completed_event import \
     WorkflowExecutionStepCompletedEvent
 from document_ia_infra.service.event_store_service import EventStoreService
@@ -71,6 +72,8 @@ def sample_event():
         version=1,
         file_info=_sample_file_info(),
         metadata={"source": "test"},
+        classification_parameters=ClassificationParameters(),
+        extraction_parameters=ExtractionParameters(),
     )
 
 
@@ -94,6 +97,8 @@ def sample_event_record():
             "event_type": "WorkflowExecutionStarted",
             "file_info": _sample_file_info(),
             "metadata": {"source": "test"},
+            "classification_parameters": {},
+            "extraction_parameters": {},
         },
     )
 
