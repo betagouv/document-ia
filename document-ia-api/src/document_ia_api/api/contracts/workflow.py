@@ -1,9 +1,33 @@
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
+from document_ia_schemas import SupportedDocumentType
 from pydantic import BaseModel, Field
 
 from document_ia_api.schemas.workflow import WorkflowExecutionData
+from document_ia_infra.data.workflow.dto.workflow_dto import LLMModel
+
+
+class WorkflowClassificationParameterRequest(BaseModel):
+    llm_model: Optional[LLMModel] = Field(
+        default=None,
+        description="LLM model to be used for classification override workflow parameter",
+        alias="llm-model",
+    )
+
+
+class WorkflowExtractionParameterRequest(BaseModel):
+    llm_model: Optional[LLMModel] = Field(
+        default=None,
+        description="LLM model to be used for extraction override workflow parameter",
+        alias="llm-model",
+    )
+
+    document_type: Optional[SupportedDocumentType] = Field(
+        default=None,
+        description="Document type to be used for extraction override workflow parameter",
+        alias="document-type",
+    )
 
 
 class WorkflowExecuteRequest(BaseModel):

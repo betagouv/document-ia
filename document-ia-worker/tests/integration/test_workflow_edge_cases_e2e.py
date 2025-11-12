@@ -4,13 +4,14 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+
 from document_ia_infra.core.model.file_info import FileInfo
 from document_ia_infra.data.database import DatabaseManager
 from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.repository.event import EventRepository
-from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import WorkflowExecutionStartedEvent
+from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import WorkflowExecutionStartedEvent, \
+    ClassificationParameters, ExtractionParameters
 from document_ia_infra.s3.s3_manager import S3Manager
-
 from document_ia_worker.workflow.workflow_manager import WorkflowManager
 
 FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures"
@@ -58,6 +59,8 @@ class TestWorkflowEdgeCasesE2E:
             version=1,
             file_info=file_info,
             metadata={"source": "edge-test"},
+            classification_parameters=ClassificationParameters(),
+            extraction_parameters=ExtractionParameters(),
         ).model_dump(mode="json")
 
         dbm = DatabaseManager()
@@ -73,7 +76,8 @@ class TestWorkflowEdgeCasesE2E:
             await session.commit()
 
         # Run manager (pass is_last_retry per new signature)
-        manager = WorkflowManager(message=SimpleNamespace(workflow_execution_id=execution_id), retry_count=0, is_last_retry=False)
+        manager = WorkflowManager(message=SimpleNamespace(workflow_execution_id=execution_id), retry_count=0,
+                                  is_last_retry=False)
         with pytest.raises(ValueError):
             await manager.start()
 
@@ -130,6 +134,8 @@ class TestWorkflowEdgeCasesE2E:
             version=1,
             file_info=file_info,
             metadata={"source": "edge-test"},
+            classification_parameters=ClassificationParameters(),
+            extraction_parameters=ExtractionParameters(),
         ).model_dump(mode="json")
 
         dbm = DatabaseManager()
@@ -144,7 +150,8 @@ class TestWorkflowEdgeCasesE2E:
             )
             await session.commit()
 
-        manager = WorkflowManager(message=SimpleNamespace(workflow_execution_id=execution_id), retry_count=0, is_last_retry=False)
+        manager = WorkflowManager(message=SimpleNamespace(workflow_execution_id=execution_id), retry_count=0,
+                                  is_last_retry=False)
         with pytest.raises(ValueError):
             await manager.start()
 
@@ -166,7 +173,8 @@ class TestWorkflowEdgeCasesE2E:
     async def test_save_results_without_llm_fails(self, monkeypatch, organization_id):
         """Workflow with only 'save_results': missing LLMResult must fail in SaveWorkflowResultStep."""
         wf_id = "wf-missing-llm"
-        fake_workflow = SimpleNamespace(id=wf_id, steps=["save_workflow_result"], llm_model="albert-large", type= "classification")
+        fake_workflow = SimpleNamespace(id=wf_id, steps=["save_workflow_result"], llm_model="albert-large",
+                                        type="classification")
 
         import document_ia_infra.data.workflow.repository.worflow as wf_repo_mod
 
@@ -193,6 +201,8 @@ class TestWorkflowEdgeCasesE2E:
             version=1,
             file_info=file_info,
             metadata={"source": "edge-test"},
+            classification_parameters=ClassificationParameters(),
+            extraction_parameters=ExtractionParameters(),
         ).model_dump(mode="json")
 
         dbm = DatabaseManager()
@@ -207,7 +217,8 @@ class TestWorkflowEdgeCasesE2E:
             )
             await session.commit()
 
-        manager = WorkflowManager(message=SimpleNamespace(workflow_execution_id=execution_id), retry_count=0, is_last_retry=False)
+        manager = WorkflowManager(message=SimpleNamespace(workflow_execution_id=execution_id), retry_count=0,
+                                  is_last_retry=False)
         with pytest.raises(ValueError):
             await manager.start()
 

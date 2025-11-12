@@ -35,6 +35,8 @@ class TestExecutions:
                 "uploaded_at": created.isoformat(),
                 "presigned_url": "https://example.com/presigned",
             },
+            "classification_parameters": {},
+            "extraction_parameters": {},
             "version": 1,
             "metadata": {"source": "email"},
         }

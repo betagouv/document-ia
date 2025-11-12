@@ -100,7 +100,7 @@ class TestEventRepository:
                 workflow_id="test_workflow_001",
                 execution_id="test_execution_001",
                 event_type=EventType.WORKFLOW_EXECUTION_STARTED,
-                event={"test": "data1"},
+                event={"test": "data1", "classification_parameters": {}, "extraction_parameters": {}},
             ),
             EventDTO(
                 id=uuid4(),

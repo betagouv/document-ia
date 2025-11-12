@@ -7,6 +7,10 @@ from typing import Dict, Any, Optional
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from document_ia_api.api.contracts.workflow import (
+    WorkflowClassificationParameterRequest,
+    WorkflowExtractionParameterRequest,
+)
 from document_ia_api.api.exceptions.entity_not_found_exception import (
     HttpEntityNotFoundException,
 )
@@ -14,6 +18,10 @@ from document_ia_api.core.file_validator import validate_uploaded_file
 from document_ia_api.infra.s3_service import s3_service
 from document_ia_api.schemas.workflow import WorkflowExecutionData
 from document_ia_infra.core.model.file_info import FileInfo
+from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import (
+    ClassificationParameters,
+    ExtractionParameters,
+)
 from document_ia_infra.data.workflow.repository.worflow import workflow_repository
 from document_ia_infra.redis.model.workflow_execution_message import (
     WorkflowExecutionMessage,
@@ -40,6 +48,10 @@ class WorkflowService:
         workflow_id: str,
         file: UploadFile,
         metadata_json: Optional[str],
+        request_classification_parameter: Optional[
+            WorkflowClassificationParameterRequest
+        ],
+        request_extraction_parameter: Optional[WorkflowExtractionParameterRequest],
     ) -> WorkflowExecutionData:
         """
         Execute a workflow with file upload and metadata processing.
@@ -49,6 +61,8 @@ class WorkflowService:
             organization_id: Organization UUID
             file: Uploaded file
             metadata_json: JSON string containing metadata
+            request_classification_parameter: Workflow classification parameter
+            request_extraction_parameter: Workflow extraction parameter
 
         Returns:
             Dict containing execution response
@@ -101,12 +115,19 @@ class WorkflowService:
             # Emit workflow started event
             try:
                 event_store_service = EventStoreService(self.db_session)
+
                 await event_store_service.emit_workflow_started(
                     workflow_id=workflow_id,
                     execution_id=execution_id,
                     organization_id=organization_id,
                     file_info=file_info,
                     metadata=metadata,
+                    classification_parameters=self._map_classification_parameters(
+                        request_classification_parameter
+                    ),
+                    extraction_parameters=self._map_extraction_parameters(
+                        request_extraction_parameter
+                    ),
                 )
                 logger.debug(
                     f"Workflow started event emitted for execution {execution_id}"
@@ -253,6 +274,26 @@ class WorkflowService:
                 },
             )
 
+    def _map_classification_parameters(
+        self,
+        request_classification_parameter: Optional[
+            WorkflowClassificationParameterRequest
+        ],
+    ) -> Optional[ClassificationParameters]:
+        if request_classification_parameter is None:
+            return None
+        parameters: ClassificationParameters = ClassificationParameters()
+        if request_classification_parameter.llm_model:
+            parameters.llm_model = request_classification_parameter.llm_model
+        return parameters
 
-# Note: WorkflowService now requires a database session to be instantiated
-# This will be handled through dependency injection in the API routes
+    def _map_extraction_parameters(
+        self, request_extraction_parameter: Optional[WorkflowExtractionParameterRequest]
+    ) -> Optional[ExtractionParameters]:
+        if request_extraction_parameter is None:
+            return None
+
+        parameters: ExtractionParameters = ExtractionParameters()
+        parameters.llm_model = request_extraction_parameter.llm_model
+        parameters.document_type = request_extraction_parameter.document_type
+        return parameters

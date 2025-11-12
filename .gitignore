@@ -3,6 +3,9 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+#MAC OS
+.DS_Store
+
 # C extensions
 *.so
 

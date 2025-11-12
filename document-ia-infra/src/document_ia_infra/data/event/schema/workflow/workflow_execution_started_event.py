@@ -1,10 +1,27 @@
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
-from pydantic import Field
+from document_ia_schemas import SupportedDocumentType
+from pydantic import Field, BaseModel
 
 from document_ia_infra.core.model.file_info import FileInfo
 from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.schema.event import BaseEvent
+from document_ia_infra.data.workflow.dto.workflow_dto import LLMModel
+
+
+class ClassificationParameters(BaseModel):
+    llm_model: Optional[LLMModel] = Field(
+        default=None, description="LLM model for classification"
+    )
+
+
+class ExtractionParameters(BaseModel):
+    llm_model: Optional[LLMModel] = Field(
+        default=None, description="LLM model for extraction"
+    )
+    document_type: Optional[SupportedDocumentType] = Field(
+        default=None, description="Document type"
+    )
 
 
 class WorkflowExecutionStartedEvent(BaseEvent):
@@ -15,3 +32,9 @@ class WorkflowExecutionStartedEvent(BaseEvent):
     )
     file_info: FileInfo = Field(description="Uploaded file information")
     metadata: Dict[str, Any] = Field(description="Execution metadata")
+    classification_parameters: ClassificationParameters = Field(
+        description="Classification parameters"
+    )
+    extraction_parameters: ExtractionParameters = Field(
+        description="Extraction parameters"
+    )

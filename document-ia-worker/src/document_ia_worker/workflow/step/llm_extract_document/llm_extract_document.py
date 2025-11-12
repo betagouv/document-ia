@@ -35,31 +35,54 @@ class LLMExtractDocumentStep(BaseStep[LLMExtractionResult]):
         self.model = model
         self.openai_manager = OpenAIManager()
         self.prompt_service = PromptService()
+        self.extraction_parameters = main_workflow_context.extraction_parameters
 
     def get_context_result_key(self) -> str:
         return LLMExtractionResult.__name__
 
     async def _prepare_step(self):
         logger.info(f"Preparing llm extraction step for execution: {self.execution_id}")
+        if self.extraction_parameters is not None:
+            logger.info(
+                f"LLM extraction step will be overridden by the workflow parameters {self.extraction_parameters}"
+            )
         if self.ocr_result is None:
             raise ValueError("OcrResultData not injected in context")
-        if self.llm_classification_result is None:
-            raise ValueError("LLMClassificationResult not injected in context")
+        if self.llm_classification_result is None and (
+            self.extraction_parameters is None
+            or self.extraction_parameters.document_type is None
+        ):
+            raise ValueError(
+                "LLMClassificationResult not injected in context or extraction parameters missing"
+            )
 
     def inject_workflow_context(self, context: dict[str, Any]):
         self.ocr_result = self._get_safe_workflow_context_key(OcrResult, context)
-        self.llm_classification_result = self._get_safe_workflow_context_key(
+        self.llm_classification_result = self._get_not_mandatory_workflow_context_key(
             LLMClassificationResult, context
         )
 
     async def _execute_internal(self) -> tuple[LLMExtractionResult, StepMetadata]:
         assert self.ocr_result is not None
-        assert self.llm_classification_result is not None
 
-        system_prompt, extract_class = self.prompt_service.get_extraction_prompt(
-            SupportedDocumentType.from_str(
+        document_type: Optional[SupportedDocumentType] = None
+
+        if self.llm_classification_result is not None:
+            document_type = SupportedDocumentType.from_str(
                 self.llm_classification_result.data.document_type
             )
+        else:
+            if (
+                self.extraction_parameters is not None
+                and self.extraction_parameters.document_type is not None
+            ):
+                document_type = self.extraction_parameters.document_type
+
+        if document_type is None:
+            raise ValueError("Document type could not be determined for extraction")
+
+        system_prompt, extract_class = self.prompt_service.get_extraction_prompt(
+            document_type
         )
 
         user_prompt = ""
