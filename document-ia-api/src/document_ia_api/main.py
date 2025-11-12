@@ -3,10 +3,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_redoc_html
+from starlette.staticfiles import StaticFiles
 
-from document_ia_api.api.config import settings
-from document_ia_api.api.middleware.rate_limiting_middleware import RateLimitMiddleware
 from api.routes import router
+from document_ia_api.api.config import settings
 from document_ia_api.api.exceptions.handler.exception_handlers import (
     setup_exception_handlers,
 )
@@ -14,6 +15,7 @@ from document_ia_api.api.middleware.aggregator_middleware import (
     AggregationMiddleware,
     get_request_payload_safely,
 )
+from document_ia_api.api.middleware.rate_limiting_middleware import RateLimitMiddleware
 from document_ia_api.api.middleware.request_id_middleware import RequestIDMiddleware
 from document_ia_api.core.logging_setup import setup_logging
 from document_ia_api.infra.database_service import database_service
@@ -58,10 +60,12 @@ app = FastAPI(
     description="A powerful document processing API that enables automated document analysis, workflow execution, and intelligent document handling.",
     version=settings.APP_VERSION,
     docs_url="/docs",
-    redoc_url="/redoc",
+    redoc_url=None,
     openapi_url="/openapi.json",
     lifespan=lifespan,
 )
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # The last one added is the first one to be executed
 
@@ -80,6 +84,16 @@ app.add_middleware(AggregationMiddleware)
 app.add_middleware(RequestIDMiddleware)
 
 setup_exception_handlers(app)
+
+
+@app.get("/redoc", include_in_schema=False)
+async def redoc_html():
+    return get_redoc_html(
+        openapi_url=app.openapi_url or "",
+        title=app.title + " - ReDoc",
+        redoc_js_url="/static/redoc.standalone.js",
+    )
+
 
 # Include API routes
 # We use a dependency here to ensure the request body is read

@@ -15,6 +15,7 @@ repos:
       - id: end-of-file-fixer
       - id: check-yaml
       - id: check-added-large-files
+        exclude: ^document-ia-api/src/static/
       - id: check-merge-conflict
       - id: debug-statements
 
