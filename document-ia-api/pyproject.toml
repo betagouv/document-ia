@@ -26,6 +26,7 @@ document-ia-infra = { path = "../document-ia-infra", develop = false }
 document-ia-schemas = { path = "../document-ia-schemas", develop = false }
 python-logging-loki = "^0.3.1"
 argon2-cffi = "^25"
+cryptography = "^46.0.3"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.12.11"

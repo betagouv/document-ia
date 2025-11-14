@@ -9,7 +9,7 @@ from typing import TypeVar, Generic
 
 from redis.typing import EncodableT
 
-from document_ia_infra.redis.redis_manager import redis_manager
+from document_ia_infra.redis.redis_manager import redis_manager, RedisManager
 from document_ia_infra.redis.redis_settings import redis_settings
 from document_ia_infra.redis.serializable_message import SerializableMessage
 
@@ -19,14 +19,17 @@ T = TypeVar("T", bound=SerializableMessage)
 
 
 class Publisher(Generic[T]):
-    def __init__(self, stream_name: str):
+    def __init__(
+        self, stream_name: str, current_redis_manager: RedisManager = redis_manager
+    ):
         """Initialise the Redis connection and the publisher"""
         self.stream_name = stream_name
+        self.current_redis_manager = current_redis_manager
 
     async def publish_message(self, message: T):
         """Publie une tâche dans le stream Redis"""
         try:
-            connection = await redis_manager.get_connection()
+            connection = await self.current_redis_manager.get_connection()
             if connection is None:
                 logger.error("❌ No Redis connection available")
                 return None

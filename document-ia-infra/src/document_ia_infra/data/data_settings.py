@@ -17,6 +17,8 @@ class DatabaseSettings(BaseDocumentIaSettings):
 
     POSTGRESQL_URL: str | None = Field(default=None)
 
+    WEBHOOK_SECRET_ENCRYPTION_KEY: SecretStr | None = Field(default=None)
+
     def _sanitize_postgresql_url(self, url: str, async_connection: bool = False) -> str:
         """Sanitize PostgreSQL URL by removing unsupported SSL parameters."""
         parsed = urlparse(url)

@@ -173,7 +173,7 @@ async def get_execution(
     )
 
     event_store_service = EventStoreService(db_session)
-    execution_service = ExecutionService(db_session)
+    execution_service = ExecutionService()
     try:
         last_event = await event_store_service.get_last_event_for_execution_id(
             execution_id

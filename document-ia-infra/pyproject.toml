@@ -21,6 +21,7 @@ asyncpg = "^0.30.0"
 mypy-boto3-s3 = "^1.40.26"
 python-logging-loki = "^0.3.1"
 document-ia-schemas = { path = "../document-ia-schemas", develop = false }
+cryptography = "^43.0.0"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.12.11"
