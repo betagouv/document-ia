@@ -1,5 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -65,7 +66,17 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+_BASE_DIR = Path(__file__).resolve().parent.parent
+_STATIC_DIR = _BASE_DIR / "static"
+redoc_js_url: str = "https://cdn.jsdelivr.net/npm/redoc/bundles/redoc.standalone.js"
+if _STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+    redoc_js_url = "/static/redoc.standalone.js"
+else:
+    logger.warning(
+        "Static directory not found at %s; skipping mount. Using CDN for ReDoc.",
+        _STATIC_DIR,
+    )
 
 # The last one added is the first one to be executed
 
@@ -88,10 +99,11 @@ setup_exception_handlers(app)
 
 @app.get("/redoc", include_in_schema=False)
 async def redoc_html():
+    # FastAPI expose openapi_url et title mais pyright ne les connaît pas => ignore.
     return get_redoc_html(
-        openapi_url=app.openapi_url or "",
-        title=app.title + " - ReDoc",
-        redoc_js_url="/static/redoc.standalone.js",
+        openapi_url=(app.openapi_url or ""),  # type: ignore[attr-defined]
+        title=(app.title + " - ReDoc"),  # type: ignore[attr-defined]
+        redoc_js_url=redoc_js_url,
     )
 
 
