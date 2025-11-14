@@ -29,7 +29,7 @@ class ApiKeySettings(BaseDocumentIaSettings):
 
     API_KEY_VERSION: int = Field(default=1, validation_alias="API_KEY_VERSION")
 
-    API_KEY_ENV: str = Field(default="prod", validation_alias="APP_ENV")
+    APP_ENV: str = Field(default="prod", validation_alias="APP_ENV")
 
     DOCUMENT_IA_API_KEY: str = Field(default="", validation_alias="DOCUMENT_IA_API_KEY")
 

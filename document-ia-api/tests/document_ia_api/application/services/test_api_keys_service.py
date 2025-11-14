@@ -21,7 +21,7 @@ def test_generate_and_verify_api_key():
     assert api_key_helper.key_re.match(presented) is not None
 
     # Check that ENV and VERSION are present in the string
-    assert f"dia_{api_key_settings.API_KEY_ENV}_{api_key_settings.API_KEY_VERSION}_" in presented
+    assert f"dia_{api_key_settings.APP_ENV}_{api_key_settings.API_KEY_VERSION}_" in presented
 
 def test_verify_api_key_with_valid_key():
     api_key_helper = ApiKeyHelper()

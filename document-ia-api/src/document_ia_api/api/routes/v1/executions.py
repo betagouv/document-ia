@@ -194,9 +194,7 @@ async def get_execution(
         raise HttpEntityNotFoundException(
             entity_name=e.entity_name, entity_id=e.entity_id
         )
-    except HttpEntityNotFoundException as e:
-        raise e
-    except HTTPException as e:
+    except (HttpEntityNotFoundException, HTTPException) as e:
         raise e
     except Exception as e:
         logger.error(

@@ -25,7 +25,7 @@ class ApiKeyHelper:
         body = self._b32_no_pad(raw)
         prefix = body[:8]
         chk = self._hmac_b32(api_key_settings.API_KEY_PEPPER_CHK, body)[:4]
-        presented = f"dia_{api_key_settings.API_KEY_ENV}_{api_key_settings.API_KEY_VERSION}_{prefix}_{body}_{chk}"
+        presented = f"dia_{api_key_settings.APP_ENV}_{api_key_settings.API_KEY_VERSION}_{prefix}_{body}_{chk}"
         mac = hmac.new(
             api_key_settings.API_KEY_PEPPER_HASH.encode(), body.encode(), hashlib.sha256
         ).hexdigest()
