@@ -20,7 +20,13 @@ from document_ia_api.api.middleware.rate_limiting_middleware import RateLimitMid
 from document_ia_api.api.middleware.request_id_middleware import RequestIDMiddleware
 from document_ia_api.core.logging_setup import setup_logging
 from document_ia_api.infra.database_service import database_service
+from document_ia_api.infra.redis.simple_stream_consumer import SimpleStreamConsumer
+from document_ia_api.infra.webhook_notification_service import (
+    webhook_notification_service,
+)
 from document_ia_infra.data.database import database_manager
+from document_ia_infra.redis.model.webhook_message import WebHookMessage
+from document_ia_infra.redis.redis_settings import redis_settings
 from infra.database.migration_service import migration_service
 from infra.redis_service import redis_service
 from infra.s3_service import s3_service
@@ -47,12 +53,32 @@ async def lifespan(app: FastAPI):
     # Run database migrations
     await migration_service.auto_migrate()
 
+    webhook_consumer = SimpleStreamConsumer[WebHookMessage](
+        stream_name=redis_settings.WEBHOOK_STREAM_NAME,
+        handler=webhook_notification_service.handle_webhook_notification,
+        message_class=WebHookMessage,
+        consumer_group=redis_settings.WEBHOOK_CONSUMER_GROUP,
+        consumer_name="api-webhook-consumer",
+        auto_ack=True,
+        block_ms=5000,
+        count=50,
+    )
+    await webhook_consumer.start()
+    app.state.webhook_consumer = webhook_consumer  # type: ignore[attr-defined]
+
     logger.info("Document IA API started successfully")
 
-    yield
-
-    # Shutdown
-    logger.info("Shutting down Document IA API...")
+    try:
+        yield
+    finally:
+        # Shutdown
+        logger.info("Shutting down Document IA API...")
+        try:
+            wc = getattr(app.state, "webhook_consumer", None)  # type: ignore[attr-defined]
+            if wc is not None:
+                await wc.stop()
+        except Exception as e:
+            logger.error("Error stopping webhook consumer: %s", e)
 
 
 # Create FastAPI application

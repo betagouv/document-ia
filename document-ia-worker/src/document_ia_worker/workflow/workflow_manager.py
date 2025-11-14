@@ -12,11 +12,18 @@ from document_ia_infra.data.event.schema.workflow.workflow_execution_started_eve
     ClassificationParameters,
     ExtractionParameters,
 )
+from document_ia_infra.data.webhook.repository.webhook_repository import (
+    WebHookRepository,
+)
 from document_ia_infra.data.workflow.repository.worflow import workflow_repository
 from document_ia_infra.exception.retryable_exception import RetryableException
+from document_ia_infra.redis.model.webhook_message import WebHookMessage
 from document_ia_infra.redis.model.workflow_execution_message import (
     WorkflowExecutionMessage,
 )
+from document_ia_infra.redis.publisher import Publisher
+from document_ia_infra.redis.redis_manager import RedisManager
+from document_ia_infra.redis.redis_settings import redis_settings
 from document_ia_infra.service.event_store_service import EventStoreService
 from document_ia_worker.core.aggregator_log import (
     setup_logging_worker,
@@ -95,6 +102,10 @@ class WorkflowManager:
         self._agg_token_buf = agg_buffer_var.set([])
         self._agg_token_started_at = start_time_var.set(datetime.now(UTC))
 
+        self._webhook_producer: Publisher[WebHookMessage] = Publisher(
+            redis_settings.WEBHOOK_STREAM_NAME, RedisManager()
+        )
+
     async def start(self):
         self.main_workflow_context = MainWorkflowContext(
             execution_id=self.message.workflow_execution_id,
@@ -134,6 +145,7 @@ class WorkflowManager:
                 else:
                     raise e
             finally:
+                await self._notify_webhook_execution_finished(session)
                 # Persist DB changes
                 await session.commit()
                 handle_finish_execution(
@@ -281,6 +293,37 @@ class WorkflowManager:
                 raise
         except Exception as e:
             raise WorkflowStepException("parse_start_event", e)
+
+    async def _notify_webhook_execution_finished(self, async_session: AsyncSession):
+        if self.main_workflow_context is None:
+            logger.warning(
+                "Main workflow context is None, skipping webhook notification"
+            )
+            return
+
+        if self.main_workflow_context.organization_id is None:
+            logger.warning("Organization ID is None, skipping webhook notification")
+            return
+        try:
+            logger.info(
+                f"Notifying webhook for finished execution {self.main_workflow_context.execution_id} of organization {self.main_workflow_context.organization_id}"
+            )
+            webhook_repository = WebHookRepository(async_session)
+            webhooks = await webhook_repository.list_webhooks_by_organization(
+                self.main_workflow_context.organization_id
+            )
+
+            for webhook in webhooks:
+                await self._webhook_producer.publish_message(
+                    WebHookMessage(
+                        webhook_id=webhook.id,
+                        workflow_execution_id=self.main_workflow_context.execution_id,
+                    )
+                )
+        except Exception as e:
+            logger.error(
+                f"Failed to notify webhook for finished execution {self.main_workflow_context.execution_id}: {e}"
+            )
 
     async def _execute_workflow(self):
         is_last_cleanup = True

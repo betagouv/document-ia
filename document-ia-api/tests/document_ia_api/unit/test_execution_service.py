@@ -34,8 +34,8 @@ def db_session() -> AsyncSession:
 
 
 @pytest.fixture
-def service(db_session: AsyncSession) -> ExecutionService:
-    return ExecutionService(db_session)
+def service() -> ExecutionService:
+    return ExecutionService()
 
 
 def _file_info() -> FileInfo:

@@ -14,6 +14,8 @@ class RedisSettings(BaseDocumentIaSettings):
     REDIS_URL: str | None = Field(default=None)
 
     EVENT_STREAM_NAME: str = Field(default="event_stream")
+    WEBHOOK_STREAM_NAME: str = Field(default="webhook_stream")
+    WEBHOOK_CONSUMER_GROUP: str = Field(default="webhook_consumer")
     EVENT_STREAM_EXPIRATION: int = Field(default=300)
     EVENT_STREAM_MAXLEN: int = Field(default=1000)
     EVENT_CONSUMER_GROUP: str = Field(default="workflow_execution_consumer")

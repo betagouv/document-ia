@@ -1,9 +1,9 @@
 import logging
 from typing import Any, Literal, cast
 
+from document_ia_schemas import resolve_extract_schema, BaseDocumentTypeSchema
 from fastapi import HTTPException
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from document_ia_api.api.contracts.execution.failed import (
     ExecutionFailedModel,
@@ -29,8 +29,6 @@ from document_ia_infra.data.document.schema.document_extraction import (
 )
 from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.dto.event_type_enum import EventType
-from document_ia_schemas import resolve_extract_schema, BaseDocumentTypeSchema
-
 from document_ia_infra.data.event.schema.workflow.workflow_execution_completed_event import (
     WorkflowExecutionCompletedEvent,
 )
@@ -47,8 +45,8 @@ logger = logging.getLogger(__name__)
 class ExecutionService:
     """Service for handling execution business logic."""
 
-    def __init__(self, db_session: AsyncSession):
-        self.db_session = db_session
+    def __init__(self):
+        pass
 
     def get_event_model(
         self, event_dto: EventDTO, execution_id: str, is_debug_mode: bool

@@ -52,6 +52,8 @@ jobs:
       POSTGRES_PASSWORD: your-secure-postgres-password
       POSTGRES_PORT: 5432
 
+      WEBHOOK_SECRET_ENCRYPTION_KEY: H0NUUmyF6mUoiWcZ8LvVFLEPkYTkYR1ymeI4YouMYhM=
+
       # Redis
       REDIS_HOST: localhost
       REDIS_PORT: 6379

@@ -453,6 +453,19 @@ Notes:
 - For query/path/form parameters, existing secret types (e.g. SecretPayloadStr/Bytes) remain supported and are masked as before.
 - Only small JSON bodies are parsed and masked (up to 4096 bytes) to keep logging safe and efficient.
 
+## Webhook Security
+To safely store and use the webhook headers required for authenticating requests, we use a Fernet symmetric encryption scheme.
+To generate a Fernet key, you can use the following Python code:
+
+```python
+from cryptography.fernet import Fernet
+key = Fernet.generate_key()
+print(key.decode())
+```
+
+You have to store this key in environment variable `WEBHOOK_SECRET_ENCRYPTION_KEY`
+This key will be used to encrypt and decrypt the webhook headers securely.
+
 ## API Error Handling (Problem Details)
 
 All API errors are returned as a structured JSON response following the Problem Details (RFC 7807) conventions. This ensures consistent error shapes across the API and makes it easier for clients to handle failures in a predictable way.
