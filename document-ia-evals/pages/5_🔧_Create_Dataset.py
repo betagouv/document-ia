@@ -1,97 +1,529 @@
-import threading
-import queue
+# Standard library imports
+import json
 import os
+import queue
+import threading
+import time
+from typing import Any, Type, get_origin, Protocol
+
+# Third-party imports
+import boto3
 import streamlit as st
+from botocore.exceptions import ClientError
+from label_studio_sdk import Client
+from pydantic import BaseModel
 from streamlit.runtime.uploaded_file_manager import UploadedFile
-from document_ia_evals.utils.api import execute_workflow, wait_for_execution, ExecutionModel
+
+# Local imports
+from document_ia_evals.utils.api import execute_workflow, wait_for_execution
+from document_ia_schemas import SupportedDocumentType, resolve_extract_schema
 
 
-def consumer(file_queue: queue.Queue, api_key: str, callback: queue.Queue):
-    """Continuously take jobs from the queue and process them."""
+# Protocol for S3 client type
+class S3ClientProtocol(Protocol):
+    def put_object(self, *, Bucket: str, Key: str, Body: bytes, ContentType: str) -> Any: ...
+
+
+def field_name_to_label(field_name: str) -> str:
+    """Convert a field name to a readable label."""
+    return field_name.replace('_', ' ').title()
+
+
+def is_optional(field_type: Any) -> bool:
+    """Check if a field is Optional."""
+    origin = get_origin(field_type)
+    if origin is not None:
+        args = getattr(field_type, '__args__', ())
+        return type(None) in args
+    return False
+
+
+def generate_label_config(model: Type[BaseModel], title: str = "Document Extraction") -> str:
+    """Generate Label Studio XML configuration from a Pydantic model."""
+    
+    fields_xml: list[str] = []
+    print("xXxXxX = model.model_fields", model.model_fields)
+
+    for field_name, field_info in model.model_fields.items():
+        field_type = field_info.annotation
+        required = not is_optional(field_type)
+        label = field_name_to_label(field_name)
+        
+        field_xml = f"""
+      <View style="margin-bottom: 20px;">
+        <Text name="{field_name}_label" value="{label}:" style="font-weight: bold; margin-bottom: 5px;"/>
+        <Textarea name="{field_name}" toName="pdf" 
+                  placeholder="Entrez {label.lower()}" 
+                  rows="1" 
+                  editable="true"
+                  required="{str(required).lower()}"
+                  maxSubmissions="1"
+                  showSubmitButton="false"/>
+      </View>"""
+        fields_xml.append(field_xml)
+    
+    config = f"""<View>
+  <Header value="{title}"/>
+  
+  <View style="display: flex; flex-direction: row; height: calc(100vh - 100px);">
+    <!-- Image à gauche -->
+    <View style="flex: 0 0 50%; min-width: 300px; max-width: 80%; margin-right: 20px; resize: horizontal; overflow: auto; border-right: 2px solid #ccc;">
+      <Pdf name="pdf" value="$pdf" zoom="true" zoomControl="true"/>
+    </View>
+    
+    <!-- Champs à droite -->
+    <View style="flex: 1; overflow-y: auto; padding-right: 10px;">
+      <Header value="Informations extraites"/>
+      {''.join(fields_xml)}
+      <Text name="raw_api_response_label" value="raw document-ai api response, used for evaluation" style="font-weight: bold; margin-bottom: 5px;"/>
+      <TextArea name="raw_api_response" toName="pdf" editable="false" rows="1"/>
+    </View>
+  </View>
+</View>"""
+    
+    return config
+
+
+def pydantic_to_annotation_result(model_instance: BaseModel) -> list[dict[str, Any]]:
+    """Convert a Pydantic instance to Label Studio annotation structure."""
+    results: list[dict[str, Any]] = []
+    print("xXxXxX = model_instance.model_dump()", model_instance.model_dump())
+
+    for field_name, value in model_instance.model_dump().items():
+        if value is not None:
+            results.append({
+                'value': {'text': [str(value)]},
+                'from_name': field_name,
+                'to_name': 'pdf',
+                'type': 'textarea',
+                'readonly': False
+            })
+    
+    # Add raw JSON as an additional annotation
+    results.append({
+        'value': {'text': [json.dumps(model_instance.model_dump())]},
+        'from_name': 'raw_api_response',
+        'to_name': 'pdf',
+        'type': 'textarea'
+    })
+    
+    return results
+
+
+class GroundTruthData:
+    """Wrapper for ground truth data with model_dump method."""
+    
+    def __init__(self, data: dict[str, Any]) -> None:
+        self._data = data
+    
+    def model_dump(self) -> dict[str, Any]:
+        return self._data
+
+
+def create_task(image_url: str, ground_truth: GroundTruthData | BaseModel | None = None) -> dict[str, Any]:
+    """Create a complete Label Studio task from Pydantic models."""
+    task: dict[str, Any] = {
+        'data': {
+            'pdf': image_url
+        }
+    }
+    
+    # Ground truth as annotation
+    if ground_truth:
+        if isinstance(ground_truth, BaseModel):
+            annotation_result = pydantic_to_annotation_result(ground_truth)
+        else:
+            # For GroundTruthData wrapper
+            results: list[dict[str, Any]] = []
+            print("xXxXxX = ground_truth.model_dump()", ground_truth.model_dump())
+            for field_name, value in ground_truth.model_dump().items():
+                if value is not None:
+                    results.append({
+                        'value': {'text': [str(value)]},
+                        'from_name': field_name,
+                        'to_name': 'pdf',
+                        'type': 'textarea',
+                        'readonly': False
+                    })
+            results.append({
+                'value': {'text': [json.dumps(ground_truth.model_dump())]},
+                'from_name': 'raw_api_response',
+                'to_name': 'pdf',
+                'type': 'textarea'
+            })
+            annotation_result = results
+        
+        task['annotations'] = [{
+            'result': annotation_result,
+            'ground_truth': True
+        }]
+    
+    return task
+
+
+def upload_to_s3_with_task(
+    s3_client: S3ClientProtocol,
+    bucket: str,
+    prefix: str,
+    file_id: str,
+    file_content: bytes,
+    content_type: str,
+    ground_truth: GroundTruthData | BaseModel | None = None,
+    retries: int = 3,
+    delay: int = 1
+) -> bool:
+    """Upload raw file and task JSON to S3 in Label Studio format."""
+    try:
+        # Determine file extension
+        ext = '.pdf' if 'pdf' in content_type.lower() else '.jpg' if 'jpeg' in content_type.lower() else '.png'
+        
+        # Upload raw file to source subdirectory
+        raw_key = f"{prefix}source/{file_id}{ext}"
+        s3_client.put_object(
+            Bucket=bucket,
+            Key=raw_key,
+            Body=file_content,
+            ContentType=content_type
+        )
+        
+        # Create Label Studio task
+        image_url = f"s3://{bucket}/{raw_key}"
+        task_data = create_task(image_url=image_url, ground_truth=ground_truth)
+        
+        # Upload JSON task
+        json_key = f"{prefix}{file_id}.json"
+        json_data = json.dumps(task_data, ensure_ascii=False, indent=2)
+        s3_client.put_object(
+            Bucket=bucket,
+            Key=json_key,
+            Body=json_data.encode('utf-8'),
+            ContentType='application/json'
+        )
+        
+        return True
+    except ClientError as e:
+        if retries > 1:
+            time.sleep(delay)
+            return upload_to_s3_with_task(
+                s3_client, bucket, prefix, file_id, file_content,
+                content_type, ground_truth, retries - 1, delay * 2
+            )
+        else:
+            raise Exception(f"Failed to upload {file_id} to S3: {e}")
+
+
+def setup_ml_backend(ls: Client, project_id: int, ml_backend_url: str | None) -> dict[str, Any] | None:
+    """Configure the ML backend for the project."""
+    if not ml_backend_url:
+        return None
+    
+    try:
+        # Disable automatic predictions on task open
+        ls.make_request("PATCH", f"/api/projects/{project_id}", json={ # type: ignore
+            "show_instruction": False,
+            "expert_instruction": "",
+            "show_collab_predictions": False
+        })
+        
+        ml_backend_data = {
+            'url': ml_backend_url,
+            'title': 'Custom ML Backend',
+            'project': project_id
+        }
+        response = ls.make_request('POST', '/api/ml', json=ml_backend_data) # type: ignore
+        
+        if response.status_code in [200, 201]: # type: ignore
+            return response.json() # type: ignore
+        else:
+            st.warning(f"⚠️ ML backend connection failed: {response.status_code}") # type: ignore
+            return None
+            
+    except Exception as e:
+        st.warning(f"⚠️ Could not configure ML backend automatically: {e}")
+        return None
+
+
+def create_label_studio_project(
+    dataset_name: str,
+    doc_type: SupportedDocumentType,
+    s3_prefix: str
+) -> dict[str, Any]:
+    """Create a Label Studio project with S3 storage integration."""
+    
+    # Get environment variables
+    label_studio_url = os.getenv("LABEL_STUDIO_URL")
+    api_key = os.getenv("LABEL_STUDIO_API_KEY")
+    ml_backend_url = os.getenv("ML_BACKEND_URL")
+    
+    if not label_studio_url or not api_key:
+        raise ValueError("LABEL_STUDIO_URL and LABEL_STUDIO_API_KEY must be set")
+    
+    # Get the Pydantic model for the document type
+    schema = resolve_extract_schema(doc_type.value)
+    model_class = schema.document_model
+    
+    # Generate label config
+    label_config = generate_label_config(
+        model_class,
+        title=f"Extraction {schema.name}"
+    )
+    
+    # Initialize Label Studio client
+    ls = Client(url=label_studio_url, api_key=api_key)
+    
+    # Create project
+    project = ls.create_project( # type: ignore
+        title=f"{dataset_name} - {schema.name}",
+        description=f"Dataset: {dataset_name}\n\n" + "\n".join(schema.description),
+        label_config=label_config
+    )
+    
+    # Configure S3 source storage
+    s3_params: dict[str, Any] = {
+        'bucket': os.getenv('S3_BUCKET_NAME', ''),
+        'prefix': s3_prefix,
+        'regex_filter': r'.*\.json$',
+        'use_blob_urls': False,
+        'aws_access_key_id': os.getenv('S3_ACCESS_KEY', ''),
+        'aws_secret_access_key': os.getenv('S3_SECRET_KEY', ''),
+        'region_name': os.getenv('S3_REGION', ''),
+        'presign': False,
+    }
+    
+    # Add S3 endpoint if using custom S3-compatible storage
+    s3_endpoint = os.getenv('S3_ENDPOINT')
+    if s3_endpoint:
+        s3_params['s3_endpoint'] = s3_endpoint
+    
+    source_storage = project.connect_s3_import_storage(**s3_params) # type: ignore
+    
+    # Setup ML backend if configured
+    setup_ml_backend(ls, project.id, ml_backend_url) # type: ignore
+    
+    # Sync storage to import tasks
+    project.sync_import_storage('s3', source_storage['id']) # type: ignore
+    
+    return {
+        'project_id': project.id, # type: ignore
+        'project_title': project.params.get('title'), # type: ignore
+        'storage_id': source_storage['id'],
+        'task_count': len(project.get_tasks()) # type: ignore
+    }
+
+
+def consumer(
+    file_queue: queue.Queue[UploadedFile],
+    api_key: str,
+    callback: queue.Queue[tuple[str, bool, str | None, str | None]],
+    document_type: SupportedDocumentType | None = None,
+    s3_prefix: str = "",
+) -> None:
+    """Process files: execute workflow, upload to S3 with ground truth annotations."""
+    
+    # Initialize S3 client
+    s3_client = boto3.client(  # type: ignore
+        's3',
+        endpoint_url=os.getenv('S3_ENDPOINT'),
+        aws_access_key_id=os.getenv('S3_ACCESS_KEY'),
+        aws_secret_access_key=os.getenv('S3_SECRET_KEY'),
+        region_name=os.getenv('S3_REGION')
+    )
+    bucket_name = os.getenv('S3_BUCKET_NAME', '')
+    
     while True:
         try:
             uploaded_file: UploadedFile = file_queue.get(block=False)
         except queue.Empty:
-            # Stop signal
             return
-
-        # TODO: create a dedicated workflow for dataset creation
-        # in workflows.json
-        #
-        # This should be the same workflow as document-extraction-v1
-        # but without the classification step
-        # The input schema should be selectable from the streamlit app
-        workflow_name = "document-extraction-v1"
+        
+        file_id = uploaded_file.name.rsplit('.', 1)[0]  # Remove extension
+        error_msg: str | None = None
+        execution_id: str | None = None
+        
         try:
+            # Execute workflow to get ground truth
             workflow_execute_response = execute_workflow(
-                workflow_name,
+                "document-extraction-v1",
                 uploaded_file,
                 api_key,
             )
-        except Exception:
-            callback.put((uploaded_file.name, None))
-            continue
+            
+            execution_id = workflow_execute_response.data.get("execution_id")
+            if not execution_id:
+                error_msg = "Failed to get execution_id from workflow response"
+                callback.put((uploaded_file.name, False, error_msg, execution_id))
+                continue
+            execution_details = wait_for_execution(execution_id, api_key)
+            
+            # Check status (case-insensitive comparison)
+            if not execution_details or execution_details.status.upper() != "SUCCESS":
+                error_msg = f"Workflow failed with status: {execution_details.status if execution_details else 'unknown'} (execution_id: {execution_id})"
+                callback.put((uploaded_file.name, False, error_msg, execution_id))
+                continue
+            
+            # Extract the result from the execution details data
+            workflow_data = execution_details.data
+            if 'result' not in workflow_data or 'extraction' not in workflow_data['result']:
+                error_msg = f"Invalid workflow result structure (execution_id: {execution_id})"
+                callback.put((uploaded_file.name, False, error_msg, execution_id))
+                continue
+            
+            # The properties field contains the actual extracted data
+            extracted_fields = workflow_data['result']['extraction']
+            if 'properties' not in extracted_fields:
+                error_msg = f"Missing 'properties' in extracted_fields (execution_id: {execution_id})"
+                callback.put((uploaded_file.name, False, error_msg, execution_id))
+                continue
+            
+            # For dataset creation, we store the raw extracted data as ground truth
+            # No validation needed - the data is the ground truth even if imperfect
+            properties: Any = extracted_fields['properties']
+            
+            # Convert list format [{name, value, type}] to dict {name: value}
+            if isinstance(properties, list):
+                result_data: dict[str, Any] = {
+                    item['name']: item['value']
+                    for item in properties
+                    if isinstance(item, dict) and 'name' in item and 'value' in item
+                }
+            else:
+                result_data = properties
+            
+            ground_truth_instance = GroundTruthData(result_data)
+            
+            # Read file content
+            uploaded_file.seek(0)
+            file_content = uploaded_file.read()
+            
+            # Determine content type
+            content_type = uploaded_file.type or 'application/octet-stream'
+            
+            # Upload to S3 with task JSON
+            upload_to_s3_with_task(
+                s3_client=s3_client,
+                bucket=bucket_name,
+                prefix=s3_prefix,
+                file_id=file_id,
+                file_content=file_content,
+                content_type=content_type,
+                ground_truth=ground_truth_instance
+            )
+            
+            callback.put((uploaded_file.name, True, None, execution_id))
+            
+        except Exception as e:
+            error_msg = str(e)
+            callback.put((uploaded_file.name, False, error_msg, execution_id))
 
-        execution_id: str = workflow_execute_response.data.get("execution_id")
-        execution_details = wait_for_execution(execution_id, api_key)
-        callback.put((uploaded_file.name, execution_details))
 
-
-def start_dataset_annotation(n_workers: int, api_key: str, folder: list[UploadedFile]) -> dict[str, ExecutionModel | None]:
-    """Start dataset annotation.
-
-    Create a thread pool and process the uploaded files in parallel.
-
-    Args:
-        n_workers (int): Number of parallel workers.
-        api_key (str): The API key for authentication.
-        folder (list[UploadedFile]): List of uploaded files to process.
-    """
-    execution_details = {}
-    with st.spinner("En cours...", show_time=True):
-        pbar = st.progress(0, text="Executing workflow on files...")
-        threads = []
-        file_queue = queue.Queue()
-        # Callback is a queue to retrieve file names and execution_details
-        callback = queue.Queue()
-
+def start_dataset_creation(
+    n_workers: int,
+    api_key: str,
+    folder: list[UploadedFile],
+    document_type: SupportedDocumentType | None = None,
+    s3_prefix: str = ""
+) -> dict[str, dict[str, Any]]:
+    """Process files and upload to S3 with ground truth annotations."""
+    
+    results: dict[str, dict[str, Any]] = {}
+    
+    with st.spinner("Processing files and uploading to S3...", show_time=True):
+        pbar = st.progress(0, text="Executing workflows and uploading...")
+        threads: list[threading.Thread] = []
+        file_queue: queue.Queue[UploadedFile] = queue.Queue()
+        callback: queue.Queue[tuple[str, bool, str | None, str | None]] = queue.Queue()
+        
         for file in folder:
             file_queue.put(file)
-
+        
         for _ in range(min(n_workers, len(folder))):
-            t = threading.Thread(target=consumer, args=(file_queue, api_key, callback), daemon=True)
+            t = threading.Thread(
+                target=consumer,
+                args=(file_queue, api_key, callback, document_type, s3_prefix),
+                daemon=True
+            )
             t.start()
             threads.append(t)
-
+        
         for i in range(len(folder)):
-            uploaded_file_name, _execution_details = callback.get()
-            execution_details[uploaded_file_name] = _execution_details
+            file_name, success, error, execution_id = callback.get()
+            results[file_name] = {
+                'success': success,
+                'error': error,
+                'execution_id': execution_id
+            }
             pbar.progress((i + 1) / len(folder))
-
+        
         for t in threads:
             t.join()
+    
+    return results
 
-    return execution_details
 
-
-def main():
+def main() -> None:
     title = "Création d'un jeu de données annoté"
     st.set_page_config(page_title=title, page_icon="📝")
     st.title(title)
-
-    st.markdown("Cette page vous permet de créer un jeu de données en utilisant l'API de Document IA.")
-
+    
+    st.markdown("""
+    Cette page vous permet de créer un jeu de données pré-annoté avec Label Studio :
+    1. Upload de fichiers et exécution du workflow pour obtenir les annotations de référence
+    2. Upload vers S3 au format Label Studio
+    3. Création automatique du projet Label Studio
+    """)
+    
+    # Check API key
     api_key = os.getenv("DOCUMENT_IA_API_KEY")
     if not api_key:
         st.warning("⚠️ DOCUMENT_IA_API_KEY environment variable is not set.")
-        return None
-
-    # TODO: Using a file_uploader for development, but will replace it
-    # with an S3 path later.
-    folder = st.file_uploader(
-        "Sélectionnez un dossier (PDF ou image)",
-        accept_multiple_files="directory"
+        return
+    
+    # Check S3 configuration
+    s3_vars = ['S3_ENDPOINT', 'S3_ACCESS_KEY', 'S3_SECRET_KEY', 'S3_BUCKET_NAME', 'S3_REGION']
+    missing_s3 = [var for var in s3_vars if not os.getenv(var)]
+    if missing_s3:
+        st.warning(f"⚠️ Missing S3 configuration: {', '.join(missing_s3)}")
+        return
+    
+    # Check Label Studio configuration
+    if not os.getenv("LABEL_STUDIO_URL") or not os.getenv("LABEL_STUDIO_API_KEY"):
+        st.warning("⚠️ LABEL_STUDIO_URL and LABEL_STUDIO_API_KEY must be set")
+        return
+    
+    # Dataset name input
+    dataset_name = st.text_input(
+        "Nom du dataset",
+        value="",
+        placeholder="ex: tax_notices_batch_1",
+        help="Nom unique pour identifier ce dataset"
     )
+    
+    # Document type selector
+    doc_type_options = list(SupportedDocumentType)
+    selected_doc_type: SupportedDocumentType = st.selectbox(
+        "Type de document",
+        options=doc_type_options,
+        format_func=lambda x: x.name.replace("_", " ").title(),
+        index=0,
+    )
+    
+    # S3 prefix (computed, read-only)
+    s3_prefix = f"{dataset_name}_{selected_doc_type.value}/" if dataset_name else ""
+    st.text_input(
+        "Préfixe S3",
+        value=s3_prefix,
+        disabled=True,
+        help="Chemin où les fichiers seront stockés dans S3"
+    )
+    
+    # File uploader
+    folder = st.file_uploader(
+        "Sélectionnez des fichiers (PDF ou image)",
+        accept_multiple_files=True,
+        type=['pdf', 'jpg', 'jpeg', 'png']
+    )
+    
+    # Number of workers
     n_workers = st.number_input(
         "Nombre de documents à traiter en parallèle",
         min_value=1,
@@ -99,13 +531,65 @@ def main():
         value=5,
         step=1,
     )
-
-    # TODO: Use label studio client to create a project here
-
-    # End TODO
-    if st.button("Lancer la création de dataset"):
-        execution_details = start_dataset_annotation(n_workers, api_key, folder)
-        st.json(execution_details)
+    
+    # Create dataset button
+    if st.button("Lancer la création de dataset", type="primary"):
+        if not dataset_name:
+            st.warning("⚠️ Veuillez entrer un nom pour le dataset.")
+            return
+        
+        if not folder:
+            st.warning("⚠️ Aucun fichier sélectionné. Veuillez choisir des fichiers.")
+            return
+        
+        # Step 1: Process files and upload to S3
+        st.info(f"📤 Étape 1/2: Traitement de {len(folder)} fichiers et upload vers S3...")
+        upload_results = start_dataset_creation(
+            n_workers=n_workers,
+            api_key=api_key,
+            folder=folder,
+            document_type=selected_doc_type,
+            s3_prefix=s3_prefix
+        )
+        
+        # Show upload results
+        success_count = sum(1 for r in upload_results.values() if r['success'])
+        st.success(f"✅ {success_count}/{len(folder)} fichiers traités avec succès")
+        
+        if success_count < len(folder):
+            st.warning("⚠️ Certains fichiers n'ont pas pu être traités:")
+            print("xXxXxX = upload_results", upload_results)
+            for name, result in upload_results.items():
+                if not result['success']:
+                    execution_id = result.get('execution_id', 'N/A')
+                    st.error(f"- {name}: {result['error']}")
+                    if execution_id != 'N/A':
+                        st.info(f"  Execution ID: `{execution_id}`")
+        
+        # Step 2: Create Label Studio project
+        if success_count > 0:
+            st.info("📊 Étape 2/2: Création du projet Label Studio...")
+            try:
+                project_info = create_label_studio_project(
+                    dataset_name=dataset_name,
+                    doc_type=selected_doc_type,
+                    s3_prefix=s3_prefix
+                )
+                
+                st.success("✅ Projet Label Studio créé avec succès!")
+                st.json(project_info)
+                
+                # Display project link
+                label_studio_url = os.getenv("LABEL_STUDIO_URL")
+                project_url = f"{label_studio_url}/projects/{project_info['project_id']}"
+                st.markdown(f"🔗 [Ouvrir le projet dans Label Studio]({project_url})")
+                
+            except Exception as e:
+                st.error(f"❌ Erreur lors de la création du projet Label Studio: {e}")
+        
+        # Show detailed results
+        with st.expander("Détails des résultats"):
+            st.json(upload_results)
 
 
 if __name__ == "__main__":
