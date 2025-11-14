@@ -1,4 +1,4 @@
-from pydantic import Field, SecretStr
+from pydantic import Field
 
 from document_ia_infra.core.BaseDocumentIaSettings import BaseDocumentIaSettings
 
@@ -13,12 +13,7 @@ class AppSettings(BaseDocumentIaSettings):
     BASE_URL: str = Field(default="", validation_alias="BASE_URL")
 
 
-class AuthenticationSettings(BaseDocumentIaSettings):
-    # API Key for authentication (optional)
-    API_KEY: SecretStr | None = Field(default=None, validation_alias="API_KEY")
-
-
-class Settings(AppSettings, AuthenticationSettings):
+class Settings(AppSettings):
     pass
 
 
