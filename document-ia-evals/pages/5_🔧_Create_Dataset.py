@@ -1,4 +1,5 @@
 # Standard library imports
+import asyncio
 import json
 import os
 import queue
@@ -16,6 +17,7 @@ from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 # Local imports
 from document_ia_evals.utils.api import execute_workflow, wait_for_execution
+from document_ia_infra.data.workflow.repository.worflow import workflow_repository
 from document_ia_schemas import SupportedDocumentType, resolve_extract_schema
 
 
@@ -315,6 +317,8 @@ def consumer(
     file_queue: queue.Queue[UploadedFile],
     api_key: str,
     callback: queue.Queue[tuple[str, bool, str | None, str | None]],
+    workflow_id: str,
+    metadata: dict[str, Any],
     document_type: SupportedDocumentType | None = None,
     s3_prefix: str = "",
 ) -> None:
@@ -343,9 +347,10 @@ def consumer(
         try:
             # Execute workflow to get ground truth
             workflow_execute_response = execute_workflow(
-                "document-extraction-v1",
+                workflow_id,
                 uploaded_file,
                 api_key,
+                metadata=metadata,
             )
             
             execution_id = workflow_execute_response.data.get("execution_id")
@@ -420,6 +425,8 @@ def start_dataset_creation(
     n_workers: int,
     api_key: str,
     folder: list[UploadedFile],
+    workflow_id: str,
+    metadata: dict[str, Any],
     document_type: SupportedDocumentType | None = None,
     s3_prefix: str = ""
 ) -> dict[str, dict[str, Any]]:
@@ -439,7 +446,7 @@ def start_dataset_creation(
         for _ in range(min(n_workers, len(folder))):
             t = threading.Thread(
                 target=consumer,
-                args=(file_queue, api_key, callback, document_type, s3_prefix),
+                args=(file_queue, api_key, callback, workflow_id, metadata, document_type, s3_prefix),
                 daemon=True
             )
             t.start()
@@ -489,7 +496,31 @@ def main() -> None:
     if not os.getenv("LABEL_STUDIO_URL") or not os.getenv("LABEL_STUDIO_API_KEY"):
         st.warning("⚠️ LABEL_STUDIO_URL and LABEL_STUDIO_API_KEY must be set")
         return
-    
+
+    # Fetch workflows
+    workflows_list = asyncio.run(workflow_repository.get_all_workflows())
+
+    if not workflows_list:
+        st.error("❌ No workflows found")
+        return
+
+    # Workflow selector
+    workflow_options = {w.id: f"{w.name} (v{w.version})" for w in workflows_list}
+    selected_workflow_id = st.selectbox(
+        "Sélectionnez un workflow",
+        options=list(workflow_options.keys()),
+        format_func=lambda x: workflow_options[x],
+        index=0,
+    )
+
+    # Display workflow details
+    selected_workflow = next(w for w in workflows_list if w.id == selected_workflow_id)
+    with st.expander("Détails du workflow"):
+        st.write(f"**Description:** {selected_workflow.description}")
+        st.write(f"**Steps:** {', '.join(selected_workflow.steps)}")
+        st.write(f"**Model:** {selected_workflow.llm_model}")
+        st.write(f"**Supported file types:** {', '.join(selected_workflow.supported_file_types)}")
+
     # Dataset name input
     dataset_name = st.text_input(
         "Nom du dataset",
@@ -497,7 +528,7 @@ def main() -> None:
         placeholder="ex: tax_notices_batch_1",
         help="Nom unique pour identifier ce dataset"
     )
-    
+
     # Document type selector
     doc_type_options = list(SupportedDocumentType)
     selected_doc_type: SupportedDocumentType = st.selectbox(
@@ -506,6 +537,21 @@ def main() -> None:
         format_func=lambda x: x.name.replace("_", " ").title(),
         index=0,
     )
+
+    # Metadata input
+    default_metadata = json.dumps({"document-type": selected_doc_type.value}) if "-fast" in selected_workflow_id else "{}"
+    metadata_str = st.text_input(
+        "Métadonnées (JSON)",
+        value=default_metadata,
+        help="Métadonnées à passer au workflow sous forme de JSON"
+    )
+
+    # Parse metadata
+    try:
+        metadata = json.loads(metadata_str) if metadata_str.strip() else {}
+    except json.JSONDecodeError:
+        st.error("❌ Métadonnées JSON invalides")
+        return
     
     # S3 prefix (computed, read-only)
     s3_prefix = f"{dataset_name}_{selected_doc_type.value}/" if dataset_name else ""
@@ -548,6 +594,8 @@ def main() -> None:
             n_workers=n_workers,
             api_key=api_key,
             folder=folder,
+            workflow_id=selected_workflow_id,
+            metadata=metadata,
             document_type=selected_doc_type,
             s3_prefix=s3_prefix
         )
