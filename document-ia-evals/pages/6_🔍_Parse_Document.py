@@ -1,8 +1,10 @@
+import asyncio
 import os
 import streamlit as st
 
 from document_ia_evals.utils.api import execute_workflow, wait_for_execution
 from document_ia_evals.utils.config import Config
+from document_ia_infra.data.workflow.repository.worflow import workflow_repository
 
 def main():
     title = "Extraction via l'API Document IA"
@@ -11,10 +13,20 @@ def main():
     st.caption(f"Using API endpoint: {Config.BASE_URL}")
 
     st.markdown("Cette page vous permet de tester rapidement un workflow Document IA sur un document.")
+    
+    # Fetch workflows
+    workflows_list = asyncio.run(workflow_repository.get_all_workflows())
+    
+    if not workflows_list:
+        st.error("❌ No workflows found")
+        return
+    
+    # Workflow selector
+    workflow_options = {w.id: f"{w.name} (v{w.version})" for w in workflows_list}
 
     workflow_name = st.selectbox(
         "Sélectionnez le workflow à utiliser",
-        options=["document-extraction-v1", "document-classification-v1"],
+        options=list(workflow_options.keys()),
         index=0,
     )
 

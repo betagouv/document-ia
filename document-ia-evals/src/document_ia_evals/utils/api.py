@@ -31,13 +31,14 @@ class ExecutionModel(pydantic.BaseModel):
     status: str
     data: Any
 
-def execute_workflow(workflow_name: str, file: io.BytesIO, api_token: str) -> WorkflowExecuteResponse:
+def execute_workflow(workflow_name: str, file: io.BytesIO, api_token: str, metadata: dict[str, Any] | None = None) -> WorkflowExecuteResponse:
     """"Execute a workflow on the Document IA API.
 
     Args:
         workflow_name (str): The name of the workflow to execute.
         file: The file-like object to process.
         api_token (str): The API token for authentication.
+        metadata: Optional metadata to pass with the workflow execution.
     """
     execute_api_url = urljoin(Config.BASE_URL, f"/api/v1/workflows/{workflow_name}/execute")
     files = {"file": (file.name, file.getvalue())}
@@ -45,14 +46,16 @@ def execute_workflow(workflow_name: str, file: io.BytesIO, api_token: str) -> Wo
         "Accept": "application/json",
         "X-Api-Key": api_token,
     }
-    # TODO: is metadata really needed?
+    
+    data = {"metadata": json.dumps(metadata or {"test": "test"})}
     response = requests.post(
         execute_api_url,
         files=files,
-        data={"metadata": json.dumps({"test": "test"})},
+        data=data,
         headers=headers,
         timeout=120,
     )
+    print("RESPONSE", response.json())
     return WorkflowExecuteResponse.model_validate(response.json())
 
 def wait_for_execution(execution_id: str, api_token: str) -> ExecutionModel | None:
