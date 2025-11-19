@@ -3,7 +3,6 @@ import asyncio
 import base64
 import io
 import json
-import os
 import queue
 import threading
 import time
@@ -18,8 +17,10 @@ from label_studio_sdk import LabelStudio
 from label_studio_sdk.types import Project
 
 # Local imports
+from document_ia_evals.utils.config import config
 from document_ia_evals.utils.api import execute_workflow, wait_for_execution
 from document_ia_infra.data.workflow.repository.worflow import workflow_repository
+from document_ia_schemas import SupportedDocumentType
 
 def download_from_s3(s3_url: str) -> tuple[bytes, str] | None:
     """Download a file from S3 given an s3:// URL.
@@ -46,10 +47,10 @@ def download_from_s3(s3_url: str) -> tuple[bytes, str] | None:
         # Initialize S3 client
         s3_client = boto3.client(  # type: ignore
             's3',
-            endpoint_url=os.getenv('S3_ENDPOINT'),
-            aws_access_key_id=os.getenv('S3_ACCESS_KEY'),
-            aws_secret_access_key=os.getenv('S3_SECRET_KEY'),
-            region_name=os.getenv('S3_REGION')
+            endpoint_url=config.S3_ENDPOINT,
+            aws_access_key_id=config.S3_ACCESS_KEY,
+            aws_secret_access_key=config.S3_SECRET_KEY,
+            region_name=config.S3_REGION
         )
         
         # Download file
@@ -98,7 +99,8 @@ def process_task(
     ls_client: LabelStudio,
     project_id: int,
     callback: queue.Queue[tuple[int, bool, str | None, str | None]],
-    model_version: str | None = None
+    model_version: str | None = None,
+    extraction_parameters: dict[str, Any] | None = None,
 ) -> None:
     """Process a single task: download file, execute workflow, create annotation."""
     task_id = task.id
@@ -174,6 +176,7 @@ def process_task(
             workflow_id,
             file_obj,
             api_key,
+            extraction_parameters=extraction_parameters,
         )
         
         execution_id = workflow_execute_response.data.get("execution_id")
@@ -233,7 +236,8 @@ def consumer(
     ls_client: LabelStudio,
     project_id: int,
     callback: queue.Queue[tuple[int, bool, str | None, str | None]],
-    model_version: str | None = None
+    model_version: str | None = None,
+    extraction_parameters: dict[str, Any] | None = None,
 ) -> None:
     """Consumer thread to process tasks."""
     while True:
@@ -242,7 +246,7 @@ def consumer(
         except queue.Empty:
             return
         
-        process_task(task, workflow_id, api_key, ls_client, project_id, callback, model_version)
+        process_task(task, workflow_id, api_key, ls_client, project_id, callback, model_version, extraction_parameters)
 
 
 def run_workflow_on_dataset(
@@ -251,7 +255,8 @@ def run_workflow_on_dataset(
     api_key: str,
     ls_client: LabelStudio,
     n_workers: int = 5,
-    model_version: str | None = None
+    model_version: str | None = None,
+    extraction_parameters: dict[str, Any] | None = None,
 ) -> dict[int, dict[str, Any]]:
     """Run workflow on all tasks in a Label Studio project."""
     
@@ -279,7 +284,7 @@ def run_workflow_on_dataset(
         for _ in range(min(n_workers, len(tasks))):
             t = threading.Thread(
                 target=consumer,
-                args=(task_queue, workflow_id, api_key, ls_client, project_id, callback, model_version),
+                args=(task_queue, workflow_id, api_key, ls_client, project_id, callback, model_version, extraction_parameters),
                 daemon=True
             )
             t.start()
@@ -316,21 +321,27 @@ def main() -> None:
     """)
     
     # Check API key
-    api_key = os.getenv("DOCUMENT_IA_API_KEY")
+    api_key = config.DOCUMENT_IA_API_KEY
     if not api_key:
         st.warning("⚠️ DOCUMENT_IA_API_KEY environment variable is not set.")
         return
     
     # Check S3 configuration
-    s3_vars = ['S3_ENDPOINT', 'S3_ACCESS_KEY', 'S3_SECRET_KEY', 'S3_BUCKET_NAME', 'S3_REGION']
-    missing_s3 = [var for var in s3_vars if not os.getenv(var)]
+    s3_vars = {
+        'S3_ENDPOINT': config.S3_ENDPOINT,
+        'S3_ACCESS_KEY': config.S3_ACCESS_KEY,
+        'S3_SECRET_KEY': config.S3_SECRET_KEY,
+        'S3_BUCKET_NAME': config.S3_BUCKET_NAME,
+        'S3_REGION': config.S3_REGION
+    }
+    missing_s3 = [var for var, val in s3_vars.items() if not val]
     if missing_s3:
         st.warning(f"⚠️ Missing S3 configuration: {', '.join(missing_s3)}")
         return
     
     # Check Label Studio configuration
-    label_studio_url = os.getenv("LABEL_STUDIO_URL")
-    label_studio_api_key = os.getenv("LABEL_STUDIO_API_KEY")
+    label_studio_url = config.LABEL_STUDIO_URL
+    label_studio_api_key = config.LABEL_STUDIO_API_KEY
     
     if not label_studio_url or not label_studio_api_key:
         st.warning("⚠️ LABEL_STUDIO_URL and LABEL_STUDIO_API_KEY must be set")
@@ -362,6 +373,24 @@ def main() -> None:
         st.write(f"**Steps:** {', '.join(selected_workflow.steps)}")
         st.write(f"**Model:** {selected_workflow.llm_model}")
         st.write(f"**Supported file types:** {', '.join(selected_workflow.supported_file_types)}")
+    
+    # Check if it's a fast workflow
+    is_fast_workflow = "-fast" in selected_workflow_id or "fast" in selected_workflow_id.lower()
+    
+    # Document type selector (for fast workflows)
+    doc_type_options = list(SupportedDocumentType)
+    selected_doc_type: SupportedDocumentType = st.selectbox(
+        "Type de document (requis pour les workflows fast)",
+        options=doc_type_options,
+        format_func=lambda x: x.name.replace("_", " ").title(),
+        index=0,
+        help="Spécifiez le type de document pour les workflows qui n'incluent pas de classification"
+    )
+    
+    # Show extraction parameters info for fast workflows
+    if is_fast_workflow:
+        extraction_params_preview = {"document-type": selected_doc_type.value}
+        st.info(f"ℹ️ Workflow fast détecté - Paramètres d'extraction qui seront envoyés: `{json.dumps(extraction_params_preview)}`")
     
     # Fetch Label Studio projects
     try:
@@ -412,6 +441,11 @@ def main() -> None:
     
     # Run workflow button
     if st.button("Lancer l'exécution du workflow", type="primary"):
+        # Prepare extraction parameters for fast workflows
+        extraction_parameters = None
+        if is_fast_workflow:
+            extraction_parameters = {"document-type": selected_doc_type.value}
+        
         st.info(f"🚀 Exécution du workflow '{selected_workflow.id}' sur le dataset '{project_options[selected_project_id]}'...")
         
         processing_results = run_workflow_on_dataset(
@@ -420,7 +454,8 @@ def main() -> None:
             api_key=api_key,
             ls_client=ls_client,
             n_workers=n_workers,
-            model_version=model_version if model_version else None
+            model_version=model_version if model_version else None,
+            extraction_parameters=extraction_parameters,
         )
         
         # Show results
