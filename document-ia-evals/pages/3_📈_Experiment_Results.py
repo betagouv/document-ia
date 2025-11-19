@@ -9,7 +9,7 @@ from typing import Optional, Any, Dict
 from uuid import UUID
 
 from document_ia_evals.components.sidebar import render_sidebar
-from document_ia_evals.utils.config import Config
+from document_ia_evals.utils.config import config
 from document_ia_evals.utils.label_studio import get_project_url
 from metrics import metric_registry
 from document_ia_evals.services.experiment_service import save_experiment
@@ -20,9 +20,9 @@ load_dotenv()
 
 # Page configuration
 st.set_page_config(
-    page_title=f"Experiment Results | {Config.APP_TITLE}",
+    page_title=f"Experiment Results | {config.APP_TITLE}",
     page_icon="📈",
-    layout=Config.LAYOUT
+    layout=config.LAYOUT
 )
 
 
@@ -165,6 +165,29 @@ def run_experiment(project_id: int, metric_name: str, client: Client) -> Dict[st
                     metric_inputs['output_true'] = ground_truth
                 if 'query' in required_fields:
                     metric_inputs['query'] = task.get('data', {})
+                
+                # Handle document_type parameter (for json_schema_extra metric)
+                if 'document_type' in required_fields:
+                    # Try to get document_type from session state first
+                    document_type = st.session_state.get('selected_document_type')
+                    
+                    # If not in session state, try to infer from data
+                    if not document_type:
+                        # Try to get from prediction data
+                        if isinstance(pred_data, dict) and 'type' in pred_data:
+                            document_type = pred_data['type']
+                        # Try to get from ground truth data
+                        elif isinstance(ground_truth, dict) and 'type' in ground_truth:
+                            document_type = ground_truth['type']
+                        # Try to get from task data
+                        elif 'document_type' in task.get('data', {}):
+                            document_type = task['data']['document_type']
+                    
+                    if document_type:
+                        metric_inputs['document_type'] = document_type
+                    else:
+                        # Log warning but continue - metric will handle missing document_type
+                        st.warning(f"⚠️ Could not infer document_type for task {task_id}. Metric may fail.")
                 
                 # Run metric
                 score, observation_json, output = metric_func(**metric_inputs)

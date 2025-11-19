@@ -7,7 +7,7 @@ from enum import StrEnum
 from typing import Any
 import requests
 
-from document_ia_evals.utils.config import Config
+from document_ia_evals.utils.config import config
 from urllib.parse import urljoin
 
 
@@ -31,7 +31,14 @@ class ExecutionModel(pydantic.BaseModel):
     status: str
     data: Any
 
-def execute_workflow(workflow_name: str, file: io.BytesIO, api_token: str, metadata: dict[str, Any] | None = None) -> WorkflowExecuteResponse:
+def execute_workflow(
+    workflow_name: str,
+    file: io.BytesIO,
+    api_token: str,
+    metadata: dict[str, Any] | None = None,
+    extraction_parameters: dict[str, Any] | None = None,
+    classification_parameters: dict[str, Any] | None = None
+) -> WorkflowExecuteResponse:
     """"Execute a workflow on the Document IA API.
 
     Args:
@@ -39,8 +46,10 @@ def execute_workflow(workflow_name: str, file: io.BytesIO, api_token: str, metad
         file: The file-like object to process.
         api_token (str): The API token for authentication.
         metadata: Optional metadata to pass with the workflow execution.
+        extraction_parameters: Optional extraction parameters (e.g., document_type, llm_model).
+        classification_parameters: Optional classification parameters (e.g., llm_model).
     """
-    execute_api_url = urljoin(Config.BASE_URL, f"/api/v1/workflows/{workflow_name}/execute")
+    execute_api_url = urljoin(config.DOCUMENT_IA_BASE_URL, f"/api/v1/workflows/{workflow_name}/execute")
     files = {"file": (file.name, file.getvalue())}
     headers = {
         "Accept": "application/json",
@@ -48,6 +57,14 @@ def execute_workflow(workflow_name: str, file: io.BytesIO, api_token: str, metad
     }
     
     data = {"metadata": json.dumps(metadata or {"test": "test"})}
+    
+    # Add extraction parameters if provided
+    if extraction_parameters:
+        data["extraction-parameters"] = json.dumps(extraction_parameters)
+    
+    # Add classification parameters if provided
+    if classification_parameters:
+        data["classification-parameters"] = json.dumps(classification_parameters)
     response = requests.post(
         execute_api_url,
         files=files,
@@ -65,7 +82,7 @@ def wait_for_execution(execution_id: str, api_token: str) -> ExecutionModel | No
         execution_id (str): The UUID of the execution to retrieve.
         api_token (str): The API token for authentication.
     """
-    details_api_url = urljoin(Config.BASE_URL, f"/api/v1/executions/{execution_id}")
+    details_api_url = urljoin(config.DOCUMENT_IA_BASE_URL, f"/api/v1/executions/{execution_id}")
     headers = {
         "Accept": "application/json",
         "X-Api-Key": api_token,

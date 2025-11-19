@@ -1,81 +1,148 @@
 from typing import Optional, Type
-
 from pydantic import BaseModel, Field
 
 from document_ia_schemas import BaseDocumentTypeSchema
-from document_ia_schemas.base_document_type_schema import FuzzyDate
+from document_ia_schemas.field_metrics import Metric
 
 
 class AvisImpositionModel(BaseModel):
-    reference_avis: Optional[str] = Field(
-        default=None,
-        description=(
-            "Identifiant unique de l'avis d'imposition (format numérique, généralement 13 ou 14 chiffres)"
-        ),
-        alias="Référence d'avis d'impôt",
-        examples=["1234567890123"],
-        json_schema_extra={
-            "metrics": "equality"
-        }
-    )
     annee_revenus: str = Field(
         description="Année fiscale concernée par la déclaration de revenus (format AAAA)",
         alias="Année des revenus",
         examples=["2023"],
+        json_schema_extra={
+            "metrics": Metric.COMPARE_NUMBER
+        }
     )
-    date_mise_en_recouvrement: FuzzyDate = Field(
+    date_mise_en_recouvrement: Optional[str] = Field(
         default=None,
         description=(
             "Date de mise en recouvrement de l'impôt (format JJ/MM/AAAA). Si absente, renseigner `null`."
         ),
         alias="Date de mise en recouvrement",
-        examples=["2024-07-31"],
+        examples=["31/07/2024"],
+        json_schema_extra={
+            "metrics": Metric.STRING_DATE_EQUALITY
+        }
     )
-    declarant_1_nom: str = Field(
-        description="Nom de famille du premier déclarant",
-        alias="Nom du déclarant 1",
+    declarant_1_identite: str = Field(
+        description="Nom et prénom du premier déclarant tel qu'il apparait au niveau du destinataire",
+        alias="Nom et Prénom du déclarant 1",
         examples=["MARTIN"],
+        json_schema_extra={
+            "metrics": Metric.SKIP #Metric.LEVENSHTEIN_DISTANCE
+        }
     )
-    declarant_1_prenom: Optional[str] = Field(
-        default=None,
-        description="Prénom du premier déclarant",
-        alias="Prénom du déclarant 1",
-        examples=["SOPHIE"],
+    declarant_1_nom_naissance: str = Field(
+        description="Nom de naissance du premier déclarant, il peut être différent du nom et prénom du déclarant 1",
+        alias="Nom de naissance du déclarant 1",
+        examples=["MARTIN"],
+        json_schema_extra={
+            "metrics": Metric.SKIP #Metric.LEVENSHTEIN_DISTANCE
+        }
     )
+    # declarant_1_prenom: Optional[str] = Field(
+    #     default=None,
+    #     description="Prénom du premier déclarant",
+    #     alias="Prénom du déclarant 1",
+    #     examples=["SOPHIE"],
+    # )
     declarant_1_numero_fiscal: Optional[str] = Field(
         default=None,
         description="Numéro fiscal personnel du premier déclarant (13 chiffres)",
         alias="Numéro fiscal du déclarant 1",
         examples=["1234567890123"],
+        json_schema_extra={
+            "metrics": Metric.COMPARE_NUMBER
+        }
+
+    )
+    declarant_2_identite: str = Field(
+        description="Nom et prénom du deuxième déclarant tel qu'il apparait au niveau du destinataire",
+        alias="Nom et Prénom du déclarant 2",
+        examples=["MARTIN"],
+        json_schema_extra={
+            "metrics": Metric.SKIP #Metric.LEVENSHTEIN_DISTANCE
+        }
+    )
+    declarant_2_nom_naissance: str = Field(
+        description="Nom de naissance du deuxième déclarant, il peut être différent du nom et prénom du déclarant 2",
+        alias="Nom de naissance du déclarant 2",
+        examples=["MARTIN"],
+        json_schema_extra={
+            "metrics": Metric.SKIP #Metric.LEVENSHTEIN_DISTANCE
+        }
+    )
+    # declarant_2_prenom: Optional[str] = Field(
+    #     default=None,
+    #     description="Prénom du deuxième déclarant",
+    #     alias="Prénom du déclarant 2",
+    #     examples=["SOPHIE"],
+    # )
+    declarant_2_numero_fiscal: Optional[str] = Field(
+        default=None,
+        description="Numéro fiscal personnel du deuxième déclarant (13 chiffres)",
+        alias="Numéro fiscal du déclarant 2",
+        examples=["1234567890123"],
+        json_schema_extra={
+            "metrics": Metric.COMPARE_NUMBER
+        }
+    )
+    reference_avis: Optional[str] = Field(
+        default=None,
+        description=(
+            "Référence unique de l'avis d'imposition (format numérique, généralement 13 ou 14 chiffres). Information présente juste après la mention \"référence de l'avis\"."
+        ),
+        alias="Référence d'avis d'impôt",
+        examples=["1234567890123", "12 34 5678912 34"],
+        json_schema_extra={
+            "metrics": Metric.COMPARE_NUMBER
+        }
     )
     nombre_parts: Optional[float] = Field(
         default=None,
         description="Nombre de parts fiscales du foyer (peut être décimal)",
         alias="Nombre de parts",
         examples=[2.5],
+        json_schema_extra={
+            "metrics": Metric.COMPARE_NUMBER
+        }
+
     )
     revenu_fiscal_reference: float = Field(
         description="Revenu fiscal de référence (RFR) du foyer en euros",
         alias="Revenu fiscal de référence",
         examples=[45000],
+        json_schema_extra={
+            "metrics": Metric.COMPARE_NUMBER
+        }
     )
     revenu_brut_global: Optional[float] = Field(
         default=None,
         description="Revenu brut global du foyer en euros.",
         alias="Revenu brut global",
         examples=[50000],
+        json_schema_extra={
+            "metrics": Metric.COMPARE_NUMBER
+        }
     )
     revenu_imposable: Optional[float] = Field(
         default=None,
         description="Revenu net imposable du foyer en euros.",
         alias="Revenu imposable",
         examples=[42000],
+        json_schema_extra={
+            "metrics": Metric.COMPARE_NUMBER
+        }
     )
     impot_revenu_net_avant_corrections: Optional[float] = Field(
         default=None,
         description="Montant de l'impôt sur le revenu net avant corrections en euros.",
         alias="Impôt sur le revenu net avant corrections",
         examples=[5500],
+        json_schema_extra={
+            "metrics": Metric.COMPARE_NUMBER
+        }
     )
     montant_impot: Optional[float] = Field(
         default=None,
@@ -84,6 +151,9 @@ class AvisImpositionModel(BaseModel):
         ),
         alias="Montant de l'impôt",
         examples=[5000],
+        json_schema_extra={
+            "metrics": Metric.SKIP
+        }
     )
 
 
