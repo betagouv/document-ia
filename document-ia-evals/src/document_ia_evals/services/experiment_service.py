@@ -46,13 +46,20 @@ def save_experiment(
         # Calculate statistics
         scores = [obs.get('score', 0.0) for obs in observations_data if obs.get('score') is not None]
         average_score = sum(scores) / len(scores) if scores else None
-        processed_count = len([obs for obs in observations_data if obs.get('score', 0.0) > 0 or obs.get('observation')])
+        
+        # Count unique tasks that were processed (not total observations)
+        # Multiple model_versions can create multiple observations per task
+        unique_task_ids = set(obs.get('task_id') for obs in observations_data if obs.get('task_id') is not None)
+        processed_count = len(unique_task_ids)
+        
+        # Use provided total_tasks, or fall back to unique task count
+        actual_total_tasks = total_tasks if total_tasks > 0 else len(unique_task_ids)
         
         # Create experiment
         experiment = Experiment(
             label_studio_project_id=project_id,
             metric_name=metric_name,
-            total_tasks=total_tasks or len(observations_data),
+            total_tasks=actual_total_tasks,
             processed_count=processed_count,
             average_score=average_score,
             status='completed',
@@ -122,6 +129,10 @@ def load_experiment(experiment_id: UUID) -> Optional[Dict[str, Any]]:
         for obs in experiment.observations:
             # Reconstruct observation JSON for rendering
             observation_data = {
+                'task_id': obs.task_id,
+                'prediction_id': obs.prediction_id,
+                'model_version': obs.model_version or 'Unknown',
+                'score': obs.score,
                 'observation': json.dumps(obs.metric_results) if obs.metric_results else '{}'
             }
             observations.append(observation_data)

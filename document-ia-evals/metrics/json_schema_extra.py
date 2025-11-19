@@ -390,25 +390,11 @@ def render_results(experiment_results: Dict[str, Any]) -> None:
     
     st.subheader("📝 Pydantic Model Comparison Analysis")
     
-    # DEBUG: Display full experiment_results structure
-    with st.expander("🔍 DEBUG: Full Experiment Results Data Structure", expanded=True):
-        st.write("**experiment_results keys:**")
-        st.write(list(experiment_results.keys()))
-        
-        st.write("**Full experiment_results:**")
-        st.json(experiment_results)
-        
-        st.write("**Sample observation (first one):**")
-        observations = experiment_results.get("observations", [])
-        if observations:
-            st.json(observations[0])
-            st.write(f"**Total observations:** {len(observations)}")
-        else:
-            st.warning("No observations found")
-    
-    st.divider()
-    
     observations = experiment_results.get("observations", [])
+    
+    if not observations:
+        st.warning("No observations found.")
+        return
     
     # Group observations by model_version
     obs_by_model = defaultdict(list)
@@ -416,112 +402,80 @@ def render_results(experiment_results: Dict[str, Any]) -> None:
         model_version = obs.get("model_version", "Unknown")
         obs_by_model[model_version].append(obs)
     
-    # Get all unique model versions
+    # Get all unique model versions sorted
     model_versions = sorted(obs_by_model.keys())
     
-    if not model_versions:
-        st.warning("No observations found.")
-        return
+    # Show number of models found
+    st.info(f"📊 Found **{len(model_versions)}** model version(s): {', '.join(model_versions)}")
+    st.divider()
     
-    # Display overall comparison table across models
-    st.write("## 🔍 Model Comparison Summary")
-    
-    model_summary_data = []
+    # Create one recap table per model_version
     for model_version in model_versions:
+        st.write(f"## 🤖 Model: `{model_version}`")
+        
         model_obs = obs_by_model[model_version]
-        scores = []
-        errors = 0
+        
+        # Collect data for this model
+        all_field_names = set()
+        field_scores_by_name = defaultdict(list)
+        global_scores = []
+        errors_count = 0
         
         for obs in model_obs:
             if obs.get("observation"):
                 try:
                     obs_data = json.loads(obs["observation"])
                     if "score" in obs_data:
-                        scores.append(obs_data["score"])
+                        global_scores.append(obs_data["score"])
+                    field_scores = obs_data.get("field_scores", {})
+                    for field_name, field_score in field_scores.items():
+                        if isinstance(field_score, (int, float)):
+                            all_field_names.add(field_name)
+                            field_scores_by_name[field_name].append(field_score)
                     if "error" in obs_data:
-                        errors += 1
-                except (json.JSONDecodeError, TypeError):
-                    errors += 1
-        
-        model_summary_data.append({
-            "Model Version": model_version,
-            "Count": len(model_obs),
-            "Mean Score": f"{np.mean(scores):.3f}" if scores else "N/A",
-            "Std Dev": f"{np.std(scores):.3f}" if scores else "N/A",
-            "Min Score": f"{min(scores):.3f}" if scores else "N/A",
-            "Max Score": f"{max(scores):.3f}" if scores else "N/A",
-            "Errors": errors
-        })
-    
-    summary_df = pd.DataFrame(model_summary_data)
-    st.dataframe(summary_df, use_container_width=True, hide_index=True)
-    
-    st.divider()
-    
-    # Detailed breakdown per model
-    st.write("## 📊 Detailed Results by Model")
-    
-    for model_version in model_versions:
-        with st.expander(f"**{model_version}**", expanded=len(model_versions) == 1):
-            model_obs = obs_by_model[model_version]
-            
-            # Collect data for this model
-            all_field_names = set()
-            field_scores_by_name = defaultdict(list)
-            global_scores = []
-            errors_count = 0
-            
-            for obs in model_obs:
-                if obs.get("observation"):
-                    try:
-                        obs_data = json.loads(obs["observation"])
-                        if "score" in obs_data:
-                            global_scores.append(obs_data["score"])
-                        field_scores = obs_data.get("field_scores", {})
-                        for field_name, field_score in field_scores.items():
-                            if isinstance(field_score, (int, float)):
-                                all_field_names.add(field_name)
-                                field_scores_by_name[field_name].append(field_score)
-                        if "error" in obs_data:
-                            errors_count += 1
-                    except (json.JSONDecodeError, TypeError):
                         errors_count += 1
+                except (json.JSONDecodeError, TypeError):
+                    errors_count += 1
+        
+        # Summary metrics for this model
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Overall Score", f"{np.mean(global_scores):.3f}" if global_scores else "N/A")
+        with col2:
+            st.metric("Total Items", len(model_obs))
+        with col3:
+            st.metric("Errors", errors_count)
+        
+        # Field-level scores table
+        if field_scores_by_name:
+            st.write("### Field-Level Scores")
+            field_data = []
+            for field_name in sorted(all_field_names):
+                scores = field_scores_by_name[field_name]
+                field_data.append({
+                    "Field": field_name,
+                    "Mean": f"{np.mean(scores):.3f}",
+                    "Std Dev": f"{np.std(scores):.3f}",
+                    "Min": f"{min(scores):.3f}",
+                    "Max": f"{max(scores):.3f}",
+                    "Count": len(scores)
+                })
             
-            # Display summary metrics for this model
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Overall Score", f"{np.mean(global_scores):.3f}" if global_scores else "N/A")
-            with col2:
-                st.metric("Total Items", len(model_obs))
-            with col3:
-                st.metric("Errors", errors_count)
-            
-            # Display field scores for this model
-            if field_scores_by_name:
-                st.write("**Field Scores**")
-                field_data = []
-                for field_name in sorted(all_field_names):
-                    scores = field_scores_by_name[field_name]
-                    field_data.append({
-                        "Field": field_name,
-                        "Mean Score": f"{np.mean(scores):.3f}",
-                        "Std Dev": f"{np.std(scores):.3f}",
-                        "Min Score": f"{min(scores):.3f}",
-                        "Max Score": f"{max(scores):.3f}",
-                        "Count": len(scores)
-                    })
-                
-                field_df = pd.DataFrame(field_data)
-                st.dataframe(field_df, use_container_width=True, hide_index=True)
-            
-            # Show error details if any
-            if errors_count > 0:
-                with st.expander(f"Error Details ({errors_count} errors)", expanded=False):
-                    for idx, obs in enumerate(model_obs):
-                        if obs.get("observation"):
-                            try:
-                                obs_data = json.loads(obs["observation"])
-                                if "error" in obs_data:
-                                    st.error(f"**Task {obs.get('task_id')}:** {obs_data['error']}")
-                            except:
-                                pass
+            field_df = pd.DataFrame(field_data)
+            st.dataframe(field_df, use_container_width=True, hide_index=True)
+        
+        # Show error details if any
+        if errors_count > 0:
+            with st.expander(f"⚠️ Error Details ({errors_count} errors)"):
+                for obs in model_obs:
+                    if obs.get("observation"):
+                        try:
+                            obs_data = json.loads(obs["observation"])
+                            if "error" in obs_data:
+                                st.error(f"**Task {obs.get('task_id')}:** {obs_data['error']}")
+                        except:
+                            pass
+        
+        # Separator between models
+        if model_version != model_versions[-1]:
+            st.divider()
