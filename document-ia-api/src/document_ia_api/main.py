@@ -65,7 +65,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # The last one added is the first one to be executed
 
