@@ -181,6 +181,7 @@ def main():
                 col1, col2 = st.columns([3, 1])
                 with col1:
                     st.subheader(f"📖 Experiment: {exp_id[:8]}...")
+                    st.link_button("Ouvrir dans label studio", f"{config.LABEL_STUDIO_URL}/projects/{exp_data['project_id']}/data")
                 with col2:
                     if st.button("✖️ Close", key="close_detail"):
                         del st.session_state.view_experiment_id
