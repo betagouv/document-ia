@@ -2,16 +2,16 @@ import os
 import streamlit as st
 
 from document_ia_evals.utils.api import wait_for_execution
-from document_ia_evals.utils.config import Config
+from document_ia_evals.utils.config import config
 
 def main():
 
     title = "Récupération d'ancienne exécution via l'API Document IA"
     st.set_page_config(page_title=title, page_icon="🧾")
     st.title(title)
-    st.caption(f"Using API endpoint: {Config.BASE_URL}")
+    st.caption(f"Using API endpoint: {config.DOCUMENT_IA_BASE_URL}")
 
-    api_key = os.getenv("DOCUMENT_IA_API_KEY")
+    api_key = config.DOCUMENT_IA_API_KEY
     if not api_key:
         st.warning("⚠️ DOCUMENT_IA_API_KEY environment variable is not set.")
         return None

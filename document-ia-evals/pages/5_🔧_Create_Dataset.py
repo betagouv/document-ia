@@ -1,7 +1,6 @@
 # Standard library imports
 import asyncio
 import json
-import os
 import queue
 import threading
 import time
@@ -17,6 +16,7 @@ from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 # Local imports
 from document_ia_evals.utils.api import execute_workflow, wait_for_execution
+from document_ia_evals.utils.config import config
 from document_ia_infra.data.workflow.repository.worflow import workflow_repository
 from document_ia_schemas import SupportedDocumentType, resolve_extract_schema
 
@@ -252,10 +252,10 @@ def create_label_studio_project(
 ) -> dict[str, Any]:
     """Create a Label Studio project with S3 storage integration."""
     
-    # Get environment variables
-    label_studio_url = os.getenv("LABEL_STUDIO_URL")
-    api_key = os.getenv("LABEL_STUDIO_API_KEY")
-    ml_backend_url = os.getenv("ML_BACKEND_URL")
+    # Get configuration
+    label_studio_url = config.LABEL_STUDIO_URL
+    api_key = config.LABEL_STUDIO_API_KEY
+    ml_backend_url = config.ML_BACKEND_URL
     
     if not label_studio_url or not api_key:
         raise ValueError("LABEL_STUDIO_URL and LABEL_STUDIO_API_KEY must be set")
@@ -282,18 +282,18 @@ def create_label_studio_project(
     
     # Configure S3 source storage
     s3_params: dict[str, Any] = {
-        'bucket': os.getenv('S3_BUCKET_NAME', ''),
+        'bucket': config.S3_BUCKET_NAME or '',
         'prefix': s3_prefix,
         'regex_filter': r'.*\.json$',
         'use_blob_urls': False,
-        'aws_access_key_id': os.getenv('S3_ACCESS_KEY', ''),
-        'aws_secret_access_key': os.getenv('S3_SECRET_KEY', ''),
-        'region_name': os.getenv('S3_REGION', ''),
+        'aws_access_key_id': config.S3_ACCESS_KEY or '',
+        'aws_secret_access_key': config.S3_SECRET_KEY or '',
+        'region_name': config.S3_REGION or '',
         'presign': False,
     }
     
     # Add S3 endpoint if using custom S3-compatible storage
-    s3_endpoint = os.getenv('S3_ENDPOINT')
+    s3_endpoint = config.S3_ENDPOINT
     if s3_endpoint:
         s3_params['s3_endpoint'] = s3_endpoint
     
@@ -321,18 +321,19 @@ def consumer(
     metadata: dict[str, Any],
     document_type: SupportedDocumentType | None = None,
     s3_prefix: str = "",
+    is_fast_workflow: bool = False,
 ) -> None:
     """Process files: execute workflow, upload to S3 with ground truth annotations."""
     
     # Initialize S3 client
     s3_client = boto3.client(  # type: ignore
         's3',
-        endpoint_url=os.getenv('S3_ENDPOINT'),
-        aws_access_key_id=os.getenv('S3_ACCESS_KEY'),
-        aws_secret_access_key=os.getenv('S3_SECRET_KEY'),
-        region_name=os.getenv('S3_REGION')
+        endpoint_url=config.S3_ENDPOINT,
+        aws_access_key_id=config.S3_ACCESS_KEY,
+        aws_secret_access_key=config.S3_SECRET_KEY,
+        region_name=config.S3_REGION
     )
-    bucket_name = os.getenv('S3_BUCKET_NAME', '')
+    bucket_name = config.S3_BUCKET_NAME or ''
     
     while True:
         try:
@@ -345,12 +346,18 @@ def consumer(
         execution_id: str | None = None
         
         try:
+            # Prepare extraction parameters for fast workflows
+            extraction_parameters = None
+            if is_fast_workflow and document_type:
+                extraction_parameters = {"document-type": document_type.value}
+            
             # Execute workflow to get ground truth
             workflow_execute_response = execute_workflow(
                 workflow_id,
                 uploaded_file,
                 api_key,
                 metadata=metadata,
+                extraction_parameters=extraction_parameters,
             )
             
             execution_id = workflow_execute_response.data.get("execution_id")
@@ -428,7 +435,8 @@ def start_dataset_creation(
     workflow_id: str,
     metadata: dict[str, Any],
     document_type: SupportedDocumentType | None = None,
-    s3_prefix: str = ""
+    s3_prefix: str = "",
+    is_fast_workflow: bool = False,
 ) -> dict[str, dict[str, Any]]:
     """Process files and upload to S3 with ground truth annotations."""
     
@@ -446,7 +454,7 @@ def start_dataset_creation(
         for _ in range(min(n_workers, len(folder))):
             t = threading.Thread(
                 target=consumer,
-                args=(file_queue, api_key, callback, workflow_id, metadata, document_type, s3_prefix),
+                args=(file_queue, api_key, callback, workflow_id, metadata, document_type, s3_prefix, is_fast_workflow),
                 daemon=True
             )
             t.start()
@@ -480,21 +488,27 @@ def main() -> None:
     """)
     
     # Check API key
-    api_key = os.getenv("DOCUMENT_IA_API_KEY")
+    api_key = config.DOCUMENT_IA_API_KEY
     if not api_key:
-        st.warning("⚠️ DOCUMENT_IA_API_KEY environment variable is not set.")
+        st.warning("⚠️ DOCUMENT_IA_API_KEY not found in configuration.")
         return
     
     # Check S3 configuration
-    s3_vars = ['S3_ENDPOINT', 'S3_ACCESS_KEY', 'S3_SECRET_KEY', 'S3_BUCKET_NAME', 'S3_REGION']
-    missing_s3 = [var for var in s3_vars if not os.getenv(var)]
+    s3_vars = {
+        'S3_ENDPOINT': config.S3_ENDPOINT,
+        'S3_ACCESS_KEY': config.S3_ACCESS_KEY,
+        'S3_SECRET_KEY': config.S3_SECRET_KEY,
+        'S3_BUCKET_NAME': config.S3_BUCKET_NAME,
+        'S3_REGION': config.S3_REGION
+    }
+    missing_s3 = [var for var, val in s3_vars.items() if not val]
     if missing_s3:
         st.warning(f"⚠️ Missing S3 configuration: {', '.join(missing_s3)}")
         return
     
     # Check Label Studio configuration
-    if not os.getenv("LABEL_STUDIO_URL") or not os.getenv("LABEL_STUDIO_API_KEY"):
-        st.warning("⚠️ LABEL_STUDIO_URL and LABEL_STUDIO_API_KEY must be set")
+    if not config.LABEL_STUDIO_URL or not config.LABEL_STUDIO_API_KEY:
+        st.warning("⚠️ LABEL_STUDIO_URL and LABEL_STUDIO_API_KEY must be set in configuration")
         return
 
     # Fetch workflows
@@ -529,6 +543,9 @@ def main() -> None:
         help="Nom unique pour identifier ce dataset"
     )
 
+    # Check if it's a fast workflow
+    is_fast_workflow = "-fast" in selected_workflow_id or "fast" in selected_workflow_id.lower()
+    
     # Document type selector
     doc_type_options = list(SupportedDocumentType)
     selected_doc_type: SupportedDocumentType = st.selectbox(
@@ -537,9 +554,14 @@ def main() -> None:
         format_func=lambda x: x.name.replace("_", " ").title(),
         index=0,
     )
+    
+    # Show extraction parameters info for fast workflows
+    if is_fast_workflow:
+        extraction_params_preview = {"document-type": selected_doc_type.value}
+        st.info(f"ℹ️ Workflow fast détecté - Paramètres d'extraction qui seront envoyés: `{json.dumps(extraction_params_preview)}`")
 
     # Metadata input
-    default_metadata = json.dumps({"document-type": selected_doc_type.value}) if "-fast" in selected_workflow_id else "{}"
+    default_metadata = "{}"
     metadata_str = st.text_input(
         "Métadonnées (JSON)",
         value=default_metadata,
@@ -597,7 +619,8 @@ def main() -> None:
             workflow_id=selected_workflow_id,
             metadata=metadata,
             document_type=selected_doc_type,
-            s3_prefix=s3_prefix
+            s3_prefix=s3_prefix,
+            is_fast_workflow=is_fast_workflow,
         )
         
         # Show upload results
@@ -628,7 +651,7 @@ def main() -> None:
                 st.json(project_info)
                 
                 # Display project link
-                label_studio_url = os.getenv("LABEL_STUDIO_URL")
+                label_studio_url = config.LABEL_STUDIO_URL
                 project_url = f"{label_studio_url}/projects/{project_info['project_id']}"
                 st.markdown(f"🔗 [Ouvrir le projet dans Label Studio]({project_url})")
                 

@@ -6,13 +6,13 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
-from document_ia_evals.utils.config import Config
+from document_ia_evals.utils.config import config
 
 # Page configuration
 st.set_page_config(
-    page_title=f"Dashboard | {Config.APP_TITLE}",
+    page_title=f"Dashboard | {config.APP_TITLE}",
     page_icon="📊",
-    layout=Config.LAYOUT
+    layout=config.LAYOUT
 )
 
 
@@ -36,9 +36,6 @@ def generate_sample_data():
 
 def main():
     """Main dashboard page function."""
-    # Render sidebar
-    sidebar_settings = render_sidebar()
-    
     # Page header
     st.title("📊 Dashboard")
     st.markdown("Interactive analytics and visualizations")

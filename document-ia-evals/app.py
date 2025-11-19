@@ -2,25 +2,22 @@
 
 import streamlit as st
 
-from document_ia_evals.components.sidebar import render_sidebar
-from document_ia_evals.utils.config import Config
+from document_ia_evals.utils.config import config
 
 # Initialize configuration
-Config.ensure_directories()
+config.ensure_directories()
 
 # Page configuration
 st.set_page_config(
-    page_title=Config.APP_TITLE,
-    page_icon=Config.PAGE_ICON,
-    layout=Config.LAYOUT,
+    page_title=config.APP_TITLE,
+    page_icon=config.PAGE_ICON,
+    layout=config.LAYOUT,
     initial_sidebar_state="expanded"
 )
 
 
 def main():
     """Main application function."""
-    # Render sidebar
-    sidebar_settings = render_sidebar()
     
     # Main content
     st.title("🏠 Welcome to Streamlit App")

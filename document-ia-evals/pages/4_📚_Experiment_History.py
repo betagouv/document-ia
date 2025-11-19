@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional
 
 from document_ia_evals.components.sidebar import render_sidebar
-from document_ia_evals.utils.config import Config
+from document_ia_evals.utils.config import config
 from document_ia_evals.services.experiment_service import (
     list_experiments,
     load_experiment,
@@ -17,9 +17,9 @@ from document_ia_evals.database.connection import test_db_connection, init_db
 from metrics import metric_registry
 # Page configuration
 st.set_page_config(
-    page_title=f"Experiment History | {Config.APP_TITLE}",
+    page_title=f"Experiment History | {config.APP_TITLE}",
     page_icon="📚",
-    layout=Config.LAYOUT
+    layout=config.LAYOUT
 )
 
 
@@ -159,9 +159,9 @@ def main():
                     st.session_state.view_experiment_id = selected_exp_ids[0]
                     st.rerun()
                         
-            with col2:
-                if st.button("📥 Export JSON", use_container_width=True):
-                    st.info("Export functionality coming soon")
+            # with col2:
+            #     if st.button("📥 Export JSON", use_container_width=True):
+            #         st.info("Export functionality coming soon")
             
             with col3:
                 if st.button("🗑️ Delete", type="secondary", use_container_width=True):

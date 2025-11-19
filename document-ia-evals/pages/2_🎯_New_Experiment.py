@@ -7,7 +7,7 @@ from label_studio_sdk import Client
 from typing import Optional
 
 from document_ia_evals.components.sidebar import render_sidebar
-from document_ia_evals.utils.config import Config
+from document_ia_evals.utils.config import config
 from metrics import metric_registry
 
 # Load environment variables
@@ -15,9 +15,9 @@ load_dotenv()
 
 # Page configuration
 st.set_page_config(
-    page_title=f"New Experiment | {Config.APP_TITLE}",
+    page_title=f"New Experiment | {config.APP_TITLE}",
     page_icon="🎯",
-    layout=Config.LAYOUT
+    layout=config.LAYOUT
 )
 
 
@@ -56,6 +56,8 @@ def main():
         st.session_state.selected_project = None
     if 'selected_metric' not in st.session_state:
         st.session_state.selected_metric = None
+    if 'selected_document_type' not in st.session_state:
+        st.session_state.selected_document_type = None
     
     # Get Label Studio client
     client = get_label_studio_client()
@@ -148,32 +150,85 @@ def main():
         with st.expander("📏 Metric Details", expanded=False):
             st.markdown(f"**Metric Type:** {metric_info.get('metric_type', 'standard')}")
             st.markdown(f"**Required Fields:** {', '.join(metric_info.get('require', []))}")
+        
+        # If metric requires document_type, show a selector
+        if 'document_type' in metric_info.get('require', []):
+            st.info("ℹ️ This metric requires a document type to be specified.")
+            
+            from document_ia_schemas import SupportedDocumentType
+            
+            document_type_options = {
+                f"{dt.value}": dt.value
+                for dt in SupportedDocumentType
+            }
+            
+            selected_doc_type = st.selectbox(
+                "Select Document Type:",
+                options=list(document_type_options.keys()),
+                index=None,
+                placeholder="Choose a document type...",
+                help="This is required for the json_schema_extra metric to know which schema to use"
+            )
+            
+            if selected_doc_type:
+                st.session_state.selected_document_type = document_type_options[selected_doc_type]
+            else:
+                st.session_state.selected_document_type = None
+        else:
+            # Clear document type if metric doesn't require it
+            st.session_state.selected_document_type = None
     else:
         st.session_state.selected_metric = None
+        st.session_state.selected_document_type = None
     
     # Step 3: Create Experiment
     st.header("3️⃣ Start Experiment")
     
-    if st.session_state.selected_project and st.session_state.selected_metric:
+    # Check if metric requires document_type
+    metric_info = None
+    if st.session_state.selected_metric:
+        metric_info = metrics.get(st.session_state.selected_metric)
+    
+    requires_document_type = (
+        metric_info and
+        'document_type' in metric_info.get('require', [])
+    )
+    
+    # Check if all required fields are filled
+    ready_to_run = (
+        st.session_state.selected_project and
+        st.session_state.selected_metric and
+        (not requires_document_type or st.session_state.selected_document_type)
+    )
+    
+    if ready_to_run:
         st.success("✅ Ready to create experiment!")
+        
+        # Show selected configuration
+        with st.expander("📋 Experiment Configuration", expanded=True):
+            st.markdown(f"**Project ID:** {st.session_state.selected_project}")
+            st.markdown(f"**Metric:** {st.session_state.selected_metric}")
+            if st.session_state.selected_document_type:
+                st.markdown(f"**Document Type:** {st.session_state.selected_document_type}")
         
         col1, col2 = st.columns([1, 3])
         with col1:
             if st.button("▶️ Run Experiment", type="primary", use_container_width=True):
-                # Navigate to experiment results page with URL parameters
-                project_id = st.session_state.selected_project
-                metric_name = st.session_state.selected_metric
+                # Navigate to experiment results page
                 st.switch_page(f"pages/3_📈_Experiment_Results.py")
     else:
-        st.info("Please select both a project and a metric to continue.")
+        st.info("Please complete the configuration to continue.")
         
         missing = []
         if not st.session_state.selected_project:
             missing.append("Project")
         if not st.session_state.selected_metric:
             missing.append("Metric")
+        if requires_document_type and not st.session_state.selected_document_type:
+            missing.append("Document Type")
         
-        st.warning(f"Missing: {', '.join(missing)}")
+        if missing:
+            st.warning(f"Missing: {', '.join(missing)}")
 
 
 if __name__ == "__main__":

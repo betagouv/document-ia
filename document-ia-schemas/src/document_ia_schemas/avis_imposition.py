@@ -1,7 +1,7 @@
 from typing import Optional, Type
 from pydantic import BaseModel, Field
 
-from document_ia_schemas import BaseDocumentTypeSchema
+from document_ia_schemas import BaseDocumentTypeSchema, Metric
 
 
 class AvisImpositionModel(BaseModel):
@@ -13,7 +13,7 @@ class AvisImpositionModel(BaseModel):
         alias="Référence d'avis d'impôt",
         examples=["1234567890123"],
         json_schema_extra={
-            "metrics": "equality"
+            "metrics": Metric.EQUALITY
         }
     )
     annee_revenus: str = Field(
