@@ -1,13 +1,12 @@
-[project]
+[tool.poetry]
 name = "document-ia-evals"
 version = "0.1.0"
 description = ""
 authors = [
-    {name = "Erwan BOEHM",email = "erwan.boehm@gmail.com"},
-    {name = "Olivier DULCY",email = "olivier.dulcy@beta.gouv.fr"}
+    "Erwan BOEHM <erwan.boehm@gmail.com>",
+    "Olivier DULCY <olivier.dulcy@beta.gouv.fr>"
 ]
 readme = "README.md"
-package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.13"
@@ -22,6 +21,7 @@ boto3 = "1.35.99"
 deepdiff = ">=8.1.1,<9.0.0"
 sqlalchemy = ">=2.0.23,<3.0.0"
 alembic = ">=1.13.0,<2.0.0"
+pydantic-settings = "^2.1.0"
 psycopg2-binary = ">=2.9.9,<3.0.0"
 document-ia-schemas = { path = "../document-ia-schemas", develop = true }
 document-ia-infra = { path = "../document-ia-infra", develop = true }

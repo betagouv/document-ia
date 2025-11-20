@@ -28,9 +28,6 @@ ENV/
 env/
 .venv
 
-# Poetry
-poetry.lock
-
 # IDEs
 .vscode/
 .idea/
