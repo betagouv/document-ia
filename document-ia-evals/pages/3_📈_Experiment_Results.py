@@ -109,7 +109,7 @@ def run_experiment(project_id: int, metric_name: str, client: Client) -> Dict[st
         ground_truth = None
         for annotation in task.get('annotations', []):
             if annotation.get('ground_truth'):
-                ground_truth = annotation_results_to_dict(annotation.get('result', []))
+                ground_truth, ground_truth_meta = annotation_results_to_dict(annotation.get('result', []))
                 break
         
         # Skip if no ground truth
@@ -125,8 +125,13 @@ def run_experiment(project_id: int, metric_name: str, client: Client) -> Dict[st
         
         for prediction in predictions:
             model_version = prediction.get('model_version', 'Unknown')
-            pred_data = annotation_results_to_dict(prediction.get('result', []))
+            pred_data, pred_data_meta = annotation_results_to_dict(prediction.get('result', []))
             
+            # Extract processing time from metadata
+            processing_time_ms = None
+            if pred_data_meta and isinstance(pred_data_meta, dict):
+                processing_time_ms = pred_data_meta.get('total_processing_time_ms')
+
             if pred_data is None:
                 skipped_count += 1
                 continue
@@ -180,7 +185,8 @@ def run_experiment(project_id: int, metric_name: str, client: Client) -> Dict[st
                     "prediction_id": prediction.get('id', 'Unknown'),
                     "score": score,
                     "observation": observation_json,
-                    "output": output
+                    "output": output,
+                    "processing_time_ms": processing_time_ms
                 })
                 
                 processed_count += 1
@@ -193,7 +199,8 @@ def run_experiment(project_id: int, metric_name: str, client: Client) -> Dict[st
                     "prediction_id": prediction.get('id', 'Unknown'),
                     "score": 0.0,
                     "observation": json.dumps({"error": str(e)}),
-                    "output": None
+                    "output": None,
+                    "processing_time_ms": processing_time_ms
                 })
                 skipped_count += 1
     
@@ -327,6 +334,42 @@ def main():
             st.metric("Processed", results.get('processed_count', 0))
         with col3:
             st.metric("Skipped", results.get('skipped_count', 0))
+        
+        # Calculate and display processing time statistics by model version
+        observations = results.get('observations', [])
+        if observations:
+            # Group processing times by model version
+            processing_times_by_model = {}
+            for obs in observations:
+                model_version = obs.get('model_version', 'Unknown')
+                processing_time = obs.get('processing_time_ms')
+                if processing_time is not None:
+                    if model_version not in processing_times_by_model:
+                        processing_times_by_model[model_version] = []
+                    processing_times_by_model[model_version].append(processing_time)
+            
+            # Display processing time statistics if available
+            if processing_times_by_model:
+                st.subheader("⏱️ Processing Time Statistics")
+                import pandas as pd
+                import numpy as np
+                
+                stats_data = []
+                for model_version, times in sorted(processing_times_by_model.items()):
+                    if times:
+                        stats_data.append({
+                            "Model Version": model_version,
+                            "Mean (s)": f"{np.mean(times)/1000:.2f}",
+                            "Median (s)": f"{np.median(times)/1000:.2f}",
+                            "Std Dev (s)": f"{np.std(times)/1000:.2f}",
+                            "Min (s)": f"{min(times)/1000:.2f}",
+                            "Max (s)": f"{max(times)/1000:.2f}",
+                            "Samples": len(times)
+                        })
+                
+                if stats_data:
+                    df = pd.DataFrame(stats_data)
+                    st.dataframe(df, use_container_width=True, hide_index=True)
         
         st.divider()
         

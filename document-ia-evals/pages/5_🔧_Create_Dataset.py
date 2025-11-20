@@ -8,6 +8,7 @@ from typing import Any, Type, get_origin, Protocol
 
 # Third-party imports
 import boto3
+from document_ia_api.api.contracts.execution.types import ExecutionStatus
 from document_ia_evals.utils.label_studio import dict_to_annotation_result
 import streamlit as st
 from botocore.exceptions import ClientError
@@ -94,7 +95,6 @@ def create_task(image_url: str, ground_truth: dict[str, Any] | None = None) -> d
             'pdf': image_url
         }
     }
-    
     # Ground truth as annotation
     if ground_truth:
         annotation_result = dict_to_annotation_result(ground_truth)
@@ -303,7 +303,7 @@ def consumer(
                 extraction_parameters=extraction_parameters,
             )
             
-            execution_id = workflow_execute_response.data.get("execution_id")
+            execution_id = workflow_execute_response.data.execution_id
             if not execution_id:
                 error_msg = "Failed to get execution_id from workflow response"
                 callback.put((uploaded_file.name, False, error_msg, execution_id))
@@ -311,39 +311,32 @@ def consumer(
             execution_details = wait_for_execution(execution_id, api_key)
             
             # Check status (case-insensitive comparison)
-            if not execution_details or execution_details.status.upper() != "SUCCESS":
-                error_msg = f"Workflow failed with status: {execution_details.status if execution_details else 'unknown'} (execution_id: {execution_id})"
+            if not execution_details or execution_details.status != ExecutionStatus.SUCCESS:
+                error_msg = f"Workflow failed with status: {execution_details} (execution_id: {execution_id})"
                 callback.put((uploaded_file.name, False, error_msg, execution_id))
                 continue
             
             # Extract the result from the execution details data
             workflow_data = execution_details.data
-            if 'result' not in workflow_data or 'extraction' not in workflow_data['result']:
-                error_msg = f"Invalid workflow result structure (execution_id: {execution_id})"
-                callback.put((uploaded_file.name, False, error_msg, execution_id))
-                continue
-            
+
             # The properties field contains the actual extracted data
-            extracted_fields = workflow_data['result']['extraction']
-            if 'properties' not in extracted_fields:
-                error_msg = f"Missing 'properties' in extracted_fields (execution_id: {execution_id})"
+            extracted_fields = workflow_data.result.extraction
+            if extracted_fields is None:
+                error_msg = "Failed to get extracted_fields"
                 callback.put((uploaded_file.name, False, error_msg, execution_id))
                 continue
-            
+
             # For dataset creation, we store the raw extracted data as ground truth
             # No validation needed - the data is the ground truth even if imperfect
-            properties: Any = extracted_fields['properties']
+            properties = extracted_fields.properties
             
             # Convert list format [{name, value, type}] to dict {name: value}
-            if isinstance(properties, list):
-                result_data: dict[str, Any] = {
-                    item['name']: item['value']
-                    for item in properties
-                    if isinstance(item, dict) and 'name' in item and 'value' in item
-                }
-            else:
-                result_data = properties
-            
+            # TODO: use annotation_results_to_dict ?
+            result_data: dict[str, Any] = {
+                item.name: item.value
+                for item in properties
+                if item.name and item.value
+            }
             # Read file content
             uploaded_file.seek(0)
             file_content = uploaded_file.read()

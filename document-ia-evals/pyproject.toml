@@ -25,6 +25,7 @@ alembic = ">=1.13.0,<2.0.0"
 psycopg2-binary = ">=2.9.9,<3.0.0"
 document-ia-schemas = { path = "../document-ia-schemas", develop = true }
 document-ia-infra = { path = "../document-ia-infra", develop = true }
+document-ia-api = { path = "../document-ia-api", develop = true }
 
 
 [build-system]
