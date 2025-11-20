@@ -2,10 +2,37 @@
 
 import json
 import os
+from document_ia_evals.utils.config import config
 from typing import Any, Optional
+from label_studio_sdk import LabelStudio
+from label_studio_sdk import Client
 from dotenv import load_dotenv
 
 load_dotenv()
+
+def get_label_studio_client() -> LabelStudio:
+
+    if config.ALLOW_INSECURE_REQUESTS is True:
+        import requests
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        session = requests.Session()
+        session.verify = False
+
+    # Initialize Label Studio client
+    ls_client = LabelStudio(base_url=config.LABEL_STUDIO_URL, api_key=config.LABEL_STUDIO_API_KEY)
+    return ls_client
+
+def get_label_studio_client_legacy() -> Optional[Client]: 
+   
+    if config.ALLOW_INSECURE_REQUESTS is True:
+        import requests
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        session = requests.Session()
+        session.verify = False
+        client = Client(url=config.LABEL_STUDIO_URL, api_key=config.LABEL_STUDIO_API_KEY, session=session)
+        return client
 
 
 def get_label_studio_url() -> str:

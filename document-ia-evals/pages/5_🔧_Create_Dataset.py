@@ -9,7 +9,7 @@ from typing import Any, Type, get_origin, Protocol
 # Third-party imports
 import boto3
 from document_ia_api.api.contracts.execution.types import ExecutionStatus
-from document_ia_evals.utils.label_studio import dict_to_annotation_result
+from document_ia_evals.utils.label_studio import dict_to_annotation_result, get_label_studio_client_legacy
 import streamlit as st
 from botocore.exceptions import ClientError
 from label_studio_sdk import Client
@@ -214,7 +214,7 @@ def create_label_studio_project(
     )
     
     # Initialize Label Studio client
-    ls = Client(url=label_studio_url, api_key=api_key)
+    ls = get_label_studio_client_legacy()
     
     # Create project
     project = ls.create_project( # type: ignore
