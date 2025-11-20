@@ -170,21 +170,26 @@ class TestWorkflowEdgeCasesE2E:
         s3.delete_file(key)
 
     @pytest.mark.asyncio
-    async def test_save_results_without_llm_fails(self, monkeypatch, organization_id):
-        """Workflow with only 'save_results': missing LLMResult must fail in SaveWorkflowResultStep."""
+    async def test_save_results_without_llm_succeeds(self, monkeypatch, organization_id):
+        """Workflow with only 'save_results' should now succeed even without LLMResult."""
         wf_id = "wf-missing-llm"
-        fake_workflow = SimpleNamespace(id=wf_id, steps=["save_workflow_result"], llm_model="albert-large",
-                                        type="classification")
+        fake_workflow = SimpleNamespace(
+            id=wf_id,
+            steps=["save_workflow_result"],
+            llm_model="albert-large",
+            type="classification",
+        )
 
         import document_ia_infra.data.workflow.repository.worflow as wf_repo_mod
 
         async def fake_get_workflow_by_id(_id: str):  # noqa: ANN001
             return fake_workflow if _id == wf_id else None
 
-        monkeypatch.setattr(wf_repo_mod.workflow_repository, "get_workflow_by_id", fake_get_workflow_by_id)
+        monkeypatch.setattr(
+            wf_repo_mod.workflow_repository, "get_workflow_by_id", fake_get_workflow_by_id
+        )
 
         execution_id = str(uuid4())
-        # FileInfo still required by schema
         file_info = FileInfo(
             filename=PDF_FIXTURE.name,
             s3_key="unused/key.pdf",
@@ -217,18 +222,18 @@ class TestWorkflowEdgeCasesE2E:
             )
             await session.commit()
 
-        manager = WorkflowManager(message=SimpleNamespace(workflow_execution_id=execution_id), retry_count=0,
-                                  is_last_retry=False)
-        with pytest.raises(ValueError):
-            await manager.start()
+        manager = WorkflowManager(
+            message=SimpleNamespace(workflow_execution_id=execution_id),
+            retry_count=0,
+            is_last_retry=False,
+        )
+        await manager.start()
 
         async with dbm.local_session() as session:
             repo = EventRepository(session)
             last_event = await repo.get_last_event_by_execution_id(execution_id)
             assert last_event is not None
-            assert last_event.event_type == EventType.WORKFLOW_EXECUTION_FAILED
+            assert last_event.event_type == EventType.WORKFLOW_EXECUTION_COMPLETED
             payload = last_event.event
-            assert payload.get("failed_step") == "SaveWorkflowResultStep"
-            assert payload.get("error_type") in ("ValueError", "Exception")
-            assert "not" in payload.get("error_message", "").lower()
-            assert payload.get("retry_count") == 0
+            assert payload.get("workflow_id") == wf_id
+            assert payload.get("execution_id") == execution_id

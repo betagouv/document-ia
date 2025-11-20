@@ -10,6 +10,7 @@ from document_ia_infra.data.event.schema.barcode import (
     QrCode,
     BarcodePosition,
     BarcodeVariant,
+    DataMatrix,
 )
 from document_ia_worker.workflow.main_workflow_context import StepMetadata
 from document_ia_worker.workflow.step.base_step import BaseStep
@@ -94,6 +95,15 @@ class ExtractBarcodeData(BaseStep[BarcodeResult]):
                         )
                     except Exception:
                         logger.warning("Failed to decode 2D Doc barcode")
+                        page_barcode_data.append(
+                            DataMatrix(
+                                position=self._map_position_like_to_model(
+                                    barcode.position
+                                ),
+                                data=barcode.text,
+                                page_number=idx + 1,
+                            )
+                        )
                         continue
                 elif str(barcode.format) == "BarcodeFormat.QRCode":
                     page_barcode_data.append(

@@ -86,17 +86,6 @@ class TestSaveWorkflowResult:
         assert captured["workflow_metadata"] == []
 
     @pytest.mark.asyncio
-    async def test_prepare_step_requires_llm_result(self, main_workflow_context):
-        step = SaveWorkflowResultStep(
-            main_workflow_context=main_workflow_context,
-            workflow_id="wf-abc",
-            database_session=MagicMock(),
-        )
-
-        with pytest.raises(ValueError):
-            await step._prepare_step()
-
-    @pytest.mark.asyncio
     async def test_save_workflow_extraction_result_persists_event_with_expected_payload(self):
         # Arrange
         start_time = datetime.now(timezone.utc) - timedelta(seconds=1)
