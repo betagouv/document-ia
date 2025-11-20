@@ -11,6 +11,7 @@ from urllib.parse import urlparse, parse_qs
 
 # Third-party imports
 import boto3
+from document_ia_evals.utils.label_studio import dict_to_annotation_result
 import streamlit as st
 from botocore.exceptions import ClientError
 from label_studio_sdk import LabelStudio
@@ -65,31 +66,6 @@ def download_from_s3(s3_url: str) -> tuple[bytes, str] | None:
     except Exception as e:
         st.error(f"Failed to download {s3_url}: {e}")
         return None
-
-
-def pydantic_to_annotation_result(data: dict[str, Any]) -> list[dict[str, Any]]:
-    """Convert workflow result data to Label Studio annotation structure."""
-    results: list[dict[str, Any]] = []
-    
-    for field_name, value in data.items():
-        if value is not None:
-            results.append({
-                'value': {'text': [str(value)]},
-                'from_name': field_name,
-                'to_name': 'pdf',
-                'type': 'textarea',
-                'readonly': False
-            })
-    
-    # Add raw JSON as an additional annotation
-    results.append({
-        'value': {'text': [json.dumps(data)]},
-        'from_name': 'raw_api_response',
-        'to_name': 'pdf',
-        'type': 'textarea'
-    })
-    
-    return results
 
 
 def process_task(
@@ -213,7 +189,7 @@ def process_task(
                     annotation_data[prop['name']] = prop['value']
         
         # Create prediction result
-        prediction_result = pydantic_to_annotation_result(annotation_data)
+        prediction_result = dict_to_annotation_result(annotation_data)
         
         # Create prediction in Label Studio using the predictions API
         ls_client.predictions.create(  # type: ignore
