@@ -10,7 +10,7 @@ from uuid import UUID
 
 from document_ia_evals.components.sidebar import render_sidebar
 from document_ia_evals.utils.config import config
-from document_ia_evals.utils.label_studio import annotation_results_to_dict, get_project_url
+from document_ia_evals.utils.label_studio import annotation_results_to_dict, get_label_studio_client_legacy, get_project_url
 from metrics import metric_registry
 from document_ia_evals.services.experiment_service import save_experiment
 from document_ia_evals.database.connection import test_db_connection, init_db
@@ -24,29 +24,6 @@ st.set_page_config(
     page_icon="📈",
     layout=config.LAYOUT
 )
-
-
-def get_label_studio_client() -> Optional[Client]:
-    """Create a Label Studio client using environment variables."""
-    url = os.getenv("LABEL_STUDIO_URL", "http://localhost:8080")
-    api_key = os.getenv("LABEL_STUDIO_API_KEY")
-    
-    if not api_key:
-        st.warning("⚠️ LABEL_STUDIO_API_KEY environment variable is not set.")
-        return None
-    
-    try:
-        import requests
-        import urllib3
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        session = requests.Session()
-        session.verify = False
-        client = Client(url=url, api_key=api_key, session=session)
-        return client
-    except Exception as e:
-        st.error(f"Failed to connect to Label Studio: {str(e)}")
-        return None
-
 
 
 def run_experiment(project_id: int, metric_name: str, client: Client) -> Dict[str, Any]:
@@ -270,7 +247,7 @@ def main():
     st.divider()
     
     # Get Label Studio client
-    client = get_label_studio_client()
+    client = get_label_studio_client_legacy()
     if not client:
         st.stop()
     

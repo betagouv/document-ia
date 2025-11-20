@@ -39,7 +39,9 @@ def main():
     # Page header
     st.title("📊 Dashboard")
     st.markdown("Interactive analytics and visualizations")
-    
+    if config.ALLOW_INSECURE_REQUESTS is True:
+        st.info(f"⚠️ ALLOW_INSECURE_REQUESTS is {config.ALLOW_INSECURE_REQUESTS}. It is used to bypass ssl certificate verification when using LabelStudio behind a VPN.")
+
     # # Metrics row
     # st.subheader("Key Metrics")
     # col1, col2, col3, col4 = st.columns(4)

@@ -11,7 +11,7 @@ from urllib.parse import urlparse, parse_qs
 
 # Third-party imports
 import boto3
-from document_ia_evals.utils.label_studio import dict_to_annotation_result
+from document_ia_evals.utils.label_studio import dict_to_annotation_result, get_label_studio_client
 import streamlit as st
 from botocore.exceptions import ClientError
 from label_studio_sdk import LabelStudio
@@ -313,15 +313,7 @@ def main() -> None:
         return
     
     # Check Label Studio configuration
-    label_studio_url = config.LABEL_STUDIO_URL
-    label_studio_api_key = config.LABEL_STUDIO_API_KEY
-    
-    if not label_studio_url or not label_studio_api_key:
-        st.warning("⚠️ LABEL_STUDIO_URL and LABEL_STUDIO_API_KEY must be set")
-        return
-    
-    # Initialize Label Studio client
-    ls_client = LabelStudio(base_url=label_studio_url, api_key=label_studio_api_key)
+    ls_client = get_label_studio_client()
     
     # Fetch workflows
     workflows_list = asyncio.run(workflow_repository.get_all_workflows())
