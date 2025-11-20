@@ -4,19 +4,20 @@
 }
 
 :{$PORT} {
-    # Matcher pour les IP autorisées : les lignes sont injectées ici
-    @allowed_ip {
-__ALLOWED_REMOTE_IP_LINES__
+
+    # Groupe de règles pour les IPs autorisées
+    @allowed_client {
+        # Les lignes "header X-Forwarded-For <IP>" seront injectées ici
+__ALLOWED_RULES__
     }
 
-    # Par défaut : tout ce qui ne matche pas @allowed_ip reçoit un 403
+    # 1. Si le header matche une IP autorisée -> On passe
+    handle @allowed_client {
+        reverse_proxy 127.0.0.1:8501
+    }
+
+    # 2. Sinon -> On bloque avec un message de debug CLAIR
     handle {
-        reverse_proxy 127.0.0.1:8501
-        #respond "Forbidden" 403
-    }
-
-    # Si l'IP est autorisée, on reverse_proxy vers Streamlit
-    handle @allowed_ip {
-        reverse_proxy 127.0.0.1:8501
+        respond "Forbidden" 403
     }
 }
