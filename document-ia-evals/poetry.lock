@@ -706,7 +706,7 @@ optional = false
 python-versions = "^3.13"
 groups = ["main"]
 files = []
-develop = true
+develop = false
 
 [package.dependencies]
 alembic = "^1.16.5"
@@ -738,7 +738,7 @@ optional = false
 python-versions = "^3.13"
 groups = ["main"]
 files = []
-develop = true
+develop = false
 
 [package.dependencies]
 asyncpg = "^0.30.0"
@@ -765,7 +765,7 @@ optional = false
 python-versions = "^3.13"
 groups = ["main"]
 files = []
-develop = true
+develop = false
 
 [package.dependencies]
 pydantic = "^2.11.9"
@@ -3806,4 +3806,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.13"
-content-hash = "c654b5bc7985e0fb211c84b49d4b732b9b7ad6ab90a3ae17b3460ab9e4218f27"
+content-hash = "de861de78d6dec2b9543dfb4631b55867cd5737519986af9bae63e4ac13a130f"
