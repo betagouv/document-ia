@@ -47,8 +47,6 @@ class SaveWorkflowResultStep(BaseStep[None]):
         logger.info(
             f"Preparing save workflow data step for execution: {self.execution_id}"
         )
-        if self.llm_classification is None and self.llm_extraction_result is None:
-            raise ValueError("LLMResult not injected in context")
 
     def inject_workflow_context(self, context: dict[str, Any]):
         self.llm_classification = self._get_not_mandatory_workflow_context_key(

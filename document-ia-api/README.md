@@ -6,7 +6,7 @@ A FastAPI-based document analysis API following Clean Architecture principles wi
 
 This project implements Clean Architecture with dependency injection for external interfaces:
 
-- **Domain Layer** (`core/`): Core business logic independent of external frameworks
+- **Domain Layer** (`core/`): Core  business logic independent of external frameworks
 - **Application Layer** (`application/`): Use cases and orchestration logic
 - **Infrastructure Layer** (`infra/`): External interfaces (DB, Redis, S3) implementations
 - **Interface Layer** (`api/`): API routes and controllers

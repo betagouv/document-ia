@@ -11,6 +11,7 @@ class BarcodeType(str, Enum):
     UPC_A = "UPC_A"
     PDF_417 = "PDF_417"
     DATA_MATRIX = "DATA_MATRIX"
+    TWO_D_DOC = "2D_DOC"
     AZTEC = "AZTEC"
 
 
@@ -27,7 +28,7 @@ class BarcodeModel(BaseModel):
 
 
 class Ants2DDoc(BarcodeModel):
-    type: Literal[BarcodeType.DATA_MATRIX] = BarcodeType.DATA_MATRIX
+    type: Literal[BarcodeType.TWO_D_DOC] = BarcodeType.TWO_D_DOC
     position: BarcodePosition
     is_valid: bool
     data: Any = Field(json_schema_extra={"x-mask": True})
@@ -39,4 +40,12 @@ class QrCode(BarcodeModel):
     data: str = Field(json_schema_extra={"x-mask": True})
 
 
-BarcodeVariant = Annotated[Union[Ants2DDoc, QrCode], Field(discriminator="type")]
+class DataMatrix(BarcodeModel):
+    type: Literal[BarcodeType.DATA_MATRIX] = BarcodeType.DATA_MATRIX
+    position: BarcodePosition
+    data: str = Field(json_schema_extra={"x-mask": True})
+
+
+BarcodeVariant = Annotated[
+    Union[Ants2DDoc, QrCode, DataMatrix], Field(discriminator="type")
+]
