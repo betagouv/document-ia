@@ -1,9 +1,9 @@
 """New Experiment page - select project and metric to create an experiment."""
 
 import os
+from document_ia_evals.utils.label_studio import get_label_studio_client_legacy
 import streamlit as st
 from dotenv import load_dotenv
-from label_studio_sdk import Client
 from typing import Optional
 
 from document_ia_evals.components.sidebar import render_sidebar
@@ -21,26 +21,6 @@ st.set_page_config(
 )
 
 
-def get_label_studio_client() -> Optional[Client]:
-    """Create a Label Studio client using environment variables."""
-    url = os.getenv("LABEL_STUDIO_URL", "http://localhost:8080")
-    api_key = os.getenv("LABEL_STUDIO_API_KEY")
-    
-    if not api_key:
-        st.warning("⚠️ LABEL_STUDIO_API_KEY environment variable is not set.")
-        return None
-    
-    try:
-        import requests
-        import urllib3
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        session = requests.Session()
-        session.verify = False
-        client = Client(url=url, api_key=api_key, session=session)
-        return client
-    except Exception as e:
-        st.error(f"Failed to connect to Label Studio: {str(e)}")
-        return None
 
 
 def main():
@@ -60,7 +40,7 @@ def main():
         st.session_state.selected_document_type = None
     
     # Get Label Studio client
-    client = get_label_studio_client()
+    client = get_label_studio_client_legacy()
     
     if not client:
         st.stop()
