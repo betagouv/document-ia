@@ -9,6 +9,8 @@ from sqlalchemy import pool
 from alembic import context
 from dotenv import load_dotenv
 
+from document_ia_infra.data.data_settings import database_settings
+
 # Load environment variables
 load_dotenv()
 
@@ -19,11 +21,7 @@ from document_ia_evals.database.models import Base
 config = context.config
 
 # Set the database URL from environment variable
-database_url = os.getenv(
-    "DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5435/experiments_db"
-)
-config.set_main_option("sqlalchemy.url", database_url)
+config.set_main_option("sqlalchemy.url", database_settings.get_database_url())
 
 # Interpret the config file for Python logging.
 if config.config_file_name is not None:
