@@ -24,9 +24,10 @@ if [ ! -f ./binaries/caddy ]; then
   echo "Caddy v${CADDY_VERSION} installé avec succès !"
 fi
 
-ALLOWED_REMOTE_IP_LINES=""
+ALLOWED_RULES=""
 for ip in $ALLOWED_IPS_ENV; do
-  ALLOWED_REMOTE_IP_LINES+="        remote_ip ${ip}\\n"
+  # On ajoute une ligne pour chaque IP
+  ALLOWED_RULES+="        header X-Forwarded-For ${ip}\\n"
 done
 
 if [ ! -f ./Caddyfile.template ]; then
@@ -34,9 +35,10 @@ if [ ! -f ./Caddyfile.template ]; then
   exit 1
 fi
 
-printf "Génération du Caddyfile avec IPs autorisées: %s\n" "$ALLOWED_IPS_ENV"
+printf "Génération du Caddyfile pour IPs: %s\n" "$ALLOWED_IPS_ENV"
 TEMPLATE_CONTENT=$(cat ./Caddyfile.template)
-FINAL_CONTENT=${TEMPLATE_CONTENT/__ALLOWED_REMOTE_IP_LINES__/${ALLOWED_REMOTE_IP_LINES}}
+# On remplace le placeholder par nos règles de header
+FINAL_CONTENT=${TEMPLATE_CONTENT/__ALLOWED_RULES__/${ALLOWED_RULES}}
 printf "%b" "$FINAL_CONTENT" > ./Caddyfile
 
 # --- Démarre Streamlit sur un port interne ---
