@@ -109,7 +109,7 @@ def main():
                 metadata=metadata,
                 extraction_parameters=extraction_parameters,
             )
-            execution_id = workflow_execute_response.data.get("execution_id")
+            execution_id = workflow_execute_response.data.execution_id
 
         st.info(f"ID de l'exécution : `{execution_id}`")
 

@@ -2,7 +2,7 @@
 
 import json
 import os
-from typing import Any
+from typing import Any, Optional
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -66,7 +66,9 @@ def get_project_settings_url(project_id: int) -> str:
     return f"{base_url}/projects/{project_id}/settings"
 
 
-def dict_to_annotation_result(data: dict[str, Any]) -> list[dict[str, Any]]:
+
+METADATA_KEY = '__metadata__'
+def dict_to_annotation_result(data: dict[str, Any], metadata: Optional[dict[str, Any]] = None) -> list[dict[str, Any]]:
     """Convert workflow result data to Label Studio annotation structure."""
     results: list[dict[str, Any]] = []
     
@@ -79,11 +81,20 @@ def dict_to_annotation_result(data: dict[str, Any]) -> list[dict[str, Any]]:
                 'type': 'textarea',
                 'readonly': False
             })
+    if metadata is not None:
+        results.append({
+            'value': {'text': [json.dumps(metadata)]},
+            'from_name': METADATA_KEY,
+            'to_name': 'pdf',
+            'type': 'textarea',
+            'readonly': True
+        })
+        
 
     
     return results
 
-def annotation_results_to_dict(annotation_results: list[dict[str, Any]]) -> dict[str, Any]:
+def annotation_results_to_dict(annotation_results: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Convert Label Studio annotation results back to a dictionary.
     
     This is the reverse operation of dict_to_annotation_result.
@@ -107,7 +118,7 @@ def annotation_results_to_dict(annotation_results: list[dict[str, Any]]) -> dict
         {'name': 'John Doe'}
     """
     data: dict[str, Any] = {}
-    
+    metadata: dict[str, Any] | None = None
     for result in annotation_results:
         field_name = result.get('from_name')
                     
@@ -116,8 +127,10 @@ def annotation_results_to_dict(annotation_results: list[dict[str, Any]]) -> dict
         text_list = value_obj.get('text', [])
         
         if field_name and text_list:
-            # Get the first text value
-            data[field_name] = text_list[0]
+            if field_name == METADATA_KEY:
+                metadata = json.loads(text_list[0])
+            else:
+                data[field_name] = text_list[0]
     
-    return data
+    return data, metadata
 

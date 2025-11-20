@@ -3,10 +3,8 @@
 import json
 from typing import List, Optional, Dict, Any
 from uuid import UUID
-from datetime import datetime
 
 from sqlalchemy import desc, func
-from sqlalchemy.orm import Session
 
 from document_ia_evals.database.models import Experiment, Observation
 from document_ia_evals.database.connection import get_session
@@ -55,6 +53,28 @@ def save_experiment(
         # Use provided total_tasks, or fall back to unique task count
         actual_total_tasks = total_tasks if total_tasks > 0 else len(unique_task_ids)
         
+        # Calculate mean processing time per model_version
+        model_version_stats = {}
+        processing_times_by_model = {}
+        
+        for obs in observations_data:
+            model_version = obs.get('model_version', 'Unknown')
+            processing_time = obs.get('processing_time_ms')
+            
+            if processing_time is not None:
+                if model_version not in processing_times_by_model:
+                    processing_times_by_model[model_version] = []
+                processing_times_by_model[model_version].append(processing_time)
+        
+        # Calculate mean for each model version
+        for model_version, times in processing_times_by_model.items():
+            if times:
+                mean_time = sum(times) / len(times)
+                model_version_stats[model_version] = {
+                    'mean_processing_time_ms': mean_time,
+                    'sample_count': len(times)
+                }
+        
         # Create experiment
         experiment = Experiment(
             label_studio_project_id=project_id,
@@ -63,7 +83,8 @@ def save_experiment(
             processed_count=processed_count,
             average_score=average_score,
             status='completed',
-            notes=notes
+            notes=notes,
+            model_version_stats=model_version_stats if model_version_stats else None
         )
         
         session.add(experiment)
@@ -97,6 +118,7 @@ def save_experiment(
                 prediction_id=obs_data.get('prediction_id', 0),
                 model_version=obs_data.get('model_version', 'Unknown'),
                 score=obs_data.get('score', 0.0),
+                processing_time_ms=obs_data.get('processing_time_ms'),
                 metric_results=metric_results
             )
             

@@ -419,9 +419,15 @@ def render_results(experiment_results: Dict[str, Any]) -> None:
         all_field_names = set()
         field_scores_by_name = defaultdict(list)
         global_scores = []
+        processing_times = []
         errors_count = 0
         
         for obs in model_obs:
+            # Collect processing times
+            processing_time = obs.get("processing_time_ms")
+            if processing_time is not None:
+                processing_times.append(processing_time)
+            
             if obs.get("observation"):
                 try:
                     obs_data = json.loads(obs["observation"])
@@ -438,13 +444,31 @@ def render_results(experiment_results: Dict[str, Any]) -> None:
                     errors_count += 1
         
         # Summary metrics for this model
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("Overall Score", f"{np.mean(global_scores):.3f}" if global_scores else "N/A")
         with col2:
             st.metric("Total Items", len(model_obs))
         with col3:
             st.metric("Errors", errors_count)
+        with col4:
+            if processing_times:
+                st.metric("Avg Processing Time", f"{np.mean(processing_times)/1000:.0f} s")
+            else:
+                st.metric("Avg Processing Time", "N/A")
+        
+        # Processing time statistics
+        if processing_times:
+            st.write("### ⏱️ Processing Time Statistics")
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Mean", f"{(np.mean(processing_times)/1000):.2f} s")
+            with col2:
+                st.metric("Median", f"{np.median(processing_times)/1000:.2f} s")
+            with col3:
+                st.metric("Min", f"{min(processing_times)/1000:.2f} s")
+            with col4:
+                st.metric("Max", f"{max(processing_times)/1000:.2f} s")
         
         # Field-level scores table
         if field_scores_by_name:

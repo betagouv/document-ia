@@ -74,7 +74,7 @@ def process_task(
     api_key: str,
     ls_client: LabelStudio,
     project_id: int,
-    callback: queue.Queue[tuple[int, bool, str | None, str | None]],
+    callback: queue.Queue[tuple[int, bool, str | None, str | None, int]],
     model_version: str | None = None,
     extraction_parameters: dict[str, Any] | None = None,
 ) -> None:
@@ -88,7 +88,7 @@ def process_task(
         pdf_url = task.data.get('pdf') if task.data else None
         if not pdf_url:
             error_msg = "No PDF URL found in task data"
-            callback.put((task_id, False, error_msg, execution_id))
+            callback.put((task_id, False, error_msg, execution_id, -1))
             return
         
         # Extract and decode the S3 URL from fileuri parameter
@@ -109,7 +109,7 @@ def process_task(
                     s3_url = base64.b64decode(fileuri_encoded).decode('utf-8')
                 except Exception as e:
                     error_msg = f"Failed to decode fileuri parameter: {e}"
-                    callback.put((task_id, False, error_msg, execution_id))
+                    callback.put((task_id, False, error_msg, execution_id, -1))
                     return
         elif not pdf_url.startswith('s3://'):
             # Try to decode if it's base64 encoded directly
@@ -126,7 +126,7 @@ def process_task(
         download_result = download_from_s3(s3_url)
         if not download_result:
             error_msg = f"Failed to download file from {s3_url}"
-            callback.put((task_id, False, error_msg, execution_id))
+            callback.put((task_id, False, error_msg, execution_id, -1))
             return
         
         file_content, filename = download_result
@@ -155,10 +155,10 @@ def process_task(
             extraction_parameters=extraction_parameters,
         )
         
-        execution_id = workflow_execute_response.data.get("execution_id")
+        execution_id = workflow_execute_response.data.execution_id
         if not execution_id:
             error_msg = "Failed to get execution_id from workflow response"
-            callback.put((task_id, False, error_msg, execution_id))
+            callback.put((task_id, False, error_msg, execution_id, -1))
             return
         
         execution_details = wait_for_execution(execution_id, api_key)
@@ -171,25 +171,21 @@ def process_task(
         
         # Extract the result from execution details
         workflow_data = execution_details.data
-        if 'result' not in workflow_data:
-            error_msg = f"Invalid workflow result structure (execution_id: {execution_id})"
-            callback.put((task_id, False, error_msg, execution_id))
-            return
-        
+
         # Get extracted fields from the new workflow structure
-        result_data = workflow_data['result']
+        result_data = workflow_data.result
         
         # Extract properties from extraction.properties array
         annotation_data: dict[str, Any] = {}
-        if 'extraction' in result_data and 'properties' in result_data['extraction']:
+        if result_data.extraction is not None and result_data.extraction.properties:
             # Convert array of {name, value, type} objects to dict
-            properties_array = result_data['extraction']['properties']
+            properties_array = result_data.extraction.properties
             for prop in properties_array:
-                if 'name' in prop and 'value' in prop:
-                    annotation_data[prop['name']] = prop['value']
+                if prop.name and prop.value:
+                    annotation_data[prop.name] = prop.value
         
         # Create prediction result
-        prediction_result = dict_to_annotation_result(annotation_data)
+        prediction_result = dict_to_annotation_result(annotation_data, metadata={"total_processing_time_ms": execution_details.data.total_processing_time_ms})
         
         # Create prediction in Label Studio using the predictions API
         ls_client.predictions.create(  # type: ignore
@@ -198,11 +194,11 @@ def process_task(
             model_version=model_version or workflow_id
         )
         
-        callback.put((task_id, True, None, execution_id))
+        callback.put((task_id, True, None, execution_id, execution_details.data.total_processing_time_ms))
         
     except Exception as e:
         error_msg = str(e)
-        callback.put((task_id, False, error_msg, execution_id))
+        callback.put((task_id, False, error_msg, execution_id, -1))
 
 
 def consumer(
@@ -211,7 +207,7 @@ def consumer(
     api_key: str,
     ls_client: LabelStudio,
     project_id: int,
-    callback: queue.Queue[tuple[int, bool, str | None, str | None]],
+    callback: queue.Queue[tuple[int, bool, str | None, str | None, int]],
     model_version: str | None = None,
     extraction_parameters: dict[str, Any] | None = None,
 ) -> None:
@@ -250,7 +246,7 @@ def run_workflow_on_dataset(
         pbar = st.progress(0, text="Executing workflows and creating annotations...")
         threads: list[threading.Thread] = []
         task_queue: queue.Queue[Any] = queue.Queue()  # Queue of Task objects
-        callback: queue.Queue[tuple[int, bool, str | None, str | None]] = queue.Queue()
+        callback: queue.Queue[tuple[int, bool, str | None, str | None, int]] = queue.Queue()
         
         # Fill task queue
         for task in tasks:
@@ -268,11 +264,12 @@ def run_workflow_on_dataset(
         
         # Collect results
         for i in range(len(tasks)):
-            task_id, success, error, execution_id = callback.get()
+            task_id, success, error, execution_id, total_processing_time_ms = callback.get()
             results[task_id] = {
                 'success': success,
                 'error': error,
-                'execution_id': execution_id
+                'execution_id': execution_id, 
+                'total_processing_time_ms': total_processing_time_ms
             }
             pbar.progress((i + 1) / len(tasks))
         
@@ -444,9 +441,10 @@ def main() -> None:
                 for task_id, result in processing_results.items():
                     if not result['success']:
                         execution_id = result.get('execution_id', 'N/A')
+                        total_processing_time_ms = result.get('total_processing_time_ms', 'N/A')
                         st.error(f"- Task {task_id}: {result['error']}")
                         if execution_id != 'N/A':
-                            st.info(f"  Execution ID: `{execution_id}`")
+                            st.info(f"  Execution ID: `{execution_id}`\n Processing Time: `{total_processing_time_ms}`")
             
             # Display project link
             project_url = f"{label_studio_url}/projects/{selected_project_id}"

@@ -1,35 +1,17 @@
 import io
 import time
 import json
-import pydantic
-import datetime
-from enum import StrEnum
+from document_ia_api.api.contracts.execution.response import ExecutionResponse
+from document_ia_api.api.contracts.execution.types import ExecutionStatus
+from document_ia_api.api.contracts.workflow import WorkflowExecuteResponse
 from typing import Any
+from pydantic import BaseModel
 import requests
 
 from document_ia_evals.utils.config import config
+from document_ia_api.api.contracts.execution.success import ExecutionSuccessModel
 from urllib.parse import urljoin
 
-
-# TODO: import from `document-ia-api` package instead
-class WorkflowExecuteResponse(pydantic.BaseModel):
-    """Schema for workflow execution response."""
-
-    status: str
-    data: Any
-    message: str
-    timestamp: datetime.datetime
-
-class ExecutionStatus(StrEnum):
-    # TODO: retrieve possible values from `document-ia-api` package
-    STARTED = "STARTED"
-    SUCCESS = "SUCCESS"
-    FAILED = "FAILED"
-
-class ExecutionModel(pydantic.BaseModel):
-    id: str
-    status: str
-    data: Any
 
 def execute_workflow(
     workflow_name: str,
@@ -75,7 +57,7 @@ def execute_workflow(
     print("RESPONSE", response.json())
     return WorkflowExecuteResponse.model_validate(response.json())
 
-def wait_for_execution(execution_id: str, api_token: str) -> ExecutionModel | None:
+def wait_for_execution(execution_id: str, api_token: str) -> ExecutionSuccessModel | None:
     """Wait for an execution to complete.
 
     Args:
@@ -98,14 +80,15 @@ def wait_for_execution(execution_id: str, api_token: str) -> ExecutionModel | No
             details_api_url,
             headers=headers,
         )
-        if response.status_code == 404:
-            # Execution not found in the API
-            return None
-        elif response.status_code == 200:
-            execution_details = ExecutionModel.model_validate(response.json())
-            status = execution_details.status
-            # Wait before polling again
+        response_json = response.json()
+        status = response_json.get("status", "")
+
+        if status == ExecutionStatus.SUCCESS:
+            execution_details = ExecutionSuccessModel.model_validate(response.json())
+        elif status == ExecutionStatus.STARTED:
             time.sleep(1)
+        elif status == ExecutionStatus.FAILED:
+            execution_details = None
         else:
             response.raise_for_status()
 

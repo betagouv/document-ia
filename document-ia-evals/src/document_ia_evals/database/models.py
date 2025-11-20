@@ -49,6 +49,10 @@ class Experiment(Base):
     processed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     average_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     
+    # Model version statistics (mean processing time per model version)
+    # Example: {"gpt-4": {"mean_processing_time_ms": 1500.5, "sample_count": 10}}
+    model_version_stats: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    
     # Status: 'running', 'completed', 'failed'
     status: Mapped[str] = mapped_column(String(20), nullable=False, default='running')
     
@@ -131,6 +135,9 @@ class Observation(Base):
     
     # Metric results (PRIVACY-SAFE: only scores and computed results)
     score: Mapped[float] = mapped_column(Float, nullable=False)
+    
+    # Processing time in milliseconds (for performance tracking)
+    processing_time_ms: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     
     # Detailed metric results in JSONB format
     # Example: {"field_scores": {"name": 0.95, "email": 1.0}, "error": null}
