@@ -8,6 +8,7 @@ from typing import Any, Type, get_origin, Protocol
 
 # Third-party imports
 import boto3
+from document_ia_evals.utils.label_studio import dict_to_annotation_result
 import streamlit as st
 from botocore.exceptions import ClientError
 from label_studio_sdk import Client
@@ -77,8 +78,6 @@ def generate_label_config(model: Type[BaseModel], title: str = "Document Extract
     <View style="flex: 1; overflow-y: auto; padding-right: 10px;">
       <Header value="Informations extraites"/>
       {''.join(fields_xml)}
-      <Text name="raw_api_response_label" value="raw document-ai api response, used for evaluation" style="font-weight: bold; margin-bottom: 5px;"/>
-      <TextArea name="raw_api_response" toName="pdf" editable="false" rows="1"/>
     </View>
   </View>
 </View>"""
@@ -86,43 +85,9 @@ def generate_label_config(model: Type[BaseModel], title: str = "Document Extract
     return config
 
 
-def pydantic_to_annotation_result(model_instance: BaseModel) -> list[dict[str, Any]]:
-    """Convert a Pydantic instance to Label Studio annotation structure."""
-    results: list[dict[str, Any]] = []
-    print("xXxXxX = model_instance.model_dump()", model_instance.model_dump())
-
-    for field_name, value in model_instance.model_dump().items():
-        if value is not None:
-            results.append({
-                'value': {'text': [str(value)]},
-                'from_name': field_name,
-                'to_name': 'pdf',
-                'type': 'textarea',
-                'readonly': False
-            })
-    
-    # Add raw JSON as an additional annotation
-    results.append({
-        'value': {'text': [json.dumps(model_instance.model_dump())]},
-        'from_name': 'raw_api_response',
-        'to_name': 'pdf',
-        'type': 'textarea'
-    })
-    
-    return results
 
 
-class GroundTruthData:
-    """Wrapper for ground truth data with model_dump method."""
-    
-    def __init__(self, data: dict[str, Any]) -> None:
-        self._data = data
-    
-    def model_dump(self) -> dict[str, Any]:
-        return self._data
-
-
-def create_task(image_url: str, ground_truth: GroundTruthData | BaseModel | None = None) -> dict[str, Any]:
+def create_task(image_url: str, ground_truth: dict[str, Any] | None = None) -> dict[str, Any]:
     """Create a complete Label Studio task from Pydantic models."""
     task: dict[str, Any] = {
         'data': {
@@ -132,29 +97,7 @@ def create_task(image_url: str, ground_truth: GroundTruthData | BaseModel | None
     
     # Ground truth as annotation
     if ground_truth:
-        if isinstance(ground_truth, BaseModel):
-            annotation_result = pydantic_to_annotation_result(ground_truth)
-        else:
-            # For GroundTruthData wrapper
-            results: list[dict[str, Any]] = []
-            print("xXxXxX = ground_truth.model_dump()", ground_truth.model_dump())
-            for field_name, value in ground_truth.model_dump().items():
-                if value is not None:
-                    results.append({
-                        'value': {'text': [str(value)]},
-                        'from_name': field_name,
-                        'to_name': 'pdf',
-                        'type': 'textarea',
-                        'readonly': False
-                    })
-            results.append({
-                'value': {'text': [json.dumps(ground_truth.model_dump())]},
-                'from_name': 'raw_api_response',
-                'to_name': 'pdf',
-                'type': 'textarea'
-            })
-            annotation_result = results
-        
+        annotation_result = dict_to_annotation_result(ground_truth)
         task['annotations'] = [{
             'result': annotation_result,
             'ground_truth': True
@@ -170,7 +113,7 @@ def upload_to_s3_with_task(
     file_id: str,
     file_content: bytes,
     content_type: str,
-    ground_truth: GroundTruthData | BaseModel | None = None,
+    ground_truth: dict[str, Any] | None = None,
     retries: int = 3,
     delay: int = 1
 ) -> bool:
@@ -401,8 +344,6 @@ def consumer(
             else:
                 result_data = properties
             
-            ground_truth_instance = GroundTruthData(result_data)
-            
             # Read file content
             uploaded_file.seek(0)
             file_content = uploaded_file.read()
@@ -418,7 +359,7 @@ def consumer(
                 file_id=file_id,
                 file_content=file_content,
                 content_type=content_type,
-                ground_truth=ground_truth_instance
+                ground_truth=result_data
             )
             
             callback.put((uploaded_file.name, True, None, execution_id))

@@ -10,7 +10,7 @@ from uuid import UUID
 
 from document_ia_evals.components.sidebar import render_sidebar
 from document_ia_evals.utils.config import config
-from document_ia_evals.utils.label_studio import get_project_url
+from document_ia_evals.utils.label_studio import annotation_results_to_dict, get_project_url
 from metrics import metric_registry
 from document_ia_evals.services.experiment_service import save_experiment
 from document_ia_evals.database.connection import test_db_connection, init_db
@@ -48,24 +48,6 @@ def get_label_studio_client() -> Optional[Client]:
         return None
 
 
-def extract_raw_api_response(results):
-    """Extract data from results where from_name is raw_api_response."""
-    for result in results:
-        if result.get('from_name') == 'raw_api_response':
-            try:
-                text = result['value']['text']
-                if isinstance(text, list):
-                    text = text[0]
-                if isinstance(text, str):
-                    try:
-                        return json.loads(text)
-                    except json.JSONDecodeError:
-                        return text
-                return text
-            except Exception:
-                return None
-    return None
-
 
 def run_experiment(project_id: int, metric_name: str, client: Client) -> Dict[str, Any]:
     """
@@ -97,7 +79,7 @@ def run_experiment(project_id: int, metric_name: str, client: Client) -> Dict[st
     # Fetch tasks
     with st.spinner("Fetching tasks from Label Studio..."):
         tasks = project.get_tasks()
-    
+
     if not tasks:
         return {
             "project_id": project_id,
@@ -127,7 +109,7 @@ def run_experiment(project_id: int, metric_name: str, client: Client) -> Dict[st
         ground_truth = None
         for annotation in task.get('annotations', []):
             if annotation.get('ground_truth'):
-                ground_truth = extract_raw_api_response(annotation.get('result', []))
+                ground_truth = annotation_results_to_dict(annotation.get('result', []))
                 break
         
         # Skip if no ground truth
@@ -143,7 +125,7 @@ def run_experiment(project_id: int, metric_name: str, client: Client) -> Dict[st
         
         for prediction in predictions:
             model_version = prediction.get('model_version', 'Unknown')
-            pred_data = extract_raw_api_response(prediction.get('result', []))
+            pred_data = annotation_results_to_dict(prediction.get('result', []))
             
             if pred_data is None:
                 skipped_count += 1
