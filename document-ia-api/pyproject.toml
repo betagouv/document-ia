@@ -37,10 +37,6 @@ pyright = "^1.1.405"
 boto3-stubs = { extras = ["essential"], version = "^1.40.31" }
 
 
-[tool.poetry.scripts]
-start = "uvicorn main:app --app-dir document-ia-api --host 0.0.0.0 --port 8000"
-dev = "uvicorn main:app --app-dir document-ia-api --reload --host 0.0.0.0 --port 8000"
-
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
