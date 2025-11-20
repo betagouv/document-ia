@@ -1,0 +1,22 @@
+{
+    auto_https off
+    admin off
+}
+
+:{$PORT} {
+    # Matcher pour les IP autorisées : les lignes sont injectées ici
+    @allowed_ip {
+__ALLOWED_REMOTE_IP_LINES__
+    }
+
+    # Par défaut : tout ce qui ne matche pas @allowed_ip reçoit un 403
+    handle {
+        reverse_proxy 127.0.0.1:8501
+        #respond "Forbidden" 403
+    }
+
+    # Si l'IP est autorisée, on reverse_proxy vers Streamlit
+    handle @allowed_ip {
+        reverse_proxy 127.0.0.1:8501
+    }
+}
