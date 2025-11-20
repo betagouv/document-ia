@@ -23,9 +23,9 @@ sqlalchemy = ">=2.0.23,<3.0.0"
 alembic = ">=1.13.0,<2.0.0"
 pydantic-settings = "^2.1.0"
 psycopg2-binary = ">=2.9.9,<3.0.0"
-document-ia-schemas = { path = "../document-ia-schemas", develop = true }
-document-ia-infra = { path = "../document-ia-infra", develop = true }
-document-ia-api = { path = "../document-ia-api", develop = true }
+document-ia-schemas = { path = "../document-ia-schemas", develop = false }
+document-ia-infra = { path = "../document-ia-infra", develop = false }
+document-ia-api = { path = "../document-ia-api", develop = false }
 
 
 [build-system]
