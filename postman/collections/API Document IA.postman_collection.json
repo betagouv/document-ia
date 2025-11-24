@@ -1,0 +1,291 @@
+{
+  "info": {
+    "_postman_id": "39b4ffdd-14ba-4dc2-bf2e-d2d66f292fe7",
+    "name": "API Document IA",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "40523850"
+  },
+  "item": [
+    {
+      "name": "Workflows",
+      "item": [
+        {
+          "name": "Execute Workflow",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "id": "148af2b2-fdf5-4fb1-ba7d-09c4ae739c10",
+                "exec": [
+                  "pm.collectionVariables.set(\"execution_id\", pm.response.json().data.execution_id);"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "id": "4d3f9be8-a8c5-4555-89a2-3f6bda9fbfff",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": []
+            },
+            "url": {
+              "raw": "{{base_url}}/v1/workflows/{{workflow_id}}/execute",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "workflows",
+                "{{workflow_id}}",
+                "execute"
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "id": "1a173e26-bad0-42d4-9176-04ba86b852ba",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "id": "ad0f60e8-c3f1-446f-aa9f-272361c4f91d",
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {},
+            "exec": [
+              ""
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "id": "4a024122-7a33-4985-84d5-34afced12b6c",
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {},
+            "exec": [
+              ""
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Executions",
+      "item": [
+        {
+          "name": "Get Execution Results",
+          "id": "453abdbf-cf61-46e8-a198-bfeef4c6449b",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/v1/executions/{{execution_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "v1",
+                "executions",
+                "{{execution_id}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "id": "51c4a080-9103-4df3-a93f-9f20a747e287",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "id": "5a0b18ae-f2c7-4f90-91d2-4f79bb201d9a",
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {},
+            "exec": [
+              ""
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "id": "c3f1549f-ca9a-4b60-9229-bcf0718559cf",
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {},
+            "exec": [
+              ""
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "Organizations",
+          "item": [
+            {
+              "name": "List organizations",
+              "id": "7745283e-4d21-40b6-9e7d-ae7ea51419c5",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/v1/admin/organizations",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "admin",
+                    "organizations"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ],
+          "id": "baf14bde-7b35-47c1-9bb7-0e29aad5a496"
+        },
+        {
+          "name": "API Key",
+          "item": [
+            {
+              "name": "Create API Key",
+              "id": "3b16658e-4e7a-481e-9870-4f4cec8b767e",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/v1/admin/organizations/{{organization_id}}/api-keys",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "v1",
+                    "admin",
+                    "organizations",
+                    "{{organization_id}}",
+                    "api-keys"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ],
+          "id": "f5b350e8-eda2-46cc-91a2-f743fdbb0bf7"
+        }
+      ],
+      "id": "5c9afc5e-359d-46a4-a70c-35bc144db550",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "id": "2c191745-236f-42a2-87b0-92497ed2a631",
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {},
+            "exec": [
+              ""
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "id": "611c1ef5-beb8-42c2-98ea-82147fb26749",
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {},
+            "exec": [
+              ""
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health Check",
+      "id": "eb15f755-ed9d-4ffe-9a5f-e4e97ae8e6d5",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/v1/health",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "v1",
+            "health"
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      {
+        "key": "value",
+        "value": "{{api_key}}",
+        "type": "string"
+      },
+      {
+        "key": "key",
+        "value": "x-api-key",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "id": "1957ddcf-215f-4b6c-9645-f1cdd1a810bf",
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "id": "cce18fc8-16b3-4b9d-b8c2-cdce494a4f95",
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "id": "2f0ac846-16ec-4ab9-bd64-0785a5193b6c",
+      "key": "workflow_id",
+      "value": "document-extraction-v1"
+    },
+    {
+      "id": "69db3f47-aa8a-4667-93fd-bda0cf28dd87",
+      "key": "execution_id",
+      "value": ""
+    }
+  ]
+}
