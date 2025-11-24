@@ -70,6 +70,7 @@ class SupportedDocumentType(str, Enum):
     PASSEPORT = "passeport"
     PERMIS_CONDUIRE = "permis_conduire"
     AVIS_IMPOSITION = "avis_imposition"
+    ATTESTATION_AFFILIATION = "attestation_affiliation"
     BULLETIN_SALAIRE = "bulletin_salaire"
 
     @staticmethod
