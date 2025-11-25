@@ -21,6 +21,10 @@ vars:pre-request {
   workflow_id: document-extraction-marker-v1
 }
 
+script:post-response {
+  bru.setVar("execution_id", res.body.data.execution_id);
+}
+
 settings {
   encodeUrl: true
   timeout: 0
