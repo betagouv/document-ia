@@ -9,10 +9,9 @@ from sqlalchemy import pool
 from alembic import context
 from dotenv import load_dotenv
 
-from document_ia_infra.data.data_settings import database_settings
-
-# Load environment variables
 load_dotenv()
+
+from document_ia_infra.data.data_settings import database_settings
 
 # Import models for autogenerate support
 from document_ia_evals.database.models import Base
