@@ -1,0 +1,24 @@
+meta {
+  name: Get execution details
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{server}}api/v1/executions/{{execution_id}}?is_debug_mode=true
+  body: none
+  auth: inherit
+}
+
+params:query {
+  is_debug_mode: true
+}
+
+vars:pre-request {
+  execution_id: 11fd94d9-d2b5-4e89-a138-50d87064a0c2
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

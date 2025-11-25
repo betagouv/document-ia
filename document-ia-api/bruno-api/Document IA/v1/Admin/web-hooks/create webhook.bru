@@ -1,0 +1,29 @@
+meta {
+  name: create webhook
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{server}}api/v1/admin/organizations/{{organization_id}}/webhooks
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+      "url": "http://localhost:1080/webhook/ok",
+      "headers": {
+          "x-api-key": "coucou"
+      }
+  }
+}
+
+vars:pre-request {
+  organization_id: b0f2d3c5-d348-44b9-8817-1ba822cac9f2
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

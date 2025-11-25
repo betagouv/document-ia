@@ -1,0 +1,16 @@
+meta {
+  name: Get all extraction schemas
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{server}}api/v1/extraction-schemas
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

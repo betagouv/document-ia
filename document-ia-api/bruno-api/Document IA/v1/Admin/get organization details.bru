@@ -1,0 +1,20 @@
+meta {
+  name: get organization details
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{server}}api/v1/admin/organizations/{{organization_id}}
+  body: none
+  auth: inherit
+}
+
+vars:pre-request {
+  organization_id: b0f2d3c5-d348-44b9-8817-1ba822cac9f2
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

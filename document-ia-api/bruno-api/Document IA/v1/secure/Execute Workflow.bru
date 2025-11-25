@@ -1,0 +1,27 @@
+meta {
+  name: Execute Workflow
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{server}}api/v1/workflows/{{workflow_id}}/execute
+  body: multipartForm
+  auth: inherit
+}
+
+body:multipart-form {
+  metadata: {"test":"test"} @contentType(String)
+  file: @file(/Users/nsagon/Downloads/f3910feb-b841-418b-ac51-92567cc4bc47.pdf)
+  ~classification-parameters: {}
+  ~extraction-parameters: {"document-type": "cni"}
+}
+
+vars:pre-request {
+  workflow_id: document-extraction-marker-v1
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
