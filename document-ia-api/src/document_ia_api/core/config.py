@@ -34,5 +34,29 @@ class ApiKeySettings(BaseDocumentIaSettings):
     DOCUMENT_IA_API_KEY: str = Field(default="", validation_alias="DOCUMENT_IA_API_KEY")
 
 
+class WorkflowExecutionSettings(BaseDocumentIaSettings):
+    """Synchronous workflow execution knobs."""
+
+    SYNC_EXECUTION_TIMEOUT_SECONDS: int = Field(
+        default=30,
+        gt=0,
+        validation_alias="SYNC_EXECUTION_TIMEOUT_SECONDS",
+        description="Maximum seconds to wait before timing out synchronous execution.",
+    )
+    SYNC_EXECUTION_POLL_INTERVAL_MS: int = Field(
+        default=250,
+        gt=0,
+        validation_alias="SYNC_EXECUTION_POLL_INTERVAL_MS",
+        description="Polling interval in milliseconds between event store checks.",
+    )
+    SYNC_EXECUTION_MAX_WAIT_SECONDS: int = Field(
+        default=60,
+        gt=0,
+        validation_alias="SYNC_EXECUTION_MAX_WAIT_SECONDS",
+        description="Upper bound in seconds for synchronous execution blocking time.",
+    )
+
+
 settings = FileSettings()
 api_key_settings = ApiKeySettings()
+workflow_settings = WorkflowExecutionSettings()

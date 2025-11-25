@@ -402,3 +402,68 @@ Enable debug logging by setting log level to DEBUG in the application configurat
 - **Progress Tracking**: Real-time upload progress updates
 - **File Versioning**: S3 object versioning support
 - **Custom Workflows**: Dynamic workflow configuration
+
+## Synchronous Execution
+
+For lightweight workflows you can block until completion via:
+
+```
+POST /api/v1/workflows/{workflow_id}/execute-sync
+```
+
+This endpoint shares the same authentication, rate limiting and multipart payload as `/execute` but waits for the corresponding execution to finish (STARTED, SUCCESS, FAILED) or until a timeout occurs. The response body mirrors `GET /executions/{execution_id}` by returning the discriminated union `ExecutionResponse`.
+
+### Timeouts & Polling
+
+- Default timeout: `SYNC_EXECUTION_TIMEOUT_SECONDS` (30s) with a hard cap `SYNC_EXECUTION_MAX_WAIT_SECONDS` (60s).
+- Poll interval: `SYNC_EXECUTION_POLL_INTERVAL_MS` (250ms) between Event Store checks.
+- On timeout, the API returns **408** with an RFC-7807 payload containing `sync_execution_timeout`, the `execution_id`, and the last known status.
+
+### Response Examples
+
+#### 200 SUCCESS
+
+```json
+{
+  "id": "exec_abc123",
+  "status": "SUCCESS",
+  "data": {
+    "total_processing_time_ms": 840,
+    "result": {
+      "classification": {
+        "document_type": "invoice",
+        "confidence": 0.97
+      },
+      "extraction": null,
+      "barcodes": []
+    }
+  }
+}
+```
+
+#### 408 TIMEOUT
+
+```json
+{
+  "type": "about:blank",
+  "title": "Request Timeout",
+  "status": 408,
+  "code": "workflow.timeout",
+  "detail": "Workflow execution did not finish before timeout",
+  "errors": {
+    "error": "sync_execution_timeout",
+    "execution_id": "exec_abc123",
+    "last_status": "STARTED"
+  }
+}
+```
+
+### Configuration
+
+Add the following environment variables (defaults shown) to tune synchronous behaviour:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SYNC_EXECUTION_TIMEOUT_SECONDS` | `30` | Soft timeout before returning 408 |
+| `SYNC_EXECUTION_MAX_WAIT_SECONDS` | `60` | Absolute upper bound for blocking time |
+| `SYNC_EXECUTION_POLL_INTERVAL_MS` | `250` | Delay between Event Store polls |
