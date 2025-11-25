@@ -1,0 +1,20 @@
+meta {
+  name: delete an organization
+  type: http
+  seq: 6
+}
+
+delete {
+  url: {{server}}api/v1/admin/organizations/{{organization_id}}
+  body: none
+  auth: inherit
+}
+
+vars:pre-request {
+  organization_id: 123
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

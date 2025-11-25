@@ -1,0 +1,23 @@
+meta {
+  name: create new organization
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{server}}api/v1/admin/organizations
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "name": "Document-ia-evaluation",
+    "contact_email": "erwan.boehm@beta.gouv.fr"
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
