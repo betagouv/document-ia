@@ -7,15 +7,21 @@ meta {
 get {
   url: {{server}}api/v1/executions/{{execution_id}}?is_debug_mode=true
   body: none
-  auth: inherit
+  auth: apikey
 }
 
 params:query {
   is_debug_mode: true
 }
 
+auth:apikey {
+  key: X-Api-Key
+  value: {{admin-api-key}}
+  placement: header
+}
+
 vars:pre-request {
-  execution_id: 11fd94d9-d2b5-4e89-a138-50d87064a0c2
+  execution_id: a77c880d-b041-4e82-a58a-40a9e653620b
 }
 
 settings {
