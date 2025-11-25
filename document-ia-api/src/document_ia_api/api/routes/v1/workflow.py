@@ -1,11 +1,12 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, UploadFile, File, Form, Path
+from fastapi import APIRouter, Depends, UploadFile, File, Form, Path, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from document_ia_api.api.auth import verify_api_key, get_current_organization
 from document_ia_api.api.contracts.error.errors import ProblemDetail
+from document_ia_api.api.contracts.execution.response import ExecutionResponse
 from document_ia_api.api.contracts.workflow import (
     WorkflowExecuteResponse,
     WorkflowClassificationParameterRequest,
@@ -305,4 +306,137 @@ async def execute_workflow(
         # Rollback the database session on any error
         await db_session.rollback()
         logger.error(f"Workflow execution failed: {e}")
+        raise
+
+
+@router.post(
+    "/{workflow_id}/execute-sync",
+    response_model=ExecutionResponse,
+    response_model_exclude_none=True,
+    summary="Execute Workflow Synchronously",
+    description="Execute a workflow and wait for completion (STARTED/SUCCESS/FAILED) within a configurable timeout.",
+    responses={
+        200: {
+            "description": "Execution finished successfully",
+        },
+        408: {
+            "model": ProblemDetail,
+            "description": "Execution did not finish before timeout",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "type": "about:blank",
+                        "title": "Request Timeout",
+                        "status": 408,
+                        "code": "workflow.timeout",
+                        "detail": "Workflow execution did not finish before timeout",
+                        "errors": {
+                            "error": "sync_execution_timeout",
+                            "execution_id": "exec_123",
+                            "last_status": "STARTED",
+                        },
+                    }
+                }
+            },
+        },
+        429: {
+            "model": ProblemDetail,
+            "description": "Rate limit exceeded",
+        },
+    },
+    tags=["Workflows"],
+)
+async def execute_workflow_sync(
+    workflow_id: str = Path(..., description="ID of the workflow to execute"),
+    file: UploadFile = File(
+        ..., description="Document file to process (PDF, JPG, PNG, max 25MB)"
+    ),
+    classification_parameters: Optional[str] = Form(
+        default=None,
+        description="JSON string matching the `WorkflowClassificationParameterRequest` model",
+        alias="classification-parameters",
+    ),
+    extraction_parameters: Optional[str] = Form(
+        default=None,
+        description="JSON string matching the `WorkflowExtractionParameterRequest` model",
+        alias="extraction-parameters",
+    ),
+    metadata: Optional[str] = Form(
+        default=None, description="JSON string containing metadata object"
+    ),
+    api_key: str = Depends(verify_api_key),
+    current_org: OrganizationDTO = Depends(get_current_organization),
+    rate_limit_info: RateLimitInfo = Depends(check_rate_limit),
+    db_session: AsyncSession = Depends(database_manager.async_get_db),
+) -> ExecutionResponse:
+    """Execute a workflow synchronously by waiting for its final event."""
+
+    logger.info(
+        "Synchronous workflow execution requested",
+        extra={"endpoint": "execute_workflow_sync", "workflow_id": workflow_id},
+    )
+    workflow_service = WorkflowService(db_session)
+
+    try:
+        parsed_classification_parameters: Optional[
+            WorkflowClassificationParameterRequest
+        ] = None
+        parsed_extraction_parameters: Optional[WorkflowExtractionParameterRequest] = (
+            None
+        )
+
+        if classification_parameters is not None:
+            parsed_classification_parameters = (
+                WorkflowClassificationParameterRequest.model_validate_json(
+                    classification_parameters
+                )
+            )
+
+        if extraction_parameters is not None:
+            parsed_extraction_parameters = (
+                WorkflowExtractionParameterRequest.model_validate_json(
+                    extraction_parameters
+                )
+            )
+
+        execution = await workflow_service.execute_workflow(
+            organization_id=current_org.id,
+            workflow_id=workflow_id.strip(),
+            file=file,
+            metadata_json=metadata,
+            request_classification_parameter=parsed_classification_parameters,
+            request_extraction_parameter=parsed_extraction_parameters,
+        )
+
+        await db_session.commit()
+
+        response = await workflow_service.wait_for_execution_result(
+            execution.execution_id,
+            current_org.id,
+        )
+
+        logger.info(
+            "Synchronous workflow execution completed",
+            extra={
+                "endpoint": "execute_workflow_sync",
+                "workflow_id": workflow_id,
+                "execution_id": execution.execution_id,
+                "status": response.status,
+            },
+        )
+
+        return response
+    except HTTPException as exc:
+        await db_session.rollback()
+        raise exc
+    except Exception as e:
+        await db_session.rollback()
+        logger.error(
+            "Synchronous workflow execution failed",
+            extra={
+                "endpoint": "execute_workflow_sync",
+                "workflow_id": workflow_id,
+                "error": str(e),
+            },
+        )
         raise

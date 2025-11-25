@@ -1,5 +1,7 @@
+import asyncio
 import json
 import logging
+import time
 import uuid
 from datetime import datetime
 from typing import Dict, Any, Optional
@@ -7,6 +9,8 @@ from typing import Dict, Any, Optional
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from document_ia_api.api.contracts.execution.response import ExecutionResponse
+from document_ia_api.api.contracts.execution.types import ExecutionStatus
 from document_ia_api.api.contracts.workflow import (
     WorkflowClassificationParameterRequest,
     WorkflowExtractionParameterRequest,
@@ -14,6 +18,8 @@ from document_ia_api.api.contracts.workflow import (
 from document_ia_api.api.exceptions.entity_not_found_exception import (
     HttpEntityNotFoundException,
 )
+from document_ia_api.application.services.execution_service import ExecutionService
+from document_ia_api.core.config import workflow_settings
 from document_ia_api.core.file_validator import validate_uploaded_file
 from document_ia_api.infra.s3_service import s3_service
 from document_ia_api.schemas.workflow import WorkflowExecutionData
@@ -29,6 +35,9 @@ from document_ia_infra.redis.model.workflow_execution_message import (
 from document_ia_infra.redis.publisher import Publisher
 from document_ia_infra.redis.redis_settings import redis_settings
 from document_ia_infra.service.event_store_service import EventStoreService
+from document_ia_infra.exception.entity_not_found_exception import (
+    EntityNotFoundException,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +175,69 @@ class WorkflowService:
                     "message": "An internal server error occurred during workflow execution",
                 },
             )
+
+    async def wait_for_execution_result(
+        self,
+        execution_id: str,
+        organization_id: uuid.UUID,
+        *,
+        is_debug_mode: bool = False,
+        timeout_seconds: Optional[int] = None,
+        poll_interval_ms: Optional[int] = None,
+    ) -> ExecutionResponse:
+        """Poll the event store until the execution completes or timeout elapses."""
+
+        event_store_service = EventStoreService(self.db_session)
+        execution_service = ExecutionService()
+
+        configured_timeout = workflow_settings.SYNC_EXECUTION_TIMEOUT_SECONDS
+        configured_max_wait = workflow_settings.SYNC_EXECUTION_MAX_WAIT_SECONDS
+        effective_timeout = min(
+            timeout_seconds or configured_timeout,
+            configured_max_wait,
+        )
+        poll_interval = max(
+            0.05,
+            (poll_interval_ms or workflow_settings.SYNC_EXECUTION_POLL_INTERVAL_MS)
+            / 1000,
+        )
+
+        deadline = time.monotonic() + effective_timeout
+        last_model: Optional[ExecutionResponse] = None
+
+        while time.monotonic() < deadline:
+            try:
+                event_dto = await event_store_service.get_last_event_for_execution_id(
+                    execution_id
+                )
+            except EntityNotFoundException:
+                # Event may not be visible yet, keep waiting until timeout.
+                await asyncio.sleep(poll_interval)
+                continue
+
+            if event_dto.organization_id != organization_id:
+                raise HTTPException(
+                    status_code=401, detail="Unauthorized access to execution"
+                )
+
+            last_model = execution_service.get_event_model(
+                event_dto, execution_id, is_debug_mode
+            )
+
+            if last_model.status != ExecutionStatus.STARTED:
+                return last_model
+
+            await asyncio.sleep(poll_interval)
+
+        raise HTTPException(
+            status_code=408,
+            detail={
+                "error": "sync_execution_timeout",
+                "message": "Workflow execution did not finish before timeout",
+                "execution_id": execution_id,
+                "last_status": getattr(last_model, "status", "UNKNOWN"),
+            },
+        )
 
     def _parse_metadata(self, metadata_json: Optional[str]) -> Dict[str, Any]:
         """

@@ -1,8 +1,12 @@
 import io
 import json
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 
 import pytest
+from fastapi import HTTPException
+
+from document_ia_api.api.contracts.execution.success import ExecutionSuccessModel
+from document_ia_api.api.contracts.execution.types import ExecutionStatus
 
 # Global valid workflow id used across tests
 valid_workflow_id = "document-classification-v1"
@@ -275,3 +279,84 @@ class TestWorkflowExecution:
 
             # Should return 429 for rate limit exceeded
             assert response.status_code == 429
+
+    def test_execute_workflow_sync_success(
+        self,
+        client_with_api_key_standard,
+        standard_api_key_value,
+        valid_metadata,
+        mock_pdf_file,
+    ):
+        """Sync endpoint returns final status when execution succeeds before timeout."""
+
+        success_model = ExecutionSuccessModel(
+            id="exec_sync_success",
+            status=ExecutionStatus.SUCCESS,
+            data={
+                "total_processing_time_ms": 100,
+                "result": {"classification": None, "extraction": None, "barcodes": []},
+            },
+        )
+
+        with patch(
+            "document_ia_api.application.services.workflow_service.WorkflowService.wait_for_execution_result",
+            new=AsyncMock(return_value=success_model),
+        ), patch(
+            "document_ia_api.application.services.workflow_service.workflow_repository.get_workflow_by_id",
+            new=AsyncMock(return_value=True),
+        ), patch(
+            "document_ia_api.application.services.workflow_service.s3_service.upload_file",
+            new=AsyncMock(return_value={"s3_key": "k", "presigned_url": "u"}),
+        ), patch(
+            "document_ia_api.application.services.workflow_service.EventStoreService.emit_workflow_started",
+            new=AsyncMock(),
+        ), patch(
+            "document_ia_api.application.services.workflow_service.Publisher.publish_message",
+            new=AsyncMock(return_value="1"),
+        ):
+            response = client_with_api_key_standard.post(
+                f"/api/v1/workflows/{valid_workflow_id}/execute-sync",
+                files={"file": ("test.pdf", mock_pdf_file, "application/pdf")},
+                data={"metadata": json.dumps(valid_metadata)},
+                headers={"X-API-KEY": standard_api_key_value},
+            )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == ExecutionStatus.SUCCESS
+
+    def test_execute_workflow_sync_timeout(
+        self,
+        client_with_api_key_standard,
+        standard_api_key_value,
+        valid_metadata,
+        mock_pdf_file,
+    ):
+        """Sync endpoint returns 408 when wait_for_execution_result times out."""
+
+        with patch(
+            "document_ia_api.application.services.workflow_service.WorkflowService.wait_for_execution_result",
+            new=AsyncMock(side_effect=HTTPException(status_code=408, detail={"error": "sync_execution_timeout"})),
+        ), patch(
+            "document_ia_api.application.services.workflow_service.workflow_repository.get_workflow_by_id",
+            new=AsyncMock(return_value=True),
+        ), patch(
+            "document_ia_api.application.services.workflow_service.s3_service.upload_file",
+            new=AsyncMock(return_value={"s3_key": "k", "presigned_url": "u"}),
+        ), patch(
+            "document_ia_api.application.services.workflow_service.EventStoreService.emit_workflow_started",
+            new=AsyncMock(),
+        ), patch(
+            "document_ia_api.application.services.workflow_service.Publisher.publish_message",
+            new=AsyncMock(return_value="1"),
+        ):
+            response = client_with_api_key_standard.post(
+                f"/api/v1/workflows/{valid_workflow_id}/execute-sync",
+                files={"file": ("test.pdf", mock_pdf_file, "application/pdf")},
+                data={"metadata": json.dumps(valid_metadata)},
+                headers={"X-API-KEY": standard_api_key_value},
+            )
+
+        assert response.status_code == 408
+        payload = response.json()
+        assert payload["errors"]["error"] == "sync_execution_timeout"
