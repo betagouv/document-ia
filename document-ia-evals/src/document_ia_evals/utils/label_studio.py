@@ -25,6 +25,7 @@ def get_label_studio_client() -> LabelStudio:
 
 def get_label_studio_client_legacy() -> Optional[Client]: 
    
+    client = Client(url=config.LABEL_STUDIO_URL, api_key=config.LABEL_STUDIO_API_KEY)
     if config.ALLOW_INSECURE_REQUESTS is True:
         import requests
         import urllib3
@@ -32,7 +33,7 @@ def get_label_studio_client_legacy() -> Optional[Client]:
         session = requests.Session()
         session.verify = False
         client = Client(url=config.LABEL_STUDIO_URL, api_key=config.LABEL_STUDIO_API_KEY, session=session)
-        return client
+    return client
 
 
 def get_label_studio_url() -> str:
