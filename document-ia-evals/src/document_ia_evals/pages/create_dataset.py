@@ -45,7 +45,7 @@ def upload_to_s3_with_task(
         ext = '.pdf' if 'pdf' in content_type.lower() else '.jpg' if 'jpeg' in content_type.lower() else '.png'
         
         # Upload raw file to source subdirectory
-        raw_key = f"{prefix}source/{file_id}{ext}"
+        raw_key = f"{prefix}/source/{file_id}{ext}"
         s3_client.put_object(
             Bucket=bucket,
             Key=raw_key,
@@ -58,7 +58,7 @@ def upload_to_s3_with_task(
         task_data = create_task(pdf_url=pdf_url, ground_truth=ground_truth)
         
         # Upload JSON task
-        json_key = f"{prefix}{file_id}.json"
+        json_key = f"{prefix}/tasks/{file_id}.json"
         json_data = json.dumps(task_data, ensure_ascii=False, indent=2)
         s3_client.put_object(
             Bucket=bucket,
@@ -114,30 +114,26 @@ def create_label_studio_project(
     
     # Configure S3 source storage
     s3_params: dict[str, Any] = {
-        'bucket': config.S3_BUCKET_NAME or '',
-        'prefix': s3_prefix,
-        'regex_filter': r'.*\.json$',
-        'use_blob_urls': False,
-        'aws_access_key_id': config.S3_ACCESS_KEY or '',
-        'aws_secret_access_key': config.S3_SECRET_KEY or '',
-        'region_name': config.S3_REGION or '',
-        'presign': False,
+        's3_endpoint': config.S3_ENDPOINT,
+        'bucket': config.S3_BUCKET_NAME,
+        'aws_access_key_id': config.S3_ACCESS_KEY,
+        'aws_secret_access_key': config.S3_SECRET_KEY,
+        'region_name': config.S3_REGION
     }
     
-    # Add S3 endpoint if using custom S3-compatible storage
-    s3_endpoint = config.S3_ENDPOINT
-    if s3_endpoint:
-        s3_params['s3_endpoint'] = s3_endpoint
-    
-    source_storage = project.connect_s3_import_storage(**s3_params) # type: ignore
+    source_storage = project.connect_s3_import_storage(**s3_params, prefix=f"{s3_prefix}/tasks", presign=True, regex_filter=r'.*\.json$', use_blob_urls=False) # type: ignore
+    target_storage = project.connect_s3_export_storage(**s3_params, prefix=f"{s3_prefix}/target") # type: ignore
     
     # Sync storage to import tasks
     project.sync_import_storage('s3', source_storage['id']) # type: ignore
+    # Sync storage to export tasks
+    project.sync_export_storage('s3', target_storage['id']) # type: ignore
     
     return {
         'project_id': project.id, # type: ignore
         'project_title': project.params.get('title'), # type: ignore
-        'storage_id': source_storage['id'],
+        'source_storage_id': source_storage['id'],
+        'target_storage_id': target_storage['id'],
         'task_count': len(project.get_tasks()) # type: ignore
     }
 
@@ -379,7 +375,7 @@ def main() -> None:
         st.info(f"ℹ️ Workflow fast détecté - Paramètres d'extraction qui seront envoyés: `{json.dumps(extraction_params_preview)}`")
 
     # S3 prefix (computed, read-only)
-    s3_prefix = f"{dataset_name}_{selected_doc_type.value}/" if dataset_name else ""
+    s3_prefix = f"{dataset_name}_{selected_doc_type.value}" if dataset_name else ""
     st.text_input(
         "Préfixe S3",
         value=s3_prefix,
