@@ -8,28 +8,10 @@ from document_ia_evals.utils.config import config
 
 # Page configuration
 st.set_page_config(
-    page_title=f"Dashboard | {config.APP_TITLE}",
+    page_title=f"Home | {config.APP_TITLE}",
     page_icon="📊",
     layout=config.LAYOUT
 )
-
-
-def generate_sample_data():
-    """Generate sample data for demonstration."""
-    dates = pd.date_range(
-        start=datetime.now() - timedelta(days=30),
-        end=datetime.now(),
-        freq='D'
-    )
-    
-    df = pd.DataFrame({
-        'date': dates,
-        'sales': np.random.randint(100, 500, len(dates)),
-        'visitors': np.random.randint(1000, 5000, len(dates)),
-        'conversion_rate': np.random.uniform(2, 8, len(dates))
-    })
-    
-    return df
 
 
 def main():
@@ -38,13 +20,11 @@ def main():
     st.title("🏠 Welcome to Document IA Evals")
     
     st.markdown("""
-    ### Navigation
-    
-    Use the sidebar to navigate between different pages:
-    - **Home** - This page
-    - **Dashboard** - [WIP] Interactive dashboard with charts
-    - **New Experiment** - Page to create a new Evaluation experiment
-    - **Experiment Results** - Page to show an experiment result
+    ### Main features
+    - Execute a workflow on a document
+    - Retrieve results of an execution
+    - Create ground truth
+    - Create new predictions
     
     ### Quick Start
     
