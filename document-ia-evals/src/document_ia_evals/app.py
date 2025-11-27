@@ -19,7 +19,7 @@ st.set_page_config(
 def main():
     """Main application function."""
 
-    st.logo('https://espace-membre.cellar-c2.services.clever-cloud.com/startups/document-ia/shot.jpg', link="https://beta.gouv.fr/startups/document-ia")
+    st.logo('src/document_ia_evals/assets/logo.svg', link="https://beta.gouv.fr/startups/document-ia", size="large")
 
     pages = {
         "Home": [
