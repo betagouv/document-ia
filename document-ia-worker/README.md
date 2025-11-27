@@ -113,16 +113,57 @@ poetry install
 
 Run the worker:
 ```bash
-# Adapt to your entry point
-poetry run python -m document_ia_worker.main
-# or
+cd document-ia-worker
 poetry run python src/document_ia_worker/main.py
 ```
 
-Typical environment variables:
-- `DATABASE_URL` (PostgreSQL, async driver)
-- `REDIS_URL` (redis://...)
-- S3/MinIO parameters (if required by Steps)
+
+## Env Variables
+
+## Marker configuration
+- `MARKER_API_KEY` (secret, default: `None`) — API key for Marker service.
+- `MARKER_BASE_URL` (str, default: `None`) — Base URL for Marker API.
+
+### Redis
+- `REDIS_HOST` (str, défaut : `"localhost"`) — hôte Redis.
+- `REDIS_PORT` (int, défaut : `6379`) — port Redis.
+- `REDIS_DB` (int, défaut : `0`) — index de base de données Redis.
+- `REDIS_PASSWORD` (secret, défaut : `"password"`) — mot de passe Redis.
+- `REDIS_WORKER_NUMBER` (int, défaut : `1`) — nombre de workers Redis (pour les consumers côté infra).
+- `REDIS_URL` (str, défaut : `None`) — URL de connexion Redis complète (si fournie, peut remplacer host/port/db).
+- `EVENT_STREAM_NAME` (str, défaut : `"event_stream"`) — nom du stream Redis pour les évènements.
+- `EVENT_STREAM_EXPIRATION` (int, défaut : `300`) — TTL (en secondes) des entrées du stream.
+- `EVENT_STREAM_MAXLEN` (int, défaut : `1000`) — taille max du stream avant trimming.
+- `EVENT_CONSUMER_GROUP` (str, défaut : `"workflow_execution_consumer"`) — nom du consumer group Redis.
+
+### S3 / MinIO
+- `S3_ENDPOINT_URL` (str, défaut : `"http://localhost:9000"`) — endpoint S3/MinIO.
+- `S3_ACCESS_KEY_ID` (secret, défaut : `"minioadmin"`) — access key S3/MinIO.
+- `S3_SECRET_ACCESS_KEY` (secret, défaut : `"minioadmin"`) — secret key S3/MinIO.
+- `S3_BUCKET_NAME` (str, défaut : `"document-ia"`) — nom du bucket par défaut.
+- `S3_REGION_NAME` (str, défaut : `"us-east-1"`) — région S3 (placeholder pour MinIO).
+- `S3_USE_SSL` (bool, défaut : `False`) — active HTTPS vers S3/MinIO.
+
+### Base de Données PostgreSQL
+- `POSTGRES_DB` (str, défaut : `None`) — nom de la base.
+- `POSTGRES_HOST` (str, défaut : `None`) — hôte PostgreSQL.
+- `POSTGRES_PORT` (int, défaut : `5432`) — port PostgreSQL.
+- `POSTGRES_SSL_MODE` (str, défaut : `None`) — mode SSL (`disable`, `require`, etc.).
+- `POSTGRES_USER` (str, défaut : `None`) — utilisateur DB.
+- `POSTGRES_PASSWORD` (secret, défaut : `None`) — mot de passe DB.
+- `POSTGRESQL_URL` (str, défaut : `None`) — URL de connexion complète (si fournie, prioritaire).
+
+### Logging & Loki
+- `LOKI_URL` (str, défaut : `""`) — URL de l’instance Loki.
+- `LOKI_LOGGING_ENABLED` (bool, défaut : `True`) — active/désactive l’envoi des logs vers Loki.
+
+### OpenAI / LLM
+- `OPENAI_API_KEY` (secret, défaut : `None`) — clé API OpenAI.
+- `OPENAI_BASE_URL` (str, défaut : `None`) — endpoint OpenAI custom (par ex. proxy).
+- `OPENAI_ENCODING_MODEL` (str, défaut : `"gpt-4"`) — modèle utilisé pour le comptage de tokens.
+- `OPENAI_TIMEOUT` (int, défaut : `30`) — timeout (en secondes) des requêtes OpenAI.
+- `OPENAI_MAX_RETRIES` (int, défaut : `3`) — nombre max de retries pour les appels OpenAI.
+
 
 Local dependency `document-ia-infra`:
 - The worker depends on `document-ia-infra` (installed in editable mode). Changes in `document-ia-infra/src` become visible after restarting the worker process.

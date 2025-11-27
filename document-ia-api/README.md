@@ -193,7 +193,8 @@ S3_REGION = "us-east-1"  # MinIO default region
 
 ### Development mode
 ```bash
-poetry run dev
+cd document_ia_api
+poetry run python src/document_ia_api/main.py
 ```
 
 ## API Endpoints
@@ -243,19 +244,80 @@ For detailed documentation, see [RATE_LIMITING.md](RATE_LIMITING.md).
 
 ## Environment Variables
 
-### Required
-- `API_KEY`: Authentication key required for API access
-- `DATABASE_URL`: PostgreSQL connection string
-- `REDIS_URL`: Redis connection string
-- `MINIO_ROOT_USER`: MinIO root user
-- `MINIO_ROOT_PASSWORD`: MinIO root password
-- `MINIO_API_PORT`: MinIO API port (default: 9000)
-- `MINIO_CONSOLE_PORT`: MinIO console port (default: 9001)
+Les différentes variables d'environnement utilisées par l'API sont regroupées par catégorie ci‑dessous. Les valeurs par défaut indiquées correspondent à celles définies dans le code (Pydantic settings). Reporte‑toi à `env.example` pour un exemple complet.
 
-### Optional
-- `HOST`: Server host (default: 0.0.0.0)
-- `PORT`: Server port (default: 8000)
-- `LOG_LEVEL`: Logging level (default: INFO)
+### Application & Serveur
+- `AUTO_MIGRATE` (bool, défaut : `True`) — applique automatiquement les migrations au démarrage.
+- `APP_VERSION` (str, défaut : `"1.0.0"`) — version de l'application exposée par l'API.
+- `HOST` (alias de `SERVER_HOST`, défaut : `"0.0.0.0"`) — interface réseau écoutée par le serveur.
+- `PORT` (alias de `SERVER_PORT`, défaut : `8000`) — port HTTP du serveur.
+- `BASE_URL` (str, défaut : `""`) — base URL publique (utile pour la génération de liens).
+- `APP_ENV` (str, défaut : `"prod"`) — environnement d'exécution (`dev`, `staging`, `prod`, …).
+
+### Fichiers & Upload
+- `MAX_FILE_SIZE` (int, défaut : `26214400`) — taille maximale de fichier en octets (25 Mo).
+- `ALLOWED_MIME_TYPES` — géré en code (PDF, JPEG, PNG) via `FileSettings`, non surchargé par env.
+
+### API Keys & Sécurité API
+- `DOCUMENT_IA_API_KEY` (str, défaut : `""`) — clé API interne utilisée par certains appels sortants.
+- `API_KEY_PEPPER_HASH` (str, défaut : `"default_pepper_hash_value"`) — pepper pour le hash des clés API.
+- `API_KEY_PEPPER_CHK` (str, défaut : `"default_pepper_chk_value"`) — pepper pour la vérification des clés API.
+- `API_KEY_VERSION` (int, défaut : `1`) — version de schéma des clés API.
+
+### Exécution Synchrone des Workflows
+- `SYNC_EXECUTION_TIMEOUT_SECONDS` (int, défaut : `30`) — durée maximale (en secondes) d'attente avant timeout pour l'endpoint d'exécution synchrone.
+- `SYNC_EXECUTION_POLL_INTERVAL_MS` (int, défaut : `250`) — intervalle (en ms) entre deux lectures de l'event store.
+- `SYNC_EXECUTION_MAX_WAIT_SECONDS` (int, défaut : `60`) — borne haute absolue de blocage pour les appels synchrones.
+
+### Rate Limiting
+- `RATE_LIMIT_REQUESTS_PER_MINUTE` (int, défaut : `300`) — nombre max de requêtes par minute et par clé API.
+- `RATE_LIMIT_REQUESTS_PER_DAY` (int, défaut : `5000`) — nombre max de requêtes par jour et par clé API.
+
+### Redis
+- `REDIS_HOST` (str, défaut : `"localhost"`) — hôte Redis.
+- `REDIS_PORT` (int, défaut : `6379`) — port Redis.
+- `REDIS_DB` (int, défaut : `0`) — index de base de données Redis.
+- `REDIS_PASSWORD` (secret, défaut : `"password"`) — mot de passe Redis.
+- `REDIS_WORKER_NUMBER` (int, défaut : `1`) — nombre de workers Redis (pour les consumers côté infra).
+- `REDIS_URL` (str, défaut : `None`) — URL de connexion Redis complète (si fournie, peut remplacer host/port/db).
+- `EVENT_STREAM_NAME` (str, défaut : `"event_stream"`) — nom du stream Redis pour les évènements.
+- `EVENT_STREAM_EXPIRATION` (int, défaut : `300`) — TTL (en secondes) des entrées du stream.
+- `EVENT_STREAM_MAXLEN` (int, défaut : `1000`) — taille max du stream avant trimming.
+- `EVENT_CONSUMER_GROUP` (str, défaut : `"workflow_execution_consumer"`) — nom du consumer group Redis.
+
+### S3 / MinIO
+- `S3_ENDPOINT_URL` (str, défaut : `"http://localhost:9000"`) — endpoint S3/MinIO.
+- `S3_ACCESS_KEY_ID` (secret, défaut : `"minioadmin"`) — access key S3/MinIO.
+- `S3_SECRET_ACCESS_KEY` (secret, défaut : `"minioadmin"`) — secret key S3/MinIO.
+- `S3_BUCKET_NAME` (str, défaut : `"document-ia"`) — nom du bucket par défaut.
+- `S3_REGION_NAME` (str, défaut : `"us-east-1"`) — région S3 (placeholder pour MinIO).
+- `S3_USE_SSL` (bool, défaut : `False`) — active HTTPS vers S3/MinIO.
+
+### Base de Données PostgreSQL
+- `POSTGRES_DB` (str, défaut : `None`) — nom de la base.
+- `POSTGRES_HOST` (str, défaut : `None`) — hôte PostgreSQL.
+- `POSTGRES_PORT` (int, défaut : `5432`) — port PostgreSQL.
+- `POSTGRES_SSL_MODE` (str, défaut : `None`) — mode SSL (`disable`, `require`, etc.).
+- `POSTGRES_USER` (str, défaut : `None`) — utilisateur DB.
+- `POSTGRES_PASSWORD` (secret, défaut : `None`) — mot de passe DB.
+- `POSTGRESQL_URL` (str, défaut : `None`) — URL de connexion complète (si fournie, prioritaire).
+
+### Logging & Loki
+- `LOKI_URL` (str, défaut : `""`) — URL de l’instance Loki.
+- `LOKI_LOGGING_ENABLED` (bool, défaut : `True`) — active/désactive l’envoi des logs vers Loki.
+
+### OpenAI / LLM
+- `OPENAI_API_KEY` (secret, défaut : `None`) — clé API OpenAI.
+- `OPENAI_BASE_URL` (str, défaut : `None`) — endpoint OpenAI custom (par ex. proxy).
+- `OPENAI_ENCODING_MODEL` (str, défaut : `"gpt-4"`) — modèle utilisé pour le comptage de tokens.
+- `OPENAI_TIMEOUT` (int, défaut : `30`) — timeout (en secondes) des requêtes OpenAI.
+- `OPENAI_MAX_RETRIES` (int, défaut : `3`) — nombre max de retries pour les appels OpenAI.
+
+> Pour la liste exacte et à jour, se référer aux fichiers de configuration Pydantic :
+> - `src/document_ia_api/api/config.py`
+> - `src/document_ia_api/infra/config.py`
+> - `src/document_ia_api/core/config.py`
+> - `document-ia-infra` (Redis, DB, S3, etc.) pour les détails bas niveau.
 
 ## Core Dependencies
 
@@ -503,7 +565,39 @@ Developer guidelines
 - Do not raise raw strings for complex errors; put machine-readable fields under `errors`.
 - Always log with the `trace_id` (available in ProblemDetail) for correlation.
 
-Consumer guidelines
-- Inspect `code` to branch logic programmatically (e.g., http.unauthorized, http.rate_limited, validation.failed).
-- Use `errors` for structured details (validation errors, domain-specific fields).
-- Use `trace_id` to correlate with server logs when reporting incidents.
+## Generate a new API key
+
+To deploy new infrastructure or create a new Document IA API key, a utility script is provided in `scripts/generate_api_key.py`.
+
+1. Make sure dependencies are installed:
+
+```bash
+poetry install
+```
+
+2. Run the script from the `document-ia-api` directory:
+
+```bash
+APP_ENV='dev|staging|sandbox|prod' \
+API_KEY_PEPPER_HASH='pepper_hash_stg' \
+API_KEY_PEPPER_CHK='pepper_chk_stg' \
+poetry run python scripts/generate_api_key.py
+```
+
+3. If you want to generate new unique PEPPER_HASH and PEPPER_CHK use this script :
+```bash
+poetry run python - << 'PY'
+import secrets
+print("API_KEY_PEPPER_HASH =", secrets.token_hex(32))
+print("API_KEY_PEPPER_CHK  =", secrets.token_hex(32))
+PY
+```
+
+
+3. The script prints:
+   - the full API key to provide to the client (`API key (presented)`),
+   - the `Prefix` and the `Checksum`,
+   - the `Argon2 hash` to store in the database (field `key_hash`),
+   - the `prefix` to store in the corresponding column.
+
+Never store the full API key in plaintext in the database; store only the hash and the prefix.

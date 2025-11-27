@@ -14,7 +14,7 @@ class ApiKeyHelper:
     def __init__(self):
         self.ph = PasswordHasher(time_cost=2, memory_cost=1024 * 64, parallelism=4)
         self.key_re = re.compile(
-            r"^dia_(dev|staging|prod)_(v?\d+)_[A-Z2-7]{8}_[A-Z2-7]{40,64}_[A-Z2-7]{4}$"
+            r"^dia_(dev|staging|sandbox|prod)_(v?\d+)_[A-Z2-7]{8}_[A-Z2-7]{40,64}_[A-Z2-7]{4}$"
         )
 
         pass
