@@ -5,6 +5,7 @@ import cv2
 import zxingcpp
 from fr_2ddoc_parser.api import decode_2d_doc
 
+from document_ia_infra.core.model.typed_generic_model import GenericProperty
 from document_ia_infra.data.event.schema.barcode import (
     Ants2DDoc,
     QrCode,
@@ -89,18 +90,26 @@ class ExtractBarcodeData(BaseStep[BarcodeResult]):
                                     barcode.position
                                 ),
                                 is_valid=result.is_valid,
-                                data=result.typed,
+                                raw_data=None
+                                if result.ants_type is not None
+                                else result.typed,
+                                typed_data=[]
+                                if result.ants_type is None
+                                else GenericProperty.convert_pydantic_model(
+                                    result.typed
+                                ),
                                 page_number=idx + 1,
+                                ants_type=result.ants_type,
                             )
                         )
-                    except Exception:
-                        logger.warning("Failed to decode 2D Doc barcode")
+                    except Exception as e:
+                        logger.warning(f"Failed to decode 2D Doc barcode : {e}")
                         page_barcode_data.append(
                             DataMatrix(
                                 position=self._map_position_like_to_model(
                                     barcode.position
                                 ),
-                                data=barcode.text,
+                                raw_data=barcode.text,
                                 page_number=idx + 1,
                             )
                         )
@@ -109,7 +118,7 @@ class ExtractBarcodeData(BaseStep[BarcodeResult]):
                     page_barcode_data.append(
                         QrCode(
                             position=self._map_position_like_to_model(barcode.position),
-                            data=barcode.text,
+                            raw_data=barcode.text,
                             page_number=idx + 1,
                         )
                     )

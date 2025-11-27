@@ -1,7 +1,9 @@
 from enum import Enum
-from typing import Any, Annotated, Union, Literal
+from typing import Any, Annotated, Union, Literal, Optional
 
 from pydantic import BaseModel, Field
+
+from document_ia_infra.core.model.typed_generic_model import GenericProperty
 
 
 class BarcodeType(str, Enum):
@@ -31,19 +33,23 @@ class Ants2DDoc(BarcodeModel):
     type: Literal[BarcodeType.TWO_D_DOC] = BarcodeType.TWO_D_DOC
     position: BarcodePosition
     is_valid: bool
-    data: Any = Field(json_schema_extra={"x-mask": True})
+    raw_data: Optional[Any] = Field(default=None, json_schema_extra={"x-mask": True})
+    typed_data: list[GenericProperty] = Field(
+        default=[], json_schema_extra={"x-mask": True}
+    )
+    ants_type: Optional[str] = Field(default=None)
 
 
 class QrCode(BarcodeModel):
     type: Literal[BarcodeType.QR] = BarcodeType.QR
     position: BarcodePosition
-    data: str = Field(json_schema_extra={"x-mask": True})
+    raw_data: str = Field(json_schema_extra={"x-mask": True})
 
 
 class DataMatrix(BarcodeModel):
     type: Literal[BarcodeType.DATA_MATRIX] = BarcodeType.DATA_MATRIX
     position: BarcodePosition
-    data: str = Field(json_schema_extra={"x-mask": True})
+    raw_data: str = Field(json_schema_extra={"x-mask": True})
 
 
 BarcodeVariant = Annotated[
