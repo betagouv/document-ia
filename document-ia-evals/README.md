@@ -30,11 +30,11 @@ poetry install
 
 ```bash
 # Run with Poetry
-poetry run streamlit run app.py
+poetry run streamlit run src/document_ia_evals/app.py
 
 # Or activate the Poetry shell first
 poetry shell
-streamlit run app.py
+streamlit run src/document_ia_evals/app.py
 ```
 
 The application will open in your default browser at `http://localhost:8501`
