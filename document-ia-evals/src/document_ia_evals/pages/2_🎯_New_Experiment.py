@@ -17,9 +17,6 @@ st.set_page_config(
     layout=config.LAYOUT
 )
 
-
-
-
 def main():
     """Main experiment selection page."""
     # Render sidebar

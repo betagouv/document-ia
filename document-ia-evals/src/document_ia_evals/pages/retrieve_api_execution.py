@@ -7,7 +7,7 @@ from document_ia_evals.utils.config import config
 def main():
 
     title = "Récupération d'ancienne exécution via l'API Document IA"
-    st.set_page_config(page_title=title, page_icon="🧾")
+    st.set_page_config(page_title=title, page_icon="🔍")
     st.title(title)
     st.caption(f"Using API endpoint: {config.DOCUMENT_IA_BASE_URL}")
 
