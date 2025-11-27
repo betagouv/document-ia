@@ -8,7 +8,7 @@ from document_ia_infra.data.workflow.repository.worflow import workflow_reposito
 from document_ia_schemas import SupportedDocumentType
 
 def main():
-    title = "Extraction via l'API Document IA"
+    title = "🧾 Execute a workflow on document"
     st.set_page_config(page_title=title, page_icon="🧾")
     st.title(title)
     st.caption(f"Using API endpoint: {config.DOCUMENT_IA_BASE_URL}")
@@ -57,21 +57,6 @@ def main():
         extraction_params_preview = {"document-type": selected_doc_type.value}
         st.info(f"ℹ️ Workflow fast détecté - Paramètres d'extraction qui seront envoyés: `{json.dumps(extraction_params_preview)}`")
 
-    # Metadata input
-    default_metadata = json.dumps({"source": "parse_document_page"})
-    metadata_str = st.text_input(
-        "Métadonnées (JSON)",
-        value=default_metadata,
-        help="Métadonnées additionnelles à passer au workflow sous forme de JSON"
-    )
-
-    # Parse metadata
-    try:
-        metadata = json.loads(metadata_str) if metadata_str.strip() else {}
-    except json.JSONDecodeError:
-        st.error("❌ Métadonnées JSON invalides")
-        return
-
     api_key = config.DOCUMENT_IA_API_KEY
     if not api_key:
         st.warning("⚠️ DOCUMENT_IA_API_KEY not found in configuration.")
@@ -96,7 +81,6 @@ def main():
         with st.expander("📋 Paramètres de la requête", expanded=False):
             request_params = {
                 "workflow_name": workflow_name,
-                "metadata": metadata,
                 "extraction_parameters": extraction_parameters,
             }
             st.json(request_params)
@@ -106,7 +90,6 @@ def main():
                 workflow_name,
                 uploaded_file,
                 api_key,
-                metadata=metadata,
                 extraction_parameters=extraction_parameters,
             )
             execution_id = workflow_execute_response.data.execution_id

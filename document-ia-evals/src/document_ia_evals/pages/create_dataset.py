@@ -78,38 +78,6 @@ def upload_to_s3_with_task(
         else:
             raise Exception(f"Failed to upload {file_id} to S3: {e}")
 
-
-def setup_ml_backend(ls: Client, project_id: int, ml_backend_url: str | None) -> dict[str, Any] | None:
-    """Configure the ML backend for the project."""
-    if not ml_backend_url:
-        return None
-    
-    try:
-        # Disable automatic predictions on task open
-        ls.make_request("PATCH", f"/api/projects/{project_id}", json={ # type: ignore
-            "show_instruction": False,
-            "expert_instruction": "",
-            "show_collab_predictions": False
-        })
-        
-        ml_backend_data = {
-            'url': ml_backend_url,
-            'title': 'Custom ML Backend',
-            'project': project_id
-        }
-        response = ls.make_request('POST', '/api/ml', json=ml_backend_data) # type: ignore
-        
-        if response.status_code in [200, 201]: # type: ignore
-            return response.json() # type: ignore
-        else:
-            st.warning(f"⚠️ ML backend connection failed: {response.status_code}") # type: ignore
-            return None
-            
-    except Exception as e:
-        st.warning(f"⚠️ Could not configure ML backend automatically: {e}")
-        return None
-
-
 def create_label_studio_project(
     dataset_name: str,
     doc_type: SupportedDocumentType,
@@ -120,7 +88,6 @@ def create_label_studio_project(
     # Get configuration
     label_studio_url = config.LABEL_STUDIO_URL
     api_key = config.LABEL_STUDIO_API_KEY
-    ml_backend_url = config.ML_BACKEND_URL
     
     if not label_studio_url or not api_key:
         raise ValueError("LABEL_STUDIO_URL and LABEL_STUDIO_API_KEY must be set")
@@ -164,9 +131,6 @@ def create_label_studio_project(
     
     source_storage = project.connect_s3_import_storage(**s3_params) # type: ignore
     
-    # Setup ML backend if configured
-    setup_ml_backend(ls, project.id, ml_backend_url) # type: ignore
-    
     # Sync storage to import tasks
     project.sync_import_storage('s3', source_storage['id']) # type: ignore
     
@@ -183,7 +147,6 @@ def consumer(
     api_key: str,
     callback: queue.Queue[tuple[str, bool, str | None, str | None]],
     workflow_id: str,
-    metadata: dict[str, Any],
     document_type: SupportedDocumentType | None = None,
     s3_prefix: str = "",
     is_fast_workflow: bool = False,
@@ -221,7 +184,6 @@ def consumer(
                 workflow_id,
                 uploaded_file,
                 api_key,
-                metadata=metadata,
                 extraction_parameters=extraction_parameters,
             )
             
@@ -289,7 +251,6 @@ def start_dataset_creation(
     api_key: str,
     folder: list[UploadedFile],
     workflow_id: str,
-    metadata: dict[str, Any],
     document_type: SupportedDocumentType | None = None,
     s3_prefix: str = "",
     is_fast_workflow: bool = False,
@@ -310,7 +271,7 @@ def start_dataset_creation(
         for _ in range(min(n_workers, len(folder))):
             t = threading.Thread(
                 target=consumer,
-                args=(file_queue, api_key, callback, workflow_id, metadata, document_type, s3_prefix, is_fast_workflow),
+                args=(file_queue, api_key, callback, workflow_id, document_type, s3_prefix, is_fast_workflow),
                 daemon=True
             )
             t.start()
@@ -332,9 +293,10 @@ def start_dataset_creation(
 
 
 def main() -> None:
-    title = "Création d'un jeu de données annoté"
+    title = "Création d'un jeu de données terrain"
     st.set_page_config(page_title=title, page_icon="📝")
     st.title(title)
+    st.caption(f"Using: API endpoint: {config.DOCUMENT_IA_BASE_URL}, S3 endpoint: {config.S3_ENDPOINT}/{config.S3_BUCKET_NAME}, Label Studio URL: {config.LABEL_STUDIO_URL}")
     
     st.markdown("""
     Cette page vous permet de créer un jeu de données pré-annoté avec Label Studio :
@@ -416,21 +378,6 @@ def main() -> None:
         extraction_params_preview = {"document-type": selected_doc_type.value}
         st.info(f"ℹ️ Workflow fast détecté - Paramètres d'extraction qui seront envoyés: `{json.dumps(extraction_params_preview)}`")
 
-    # Metadata input
-    default_metadata = "{}"
-    metadata_str = st.text_input(
-        "Métadonnées (JSON)",
-        value=default_metadata,
-        help="Métadonnées à passer au workflow sous forme de JSON"
-    )
-
-    # Parse metadata
-    try:
-        metadata = json.loads(metadata_str) if metadata_str.strip() else {}
-    except json.JSONDecodeError:
-        st.error("❌ Métadonnées JSON invalides")
-        return
-    
     # S3 prefix (computed, read-only)
     s3_prefix = f"{dataset_name}_{selected_doc_type.value}/" if dataset_name else ""
     st.text_input(
@@ -473,7 +420,6 @@ def main() -> None:
             api_key=api_key,
             folder=folder,
             workflow_id=selected_workflow_id,
-            metadata=metadata,
             document_type=selected_doc_type,
             s3_prefix=s3_prefix,
             is_fast_workflow=is_fast_workflow,

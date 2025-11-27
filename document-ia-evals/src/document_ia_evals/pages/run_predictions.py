@@ -284,6 +284,7 @@ def main() -> None:
     title = "Exécuter un workflow sur un dataset"
     st.set_page_config(page_title=title, page_icon="🔄")
     st.title(title)
+    st.caption(f"Using: API endpoint: {config.DOCUMENT_IA_BASE_URL}, S3 endpoint: {config.S3_ENDPOINT}/{config.S3_BUCKET_NAME}, Label Studio URL: {config.LABEL_STUDIO_URL}")
     
     st.markdown("""
     Cette page vous permet d'exécuter un workflow sur tous les fichiers d'un dataset Label Studio existant :

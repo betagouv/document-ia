@@ -19,6 +19,8 @@ st.set_page_config(
 def main():
     """Main application function."""
 
+    st.logo('https://espace-membre.cellar-c2.services.clever-cloud.com/startups/document-ia/shot.jpg', link="https://beta.gouv.fr/startups/document-ia")
+
     pages = {
         "Home": [
             st.Page("pages/home.py", title="🏠 Home"),
@@ -28,8 +30,8 @@ def main():
             st.Page("pages/retrieve_api_execution.py", title="🔍 Retrieve Past Execution"),
         ],
         "Pipeline Evaluation": [
-            st.Page("pages/create_dataset.py", title="📝 Create Dataset"),
-            st.Page("pages/run_predictions.py", title="🔄 New Predictions"),
+            st.Page("pages/create_dataset.py", title="📝 Create Ground Truth"),
+            st.Page("pages/run_predictions.py", title="🔄 Create New Predictions"),
             # st.Page("pages/experiment_results.py", title="Experiment Results"),
             # st.Page("pages/experiment_history.py", title="Experiment History"),
         ]

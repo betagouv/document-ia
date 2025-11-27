@@ -58,7 +58,7 @@ class Config(BaseSettings):
     # Label Studio Configuration
     LABEL_STUDIO_URL: str | None = Field(default=None)
     LABEL_STUDIO_API_KEY: str | None = Field(default=None)
-    ML_BACKEND_URL: str | None = Field(default=None)
+    
     ALLOW_INSECURE_REQUESTS: bool = Field(default=False)
     
     def ensure_directories(self):
