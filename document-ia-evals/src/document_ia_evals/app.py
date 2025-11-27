@@ -18,29 +18,25 @@ st.set_page_config(
 
 def main():
     """Main application function."""
+
+    pages = {
+        "Home": [
+            st.Page("pages/home.py", title="🏠 Home"),
+        ],
+        "API Playground": [
+            st.Page("pages/run_api_workflow.py", title="📄 Execute Workflow"),
+            st.Page("pages/retrieve_api_execution.py", title="🔍 Retrieve Past Execution"),
+        ],
+        "Pipeline Evaluation": [
+            st.Page("pages/create_dataset.py", title="📝 Create Dataset"),
+            st.Page("pages/run_predictions.py", title="🔄 New Predictions"),
+            # st.Page("pages/experiment_results.py", title="Experiment Results"),
+            # st.Page("pages/experiment_history.py", title="Experiment History"),
+        ]
+    }
     
-    # Main content
-    st.title("🏠 Welcome to Streamlit App")
-    
-    st.markdown("""
-    ### Navigation
-    
-    Use the sidebar to navigate between different pages:
-    - **Home** - This page
-    - **Dashboard** - [WIP] Interactive dashboard with charts
-    - **New Experiment** - Page to create a new Evaluation experiment
-    - **Experiment Results** - Page to show an experiment result
-    
-    ### Quick Start
-    
-    ```bash
-    # Install dependencies
-    poetry install
-    
-    # Run the application
-    poetry run streamlit run src/document_ia_evals/app.py
-    ```
-    """)
+    pg = st.navigation(pages)
+    pg.run()
     
 if __name__ == "__main__":
     main()
