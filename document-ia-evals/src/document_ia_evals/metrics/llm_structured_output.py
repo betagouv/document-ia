@@ -5,7 +5,7 @@ import re
 import numpy as np
 from typing import Tuple, Dict, Any
 from deepdiff import DeepDiff
-from metrics import metric_registry
+from document_ia_evals.metrics import metric_registry
 
 
 def parse_json_from_response(response: str | dict) -> dict | None:
