@@ -3,9 +3,10 @@
 import json
 import os
 from document_ia_evals.utils.config import config
-from typing import Any, Optional
+from typing import Any, Optional, Type, get_origin
 from label_studio_sdk import LabelStudio
 from label_studio_sdk import Client
+from pydantic import BaseModel
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -162,3 +163,78 @@ def annotation_results_to_dict(annotation_results: list[dict[str, Any]]) -> tupl
     
     return data, metadata
 
+
+# label studio fromat
+
+def create_task(pdf_url: str, ground_truth: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Create a complete Label Studio task from Pydantic models."""
+    task: dict[str, Any] = {
+        'data': {
+            'pdf': pdf_url
+        }
+    }
+    # Ground truth as annotation
+    if ground_truth:
+        annotation_result = dict_to_annotation_result(ground_truth)
+        task['annotations'] = [{
+            'result': annotation_result,
+            'ground_truth': True
+        }]
+    
+    return task
+
+def field_name_to_label(field_name: str) -> str:
+    """Convert a field name to a readable label."""
+    return field_name.replace('_', ' ').title()
+
+
+def is_optional(field_type: Any) -> bool:
+    """Check if a field is Optional."""
+    origin = get_origin(field_type)
+    if origin is not None:
+        args = getattr(field_type, '__args__', ())
+        return type(None) in args
+    return False
+
+
+def generate_label_config(model: Type[BaseModel], title: str = "Document Extraction") -> str:
+    """Generate Label Studio XML configuration from a Pydantic model."""
+    
+    fields_xml: list[str] = []
+
+    for field_name, field_info in model.model_fields.items():
+        field_type = field_info.annotation
+        required = not is_optional(field_type)
+        label = field_name_to_label(field_name)
+        
+        field_xml = f"""
+      <View style="margin-bottom: 20px;">
+        <Text name="{field_name}_label" value="{label}:" style="font-weight: bold; margin-bottom: 5px;"/>
+        <Textarea name="{field_name}" toName="pdf" 
+                  placeholder="Entrez {label.lower()}" 
+                  rows="1" 
+                  editable="true"
+                  required="{str(required).lower()}"
+                  maxSubmissions="1"
+                  showSubmitButton="false"/>
+      </View>"""
+        fields_xml.append(field_xml)
+    
+    config = f"""<View>
+  <Header value="{title}"/>
+  
+  <View style="display: flex; flex-direction: row; height: calc(100vh - 100px);">
+    <!-- Image à gauche -->
+    <View style="flex: 0 0 50%; min-width: 300px; max-width: 80%; margin-right: 20px; resize: horizontal; overflow: auto; border-right: 2px solid #ccc;">
+      <Pdf name="pdf" value="$pdf" zoom="true" zoomControl="true"/>
+    </View>
+    
+    <!-- Champs à droite -->
+    <View style="flex: 1; overflow-y: auto; padding-right: 10px;">
+      <Header value="Informations extraites"/>
+      {''.join(fields_xml)}
+    </View>
+  </View>
+</View>"""
+    
+    return config

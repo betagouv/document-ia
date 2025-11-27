@@ -7,6 +7,7 @@ authors = [
     {name = "Olivier DULCY",email = "olivier.dulcy@beta.gouv.fr"}
 ]
 readme = "README.md"
+packages = [{include = "document_ia_evals", from = "src"}]
 
 [tool.poetry.dependencies]
 python = "^3.13"
