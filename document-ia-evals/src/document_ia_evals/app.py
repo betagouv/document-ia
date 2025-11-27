@@ -38,7 +38,7 @@ def main():
     poetry install
     
     # Run the application
-    poetry run streamlit run app.py
+    poetry run streamlit run src/document_ia_evals/app.py
     ```
     """)
     

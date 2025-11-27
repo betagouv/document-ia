@@ -42,7 +42,7 @@ FINAL_CONTENT=${TEMPLATE_CONTENT/__ALLOWED_RULES__/${ALLOWED_RULES}}
 printf "%b" "$FINAL_CONTENT" > ./Caddyfile
 
 # --- Démarre Streamlit sur un port interne ---
-streamlit run app.py \
+streamlit run src/document_ia_evals/app.py \
   --server.port=8501 \
   --server.address=0.0.0.0 &
 
