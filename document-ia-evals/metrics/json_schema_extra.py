@@ -5,12 +5,108 @@ from typing import Any, Callable, Dict, Optional, Tuple
 from pydantic import BaseModel
 from deepdiff import DeepDiff
 from metrics import metric_registry
+from document_ia_schemas.field_metrics import Metric
+import re
+from typing import Any
 
-# Import Metric from document_ia_schemas
-try:
-    from document_ia_schemas import Metric
-except ImportError:
-    from document_ia_schemas.field_metrics import Metric
+from datetime import datetime
+from typing import Any
+
+def normalize_avis_imposition_date(value: Any):
+    """
+    Normalize date strings that may be in DD/MM/YYYY or DDMMYYYY format.
+    Returns a datetime.date object or None if parsing fails.
+    """
+    if value is None:
+        return None
+
+    s = str(value).strip()
+
+    # Try DD/MM/YYYY format
+    try:
+        return datetime.strptime(s, "%d/%m/%Y").date()
+    except ValueError:
+        pass
+
+    # Try DDMMYYYY format (must be exactly 8 digits)
+    if len(s) == 8 and s.isdigit():
+        try:
+            return datetime.strptime(s, "%d%m%Y").date()
+        except ValueError:
+            pass
+
+    return None
+
+
+def compare_avis_imposition_date(expected: Any, predicted: Any) -> float:
+    """
+    Compare two date values that may be in formats:
+    - DD/MM/YYYY
+    - DDMMYYYY
+    Returns 1.0 if equal, 0.0 otherwise.
+    """
+    d1 = normalize_avis_imposition_date(expected)
+    d2 = normalize_avis_imposition_date(predicted)
+
+    # Both must parse correctly
+    if d1 is None or d2 is None:
+        return 0.0
+
+    return 1.0 if d1 == d2 else 0.0
+
+
+def normalize_number(value: Any):
+    """
+    Normalize a number represented as a messy string.
+    Handles:
+      - spaces: " 1 234 " → "1234"
+      - commas: "12,5" → "12.5"
+      - currency symbols: "1 200 €" → "1200"
+      - thousands separators: "1.234,56" → "1234.56"
+    Returns:
+      float or None if parsing fails.
+    """
+    if value is None:
+        return None
+
+    s = str(value).strip()
+
+    if not s:
+        return None
+
+    # Remove all spaces
+    s = s.replace(" ", "")
+
+    # Replace comma with dot (decimal normalization)
+    s = s.replace(",", ".")
+
+    # Keep only digits, minus sign, and dot
+    s = re.sub(r"[^0-9\.-]", "", s)
+
+    # If multiple dots or dashes → invalid
+    if s.count('.') > 1 or s.count('-') > 1:
+        return None
+
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def compare_number(expected: Any, predicted: Any) -> float:
+    """
+    Compare two values as normalized numbers.
+    Returns 1.0 if equal, otherwise 0.0.
+    """
+    n1 = normalize_number(expected)
+    n2 = normalize_number(predicted)
+
+    if n1 == n2:
+        return 1.0
+    if n1 is None or n2 is None:
+        return 0.0
+
+    return 1.0 if n1 == n2 else 0.0
 
 
 def levenshtein_distance(s1: str, s2: str) -> int:
@@ -118,12 +214,18 @@ def compare_deep_equality(expected: Any, predicted: Any) -> float:
     
     return 0.0
 
+def skip(expected: Any, predicted: Any) -> float:
+    return -1.0
+
 
 # Mapping of metric types to comparison functions
 METRIC_FUNCTIONS: Dict[Metric, Callable[[Any, Any], float]] = {
     Metric.EQUALITY: compare_equality,
     Metric.LEVENSHTEIN_DISTANCE: compare_levenshtein,
     Metric.DEEP_EQUALITY: compare_deep_equality,
+    Metric.AVIS_IMPOSITION_DATE_EQUALITY: compare_avis_imposition_date,
+    Metric.COMPARE_NUMBER: compare_number,
+    Metric.SKIP: skip
 }
 
 
@@ -183,9 +285,16 @@ def compare_pydantic_models(
     model_fields = ground_truth.model_fields
     
     for field_name, field_info in model_fields.items():
-        # Get field values
-        expected_value = getattr(ground_truth, field_name)
-        predicted_value = getattr(prediction, field_name)
+        # Get field values with safe attribute access
+        try:
+            expected_value = getattr(ground_truth, field_name, None)
+        except AttributeError:
+            expected_value = None
+            
+        try:
+            predicted_value = getattr(prediction, field_name, None)
+        except AttributeError:
+            predicted_value = None
         
         # Get the metric to use for this field
         metric_type = get_field_metric(field_info)
@@ -214,8 +323,6 @@ def compare_pydantic_models(
             )
     
     return field_scores, field_details
-
-
 @metric_registry.register(
     name="json_schema_extra",
     description="Compare Pydantic model instances using field-specific metrics defined in json_schema_extra",
@@ -354,8 +461,11 @@ def json_schema_extra_metric(
         # Compare models field by field
         field_scores, field_details = compare_pydantic_models(prediction, ground_truth)
         
-        # Calculate overall score (average of field scores)
-        overall_score = sum(field_scores.values()) / len(field_scores) if field_scores else 0.0
+        # Filter out skipped fields (score == -1.0) when calculating overall score
+        evaluated_scores = {k: v for k, v in field_scores.items() if v != -1.0}
+        
+        # Calculate overall score (average of non-skipped field scores)
+        overall_score = sum(evaluated_scores.values()) / len(evaluated_scores) if evaluated_scores else 0.0
         
         # Build observation
         observation = {
@@ -364,6 +474,8 @@ def json_schema_extra_metric(
             "model_type": type(prediction).__name__,
             "field_scores": field_scores,
             "field_details": field_details,
+            "evaluated_fields": len(evaluated_scores),
+            "skipped_fields": len(field_scores) - len(evaluated_scores),
         }
         
         return overall_score, json.dumps(observation, indent=2), prediction
@@ -473,20 +585,61 @@ def render_results(experiment_results: Dict[str, Any]) -> None:
         # Field-level scores table
         if field_scores_by_name:
             st.write("### Field-Level Scores")
+            
+            # Collect metrics for each field
+            field_metrics = defaultdict(set)
+            for obs in model_obs:
+                if obs.get("observation"):
+                    try:
+                        obs_data = json.loads(obs["observation"])
+                        field_details = obs_data.get("field_details", {})
+                        for field_name, details in field_details.items():
+                            if "metric" in details:
+                                field_metrics[field_name].add(details["metric"])
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+            
             field_data = []
             for field_name in sorted(all_field_names):
                 scores = field_scores_by_name[field_name]
-                field_data.append({
-                    "Field": field_name,
-                    "Mean": f"{np.mean(scores):.3f}",
-                    "Std Dev": f"{np.std(scores):.3f}",
-                    "Min": f"{min(scores):.3f}",
-                    "Max": f"{max(scores):.3f}",
-                    "Count": len(scores)
-                })
+                # Check if field is skipped (all scores are -1.0)
+                is_skipped = all(s == -1.0 for s in scores)
+                
+                # Get metric(s) used for this field
+                metrics = field_metrics.get(field_name, set())
+                metric_str = ", ".join(sorted(metrics)) if metrics else "N/A"
+                
+                if is_skipped:
+                    field_data.append({
+                        "Field": field_name,
+                        "Metric": metric_str,
+                        "Mean": "SKIPPED",
+                        "Std Dev": "SKIPPED",
+                        "Min": "SKIPPED",
+                        "Max": "SKIPPED",
+                        "Count": len(scores)
+                    })
+                else:
+                    field_data.append({
+                        "Field": field_name,
+                        "Metric": metric_str,
+                        "Mean": f"{np.mean(scores):.3f}",
+                        "Std Dev": f"{np.std(scores):.3f}",
+                        "Min": f"{min(scores):.3f}",
+                        "Max": f"{max(scores):.3f}",
+                        "Count": len(scores)
+                    })
             
             field_df = pd.DataFrame(field_data)
-            st.dataframe(field_df, use_container_width=True, hide_index=True)
+            
+            # Apply styling to highlight skipped rows
+            def highlight_skipped(row):
+                if row['Mean'] == 'SKIPPED':
+                    return ['background-color: #FFF3CD; color: #856404'] * len(row)
+                return [''] * len(row)
+            
+            styled_df = field_df.style.apply(highlight_skipped, axis=1)
+            st.dataframe(styled_df, use_container_width=True, hide_index=True)
         
         # Show error details if any
         if errors_count > 0:

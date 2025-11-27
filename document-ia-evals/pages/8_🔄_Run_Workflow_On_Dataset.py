@@ -166,7 +166,7 @@ def process_task(
         # Check status
         if not execution_details or execution_details.status.upper() != "SUCCESS":
             error_msg = f"Workflow failed with status: {execution_details.status if execution_details else 'unknown'} (execution_id: {execution_id})"
-            callback.put((task_id, False, error_msg, execution_id))
+            callback.put((task_id, False, error_msg, execution_id, -1))
             return
         
         # Extract the result from execution details
@@ -439,7 +439,7 @@ def main() -> None:
                             st.info(f"  Execution ID: `{execution_id}`\n Processing Time: `{total_processing_time_ms}`")
             
             # Display project link
-            project_url = f"{label_studio_url}/projects/{selected_project_id}"
+            project_url = f"{config.LABEL_STUDIO_URL}/projects/{selected_project_id}"
             st.markdown(f"🔗 [Voir les annotations dans Label Studio]({project_url})")
             
             # Show detailed results
