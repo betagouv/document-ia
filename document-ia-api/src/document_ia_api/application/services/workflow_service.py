@@ -188,7 +188,7 @@ class WorkflowService:
         """Poll the event store until the execution completes or timeout elapses."""
 
         event_store_service = EventStoreService(self.db_session)
-        execution_service = ExecutionService()
+        execution_service = ExecutionService(self.db_session)
 
         configured_timeout = workflow_settings.SYNC_EXECUTION_TIMEOUT_SECONDS
         configured_max_wait = workflow_settings.SYNC_EXECUTION_MAX_WAIT_SECONDS
