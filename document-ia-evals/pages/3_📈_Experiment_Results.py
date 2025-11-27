@@ -11,7 +11,7 @@ from uuid import UUID
 from document_ia_evals.components.sidebar import render_sidebar
 from document_ia_evals.utils.config import config
 from document_ia_evals.utils.label_studio import annotation_results_to_dict, get_label_studio_client_legacy, get_project_url
-from metrics import metric_registry
+from document_ia_evals.metrics import metric_registry
 from document_ia_evals.services.experiment_service import save_experiment
 from document_ia_evals.database.connection import test_db_connection, init_db
 

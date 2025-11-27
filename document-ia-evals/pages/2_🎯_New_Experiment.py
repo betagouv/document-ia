@@ -5,7 +5,7 @@ import streamlit as st
 
 from document_ia_evals.components.sidebar import render_sidebar
 from document_ia_evals.utils.config import config
-from metrics import metric_registry
+from document_ia_evals.metrics import metric_registry
 
 # Load environment variables
 load_dotenv()

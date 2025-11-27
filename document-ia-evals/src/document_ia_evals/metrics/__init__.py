@@ -1,9 +1,13 @@
 """Metrics registry for experiment evaluation."""
 
-from typing import Callable, Dict, Any, Optional, Tuple
+from typing import Callable, Dict, Any, Optional, TypeVar, ParamSpec
 import importlib
 import pkgutil
 from pathlib import Path
+
+# Type variables for generic decorator typing
+P = ParamSpec('P')
+R = TypeVar('R')
 
 
 class MetricRegistry:
@@ -17,8 +21,8 @@ class MetricRegistry:
         name: str,
         description: str,
         metric_type: str = "standard",
-        require: Optional[list] = None
-    ):
+        require: Optional[list[str]] = None
+    ) -> Callable[[Callable[P, R]], Callable[P, R]]:
         """
         Decorator to register a metric.
         
@@ -31,7 +35,7 @@ class MetricRegistry:
         Returns:
             Decorator function
         """
-        def decorator(func: Callable) -> Callable:
+        def decorator(func: Callable[P, R]) -> Callable[P, R]:
             self._metrics[name] = {
                 "func": func,
                 "name": name,
@@ -68,7 +72,7 @@ def auto_discover_metrics():
             continue
         
         try:
-            importlib.import_module(f"metrics.{module_name}")
+            importlib.import_module(f"document_ia_evals.metrics.{module_name}")
         except Exception as e:
             print(f"Warning: Failed to import metric module {module_name}: {e}")
 

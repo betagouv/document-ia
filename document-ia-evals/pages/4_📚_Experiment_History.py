@@ -1,20 +1,20 @@
 """Experiment History page - view and manage saved experiments."""
 
-import streamlit as st
-import pandas as pd
 from datetime import datetime
-from typing import Optional
 
+import pandas as pd
+import streamlit as st
 from document_ia_evals.components.sidebar import render_sidebar
-from document_ia_evals.utils.config import config
+from document_ia_evals.database.connection import init_db, test_db_connection
+from document_ia_evals.metrics import metric_registry
 from document_ia_evals.services.experiment_service import (
+    delete_experiment,
+    get_experiment_statistics,
     list_experiments,
     load_experiment,
-    delete_experiment,
-    get_experiment_statistics
 )
-from document_ia_evals.database.connection import test_db_connection, init_db
-from metrics import metric_registry
+from document_ia_evals.utils.config import config
+
 # Page configuration
 st.set_page_config(
     page_title=f"Experiment History | {config.APP_TITLE}",
