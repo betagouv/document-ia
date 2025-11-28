@@ -6,17 +6,6 @@ from document_ia_schemas.field_metrics import Metric
 
 
 class AvisImpositionModel(BaseModel):
-    reference_avis: Optional[str] = Field(
-        default=None,
-        description=(
-            "Identifiant unique de l'avis d'imposition (format numérique, généralement 13 ou 14 chiffres)"
-        ),
-        alias="Référence d'avis d'impôt",
-        examples=["1234567890123"],
-        json_schema_extra={
-            "metrics": Metric.COMPARE_NUMBER
-        }
-    )
     annee_revenus: str = Field(
         description="Année fiscale concernée par la déclaration de revenus (format AAAA)",
         alias="Année des revenus",
@@ -36,9 +25,17 @@ class AvisImpositionModel(BaseModel):
             "metrics": Metric.STRING_DATE_EQUALITY
         }
     )
-    declarant_1_nom: str = Field(
-        description="Nom de famille et prénom du premier déclarant",
-        alias="Nom du déclarant 1",
+    declarant_1_identite: str = Field(
+        description="Nom et prénom du premier déclarant tel qu'il apparait au niveau du destinataire",
+        alias="Nom et Prénom du déclarant 1",
+        examples=["MARTIN"],
+        json_schema_extra={
+            "metrics": Metric.LEVENSHTEIN_DISTANCE
+        }
+    )
+    declarant_1_nom_naissance: str = Field(
+        description="Nom de naissance du premier déclarant, il peut être différent du nom et prénom du déclarant 1",
+        alias="Nom de naissance du déclarant 1",
         examples=["MARTIN"],
         json_schema_extra={
             "metrics": Metric.LEVENSHTEIN_DISTANCE
@@ -60,9 +57,17 @@ class AvisImpositionModel(BaseModel):
         }
 
     )
-    declarant_2_nom: str = Field(
-        description="Nom de famille et prénom du deuxième déclarant",
-        alias="Nom du déclarant 2",
+    declarant_2_identite: str = Field(
+        description="Nom et prénom du deuxième déclarant tel qu'il apparait au niveau du destinataire",
+        alias="Nom et Prénom du déclarant 2",
+        examples=["MARTIN"],
+        json_schema_extra={
+            "metrics": Metric.LEVENSHTEIN_DISTANCE
+        }
+    )
+    declarant_2_nom_naissance: str = Field(
+        description="Nom de naissance du deuxième déclarant, il peut être différent du nom et prénom du déclarant 2",
+        alias="Nom de naissance du déclarant 2",
         examples=["MARTIN"],
         json_schema_extra={
             "metrics": Metric.LEVENSHTEIN_DISTANCE
@@ -78,6 +83,17 @@ class AvisImpositionModel(BaseModel):
         default=None,
         description="Numéro fiscal personnel du deuxième déclarant (13 chiffres)",
         alias="Numéro fiscal du déclarant 2",
+        examples=["1234567890123"],
+        json_schema_extra={
+            "metrics": Metric.COMPARE_NUMBER
+        }
+    )
+    reference_avis: Optional[str] = Field(
+        default=None,
+        description=(
+            "Référence unique de l'avis d'imposition (format numérique, généralement 13 ou 14 chiffres). Information présente juste après les numéros fiscaux des déclarants."
+        ),
+        alias="Référence d'avis d'impôt",
         examples=["1234567890123"],
         json_schema_extra={
             "metrics": Metric.COMPARE_NUMBER
