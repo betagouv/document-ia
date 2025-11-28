@@ -2,12 +2,14 @@
 
 import json
 import os
-from document_ia_evals.utils.config import config
 from typing import Any, Optional, Type, get_origin
-from label_studio_sdk import LabelStudio
-from label_studio_sdk import Client
-from pydantic import BaseModel
+
 from dotenv import load_dotenv
+from label_studio_sdk import Client, LabelStudio
+from pydantic import BaseModel
+
+from document_ia_evals.utils.config import config
+from document_ia_schemas import SupportedDocumentType, resolve_extract_schema
 
 load_dotenv()
 
@@ -220,7 +222,7 @@ def generate_label_config(model: Type[BaseModel], title: str = "Document Extract
       </View>"""
         fields_xml.append(field_xml)
     
-    config = f"""<View>
+    label_config = f"""<View>
   <Header value="{title}"/>
   
   <View style="display: flex; flex-direction: row; height: calc(100vh - 100px);">
@@ -237,4 +239,90 @@ def generate_label_config(model: Type[BaseModel], title: str = "Document Extract
   </View>
 </View>"""
     
-    return config
+    return label_config
+
+
+def create_label_studio_project(
+    dataset_name: str,
+    doc_type: SupportedDocumentType,
+    s3_prefix: str
+) -> dict[str, Any]:
+    """
+    Create a Label Studio project with S3 storage integration.
+    
+    Args:
+        dataset_name: Name for the dataset/project
+        doc_type: Type of document being processed
+        s3_prefix: S3 prefix where files are stored
+    
+    Returns:
+        Dictionary with project information including:
+        - project_id: Label Studio project ID
+        - project_title: Project title
+        - source_storage_id: S3 import storage ID
+        - target_storage_id: S3 export storage ID
+        - task_count: Number of tasks imported
+    
+    Raises:
+        ValueError: If Label Studio configuration is missing
+    """
+    # Get configuration
+    label_studio_url = config.LABEL_STUDIO_URL
+    api_key = config.LABEL_STUDIO_API_KEY
+    
+    if not label_studio_url or not api_key:
+        raise ValueError("LABEL_STUDIO_URL and LABEL_STUDIO_API_KEY must be set")
+    
+    # Get the Pydantic model for the document type
+    schema = resolve_extract_schema(doc_type.value)
+    model_class = schema.document_model
+    
+    # Generate label config
+    label_config = generate_label_config(
+        model_class,
+        title=f"Extraction {schema.name}"
+    )
+    
+    # Initialize Label Studio client
+    ls = get_label_studio_client_legacy()
+    
+    # Create project
+    project = ls.create_project(  # type: ignore
+        title=f"{dataset_name} - {schema.name}",
+        description=f"Dataset: {dataset_name}\n\n" + "\n".join(schema.description),
+        label_config=label_config
+    )
+    
+    # Configure S3 source storage
+    s3_params: dict[str, Any] = {
+        's3_endpoint': config.S3_ENDPOINT,
+        'bucket': config.S3_BUCKET_NAME,
+        'aws_access_key_id': config.S3_ACCESS_KEY,
+        'aws_secret_access_key': config.S3_SECRET_KEY,
+        'region_name': config.S3_REGION
+    }
+    
+    source_storage = project.connect_s3_import_storage(  # type: ignore
+        **s3_params,
+        prefix=f"{s3_prefix}/tasks",
+        presign=True,
+        regex_filter=r'.*\.json$',
+        use_blob_urls=False
+    )
+    target_storage = project.connect_s3_export_storage(  # type: ignore
+        **s3_params,
+        prefix=f"{s3_prefix}/target"
+    )
+    
+    # Sync storage to import tasks
+    project.sync_import_storage('s3', source_storage['id'])  # type: ignore
+    # Sync storage to export tasks
+    project.sync_export_storage('s3', target_storage['id'])  # type: ignore
+    
+    return {
+        'project_id': project.id,  # type: ignore
+        'project_title': project.params.get('title'),  # type: ignore
+        'source_storage_id': source_storage['id'],
+        'target_storage_id': target_storage['id'],
+        'task_count': len(project.get_tasks())  # type: ignore
+    }
