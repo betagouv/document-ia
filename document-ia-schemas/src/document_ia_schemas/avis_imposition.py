@@ -152,7 +152,7 @@ class AvisImpositionModel(BaseModel):
         alias="Montant de l'impôt",
         examples=[5000],
         json_schema_extra={
-            "metrics": Metric.SKIP
+            "metrics": Metric.COMPARE_NUMBER
         }
     )
 
