@@ -3,27 +3,29 @@
 from document_ia_evals.utils.label_studio import get_label_studio_client_legacy
 import streamlit as st
 
-from document_ia_evals.components.sidebar import render_sidebar
 from document_ia_evals.utils.config import config
 from document_ia_evals.metrics import metric_registry
 
-# Load environment variables
-load_dotenv()
-
 # Page configuration
 st.set_page_config(
-    page_title=f"New Experiment | {config.APP_TITLE}",
+    page_title=f"Evaluate Predictions Metrics",
     page_icon="🎯",
     layout=config.LAYOUT
 )
 
 def main():
     """Main experiment selection page."""
-    # Render sidebar
-    render_sidebar()
     
-    st.title("🎯 Create New Experiment")
-    st.markdown("Select a Label Studio project and a metric to evaluate.")
+    st.title("🎯 Evaluate Predictions Metrics")
+    st.caption(f"Using: API endpoint: {config.DOCUMENT_IA_BASE_URL}, S3 endpoint: {config.S3_ENDPOINT}/{config.S3_BUCKET_NAME}, Label Studio URL: {config.LABEL_STUDIO_URL}")
+
+    st.markdown("""
+    Cette page vous permet d'évaluer les métriques de prédiction sur un projet Label Studio :
+    1. Sélection du projet Label Studio
+    2. Sélection de la métrique
+    3. Exécution de l'évaluation
+    """)
+    
     
     # Initialize session state
     if 'selected_project' not in st.session_state:
@@ -156,7 +158,7 @@ def main():
         st.session_state.selected_document_type = None
     
     # Step 3: Create Experiment
-    st.header("3️⃣ Start Experiment")
+    st.header("3️⃣ Start Evaluation")
     
     # Check if metric requires document_type
     metric_info = None
@@ -176,10 +178,10 @@ def main():
     )
     
     if ready_to_run:
-        st.success("✅ Ready to create experiment!")
+        st.success("✅ Ready to evaluate predictions metrics!")
         
         # Show selected configuration
-        with st.expander("📋 Experiment Configuration", expanded=True):
+        with st.expander("📋 Evaluation Configuration", expanded=True):
             st.markdown(f"**Project ID:** {st.session_state.selected_project}")
             st.markdown(f"**Metric:** {st.session_state.selected_metric}")
             if st.session_state.selected_document_type:
@@ -189,7 +191,7 @@ def main():
         with col1:
             if st.button("▶️ Run Experiment", type="primary", use_container_width=True):
                 # Navigate to experiment results page
-                st.switch_page(f"pages/3_📈_Experiment_Results.py")
+                st.switch_page("pages/compute_metrics.py")
     else:
         st.info("Please complete the configuration to continue.")
         

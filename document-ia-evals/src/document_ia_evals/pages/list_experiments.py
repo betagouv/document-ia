@@ -93,7 +93,7 @@ def main():
         if not experiments:
             st.info("No experiments found. Run an experiment and save it to see history.")
             if st.button("➕ Create New Experiment"):
-                st.switch_page("pages/2_🎯_New_Experiment.py")
+                st.switch_page("pages/evaluate_metrics.py")
             st.stop()
         
         # Show statistics
