@@ -1,21 +1,24 @@
 # Standard library imports
-import asyncio
-import json
 from typing import Any
 
 # Third-party imports
 import streamlit as st
 
 # Local imports
+from document_ia_evals.components import (
+    ClientType,
+    get_client,
+    render_document_type_selector,
+    render_extraction_params_info,
+    render_project_selector,
+    render_workflow_selector,
+)
 from document_ia_evals.services.create_predictions_service import (
     get_failed_tasks,
     get_processing_statistics,
-    get_task_count,
     run_workflow_on_dataset,
 )
 from document_ia_evals.utils.config import config
-from document_ia_evals.utils.label_studio import get_label_studio_client
-from document_ia_infra.data.workflow.repository.worflow import workflow_repository
 from document_ia_schemas import SupportedDocumentType
 
 
@@ -45,111 +48,6 @@ def render_configuration_warnings() -> bool:
         return False
     
     return True
-
-
-def render_workflow_selector() -> tuple[str, Any, bool] | None:
-    """
-    Render workflow selection and details.
-    
-    Returns:
-        Tuple of (workflow_id, workflow, is_fast_workflow) or None if no workflows
-    """
-    workflows_list = asyncio.run(workflow_repository.get_all_workflows())
-    
-    if not workflows_list:
-        st.error("❌ No workflows found")
-        return None
-    
-    # Workflow selector
-    workflow_options = {w.id: f"{w.name} (v{w.version})" for w in workflows_list}
-    selected_workflow_id = st.selectbox(
-        "Sélectionnez un workflow",
-        options=list(workflow_options.keys()),
-        format_func=lambda x: workflow_options[x],
-        index=0,
-    )
-    
-    # Display workflow details
-    selected_workflow = next(w for w in workflows_list if w.id == selected_workflow_id)
-    with st.expander("Détails du workflow"):
-        st.write(f"**Description:** {selected_workflow.description}")
-        st.write(f"**Steps:** {', '.join(selected_workflow.steps)}")
-        st.write(f"**Model:** {selected_workflow.llm_model}")
-        st.write(f"**Supported file types:** {', '.join(selected_workflow.supported_file_types)}")
-    
-    is_fast_workflow = "-fast" in selected_workflow_id or "fast" in selected_workflow_id.lower()
-    
-    return selected_workflow_id, selected_workflow, is_fast_workflow
-
-
-def render_document_type_selector(is_fast_workflow: bool) -> SupportedDocumentType:
-    """
-    Render document type selector.
-    
-    Args:
-        is_fast_workflow: Whether the selected workflow is a fast workflow
-    
-    Returns:
-        Selected document type
-    """
-    doc_type_options = list(SupportedDocumentType)
-    selected_doc_type: SupportedDocumentType = st.selectbox(
-        "Type de document (requis pour les workflows fast)",
-        options=doc_type_options,
-        format_func=lambda x: x.name.replace("_", " ").title(),
-        index=0,
-        help="Spécifiez le type de document pour les workflows qui n'incluent pas de classification"
-    )
-    
-    # Show extraction parameters info for fast workflows
-    if is_fast_workflow:
-        extraction_params_preview = {"document-type": selected_doc_type.value}
-        st.info(f"ℹ️ Workflow fast détecté - Paramètres d'extraction qui seront envoyés: `{json.dumps(extraction_params_preview)}`")
-    
-    return selected_doc_type
-
-
-def render_project_selector(ls_client: Any) -> tuple[int, str] | None:
-    """
-    Render Label Studio project selector.
-    
-    Args:
-        ls_client: Label Studio client
-    
-    Returns:
-        Tuple of (project_id, project_title) or None if no projects or error
-    """
-    try:
-        projects = ls_client.projects.list()
-        
-        if not projects:
-            st.warning("⚠️ No Label Studio projects found")
-            return None
-        
-        # Project selector
-        project_options = {p.id: p.title or f"Project {p.id}" for p in projects}
-        selected_project_id: int = st.selectbox(
-            "Sélectionnez un dataset Label Studio",
-            options=list(project_options.keys()),
-            format_func=lambda x: project_options[x],
-            index=0,
-        )
-        
-        # Display project details
-        selected_project = next(p for p in projects if p.id == selected_project_id)
-        with st.expander("Détails du dataset"):
-            st.write(f"**Title:** {selected_project.title}")
-            st.write(f"**Description:** {selected_project.description or 'N/A'}")
-            
-            # Get task count
-            task_count = get_task_count(ls_client, selected_project_id)
-            st.write(f"**Number of tasks:** {task_count}")
-        
-        return selected_project_id, project_options[selected_project_id]
-        
-    except Exception as e:
-        st.error(f"❌ Failed to fetch Label Studio projects: {e}")
-        return None
 
 
 def render_worker_config() -> int:
@@ -217,7 +115,6 @@ def render_project_link(project_id: int) -> None:
 
 def handle_workflow_execution(
     workflow_id: str,
-    workflow_name: str,
     project_id: int,
     project_title: str,
     api_key: str,
@@ -232,7 +129,6 @@ def handle_workflow_execution(
     
     Args:
         workflow_id: Selected workflow ID
-        workflow_name: Workflow display name
         project_id: Label Studio project ID
         project_title: Project display title
         api_key: API key for authentication
@@ -303,44 +199,52 @@ def main() -> None:
     
     api_key = config.DOCUMENT_IA_API_KEY
     
-    # Get Label Studio client
-    ls_client = get_label_studio_client()
-    
-    # Workflow selection
-    workflow_result = render_workflow_selector()
-    if workflow_result is None:
+    # Workflow selection using component
+    workflow_selection = render_workflow_selector(
+        show_fast_warning=False,
+    )
+    if workflow_selection is None:
         return
-    
-    selected_workflow_id, selected_workflow, is_fast_workflow = workflow_result
     
     # Document type selector
-    selected_doc_type = render_document_type_selector(is_fast_workflow)
+    selected_doc_type = render_document_type_selector(
+        label="Type de document (requis pour les workflows fast)",
+        help_text="Spécifiez le type de document pour les workflows qui n'incluent pas de classification",
+    )
     
-    # Project selection
-    project_result = render_project_selector(ls_client)
-    if project_result is None:
+    # Show extraction parameters info for fast workflows
+    render_extraction_params_info(workflow_selection.is_fast_workflow, selected_doc_type)
+    
+    # Project selection using component (SDK client)
+    project_selection = render_project_selector(
+        client_type=ClientType.SDK,
+        label="Sélectionnez un dataset Label Studio",
+        show_details=True,
+        show_task_count=True,
+    )
+    if project_selection is None:
         return
     
-    selected_project_id, project_title = project_result
+    # Get the client for later use
+    ls_client = get_client(ClientType.SDK)
     
     # Worker configuration
     n_workers = render_worker_config()
     
     # Model version input
-    model_version = render_model_version_input(selected_workflow_id)
+    model_version = render_model_version_input(workflow_selection.workflow_id)
     
     # Run workflow button
     if st.button("Lancer l'exécution du workflow", type="primary"):
         handle_workflow_execution(
-            workflow_id=selected_workflow_id,
-            workflow_name=selected_workflow.name,
-            project_id=selected_project_id,
-            project_title=project_title,
+            workflow_id=workflow_selection.workflow_id,
+            project_id=project_selection.project_id,
+            project_title=project_selection.project_title,
             api_key=api_key,
             ls_client=ls_client,
             n_workers=n_workers,
             model_version=model_version,
-            is_fast_workflow=is_fast_workflow,
+            is_fast_workflow=workflow_selection.is_fast_workflow,
             selected_doc_type=selected_doc_type,
         )
 

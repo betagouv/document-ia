@@ -1,11 +1,15 @@
-import asyncio
 import json
+
 import streamlit as st
 
+from document_ia_evals.components import (
+    render_document_type_selector,
+    render_extraction_params_info,
+    render_workflow_selector,
+)
 from document_ia_evals.utils.api import execute_workflow, wait_for_execution
 from document_ia_evals.utils.config import config
-from document_ia_infra.data.workflow.repository.worflow import workflow_repository
-from document_ia_schemas import SupportedDocumentType
+
 
 def main():
     title = "🧾 Execute a workflow on document"
@@ -15,47 +19,21 @@ def main():
 
     st.markdown("Cette page vous permet de tester rapidement un workflow Document IA sur un document.")
     
-    # Fetch workflows
-    workflows_list = asyncio.run(workflow_repository.get_all_workflows())
-    
-    if not workflows_list:
-        st.error("❌ No workflows found")
+    # Workflow selection using component
+    workflow_selection = render_workflow_selector(
+        show_fast_warning=False,
+    )
+    if workflow_selection is None:
         return
     
-    # Workflow selector
-    workflow_options = {w.id: f"{w.name} (v{w.version})" for w in workflows_list}
-
-    workflow_name = st.selectbox(
-        "Sélectionnez le workflow à utiliser",
-        options=list(workflow_options.keys()),
-        index=0,
-    )
-
-    # Display workflow details
-    selected_workflow = next(w for w in workflows_list if w.id == workflow_name)
-    with st.expander("Détails du workflow"):
-        st.write(f"**Description:** {selected_workflow.description}")
-        st.write(f"**Steps:** {', '.join(selected_workflow.steps)}")
-        st.write(f"**Model:** {selected_workflow.llm_model}")
-        st.write(f"**Supported file types:** {', '.join(selected_workflow.supported_file_types)}")
-
-    # Check if it's a fast workflow
-    is_fast_workflow = "-fast" in workflow_name or "fast" in workflow_name.lower()
-    
-    # Show extraction parameters info for fast workflows
-    if is_fast_workflow:
-        # Document type selector (for fast workflows)
-        doc_type_options = list(SupportedDocumentType)
-        selected_doc_type: SupportedDocumentType = st.selectbox(
-            "Type de document (requis pour les workflows fast)",
-            options=doc_type_options,
-            format_func=lambda x: x.name.replace("_", " ").title(),
-            index=0,
-            help="Spécifiez le type de document pour les workflows qui n'incluent pas de classification"
+    # Document type selector for fast workflows
+    selected_doc_type = None
+    if workflow_selection.is_fast_workflow:
+        selected_doc_type = render_document_type_selector(
+            label="Type de document (requis pour les workflows fast)",
+            help_text="Spécifiez le type de document pour les workflows qui n'incluent pas de classification",
         )
-
-        extraction_params_preview = {"document-type": selected_doc_type.value}
-        st.info(f"ℹ️ Workflow fast détecté - Paramètres d'extraction qui seront envoyés: `{json.dumps(extraction_params_preview)}`")
+        render_extraction_params_info(workflow_selection.is_fast_workflow, selected_doc_type)
 
     api_key = config.DOCUMENT_IA_API_KEY
     if not api_key:
@@ -74,20 +52,20 @@ def main():
 
         # Prepare extraction parameters for fast workflows
         extraction_parameters = None
-        if is_fast_workflow:
+        if workflow_selection.is_fast_workflow and selected_doc_type:
             extraction_parameters = {"document-type": selected_doc_type.value}
         
         # Show request parameters
         with st.expander("📋 Paramètres de la requête", expanded=False):
             request_params = {
-                "workflow_name": workflow_name,
+                "workflow_name": workflow_selection.workflow_id,
                 "extraction_parameters": extraction_parameters,
             }
             st.json(request_params)
 
         with st.spinner("Envoie de la requête, en attente de la réponse de l'API...", show_time=True):
             workflow_execute_response = execute_workflow(
-                workflow_name,
+                workflow_selection.workflow_id,
                 uploaded_file,
                 api_key,
                 extraction_parameters=extraction_parameters,

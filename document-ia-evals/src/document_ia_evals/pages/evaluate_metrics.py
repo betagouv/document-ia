@@ -5,6 +5,12 @@ import importlib
 import pandas as pd
 import streamlit as st
 
+from document_ia_evals.components import (
+    ClientType,
+    get_client,
+    render_document_type_selector,
+    render_project_selector,
+)
 from document_ia_evals.database.connection import init_db, test_db_connection
 from document_ia_evals.metrics import metric_registry
 from document_ia_evals.services.experiment_service import save_experiment
@@ -14,10 +20,7 @@ from document_ia_evals.services.metric_evaluation_service import (
     run_metric_evaluation,
 )
 from document_ia_evals.utils.config import config
-from document_ia_evals.utils.label_studio import (
-    get_label_studio_client_legacy,
-    get_project_url,
-)
+from document_ia_evals.utils.label_studio import get_project_url
 
 # Page configuration
 st.set_page_config(
@@ -27,70 +30,6 @@ st.set_page_config(
 )
 
 
-def render_project_selection(client) -> int | None:
-    """
-    Render project selection UI.
-    
-    Args:
-        client: Label Studio client
-    
-    Returns:
-        Selected project ID or None
-    """
-    st.header("1️⃣ Select Label Studio Project")
-    
-    try:
-        with st.spinner("Fetching projects from Label Studio..."):
-            projects = client.list_projects()
-        
-        if not projects:
-            st.info("No projects found in your Label Studio instance.")
-            return None
-        
-        # Create project selection dropdown
-        project_options = {
-            f"{p.get_params()['title']} (ID: {p.get_params()['id']})": p.get_params()['id']
-            for p in projects
-        }
-        
-        selected_project_label = st.selectbox(
-            "Choose a project:",
-            options=list(project_options.keys()),
-            index=None,
-            placeholder="Select a project..."
-        )
-        
-        if selected_project_label:
-            selected_project_id = project_options[selected_project_label]
-            
-            # Show project details
-            selected_project = next(
-                (p for p in projects if p.get_params()['id'] == selected_project_id),
-                None
-            )
-            
-            if selected_project:
-                params = selected_project.get_params()
-                
-                with st.expander("📊 Project Details", expanded=False):
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.markdown(f"**Project ID:** {params['id']}")
-                        st.markdown(f"**Total Tasks:** {params.get('task_number', 0)}")
-                    with col2:
-                        st.markdown(f"**Created:** {params.get('created_at', 'N/A')}")
-                        if params.get('description'):
-                            st.markdown(f"**Description:** {params['description']}")
-            
-            return selected_project_id
-        
-        return None
-    
-    except Exception as e:
-        st.error(f"Error fetching projects: {str(e)}")
-        return None
-
-
 def render_metric_selection() -> tuple[str | None, str | None]:
     """
     Render metric selection UI.
@@ -98,8 +37,6 @@ def render_metric_selection() -> tuple[str | None, str | None]:
     Returns:
         Tuple of (selected metric name, selected document type or None)
     """
-    st.header("2️⃣ Select Evaluation Metric")
-    
     metrics = metric_registry.list_metrics()
     
     if not metrics:
@@ -135,23 +72,11 @@ def render_metric_selection() -> tuple[str | None, str | None]:
         if 'document_type' in metric_info.get('require', []):
             st.info("ℹ️ This metric requires a document type to be specified.")
             
-            from document_ia_schemas import SupportedDocumentType
-            
-            document_type_options = {
-                f"{dt.value}": dt.value
-                for dt in SupportedDocumentType
-            }
-            
-            selected_doc_type = st.selectbox(
-                "Select Document Type:",
-                options=list(document_type_options.keys()),
-                index=None,
-                placeholder="Choose a document type...",
-                help="This is required for the json_schema_extra metric to know which schema to use"
+            selected_doc_type = render_document_type_selector(
+                label="Select Document Type:",
+                help_text="This is required for the json_schema_extra metric to know which schema to use",
             )
-            
-            if selected_doc_type:
-                selected_document_type = document_type_options[selected_doc_type]
+            selected_document_type = selected_doc_type.value
         
         return selected_metric_name, selected_document_type
     
@@ -261,15 +186,17 @@ def main():
     if 'saved_experiment_id' not in st.session_state:
         st.session_state.saved_experiment_id = None
     
-    # Get Label Studio client
-    client = get_label_studio_client_legacy()
+    # Step 1: Select Project using component
+    project_selection = render_project_selector(
+        client_type=ClientType.LEGACY,
+        label="Choose a project:",
+        show_details=True,
+        show_task_count=True,
+        required=False,
+        placeholder="Select a project...",
+    )
     
-    if not client:
-        st.error("Failed to connect to Label Studio. Please check your configuration.")
-        st.stop()
-    
-    # Step 1: Select Project
-    selected_project_id = render_project_selection(client)
+    selected_project_id = project_selection.project_id if project_selection else None
     
     # Step 2: Select Metric
     selected_metric, selected_document_type = render_metric_selection()
@@ -291,8 +218,6 @@ def main():
     )
     
     # Step 3: Run Evaluation
-    st.header("3️⃣ Run Evaluation")
-    
     if ready_to_run:
         st.success("✅ Ready to evaluate predictions metrics!")
         
@@ -327,6 +252,9 @@ def main():
         with col3:
             if st.session_state.saved_experiment_id:
                 st.success(f"✅ Saved: {str(st.session_state.saved_experiment_id)[:8]}...")
+        
+        # Get the legacy client for evaluation
+        client = get_client(ClientType.LEGACY)
         
         # Handle Run button
         if run_button:
