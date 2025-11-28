@@ -9,7 +9,6 @@ from document_ia_evals.database.connection import init_db, test_db_connection
 from document_ia_evals.metrics import metric_registry
 from document_ia_evals.services.experiment_service import (
     delete_experiment,
-    get_experiment_statistics,
     list_experiments,
     load_experiment,
 )
@@ -51,70 +50,15 @@ def main():
                 st.info("Make sure Docker PostgreSQL is running: `docker-compose up -d`")
                 st.stop()
     
-    # Filters
-    st.subheader("🔍 Filters")
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        project_filter = st.number_input(
-            "Project ID (optional)",
-            min_value=0,
-            value=0,
-            help="Filter by Label Studio project ID, 0 for all"
-        )
-    
-    with col2:
-        available_metrics = metric_registry.get_metric_names()
-        metric_filter = st.selectbox(
-            "Metric (optional)",
-            options=["All"] + available_metrics,
-            help="Filter by metric name"
-        )
-    
-    with col3:
-        limit = st.number_input(
-            "Max results",
-            min_value=10,
-            max_value=200,
-            value=50,
-            step=10
-        )
-    
-    st.divider()
-    
     # Get experiments
     try:
-        experiments = list_experiments(
-            project_id=project_filter if project_filter > 0 else None,
-            metric_name=metric_filter if metric_filter != "All" else None,
-            limit=limit
-        )
+        experiments = list_experiments()
         
         if not experiments:
             st.info("No experiments found. Run an experiment and save it to see history.")
             if st.button("➕ Create New Experiment"):
                 st.switch_page("pages/evaluate_metrics.py")
             st.stop()
-        
-        # Show statistics
-        st.subheader("📊 Statistics")
-        stats = get_experiment_statistics(
-            project_id=project_filter if project_filter > 0 else None,
-            metric_name=metric_filter if metric_filter != "All" else None
-        )
-        
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Total Experiments", stats['total_experiments'])
-        with col2:
-            avg_score = stats['average_score']
-            st.metric("Average Score", f"{avg_score:.3f}" if avg_score else "N/A")
-        with col3:
-            st.metric("Total Tasks", stats['total_tasks'])
-        with col4:
-            st.metric("Processed", stats['total_processed'])
-        
-        st.divider()
         
         # Display experiments table
         st.subheader(f"📋 Experiments ({len(experiments)})")
@@ -178,28 +122,23 @@ def main():
             
             if exp_data:
                 # Header with close button
-                col1, col2 = st.columns([3, 1])
+                col1, col2, col3 = st.columns([3, 1, 1])
                 with col1:
                     st.subheader(f"📖 Experiment: {exp_id[:8]}...")
-                    st.link_button("Ouvrir dans label studio", f"{config.LABEL_STUDIO_URL}/projects/{exp_data['project_id']}/data")
                 with col2:
+                    st.link_button("🔍 Ouvrir dans Label Studio", f"{config.LABEL_STUDIO_URL}/projects/{exp_data['project_id']}/data")
+                with col3:
                     if st.button("✖️ Close", key="close_detail"):
                         del st.session_state.view_experiment_id
                         st.rerun()
-                
-                # Experiment metadata
+
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    st.metric("Project ID", exp_data['project_id'])
+                    st.markdown(f"**Metric:** {exp_data['metric_name']}")
                 with col2:
-                    st.metric("Total Tasks", exp_data['total_tasks'])
+                    st.markdown(f"**Created:** {format_datetime(exp_data['created_at'])}")
                 with col3:
-                    score = exp_data.get('average_score')
-                    st.metric("Average Score", f"{score:.3f}" if score else "N/A")
-                
-                st.markdown(f"**Metric:** {exp_data['metric_name']}")
-                st.markdown(f"**Created:** {format_datetime(exp_data['created_at'])}")
-                st.markdown(f"**Status:** {exp_data.get('status', 'unknown')}")
+                    st.markdown(f"**Status:** {exp_data.get('status', 'unknown')}")
                 
                 if exp_data.get('notes'):
                     st.info(f"📝 **Notes:** {exp_data['notes']}")
