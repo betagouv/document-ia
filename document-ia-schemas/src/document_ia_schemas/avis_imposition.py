@@ -30,6 +30,14 @@ class AvisImpositionModel(BaseModel):
         alias="Nom et Prénom du déclarant 1",
         examples=["MARTIN"],
         json_schema_extra={
+            "metrics": Metric.LEVENSHTEIN_DISTANCE
+        }
+    )
+    declarant_1_nom_naissance: str = Field(
+        description="Nom de naissance du premier déclarant, il peut être différent du nom et prénom du déclarant 1",
+        alias="Nom de naissance du déclarant 1",
+        examples=["MARTIN"],
+        json_schema_extra={
             "metrics": Metric.SKIP #Metric.LEVENSHTEIN_DISTANCE
         }
     )
@@ -60,6 +68,14 @@ class AvisImpositionModel(BaseModel):
     declarant_2_identite: str = Field(
         description="Nom et prénom du deuxième déclarant tel qu'il apparait au niveau du destinataire",
         alias="Nom et Prénom du déclarant 2",
+        examples=["MARTIN"],
+        json_schema_extra={
+            "metrics": Metric.LEVENSHTEIN_DISTANCE
+        }
+    )
+    declarant_2_nom_naissance: str = Field(
+        description="Nom de naissance du deuxième déclarant, il peut être différent du nom et prénom du déclarant 2",
+        alias="Nom de naissance du déclarant 2",
         examples=["MARTIN"],
         json_schema_extra={
             "metrics": Metric.SKIP #Metric.LEVENSHTEIN_DISTANCE
