@@ -170,3 +170,78 @@ def build_s3_url(bucket: str, key: str) -> str:
     """
     return f"s3://{bucket}/{key}"
 
+
+def parse_s3_url(s3_url: str) -> tuple[str, str]:
+    """
+    Parse an S3 URL into bucket and key.
+    
+    Args:
+        s3_url: S3 URL in format s3://bucket/key
+    
+    Returns:
+        Tuple of (bucket, key)
+    
+    Raises:
+        ValueError: If URL format is invalid
+    """
+    if not s3_url.startswith('s3://'):
+        raise ValueError(f"Invalid S3 URL: {s3_url}")
+    
+    # Remove s3:// prefix and split bucket/key
+    path = s3_url[5:]  # Remove 's3://'
+    parts = path.split('/', 1)
+    if len(parts) != 2:
+        raise ValueError(f"Invalid S3 URL format: {s3_url}")
+    
+    return parts[0], parts[1]
+
+
+def download_from_s3(s3_url: str) -> tuple[bytes, str]:
+    """
+    Download a file from S3 given an s3:// URL.
+    
+    Args:
+        s3_url: S3 URL in format s3://bucket/key
+        
+    Returns:
+        Tuple of (file_content, filename)
+    
+    Raises:
+        ValueError: If URL format is invalid
+        Exception: If download fails
+    """
+    bucket, key = parse_s3_url(s3_url)
+    
+    # Get S3 client
+    s3_client = get_s3_client()
+    
+    # Download file
+    response = s3_client.get_object(Bucket=bucket, Key=key)
+    file_content = response['Body'].read()
+    
+    # Extract filename from key
+    filename = key.split('/')[-1]
+    
+    return file_content, filename
+
+
+def get_content_type_from_filename(filename: str) -> str:
+    """
+    Determine content type from filename extension.
+    
+    Args:
+        filename: Name of the file
+    
+    Returns:
+        MIME type string
+    """
+    filename_lower = filename.lower()
+    if filename_lower.endswith('.pdf'):
+        return 'application/pdf'
+    elif filename_lower.endswith(('.jpg', '.jpeg')):
+        return 'image/jpeg'
+    elif filename_lower.endswith('.png'):
+        return 'image/png'
+    else:
+        return 'application/octet-stream'
+

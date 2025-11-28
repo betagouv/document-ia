@@ -1,304 +1,35 @@
 # Standard library imports
 import asyncio
-import base64
-import io
 import json
-import queue
-import threading
-import time
-from typing import Any, List
-from urllib.parse import urlparse, parse_qs
+from typing import Any
 
 # Third-party imports
-import boto3
-from document_ia_evals.utils.label_studio import dict_to_annotation_result, get_label_studio_client
 import streamlit as st
-from botocore.exceptions import ClientError
-from label_studio_sdk import LabelStudio
-from label_studio_sdk.types import Project
 
 # Local imports
+from document_ia_evals.services.prediction_service import (
+    get_failed_tasks,
+    get_processing_statistics,
+    get_task_count,
+    run_workflow_on_dataset,
+)
 from document_ia_evals.utils.config import config
-from document_ia_evals.utils.api import execute_workflow, wait_for_execution
+from document_ia_evals.utils.label_studio import get_label_studio_client
 from document_ia_infra.data.workflow.repository.worflow import workflow_repository
 from document_ia_schemas import SupportedDocumentType
 
-def download_from_s3(s3_url: str) -> tuple[bytes, str] | None:
-    """Download a file from S3 given an s3:// URL.
-    
-    Args:
-        s3_url: S3 URL in format s3://bucket/key
-        
-    Returns:
-        Tuple of (file_content, filename) or None if failed
+
+def render_configuration_warnings() -> bool:
     """
-    try:
-        # Parse s3:// URL
-        if not s3_url.startswith('s3://'):
-            raise ValueError(f"Invalid S3 URL: {s3_url}")
-        
-        # Remove s3:// prefix and split bucket/key
-        path = s3_url[5:]  # Remove 's3://'
-        parts = path.split('/', 1)
-        if len(parts) != 2:
-            raise ValueError(f"Invalid S3 URL format: {s3_url}")
-        
-        bucket, key = parts
-        
-        # Initialize S3 client
-        s3_client = boto3.client(  # type: ignore
-            's3',
-            endpoint_url=config.S3_ENDPOINT,
-            aws_access_key_id=config.S3_ACCESS_KEY,
-            aws_secret_access_key=config.S3_SECRET_KEY,
-            region_name=config.S3_REGION
-        )
-        
-        # Download file
-        response = s3_client.get_object(Bucket=bucket, Key=key)
-        file_content = response['Body'].read()
-        
-        # Extract filename from key
-        filename = key.split('/')[-1]
-        
-        return file_content, filename
-        
-    except Exception as e:
-        st.error(f"Failed to download {s3_url}: {e}")
-        return None
-
-
-def process_task(
-    task: Any,  # Task object from Label Studio SDK
-    workflow_id: str,
-    api_key: str,
-    ls_client: LabelStudio,
-    project_id: int,
-    callback: queue.Queue[tuple[int, bool, str | None, str | None, int]],
-    model_version: str | None = None,
-    extraction_parameters: dict[str, Any] | None = None,
-) -> None:
-    """Process a single task: download file, execute workflow, create annotation."""
-    task_id = task.id
-    error_msg: str | None = None
-    execution_id: str | None = None
+    Check and display warnings for missing configuration.
     
-    try:
-        # Get URL from task data
-        pdf_url = task.data.get('pdf') if task.data else None
-        if not pdf_url:
-            error_msg = "No PDF URL found in task data"
-            callback.put((task_id, False, error_msg, execution_id, -1))
-            return
-        
-        # Extract and decode the S3 URL from fileuri parameter
-        s3_url = pdf_url
-        
-        if 'fileuri=' in pdf_url:
-            # Extract fileuri parameter value
-            parsed = urlparse(pdf_url)
-            query_params = parse_qs(parsed.query)
-            fileuri_encoded = query_params.get('fileuri', [None])[0]
-            
-            if fileuri_encoded:
-                try:
-                    # Add padding if needed for base64
-                    missing_padding = len(fileuri_encoded) % 4
-                    if missing_padding:
-                        fileuri_encoded += '=' * (4 - missing_padding)
-                    s3_url = base64.b64decode(fileuri_encoded).decode('utf-8')
-                except Exception as e:
-                    error_msg = f"Failed to decode fileuri parameter: {e}"
-                    callback.put((task_id, False, error_msg, execution_id, -1))
-                    return
-        elif not pdf_url.startswith('s3://'):
-            # Try to decode if it's base64 encoded directly
-            try:
-                missing_padding = len(pdf_url) % 4
-                if missing_padding:
-                    pdf_url += '=' * (4 - missing_padding)
-                s3_url = base64.b64decode(pdf_url).decode('utf-8')
-            except Exception:
-                # If decoding fails, use as-is
-                pass
-        
-        # Download file from S3
-        download_result = download_from_s3(s3_url)
-        if not download_result:
-            error_msg = f"Failed to download file from {s3_url}"
-            callback.put((task_id, False, error_msg, execution_id, -1))
-            return
-        
-        file_content, filename = download_result
-        
-        # Determine content type from filename
-        if filename.lower().endswith('.pdf'):
-            content_type = 'application/pdf'
-        elif filename.lower().endswith(('.jpg', '.jpeg')):
-            content_type = 'image/jpeg'
-        elif filename.lower().endswith('.png'):
-            content_type = 'image/png'
-        else:
-            content_type = 'application/octet-stream'
-        
-        # Create file-like object for API (matching the working implementation)
-        file_obj = io.BytesIO(file_content)
-        file_obj.name = filename
-        file_obj.type = content_type  # type: ignore  # Add type attribute like UploadedFile
-        
-        # Execute workflow
-        st.info(f"Task {task_id}: Executing workflow '{workflow_id}' on file '{filename}'")
-        workflow_execute_response = execute_workflow(
-            workflow_id,
-            file_obj,
-            api_key,
-            extraction_parameters=extraction_parameters,
-        )
-        
-        execution_id = workflow_execute_response.data.execution_id
-        if not execution_id:
-            error_msg = "Failed to get execution_id from workflow response"
-            callback.put((task_id, False, error_msg, execution_id, -1))
-            return
-        
-        execution_details = wait_for_execution(execution_id, api_key)
-        
-        # Check status
-        if not execution_details or execution_details.status.upper() != "SUCCESS":
-            error_msg = f"Workflow failed with status: {execution_details.status if execution_details else 'unknown'} (execution_id: {execution_id})"
-            callback.put((task_id, False, error_msg, execution_id, -1))
-            return
-        
-        # Extract the result from execution details
-        workflow_data = execution_details.data
-
-        # Get extracted fields from the new workflow structure
-        result_data = workflow_data.result
-        
-        # Extract properties from extraction.properties array
-        annotation_data: dict[str, Any] = {}
-        if result_data.extraction is not None and result_data.extraction.properties:
-            # Convert array of {name, value, type} objects to dict
-            properties_array = result_data.extraction.properties
-            for prop in properties_array:
-                if prop.name and prop.value:
-                    annotation_data[prop.name] = prop.value
-        
-        # Create prediction result
-        prediction_result = dict_to_annotation_result(annotation_data, metadata={"total_processing_time_ms": execution_details.data.total_processing_time_ms})
-        
-        # Create prediction in Label Studio using the predictions API
-        ls_client.predictions.create(  # type: ignore
-            task=task_id,
-            result=prediction_result,
-            model_version=model_version or workflow_id
-        )
-        
-        callback.put((task_id, True, None, execution_id, execution_details.data.total_processing_time_ms))
-        
-    except Exception as e:
-        error_msg = str(e)
-        callback.put((task_id, False, error_msg, execution_id, -1))
-
-
-def consumer(
-    task_queue: queue.Queue[Any],  # Queue of Task objects
-    workflow_id: str,
-    api_key: str,
-    ls_client: LabelStudio,
-    project_id: int,
-    callback: queue.Queue[tuple[int, bool, str | None, str | None, int]],
-    model_version: str | None = None,
-    extraction_parameters: dict[str, Any] | None = None,
-) -> None:
-    """Consumer thread to process tasks."""
-    while True:
-        try:
-            task = task_queue.get(block=False)
-        except queue.Empty:
-            return
-        
-        process_task(task, workflow_id, api_key, ls_client, project_id, callback, model_version, extraction_parameters)
-
-
-def run_workflow_on_dataset(
-    workflow_id: str,
-    project_id: int,
-    api_key: str,
-    ls_client: LabelStudio,
-    n_workers: int = 5,
-    model_version: str | None = None,
-    extraction_parameters: dict[str, Any] | None = None,
-) -> dict[int, dict[str, Any]]:
-    """Run workflow on all tasks in a Label Studio project."""
-    
-    # Get all tasks from the project
-    # project = ls_client.get_project(project_id)  # type: ignore
-    tasks = [task for task in ls_client.tasks.list(project=project_id, fields='all')]
-    
-    if not tasks:
-        st.warning("No tasks found in the selected dataset.")
-        return {}
-    
-    results: dict[int, dict[str, Any]] = {}
-    
-    with st.spinner(f"Processing {len(tasks)} tasks...", show_time=True):
-        pbar = st.progress(0, text="Executing workflows and creating annotations...")
-        threads: list[threading.Thread] = []
-        task_queue: queue.Queue[Any] = queue.Queue()  # Queue of Task objects
-        callback: queue.Queue[tuple[int, bool, str | None, str | None, int]] = queue.Queue()
-        
-        # Fill task queue
-        for task in tasks:
-            task_queue.put(task)
-        
-        # Start worker threads
-        for _ in range(min(n_workers, len(tasks))):
-            t = threading.Thread(
-                target=consumer,
-                args=(task_queue, workflow_id, api_key, ls_client, project_id, callback, model_version, extraction_parameters),
-                daemon=True
-            )
-            t.start()
-            threads.append(t)
-        
-        # Collect results
-        for i in range(len(tasks)):
-            task_id, success, error, execution_id, total_processing_time_ms = callback.get()
-            results[task_id] = {
-                'success': success,
-                'error': error,
-                'execution_id': execution_id, 
-                'total_processing_time_ms': total_processing_time_ms
-            }
-            pbar.progress((i + 1) / len(tasks))
-        
-        # Wait for all threads to complete
-        for t in threads:
-            t.join()
-    
-    return results
-
-
-def main() -> None:
-    title = "Exécuter un workflow sur un dataset"
-    st.set_page_config(page_title=title, page_icon="🔄")
-    st.title(title)
-    st.caption(f"Using: API endpoint: {config.DOCUMENT_IA_BASE_URL}, S3 endpoint: {config.S3_ENDPOINT}/{config.S3_BUCKET_NAME}, Label Studio URL: {config.LABEL_STUDIO_URL}")
-    
-    st.markdown("""
-    Cette page vous permet d'exécuter un workflow sur tous les fichiers d'un dataset Label Studio existant :
-    1. Sélection du workflow à exécuter
-    2. Sélection du dataset Label Studio
-    3. Exécution du workflow sur chaque fichier
-    4. Création d'une nouvelle annotation avec les résultats
-    """)
-    
+    Returns:
+        True if all configuration is valid, False otherwise
+    """
     # Check API key
-    api_key = config.DOCUMENT_IA_API_KEY
-    if not api_key:
+    if not config.DOCUMENT_IA_API_KEY:
         st.warning("⚠️ DOCUMENT_IA_API_KEY environment variable is not set.")
-        return
+        return False
     
     # Check S3 configuration
     s3_vars = {
@@ -311,17 +42,23 @@ def main() -> None:
     missing_s3 = [var for var, val in s3_vars.items() if not val]
     if missing_s3:
         st.warning(f"⚠️ Missing S3 configuration: {', '.join(missing_s3)}")
-        return
+        return False
     
-    # Check Label Studio configuration
-    ls_client = get_label_studio_client()
+    return True
+
+
+def render_workflow_selector() -> tuple[str, Any, bool] | None:
+    """
+    Render workflow selection and details.
     
-    # Fetch workflows
+    Returns:
+        Tuple of (workflow_id, workflow, is_fast_workflow) or None if no workflows
+    """
     workflows_list = asyncio.run(workflow_repository.get_all_workflows())
     
     if not workflows_list:
         st.error("❌ No workflows found")
-        return
+        return None
     
     # Workflow selector
     workflow_options = {w.id: f"{w.name} (v{w.version})" for w in workflows_list}
@@ -340,10 +77,21 @@ def main() -> None:
         st.write(f"**Model:** {selected_workflow.llm_model}")
         st.write(f"**Supported file types:** {', '.join(selected_workflow.supported_file_types)}")
     
-    # Check if it's a fast workflow
     is_fast_workflow = "-fast" in selected_workflow_id or "fast" in selected_workflow_id.lower()
     
-    # Document type selector (for fast workflows)
+    return selected_workflow_id, selected_workflow, is_fast_workflow
+
+
+def render_document_type_selector(is_fast_workflow: bool) -> SupportedDocumentType:
+    """
+    Render document type selector.
+    
+    Args:
+        is_fast_workflow: Whether the selected workflow is a fast workflow
+    
+    Returns:
+        Selected document type
+    """
     doc_type_options = list(SupportedDocumentType)
     selected_doc_type: SupportedDocumentType = st.selectbox(
         "Type de document (requis pour les workflows fast)",
@@ -358,13 +106,26 @@ def main() -> None:
         extraction_params_preview = {"document-type": selected_doc_type.value}
         st.info(f"ℹ️ Workflow fast détecté - Paramètres d'extraction qui seront envoyés: `{json.dumps(extraction_params_preview)}`")
     
-    # Fetch Label Studio projects
+    return selected_doc_type
+
+
+def render_project_selector(ls_client: Any) -> tuple[int, str] | None:
+    """
+    Render Label Studio project selector.
+    
+    Args:
+        ls_client: Label Studio client
+    
+    Returns:
+        Tuple of (project_id, project_title) or None if no projects or error
+    """
     try:
-        projects = ls_client.projects.list()  # type: ignore
+        projects = ls_client.projects.list()
         
         if not projects:
             st.warning("⚠️ No Label Studio projects found")
-            return
+            return None
+        
         # Project selector
         project_options = {p.id: p.title or f"Project {p.id}" for p in projects}
         selected_project_id: int = st.selectbox(
@@ -381,71 +142,207 @@ def main() -> None:
             st.write(f"**Description:** {selected_project.description or 'N/A'}")
             
             # Get task count
-            s = ls_client.projects.get(selected_project_id)  # type: ignore
-            tasks = [task for task in ls_client.tasks.list(project=selected_project_id, fields='all')]  # type: ignore
-            st.write(f"**Number of tasks:** {len(tasks)}")
+            task_count = get_task_count(ls_client, selected_project_id)
+            st.write(f"**Number of tasks:** {task_count}")
+        
+        return selected_project_id, project_options[selected_project_id]
         
     except Exception as e:
         st.error(f"❌ Failed to fetch Label Studio projects: {e}")
-        return
+        return None
+
+
+def render_worker_config() -> int:
+    """
+    Render worker configuration.
     
-    # Number of workers
-    n_workers = st.number_input(
+    Returns:
+        Number of workers
+    """
+    return st.number_input(
         "Nombre de tâches à traiter en parallèle",
         min_value=1,
         max_value=10,
         value=5,
         step=1,
     )
+
+
+def render_model_version_input(default_value: str) -> str:
+    """
+    Render model version input.
     
-    # Model version / annotation name
-    model_version = st.text_input(
+    Args:
+        default_value: Default value for the input
+    
+    Returns:
+        Model version string
+    """
+    return st.text_input(
         "Nom de l'annotation (model version)",
-        value=selected_workflow_id,
+        value=default_value,
         help="Nom affiché pour cette annotation dans Label Studio. Par défaut: ID du workflow"
     )
+
+
+def render_processing_results(results: dict[int, dict[str, Any]]) -> None:
+    """
+    Render processing results summary and errors.
     
-    # Run workflow button
-    if st.button("Lancer l'exécution du workflow", type="primary"):
-        # Prepare extraction parameters for fast workflows
-        extraction_parameters = None
-        if is_fast_workflow:
-            extraction_parameters = {"document-type": selected_doc_type.value}
+    Args:
+        results: Dictionary of task processing results
+    """
+    success_count, total_count = get_processing_statistics(results)
+    st.success(f"✅ {success_count}/{total_count} tâches traitées avec succès")
+    
+    if success_count < total_count:
+        st.warning("⚠️ Certaines tâches n'ont pas pu être traitées:")
+        failed_tasks = get_failed_tasks(results)
+        for task_id, error, execution_id, processing_time_ms in failed_tasks:
+            st.error(f"- Task {task_id}: {error}")
+            if execution_id:
+                st.info(f"  Execution ID: `{execution_id}`\n Processing Time: `{processing_time_ms}`")
+
+
+def render_project_link(project_id: int) -> None:
+    """
+    Render link to Label Studio project.
+    
+    Args:
+        project_id: Label Studio project ID
+    """
+    project_url = f"{config.LABEL_STUDIO_URL}/projects/{project_id}"
+    st.markdown(f"🔗 [Voir les annotations dans Label Studio]({project_url})")
+
+
+def handle_workflow_execution(
+    workflow_id: str,
+    workflow_name: str,
+    project_id: int,
+    project_title: str,
+    api_key: str,
+    ls_client: Any,
+    n_workers: int,
+    model_version: str,
+    is_fast_workflow: bool,
+    selected_doc_type: SupportedDocumentType,
+) -> None:
+    """
+    Handle the workflow execution process.
+    
+    Args:
+        workflow_id: Selected workflow ID
+        workflow_name: Workflow display name
+        project_id: Label Studio project ID
+        project_title: Project display title
+        api_key: API key for authentication
+        ls_client: Label Studio client
+        n_workers: Number of parallel workers
+        model_version: Model version for predictions
+        is_fast_workflow: Whether workflow is a fast workflow
+        selected_doc_type: Selected document type
+    """
+    # Prepare extraction parameters for fast workflows
+    extraction_parameters = None
+    if is_fast_workflow:
+        extraction_parameters = {"document-type": selected_doc_type.value}
+    
+    st.info(f"🚀 Exécution du workflow '{workflow_id}' sur le dataset '{project_title}'...")
+    
+    with st.spinner("Processing tasks...", show_time=True):
+        pbar = st.progress(0, text="Executing workflows and creating annotations...")
         
-        st.info(f"🚀 Exécution du workflow '{selected_workflow.id}' sur le dataset '{project_options[selected_project_id]}'...")
+        def update_progress(current: int, total: int) -> None:
+            pbar.progress(current / total)
         
         processing_results = run_workflow_on_dataset(
-            workflow_id=selected_workflow_id,
-            project_id=selected_project_id,
+            workflow_id=workflow_id,
+            project_id=project_id,
             api_key=api_key,
             ls_client=ls_client,
             n_workers=n_workers,
             model_version=model_version if model_version else None,
             extraction_parameters=extraction_parameters,
+            on_progress=update_progress,
         )
+    
+    # Show results
+    if processing_results:
+        render_processing_results(processing_results)
+        render_project_link(project_id)
         
-        # Show results
-        if processing_results:
-            success_count = sum(1 for r in processing_results.values() if r['success'])
-            st.success(f"✅ {success_count}/{len(processing_results)} tâches traitées avec succès")
-            
-            if success_count < len(processing_results):
-                st.warning("⚠️ Certaines tâches n'ont pas pu être traitées:")
-                for task_id, result in processing_results.items():
-                    if not result['success']:
-                        execution_id = result.get('execution_id', 'N/A')
-                        total_processing_time_ms = result.get('total_processing_time_ms', 'N/A')
-                        st.error(f"- Task {task_id}: {result['error']}")
-                        if execution_id != 'N/A':
-                            st.info(f"  Execution ID: `{execution_id}`\n Processing Time: `{total_processing_time_ms}`")
-            
-            # Display project link
-            project_url = f"{config.LABEL_STUDIO_URL}/projects/{selected_project_id}"
-            st.markdown(f"🔗 [Voir les annotations dans Label Studio]({project_url})")
-            
-            # Show detailed results
-            with st.expander("Détails des résultats"):
-                st.json(processing_results)
+        # Show detailed results
+        with st.expander("Détails des résultats"):
+            st.json(processing_results)
+    else:
+        st.warning("No tasks found in the selected dataset.")
+
+
+def main() -> None:
+    """Main page entry point."""
+    title = "Exécuter un workflow sur un dataset"
+    st.set_page_config(page_title=title, page_icon="🔄")
+    st.title(title)
+    st.caption(
+        f"Using: API endpoint: {config.DOCUMENT_IA_BASE_URL}, "
+        f"S3 endpoint: {config.S3_ENDPOINT}/{config.S3_BUCKET_NAME}, "
+        f"Label Studio URL: {config.LABEL_STUDIO_URL}"
+    )
+    
+    st.markdown("""
+    Cette page vous permet d'exécuter un workflow sur tous les fichiers d'un dataset Label Studio existant :
+    1. Sélection du workflow à exécuter
+    2. Sélection du dataset Label Studio
+    3. Exécution du workflow sur chaque fichier
+    4. Création d'une nouvelle annotation avec les résultats
+    """)
+    
+    # Check configuration
+    if not render_configuration_warnings():
+        return
+    
+    api_key = config.DOCUMENT_IA_API_KEY
+    
+    # Get Label Studio client
+    ls_client = get_label_studio_client()
+    
+    # Workflow selection
+    workflow_result = render_workflow_selector()
+    if workflow_result is None:
+        return
+    
+    selected_workflow_id, selected_workflow, is_fast_workflow = workflow_result
+    
+    # Document type selector
+    selected_doc_type = render_document_type_selector(is_fast_workflow)
+    
+    # Project selection
+    project_result = render_project_selector(ls_client)
+    if project_result is None:
+        return
+    
+    selected_project_id, project_title = project_result
+    
+    # Worker configuration
+    n_workers = render_worker_config()
+    
+    # Model version input
+    model_version = render_model_version_input(selected_workflow_id)
+    
+    # Run workflow button
+    if st.button("Lancer l'exécution du workflow", type="primary"):
+        handle_workflow_execution(
+            workflow_id=selected_workflow_id,
+            workflow_name=selected_workflow.name,
+            project_id=selected_project_id,
+            project_title=project_title,
+            api_key=api_key,
+            ls_client=ls_client,
+            n_workers=n_workers,
+            model_version=model_version,
+            is_fast_workflow=is_fast_workflow,
+            selected_doc_type=selected_doc_type,
+        )
 
 
 if __name__ == "__main__":
