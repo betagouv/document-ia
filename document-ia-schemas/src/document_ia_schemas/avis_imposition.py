@@ -32,7 +32,7 @@ class AvisImpositionModel(BaseModel):
         alias="Date de mise en recouvrement",
         examples=["31/07/2024"],
         json_schema_extra={
-            "metrics": Metric.AVIS_IMPOSITION_DATE_EQUALITY
+            "metrics": Metric.STRING_DATE_EQUALITY
         }
     )
     declarant_1_nom: str = Field(

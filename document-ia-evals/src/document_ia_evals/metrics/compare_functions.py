@@ -8,9 +8,14 @@ from deepdiff import DeepDiff
 from document_ia_schemas.field_metrics import Metric
 
 
-def normalize_avis_imposition_date(value: Any):
+def normalize_string_date(value: Any):
     """
-    Normalize date strings that may be in DD/MM/YYYY or DDMMYYYY format.
+    Normalize date strings in various formats (European and ISO).
+    
+    Supported formats:
+    - DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY, DDMMYYYY (European)
+    - YYYY/MM/DD, YYYY-MM-DD, YYYY.MM.DD, YYYYMMDD (ISO)
+    
     Returns a datetime.date object or None if parsing fails.
     """
     if value is None:
@@ -24,25 +29,65 @@ def normalize_avis_imposition_date(value: Any):
     except ValueError:
         pass
 
+    # Try DD-MM-YYYY format
+    try:
+        return datetime.strptime(s, "%d-%m-%Y").date()
+    except ValueError:
+        pass
+
+    # Try DD.MM.YYYY format
+    try:
+        return datetime.strptime(s, "%d.%m.%Y").date()
+    except ValueError:
+        pass
+
     # Try DDMMYYYY format (must be exactly 8 digits)
     if len(s) == 8 and s.isdigit():
         try:
             return datetime.strptime(s, "%d%m%Y").date()
         except ValueError:
             pass
+    
+    # Try YYYY/MM/DD format
+    try:
+        return datetime.strptime(s, "%Y/%m/%d").date()
+    except ValueError:
+        pass
+
+    # Try YYYY-MM-DD format
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except ValueError:
+        pass
+
+    # Try YYYY.MM.DD format
+    try:
+        return datetime.strptime(s, "%Y.%m.%d").date()
+    except ValueError:
+        pass
+
+    # Try YYYYMMDD format (must be exactly 8 digits)
+    if len(s) == 8 and s.isdigit():
+        try:
+            return datetime.strptime(s, "%Y%m%d").date()
+        except ValueError:
+            pass
 
     return None
 
 
-def compare_avis_imposition_date(expected: Any, predicted: Any) -> float:
+def compare_string_date(expected: Any, predicted: Any) -> float:
     """
-    Compare two date values that may be in formats:
-    - DD/MM/YYYY
-    - DDMMYYYY
+    Compare two date values that may be in various formats.
+    
+    Supported formats:
+    - DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY, DDMMYYYY (European)
+    - YYYY/MM/DD, YYYY-MM-DD, YYYY.MM.DD, YYYYMMDD (ISO)
+    
     Returns 1.0 if equal, 0.0 otherwise.
     """
-    d1 = normalize_avis_imposition_date(expected)
-    d2 = normalize_avis_imposition_date(predicted)
+    d1 = normalize_string_date(expected)
+    d2 = normalize_string_date(predicted)
 
     # Both must parse correctly
     if d1 is None or d2 is None:
@@ -55,10 +100,11 @@ def normalize_number(value: Any):
     """
     Normalize a number represented as a messy string.
     Handles:
-      - spaces: " 1 234 " → "1234"
+      - spaces: " 1 234 567 " → "1234567"
       - commas: "12,5" → "12.5"
       - currency symbols: "1 200 €" → "1200"
       - thousands separators: "1.234,56" → "1234.56"
+      - minus sign: "1234-56" → "123456"
     Returns:
       float or None if parsing fails.
     """
@@ -219,7 +265,7 @@ METRIC_FUNCTIONS: Dict[Metric, Callable[[Any, Any], float]] = {
     Metric.EQUALITY: compare_equality,
     Metric.LEVENSHTEIN_DISTANCE: compare_levenshtein,
     Metric.DEEP_EQUALITY: compare_deep_equality,
-    Metric.AVIS_IMPOSITION_DATE_EQUALITY: compare_avis_imposition_date,
+    Metric.STRING_DATE_EQUALITY: compare_string_date,
     Metric.COMPARE_NUMBER: compare_number,
     Metric.SKIP: skip
 }

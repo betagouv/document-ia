@@ -9,6 +9,6 @@ class Metric(str, Enum):
     EQUALITY = "equality"
     LEVENSHTEIN_DISTANCE = "levenshtein_distance"
     DEEP_EQUALITY = "deep_equality"
-    AVIS_IMPOSITION_DATE_EQUALITY = "avis_imposition_date_equality"
+    STRING_DATE_EQUALITY = "string_date_equality"
     COMPARE_NUMBER = "compare_number"
     SKIP = "skip"
