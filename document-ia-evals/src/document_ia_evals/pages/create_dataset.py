@@ -1,11 +1,15 @@
 # Standard library imports
-import asyncio
 import json
 
 # Third-party imports
 import streamlit as st
 
 # Local imports
+from document_ia_evals.components import (
+    render_document_type_selector,
+    render_extraction_params_info,
+    render_workflow_selector,
+)
 from document_ia_evals.services.create_dataset_service import (
     get_failed_uploads,
     get_upload_statistics,
@@ -13,7 +17,6 @@ from document_ia_evals.services.create_dataset_service import (
 )
 from document_ia_evals.utils.config import config
 from document_ia_evals.utils.label_studio import create_label_studio_project
-from document_ia_infra.data.workflow.repository.worflow import workflow_repository
 from document_ia_schemas import SupportedDocumentType
 
 
@@ -50,44 +53,6 @@ def render_configuration_warnings() -> bool:
     return True
 
 
-def render_workflow_selector() -> tuple[str, dict, bool] | None:
-    """
-    Render workflow selection and details.
-    
-    Returns:
-        Tuple of (workflow_id, workflow, is_fast_workflow) or None if no workflows
-    """
-    workflows_list = asyncio.run(workflow_repository.get_all_workflows())
-
-    if not workflows_list:
-        st.error("❌ No workflows found")
-        return None
-
-    # Workflow selector
-    workflow_options = {w.id: f"{w.name} (v{w.version})" for w in workflows_list}
-    selected_workflow_id = st.selectbox(
-        "Sélectionnez un workflow",
-        options=list(workflow_options.keys()),
-        format_func=lambda x: workflow_options[x],
-        index=0,
-    )
-
-    # Display workflow details
-    selected_workflow = next(w for w in workflows_list if w.id == selected_workflow_id)
-    with st.expander("Détails du workflow"):
-        st.write(f"**Description:** {selected_workflow.description}")
-        st.write(f"**Steps:** {', '.join(selected_workflow.steps)}")
-        st.write(f"**Model:** {selected_workflow.llm_model}")
-        st.write(f"**Supported file types:** {', '.join(selected_workflow.supported_file_types)}")
-    
-    is_fast_workflow = "-fast" in selected_workflow_id or "fast" in selected_workflow_id.lower()
-
-    if not is_fast_workflow:
-        st.warning("Ce workflow n'est pas un workflow fast. Il est recommandé de créer un dataset avec un workflow fast.")
-    
-    return selected_workflow_id, selected_workflow, is_fast_workflow
-
-
 def render_dataset_form(is_fast_workflow: bool) -> tuple[str, SupportedDocumentType, str]:
     """
     Render dataset configuration form.
@@ -106,19 +71,14 @@ def render_dataset_form(is_fast_workflow: bool) -> tuple[str, SupportedDocumentT
         help="Nom unique pour identifier ce dataset"
     )
 
-    # Document type selector
-    doc_type_options = list(SupportedDocumentType)
-    selected_doc_type: SupportedDocumentType = st.selectbox(
-        "Type de document",
-        options=doc_type_options,
-        format_func=lambda x: x.name.replace("_", " ").title(),
-        index=0,
-    )
+    if is_fast_workflow:
+        # Document type selector
+        selected_doc_type = render_document_type_selector()
+    else:
+        selected_doc_type = None
     
     # Show extraction parameters info for fast workflows
-    if is_fast_workflow:
-        extraction_params_preview = {"document-type": selected_doc_type.value}
-        st.info(f"ℹ️ Workflow fast détecté - Paramètres d'extraction qui seront envoyés: `{json.dumps(extraction_params_preview)}`")
+    render_extraction_params_info(is_fast_workflow, selected_doc_type)
 
     # S3 prefix (computed, read-only)
     s3_prefix = f"{dataset_name}_{selected_doc_type.value}" if dataset_name else ""
@@ -295,15 +255,17 @@ def main() -> None:
     
     api_key = config.DOCUMENT_IA_API_KEY
     
-    # Workflow selection
-    workflow_result = render_workflow_selector()
-    if workflow_result is None:
+    # Workflow selection using component
+    workflow_selection = render_workflow_selector(
+        show_fast_warning=True,
+    )
+    if workflow_selection is None:
         return
-    
-    selected_workflow_id, _, is_fast_workflow = workflow_result
 
     # Dataset form
-    dataset_name, selected_doc_type, s3_prefix = render_dataset_form(is_fast_workflow)
+    dataset_name, selected_doc_type, s3_prefix = render_dataset_form(
+        workflow_selection.is_fast_workflow
+    )
     
     # File uploader
     folder = render_file_uploader()
@@ -316,12 +278,12 @@ def main() -> None:
         handle_dataset_creation(
             dataset_name=dataset_name,
             folder=folder,
-            workflow_id=selected_workflow_id,
+            workflow_id=workflow_selection.workflow_id,
             selected_doc_type=selected_doc_type,
             s3_prefix=s3_prefix,
             n_workers=n_workers,
             api_key=api_key,
-            is_fast_workflow=is_fast_workflow,
+            is_fast_workflow=workflow_selection.is_fast_workflow,
         )
 
 
