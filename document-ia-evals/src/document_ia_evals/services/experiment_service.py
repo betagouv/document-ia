@@ -102,11 +102,32 @@ def save_experiment(
             except json.JSONDecodeError:
                 parsed_obs = {}
             
-            # Extract ONLY privacy-safe data (scores, no raw data)
+            # Extract privacy-safe data (scores, metadata, no raw data like expected/predicted values)
             metric_results = {
                 'score': obs_data.get('score', 0.0),
                 'field_scores': parsed_obs.get('field_scores', {}),
             }
+            
+            # Include optional metadata fields if present
+            if 'document_type' in parsed_obs:
+                metric_results['document_type'] = parsed_obs['document_type']
+            if 'model_type' in parsed_obs:
+                metric_results['model_type'] = parsed_obs['model_type']
+            if 'evaluated_fields' in parsed_obs:
+                metric_results['evaluated_fields'] = parsed_obs['evaluated_fields']
+            if 'skipped_fields' in parsed_obs:
+                metric_results['skipped_fields'] = parsed_obs['skipped_fields']
+            
+            # Include field_details but strip raw data (expected/predicted values) for privacy
+            if 'field_details' in parsed_obs:
+                sanitized_field_details = {}
+                for field_name, details in parsed_obs['field_details'].items():
+                    sanitized_field_details[field_name] = {
+                        'metric': details.get('metric'),
+                        'score': details.get('score'),
+                        'distance': details.get('distance'),  # Keep distance for Levenshtein
+                    }
+                metric_results['field_details'] = sanitized_field_details
             
             # Include error if present
             if 'error' in parsed_obs:
@@ -155,6 +176,7 @@ def load_experiment(experiment_id: UUID) -> Optional[Dict[str, Any]]:
                 'prediction_id': obs.prediction_id,
                 'model_version': obs.model_version or 'Unknown',
                 'score': obs.score,
+                'processing_time_ms': obs.processing_time_ms,
                 'observation': json.dumps(obs.metric_results) if obs.metric_results else '{}'
             }
             observations.append(observation_data)
@@ -247,85 +269,3 @@ def delete_experiment(experiment_id: UUID) -> bool:
         session.delete(experiment)
         session.commit()
         return True
-
-
-def get_experiment_statistics(
-    project_id: Optional[int] = None,
-    metric_name: Optional[str] = None
-) -> Dict[str, Any]:
-    """
-    Get aggregate statistics for experiments.
-    
-    Args:
-        project_id: Filter by Label Studio project ID
-        metric_name: Filter by metric name
-    
-    Returns:
-        Dict with statistics
-    """
-    with get_session() as session:
-        query = session.query(
-            func.count(Experiment.id).label('total_experiments'),
-            func.avg(Experiment.average_score).label('avg_score'),
-            func.sum(Experiment.total_tasks).label('total_tasks'),
-            func.sum(Experiment.processed_count).label('total_processed')
-        )
-        
-        # Apply filters
-        if project_id is not None:
-            query = query.filter(Experiment.label_studio_project_id == project_id)
-        if metric_name:
-            query = query.filter(Experiment.metric_name == metric_name)
-        
-        result = query.first()
-        
-        return {
-            'total_experiments': result.total_experiments or 0,
-            'average_score': float(result.avg_score) if result.avg_score else None,
-            'total_tasks': result.total_tasks or 0,
-            'total_processed': result.total_processed or 0
-        }
-
-
-def compare_experiments(experiment_ids: List[UUID]) -> Dict[str, Any]:
-    """
-    Compare multiple experiments.
-    
-    Args:
-        experiment_ids: List of experiment UUIDs to compare
-    
-    Returns:
-        Dict with comparison data
-    """
-    with get_session() as session:
-        experiments = session.query(Experiment).filter(
-            Experiment.id.in_(experiment_ids)
-        ).order_by(Experiment.created_at).all()
-        
-        if not experiments:
-            return {'experiments': []}
-        
-        comparison = {
-            'experiments': [
-                {
-                    'id': str(exp.id),
-                    'created_at': exp.created_at.isoformat(),
-                    'metric_name': exp.metric_name,
-                    'average_score': exp.average_score,
-                    'total_tasks': exp.total_tasks,
-                    'processed_count': exp.processed_count,
-                    'success_rate': exp.success_rate
-                }
-                for exp in experiments
-            ],
-            'score_trend': [exp.average_score for exp in experiments],
-            'improvement': None
-        }
-        
-        # Calculate improvement from first to last
-        if len(experiments) >= 2:
-            first_score = experiments[0].average_score or 0
-            last_score = experiments[-1].average_score or 0
-            comparison['improvement'] = last_score - first_score
-        
-        return comparison
