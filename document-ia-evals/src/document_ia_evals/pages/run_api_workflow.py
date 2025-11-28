@@ -42,18 +42,18 @@ def main():
     # Check if it's a fast workflow
     is_fast_workflow = "-fast" in workflow_name or "fast" in workflow_name.lower()
     
-    # Document type selector (for fast workflows)
-    doc_type_options = list(SupportedDocumentType)
-    selected_doc_type: SupportedDocumentType = st.selectbox(
-        "Type de document (requis pour les workflows fast)",
-        options=doc_type_options,
-        format_func=lambda x: x.name.replace("_", " ").title(),
-        index=0,
-        help="Spécifiez le type de document pour les workflows qui n'incluent pas de classification"
-    )
-    
     # Show extraction parameters info for fast workflows
     if is_fast_workflow:
+        # Document type selector (for fast workflows)
+        doc_type_options = list(SupportedDocumentType)
+        selected_doc_type: SupportedDocumentType = st.selectbox(
+            "Type de document (requis pour les workflows fast)",
+            options=doc_type_options,
+            format_func=lambda x: x.name.replace("_", " ").title(),
+            index=0,
+            help="Spécifiez le type de document pour les workflows qui n'incluent pas de classification"
+        )
+
         extraction_params_preview = {"document-type": selected_doc_type.value}
         st.info(f"ℹ️ Workflow fast détecté - Paramètres d'extraction qui seront envoyés: `{json.dumps(extraction_params_preview)}`")
 
