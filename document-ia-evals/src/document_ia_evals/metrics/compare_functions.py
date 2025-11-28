@@ -1,6 +1,7 @@
 """JSON Schema Extra metric for comparing Pydantic models with field-specific metrics."""
 
 import re
+import unicodedata
 from datetime import datetime
 from typing import Any, Callable, Dict
 
@@ -151,9 +152,43 @@ def compare_number(expected: Any, predicted: Any) -> float:
     return 1.0 if n1 == n2 else 0.0
 
 
-def levenshtein_distance(s1: str, s2: str) -> int:
+def normalize_for_levenshtein(s: str) -> str:
     """
-    Calculate the Levenshtein distance between two strings.
+    Normalize a string for Levenshtein comparison.
+    
+    Normalization includes:
+    - Convert to lowercase
+    - Remove accents using Unicode normalization (NFD decomposition)
+    - Expand ligatures (œ→oe, æ→ae)
+    - Remove whitespace
+    - Remove punctuation: . - _ '
+    
+    Args:
+        s: Input string
+    
+    Returns:
+        str: Normalized string
+    """
+    # Convert to lowercase
+    s = s.lower()
+    
+    # Expand common ligatures before NFD decomposition (they don't decompose well)
+    s = s.replace("œ", "oe").replace("æ", "ae")
+    
+    # NFD normalization: decompose characters into base + combining marks
+    # Then filter out combining diacritical marks (category 'Mn' = Mark, Nonspacing)
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(char for char in s if unicodedata.category(char) != "Mn")
+    
+    # Remove whitespace and special characters
+    for char in [" ", "\t", "\n", "\r", ".", "-", "_", "'"]:
+        s = s.replace(char, "")
+    return s
+
+
+def _levenshtein_distance_raw(s1: str, s2: str) -> int:
+    """
+    Calculate the raw Levenshtein distance between two strings (no normalization).
     
     Args:
         s1: First string
@@ -163,7 +198,7 @@ def levenshtein_distance(s1: str, s2: str) -> int:
         int: The minimum number of single-character edits required to change s1 into s2
     """
     if len(s1) < len(s2):
-        return levenshtein_distance(s2, s1)
+        return _levenshtein_distance_raw(s2, s1)
     
     if len(s2) == 0:
         return len(s1)
@@ -182,9 +217,33 @@ def levenshtein_distance(s1: str, s2: str) -> int:
     return previous_row[-1]
 
 
+def levenshtein_distance(s1: str, s2: str) -> int:
+    """
+    Calculate the Levenshtein distance between two strings.
+    
+    The comparison is case-insensitive and ignores whitespace
+    and punctuation (., -, _, ').
+    
+    Args:
+        s1: First string
+        s2: Second string
+    
+    Returns:
+        int: The minimum number of single-character edits required to change s1 into s2
+    """
+    # Normalize both strings before comparison
+    s1_norm = normalize_for_levenshtein(s1)
+    s2_norm = normalize_for_levenshtein(s2)
+    
+    return _levenshtein_distance_raw(s1_norm, s2_norm)
+
+
 def levenshtein_similarity(s1: str, s2: str) -> float:
     """
     Calculate normalized Levenshtein similarity between two strings.
+    
+    The comparison is case-insensitive and ignores whitespace
+    and punctuation (., -, _, ').
     
     Args:
         s1: First string
@@ -193,14 +252,18 @@ def levenshtein_similarity(s1: str, s2: str) -> float:
     Returns:
         float: Similarity score between 0.0 and 1.0, where 1.0 is identical strings
     """
-    if s1 == s2:
+    # Normalize both strings
+    s1_norm = normalize_for_levenshtein(s1)
+    s2_norm = normalize_for_levenshtein(s2)
+    
+    if s1_norm == s2_norm:
         return 1.0
     
-    if not s1 or not s2:
+    if not s1_norm or not s2_norm:
         return 0.0
     
-    distance = levenshtein_distance(s1, s2)
-    max_len = max(len(s1), len(s2))
+    distance = _levenshtein_distance_raw(s1_norm, s2_norm)
+    max_len = max(len(s1_norm), len(s2_norm))
     
     return 1.0 - (distance / max_len)
 
