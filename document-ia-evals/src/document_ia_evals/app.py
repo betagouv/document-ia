@@ -32,8 +32,9 @@ def main():
         "Pipeline Evaluation": [
             st.Page("pages/create_dataset.py", title="📝 Create Ground Truth"),
             st.Page("pages/run_predictions.py", title="🔄 Create New Predictions"),
-            # st.Page("pages/experiment_results.py", title="Experiment Results"),
-            # st.Page("pages/experiment_history.py", title="Experiment History"),
+            st.Page("pages/evaluate_metrics.py", title="🎯 Evaluate Predictions Metrics"),
+            st.Page("pages/compute_metrics.py", title="📈 Compute Metrics (remove)"),
+            st.Page("pages/list_experiments.py", title="📚 List Previous Evaluations"),
         ]
     }
     

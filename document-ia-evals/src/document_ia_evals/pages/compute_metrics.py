@@ -3,7 +3,7 @@
 import os
 import streamlit as st
 import json
-from dotenv import load_dotenv
+
 from label_studio_sdk import Client
 from typing import Optional, Any, Dict
 from uuid import UUID
@@ -15,12 +15,9 @@ from document_ia_evals.metrics import metric_registry
 from document_ia_evals.services.experiment_service import save_experiment
 from document_ia_evals.database.connection import test_db_connection, init_db
 
-# Load environment variables
-load_dotenv()
-
 # Page configuration
 st.set_page_config(
-    page_title=f"Experiment Results | {config.APP_TITLE}",
+    page_title=f"Experiment Results",
     page_icon="📈",
     layout=config.LAYOUT
 )
@@ -217,7 +214,7 @@ def main():
     if 'selected_project' not in st.session_state or 'selected_metric' not in st.session_state:
         st.warning("⚠️ No experiment selected. Please start from the New Experiment page.")
         if st.button("Go to New Experiment"):
-            st.switch_page("pages/2_🎯_New_Experiment.py")
+            st.switch_page("pages/evaluate_metrics.py")
         st.stop()
     
     project_id = st.session_state.selected_project
@@ -226,7 +223,7 @@ def main():
     if not project_id or not metric_name:
         st.warning("⚠️ Incomplete experiment configuration.")
         if st.button("Go to New Experiment"):
-            st.switch_page("pages/2_🎯_New_Experiment.py")
+            st.switch_page("pages/evaluate_metrics.py")
         st.stop()
     
     # Display experiment info with Label Studio link
@@ -238,11 +235,11 @@ def main():
     col1, col2 = st.columns([1, 3])
     with col1:
         if st.button("⬅️ Back"):
-            st.switch_page("pages/2_🎯_New_Experiment.py")
+            st.switch_page("pages/evaluate_metrics.py")
     with col2:
         if st.session_state.get('db_initialized') and 'saved_experiment_id' in st.session_state:
             if st.button("📚 View History"):
-                st.switch_page("pages/4_📚_Experiment_History.py")
+                st.switch_page("pages/list_experiments.py")
     
     st.divider()
     
