@@ -81,6 +81,9 @@ def render_workflow_selector() -> tuple[str, dict, bool] | None:
         st.write(f"**Supported file types:** {', '.join(selected_workflow.supported_file_types)}")
     
     is_fast_workflow = "-fast" in selected_workflow_id or "fast" in selected_workflow_id.lower()
+
+    if not is_fast_workflow:
+        st.warning("Ce workflow n'est pas un workflow fast. Il est recommandé de créer un dataset avec un workflow fast.")
     
     return selected_workflow_id, selected_workflow, is_fast_workflow
 
