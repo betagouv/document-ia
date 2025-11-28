@@ -6,7 +6,7 @@ import json
 import streamlit as st
 
 # Local imports
-from document_ia_evals.services.dataset_service import (
+from document_ia_evals.services.create_dataset_service import (
     get_failed_uploads,
     get_upload_statistics,
     process_files_parallel,

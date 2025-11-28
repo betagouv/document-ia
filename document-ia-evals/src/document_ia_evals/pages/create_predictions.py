@@ -7,7 +7,7 @@ from typing import Any
 import streamlit as st
 
 # Local imports
-from document_ia_evals.services.prediction_service import (
+from document_ia_evals.services.create_predictions_service import (
     get_failed_tasks,
     get_processing_statistics,
     get_task_count,
