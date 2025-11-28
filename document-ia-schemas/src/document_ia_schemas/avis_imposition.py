@@ -1,7 +1,8 @@
 from typing import Optional, Type
 from pydantic import BaseModel, Field
 
-from document_ia_schemas import BaseDocumentTypeSchema, Metric
+from document_ia_schemas import BaseDocumentTypeSchema
+from document_ia_schemas.field_metrics import Metric
 
 
 class AvisImpositionModel(BaseModel):
@@ -39,6 +40,9 @@ class AvisImpositionModel(BaseModel):
         description="Nom de famille et prénom du premier déclarant",
         alias="Nom du déclarant 1",
         examples=["MARTIN"],
+        json_schema_extra={
+            "metrics": Metric.LEVENSHTEIN_DISTANCE
+        }
     )
     # declarant_1_prenom: Optional[str] = Field(
     #     default=None,
@@ -60,6 +64,9 @@ class AvisImpositionModel(BaseModel):
         description="Nom de famille et prénom du deuxième déclarant",
         alias="Nom du déclarant 2",
         examples=["MARTIN"],
+        json_schema_extra={
+            "metrics": Metric.LEVENSHTEIN_DISTANCE
+        }
     )
     # declarant_2_prenom: Optional[str] = Field(
     #     default=None,
@@ -129,7 +136,7 @@ class AvisImpositionModel(BaseModel):
         alias="Montant de l'impôt",
         examples=[5000],
         json_schema_extra={
-            "metrics": Metric.SKIP
+            "metrics": Metric.COMPARE_NUMBER
         }
     )
 
