@@ -145,9 +145,9 @@ class WorkflowManager:
                 else:
                     raise e
             finally:
-                await self._notify_webhook_execution_finished(session)
                 # Persist DB changes
                 await session.commit()
+                await self._notify_webhook_execution_finished(session)
                 handle_finish_execution(
                     logger,
                     self.workflow.id if self.workflow else "unknown",

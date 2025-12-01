@@ -1,7 +1,8 @@
-from typing import Annotated, Literal
+from typing import Annotated
 
 from pydantic import BaseModel, Field
 
+from document_ia_infra.core.model.typed_generic_model import GenericProperty
 from document_ia_schemas import SupportedDocumentType
 
 
@@ -11,17 +12,6 @@ class ClassificationResult(BaseModel):
     explanation: str
 
 
-class ExtractionProperty(BaseModel):
-    name: str = Field(description="Name of the extraction property")
-    value: "str | float | int | bool | ExtractionProperty | None" = Field(
-        description="Value of the extraction property",
-        json_schema_extra={"x-mask": True},
-    )
-    type: Literal["string", "number", "boolean", "object"] = Field(
-        description="Type of the extraction property"
-    )
-
-
 class ExtractionResult(BaseModel):
     type: SupportedDocumentType
-    properties: list[ExtractionProperty]
+    properties: list[GenericProperty] = Field(default=[])

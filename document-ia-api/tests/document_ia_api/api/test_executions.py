@@ -209,7 +209,7 @@ class TestExecutions:
         data = response.json()
         assert data["id"] == execution_id
         assert data["status"] == "SUCCESS"
-        assert "workflow_metadata" not in data["data"]["result"]
+        assert data["data"]["result"]["workflow_metadata"] is None
 
     def test_get_execution_not_found(
             self, client_with_api_key_standard, standard_api_key_value, execution_id

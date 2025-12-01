@@ -2,12 +2,14 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal, Optional, Union, get_args, get_origin, Dict, cast
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class GenericProperty(BaseModel):
     name: str
-    value: Union[str, int, float, bool, list["GenericProperty"], None]
+    value: Union[str, int, float, bool, list["GenericProperty"], None] = Field(
+        json_schema_extra={"x-mask": True},
+    )
     type: Literal["string", "number", "boolean", "object", "date"]
 
     @classmethod
