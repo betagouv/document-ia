@@ -36,7 +36,7 @@ class OpenAIManager:
         user_prompt: str,
         response_class: type[T],
         model: str,
-        temperature: float = 0.7,
+        temperature: float = 0,
     ) -> tuple[T, int, int]:
         request_tokens = len(self.encoding.encode(system_prompt)) + len(
             self.encoding.encode(user_prompt)
