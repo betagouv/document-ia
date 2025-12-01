@@ -37,7 +37,6 @@ router = APIRouter(prefix="/executions")
     summary="Get Execution details",
     description="Retrieve execution details by execution ID. Response is discriminated by 'status' (STARTED | SUCCESS | FAILED).",
     response_model=ExecutionResponse,
-    response_model_exclude_none=True,
     responses={
         200: {
             "description": "Execution details retrieved successfully",

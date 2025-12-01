@@ -158,7 +158,7 @@ def test_get_event_model_completed_with_extraction_and_classification(service: E
     props_list = res.data.result.extraction.properties
     by_name: dict[str, Any] = {p.name: p.value for p in props_list}
     assert by_name["first_name"] == "Alice"
-    assert "age" not in by_name  # None skipped
+    assert by_name["age"] is None
     assert res.data.result.workflow_metadata == [{"step": 1}]
 
 

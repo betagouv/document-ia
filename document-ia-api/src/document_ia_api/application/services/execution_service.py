@@ -1,6 +1,7 @@
 import logging
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
+from document_ia_infra.core.model.typed_generic_model import GenericProperty
 from document_ia_schemas import resolve_extract_schema, BaseDocumentTypeSchema
 from fastapi import HTTPException
 from pydantic import BaseModel
@@ -12,7 +13,6 @@ from document_ia_api.api.contracts.execution.failed import (
 from document_ia_api.api.contracts.execution.result import (
     ClassificationResult,
     ExtractionResult,
-    ExtractionProperty,
 )
 from document_ia_api.api.contracts.execution.started import (
     ExecutionStartedModel,
@@ -137,43 +137,26 @@ class ExecutionService:
         extraction_data: DocumentExtraction[Any],
         extraction_class: BaseDocumentTypeSchema[BaseModel],
     ) -> ExtractionResult:
-        """
-        Build an ExtractionResult from a DocumentExtraction and the associated schema class.
-
-        - Iterate over the pydantic model declared on extraction_class.document_model
-        - Use field aliases (if any) as the displayed property name
-        - Skip None values
-        - Infer a simple type tag: str | float | int | bool | object
-        """
         model_cls: type[BaseModel] = extraction_class.document_model
 
+        # On récupère les propriétés brutes (souvent une instance Pydantic)
         props_raw: Any = extraction_data.properties
-        props_dict_by_name: dict[str, Any]
+
+        # Si ce n'est pas déjà une instance de `model_cls`, on tente de l'instancier
+        model_instance: BaseModel
         if isinstance(props_raw, BaseModel):
-            props_dict_by_name = props_raw.model_dump(by_alias=False)
+            model_instance = props_raw
         elif isinstance(props_raw, dict):
-            props_dict_by_name = cast(dict[str, Any], props_raw)
+            model_instance = model_cls(**props_raw)
         else:
-            # Default we try to access __dict__
-            props_dict_by_name = getattr(props_raw, "__dict__", {})
+            model_instance = model_cls(**getattr(props_raw, "__dict__", {}))
 
-        properties: list[ExtractionProperty] = []
-
-        # Pydantic v2: model_fields holds FieldInfo; iterate in declared order
-        for field_name, _ in getattr(model_cls, "model_fields", {}).items():
-            raw_value = props_dict_by_name.get(field_name, None)
-            if raw_value is None:
-                # skip missing/None values
-                continue
-
-            # we are not using the alias here, but the field name directly
-            display_name = field_name
-            value_type = self._infer_value_type(raw_value)
-            properties.append(
-                ExtractionProperty(name=display_name, value=raw_value, type=value_type)
-            )
+        # Utilisation centrale de `GenericProperty`
+        generic_properties: list[GenericProperty] = (
+            GenericProperty.convert_pydantic_model(model_instance)
+        )
 
         return ExtractionResult(
             type=extraction_data.type,
-            properties=properties,
+            properties=generic_properties,
         )

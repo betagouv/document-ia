@@ -312,7 +312,6 @@ async def execute_workflow(
 @router.post(
     "/{workflow_id}/execute-sync",
     response_model=ExecutionResponse,
-    response_model_exclude_none=True,
     summary="Execute Workflow Synchronously",
     description="Execute a workflow and wait for completion (STARTED/SUCCESS/FAILED) within a configurable timeout.",
     responses={
