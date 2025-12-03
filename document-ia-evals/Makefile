@@ -31,7 +31,7 @@ migrate: ## Run database migrations
 
 run: ## Start the Streamlit application
 	@echo "🚀 Starting Streamlit app..."
-	@streamlit run src/document_ia_evals/app.py
+	@streamlit run src/document_ia_evals/app.py --server.runOnSave true 
 
 clean: ## Stop containers and clean up
 	@echo "🧹 Cleaning up..."
