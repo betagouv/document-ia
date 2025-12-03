@@ -1,12 +1,15 @@
 import logging
 from typing import Tuple, Optional
-from pathlib import Path
 
 import magic
 from fastapi import UploadFile, HTTPException
 
-from document_ia_api.core.config import settings
 from document_ia_api.schemas.file_not_valid_information import FileNoteValidInformation
+from document_ia_infra.core.file.file_settings import file_settings
+from document_ia_infra.core.file.file_util import (
+    get_file_extension,
+    validate_file_extension,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -16,14 +19,9 @@ class FileValidator:
 
     # Reverse mapping for validation - built from settings
     EXTENSION_TO_MIME: dict[str, str] = {}
-    for mime_type, extensions in settings.ALLOWED_MIME_TYPES.items():
+    for mime_type, extensions in file_settings.ALLOWED_MIME_TYPES.items():
         for ext in extensions:
             EXTENSION_TO_MIME[ext.lower()] = mime_type
-
-    @staticmethod
-    def _extension_of(filename: str) -> str:
-        """Return normalized extension (with dot), lowercased, or '' if none."""
-        return Path(filename).suffix.lower()
 
     @classmethod
     def validate_file(
@@ -43,12 +41,12 @@ class FileValidator:
             if not cls._validate_file_size(file):
                 return (
                     False,
-                    f"File size exceeds maximum limit of {settings.MAX_FILE_SIZE / (1024 * 1024)}MB",
+                    f"File size exceeds maximum limit of {file_settings.MAX_FILE_SIZE / (1024 * 1024)}MB",
                     None,
                 )
 
             # Check file extension
-            if not cls._validate_file_extension(file):
+            if not validate_file_extension(file.filename):
                 return (
                     False,
                     "File extension not supported. Supported formats: PDF, JPG, PNG",
@@ -68,7 +66,7 @@ class FileValidator:
             if not cls._validate_mime_type(detected_mime):
                 return (
                     False,
-                    f"File type '{detected_mime}' not supported. Supported types: {', '.join(settings.ALLOWED_MIME_TYPES)}",
+                    f"File type '{detected_mime}' not supported. Supported types: {', '.join(file_settings.ALLOWED_MIME_TYPES)}",
                     None,
                 )
 
@@ -77,7 +75,7 @@ class FileValidator:
 
             # Cross-validate extension vs detected MIME type
             if not cls._cross_validate_extension_and_mime(file, detected_mime):
-                ext = cls._extension_of(file.filename).lstrip(".")
+                ext = get_file_extension(file.filename).lstrip(".")
                 return (
                     False,
                     f"File extension '{ext}' does not match detected content type '{detected_mime}'",
@@ -103,7 +101,7 @@ class FileValidator:
             file_size = file.file.tell()
             file.file.seek(current_pos)  # Restore position
 
-            return file_size <= settings.MAX_FILE_SIZE
+            return file_size <= file_settings.MAX_FILE_SIZE
         except Exception as e:
             logger.error(f"Error checking file size: {e}")
             return False
@@ -113,7 +111,7 @@ class FileValidator:
         """Validate file extension."""
         if not file.filename:
             return False
-        extension = cls._extension_of(file.filename)
+        extension = get_file_extension(file.filename)
         return extension in cls.EXTENSION_TO_MIME
 
     @classmethod
@@ -130,7 +128,7 @@ class FileValidator:
     @classmethod
     def _validate_mime_type(cls, mime_type: str) -> bool:
         """Validate detected MIME type against allowed types."""
-        return mime_type in settings.ALLOWED_MIME_TYPES
+        return mime_type in file_settings.ALLOWED_MIME_TYPES
 
     @classmethod
     def _cross_validate_extension_and_mime(
@@ -140,7 +138,7 @@ class FileValidator:
         if not file.filename:
             return False
 
-        extension = cls._extension_of(file.filename)
+        extension = get_file_extension(file.filename)
         if not extension:
             return False
 
@@ -167,16 +165,16 @@ class FileValidator:
             if file.filename is None:
                 raise ValueError("Filename is None")
 
-            extension = cls._extension_of(file.filename)
+            extension = get_file_extension(file.filename)
 
-            allowed_types = list(settings.ALLOWED_MIME_TYPES.keys())
+            allowed_types = list(file_settings.ALLOWED_MIME_TYPES.keys())
 
             return FileNoteValidInformation(
                 filename=file.filename,
                 size=file_size,
                 extension=extension,
                 content_type=file.content_type,
-                max_size_allowed=settings.MAX_FILE_SIZE,
+                max_size_allowed=file_settings.MAX_FILE_SIZE,
                 allowed_types=allowed_types,
             )
         except Exception as e:

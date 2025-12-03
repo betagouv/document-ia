@@ -55,7 +55,8 @@ class WorkflowService:
         self,
         organization_id: uuid.UUID,
         workflow_id: str,
-        file: UploadFile,
+        file: Optional[UploadFile],
+        file_url: Optional[str],
         metadata_json: Optional[str],
         request_classification_parameter: Optional[
             WorkflowClassificationParameterRequest
@@ -69,6 +70,7 @@ class WorkflowService:
             workflow_id: Unique identifier for the workflow
             organization_id: Organization UUID
             file: Uploaded file
+            file_url: URL of the file to be processed
             metadata_json: JSON string containing metadata
             request_classification_parameter: Workflow classification parameter
             request_extraction_parameter: Workflow extraction parameter
@@ -91,35 +93,44 @@ class WorkflowService:
             # Validate and parse metadata
             metadata = self._parse_metadata(metadata_json)
 
-            # Validate uploaded file
-            detected_mime_type = validate_uploaded_file(file)
-
-            # Read file content
-            file_content = await self._read_file_content(file)
-
-            # Upload file to S3
-            s3_upload_result = await self._upload_file_to_s3(
-                file_content, file.filename, detected_mime_type, metadata
-            )
-
             # Generate execution ID
             execution_id = str(uuid.uuid4())
 
-            # Prepare file info
+            file_info: Optional[FileInfo] = None
 
-            file_info = FileInfo(
-                filename=file.filename or "unknown",
-                s3_key=s3_upload_result["s3_key"],
-                size=len(file_content),
-                content_type=detected_mime_type,
-                uploaded_at=datetime.now().isoformat(),
-                presigned_url=s3_upload_result["presigned_url"],
-            )
-            # Log successful execution
-            logger.info(
-                f"Workflow execution started: {execution_id} "
-                f"(workflow: {workflow_id}, file: {file.filename})"
-            )
+            if file is not None:
+                # Validate uploaded file
+                detected_mime_type = validate_uploaded_file(file)
+
+                # Read file content
+                file_content = await self._read_file_content(file)
+
+                # Upload file to S3
+                s3_upload_result = await self._upload_file_to_s3(
+                    file_content, file.filename, detected_mime_type, metadata
+                )
+
+                # Prepare file info
+
+                file_info = FileInfo(
+                    filename=file.filename or "unknown",
+                    s3_key=s3_upload_result["s3_key"],
+                    size=len(file_content),
+                    content_type=detected_mime_type,
+                    uploaded_at=datetime.now().isoformat(),
+                    presigned_url=s3_upload_result["presigned_url"],
+                )
+
+                logger.info(
+                    f"Workflow execution started: {execution_id} "
+                    f"(workflow: {workflow_id}, file: {file.filename})"
+                )
+
+            else:
+                logger.info(
+                    f"Workflow execution started: {execution_id} "
+                    f"(workflow: {workflow_id}, file_url: {file_url})"
+                )
 
             # Emit workflow started event
             try:
@@ -130,6 +141,7 @@ class WorkflowService:
                     execution_id=execution_id,
                     organization_id=organization_id,
                     file_info=file_info,
+                    file_url=file_url,
                     metadata=metadata,
                     classification_parameters=self._map_classification_parameters(
                         request_classification_parameter
@@ -160,6 +172,7 @@ class WorkflowService:
                 status="processing",
                 created_at=datetime.now().isoformat(),
                 file_info=file_info,
+                file_url=file_url,
                 metadata=metadata,
             )
 

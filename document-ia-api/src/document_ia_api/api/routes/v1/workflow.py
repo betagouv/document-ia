@@ -194,9 +194,12 @@ router = APIRouter(prefix="/workflows")
 )
 async def execute_workflow(
     workflow_id: str = Path(..., description="ID of the workflow to execute"),
-    file: UploadFile = File(
+    file: Optional[UploadFile] = File(
         ...,
         description="Document file to process (PDF, JPG, PNG, max 25MB)",
+    ),
+    file_url: Optional[str] = Form(
+        default=None, description="URL of the document to process"
     ),
     classification_parameters: Optional[str] = Form(
         default=None,
@@ -239,15 +242,32 @@ async def execute_workflow(
     The metadata parameter should be a JSON string containing key-value pairs
     that will be passed to the workflow for processing context.
     """
-    logger.info(
-        "Workflow execution requested",
-        extra={
-            "endpoint": "execute_workflow",
-            "workflow_id": workflow_id,
-            "content_type": file.content_type,
-            "file_size": file.size if hasattr(file, "size") else "unknown",
-        },
-    )
+
+    if file_url is None and file is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Either 'file' or 'file_url' must be provided.",
+        )
+
+    if file is not None:
+        logger.info(
+            "Workflow execution requested",
+            extra={
+                "endpoint": "execute_workflow",
+                "workflow_id": workflow_id,
+                "content_type": file.content_type,
+                "file_size": file.size if hasattr(file, "size") else "unknown",
+            },
+        )
+    else:
+        logger.info(
+            "Workflow execution requested",
+            extra={
+                "endpoint": "execute_workflow",
+                "workflow_id": workflow_id,
+                "file_url": file_url,
+            },
+        )
 
     try:
         # Create workflow service instance with database session
@@ -279,6 +299,7 @@ async def execute_workflow(
             organization_id=current_org.id,
             workflow_id=workflow_id.strip(),
             file=file,
+            file_url=file_url,
             metadata_json=metadata,
             request_classification_parameter=parsed_classification_parameters,
             request_extraction_parameter=parsed_extraction_parameters,
@@ -347,8 +368,11 @@ async def execute_workflow(
 )
 async def execute_workflow_sync(
     workflow_id: str = Path(..., description="ID of the workflow to execute"),
-    file: UploadFile = File(
-        ..., description="Document file to process (PDF, JPG, PNG, max 25MB)"
+    file: Optional[UploadFile] = File(
+        default=None, description="Document file to process (PDF, JPG, PNG, max 25MB)"
+    ),
+    file_url: Optional[str] = Form(
+        default=None, description="URL of the document to process"
     ),
     classification_parameters: Optional[str] = Form(
         default=None,
@@ -369,6 +393,12 @@ async def execute_workflow_sync(
     db_session: AsyncSession = Depends(database_manager.async_get_db),
 ) -> ExecutionResponse:
     """Execute a workflow synchronously by waiting for its final event."""
+
+    if file_url is None and file is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Either 'file' or 'file_url' must be provided.",
+        )
 
     logger.info(
         "Synchronous workflow execution requested",
@@ -402,6 +432,7 @@ async def execute_workflow_sync(
             organization_id=current_org.id,
             workflow_id=workflow_id.strip(),
             file=file,
+            file_url=file_url,
             metadata_json=metadata,
             request_classification_parameter=parsed_classification_parameters,
             request_extraction_parameter=parsed_extraction_parameters,

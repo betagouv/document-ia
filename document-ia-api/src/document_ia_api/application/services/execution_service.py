@@ -1,8 +1,6 @@
 import logging
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
-from document_ia_infra.core.model.typed_generic_model import GenericProperty
-from document_ia_schemas import resolve_extract_schema, BaseDocumentTypeSchema
 from fastapi import HTTPException
 from pydantic import BaseModel
 
@@ -17,6 +15,7 @@ from document_ia_api.api.contracts.execution.result import (
 from document_ia_api.api.contracts.execution.started import (
     ExecutionStartedModel,
     ExecutionStartedData,
+    S3FileInfo,
 )
 from document_ia_api.api.contracts.execution.success import (
     ExecutionSuccessModel,
@@ -24,6 +23,7 @@ from document_ia_api.api.contracts.execution.success import (
     SuccessData,
 )
 from document_ia_api.api.contracts.execution.types import ExecutionStatus
+from document_ia_infra.core.model.typed_generic_model import GenericProperty
 from document_ia_infra.data.document.schema.document_extraction import (
     DocumentExtraction,
 )
@@ -38,6 +38,7 @@ from document_ia_infra.data.event.schema.workflow.workflow_execution_failed_even
 from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import (
     WorkflowExecutionStartedEvent,
 )
+from document_ia_schemas import resolve_extract_schema, BaseDocumentTypeSchema
 
 logger = logging.getLogger(__name__)
 
@@ -53,14 +54,20 @@ class ExecutionService:
     ) -> ExecutionStartedModel | ExecutionSuccessModel | ExecutionFailedModel:
         if event_dto.event_type == EventType.WORKFLOW_EXECUTION_STARTED:
             event_data = WorkflowExecutionStartedEvent(**event_dto.event)
+            file_info: Optional[S3FileInfo] = None
+            if event_data.s3_file_info is not None:
+                file_info = S3FileInfo(
+                    file_name=event_data.s3_file_info.filename,
+                    content_type=event_data.s3_file_info.content_type,
+                    presigned_url=event_data.s3_file_info.presigned_url,
+                )
             return ExecutionStartedModel(
                 id=execution_id,
                 status=ExecutionStatus.STARTED,
                 data=ExecutionStartedData(
                     created_at=event_dto.created_at,
-                    file_name=event_data.file_info.filename,
-                    content_type=event_data.file_info.content_type,
-                    presigned_url=event_data.file_info.presigned_url,
+                    s3_file_info=file_info,
+                    file_url=event_data.file_url,
                 ),
             )
 

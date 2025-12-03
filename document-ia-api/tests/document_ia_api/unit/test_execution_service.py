@@ -57,7 +57,7 @@ def test_get_event_model_started(service: ExecutionService):
         execution_id="exec",
         created_at=datetime.now(UTC),
         version=1,
-        file_info=_file_info(),
+        s3_file_info=_file_info(),
         metadata={"k": "v"},
         classification_parameters=ClassificationParameters(),
         extraction_parameters=ExtractionParameters(),
@@ -73,7 +73,7 @@ def test_get_event_model_started(service: ExecutionService):
     )
     res = service.get_event_model(dto, execution_id="exec", is_debug_mode=False)
     assert res.status == ExecutionStatus.STARTED
-    assert res.data.file_name == "doc.pdf"
+    assert res.data.s3_file_info.file_name == "doc.pdf"
 
 
 def test_get_event_model_failed(service: ExecutionService):

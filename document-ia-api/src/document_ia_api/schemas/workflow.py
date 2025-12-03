@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field
 
 from document_ia_infra.core.model.file_info import FileInfo
@@ -11,5 +11,8 @@ class WorkflowExecutionData(BaseModel):
     workflow_id: str = Field(description="Workflow identifier")
     status: str = Field(description="Execution status")
     created_at: str = Field(description="Creation timestamp")
-    file_info: FileInfo = Field(description="Uploaded file information")
+    file_info: Optional[FileInfo] = Field(description="Uploaded file information")
+    file_url: Optional[str] = Field(
+        default=None, description="URL of the file to be processed"
+    )
     metadata: Dict[str, Any] = Field(description="Execution metadata")

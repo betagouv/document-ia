@@ -100,7 +100,7 @@ class TestEventStoreIntegration:
 
             # Assert - Verify event data integrity
             started_data: WorkflowExecutionStartedEvent = cast(WorkflowExecutionStartedEvent, events[0].event)
-            assert started_data.file_info.filename == "integration_test.pdf"
+            assert started_data.s3_file_info.filename == "integration_test.pdf"
             assert started_data.metadata["source"] == "integration_test"
 
             step_data: WorkflowExecutionStepCompletedEvent = cast(WorkflowExecutionStepCompletedEvent, events[1].event)
