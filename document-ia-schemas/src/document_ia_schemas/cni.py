@@ -3,6 +3,7 @@ from typing import Type, Optional
 from pydantic import BaseModel, Field
 
 from document_ia_schemas import BaseDocumentTypeSchema
+from document_ia_schemas.base_document_type_schema import FuzzyDate
 
 
 class CNIModel(BaseModel):
@@ -11,16 +12,16 @@ class CNIModel(BaseModel):
         alias="Numero de la carte d'identité",
         examples=["123456789012"],
     )
-    date_delivrance: Optional[str] = Field(
-        description="Date d'émission du document (format JJ/MM/AAAA). Si absente, renseigner `null`.",
+    date_delivrance: FuzzyDate = Field(
+        description="Date d'émission du document (format JJ MM AAAA). Si absente, renseigner `null`.",
         alias="Date d'émission",
-        examples=["01/01/2010"],
+        examples=["2010-01-01"],
         default=None,
     )
-    date_expiration: Optional[str] = Field(
-        description="Date limite de validité du document (format JJ/MM/AAAA). Une carte d'identité est valide 10 ans. Si absente renseigner `null`.",
+    date_expiration: FuzzyDate = Field(
+        description="Date limite de validité du document (format JJ MM AAAA). Une carte d'identité est valide 10 ans. Si absente renseigner `null`.",
         alias="Date d'expiration",
-        examples=["01/01/2020"],
+        examples=["2020-01-01"],
         default=None,
     )
     nom: str = Field(
@@ -33,10 +34,10 @@ class CNIModel(BaseModel):
         alias="Prénom",
         examples=["JEAN"],
     )
-    date_naissance: Optional[str] = Field(
-        description="Date de naissance du titulaire (format JJ/MM/AAAA). Si absente renseigner `null`.",
+    date_naissance: FuzzyDate = Field(
+        description="Date de naissance du titulaire (format JJ MM AAAA). Si absente renseigner `null`.",
         alias="Date de naissance",
-        examples=["01/01/1990"],
+        examples=["1990-01-01"],
         default=None,
     )
     lieu_naissance: str = Field(

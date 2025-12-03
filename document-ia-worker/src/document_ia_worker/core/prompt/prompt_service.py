@@ -103,31 +103,12 @@ class PromptService:
                 key: value.get("examples", "")[0] for key, value in properties.items()
             }
 
-            # Full expected response format (what the LLM must output), including immutable name/type
-            extraction_response_format: Dict[str, Any] = {
-                "type": schema_instance.type,
-                "title": schema_instance.name,
-                "properties": document_json_properties_with_type,
-            }
-            extraction_response_example: Dict[str, Any] = {
-                "type": schema_instance.type,
-                "title": schema_instance.name,
-                "properties": document_json_properties_with_example,
-            }
-
-            # Also provide full JSON schema of the document model for stricter guidance if needed
-            document_json_schema: dict[str, Any] = (
-                schema_instance.get_json_schema_dict()
-            )
-
             prompt_text = prompt_template.render(
-                document_type=schema_instance.type,
                 document_name=schema_instance.name,
                 document_description=schema_instance.description,
                 document_json_properties_with_description=document_json_properties_with_description,
-                extraction_response_format=extraction_response_format,
-                extraction_response_example=extraction_response_example,
-                document_json_schema=document_json_schema,
+                extraction_response_format=document_json_properties_with_type,
+                extraction_response_example=document_json_properties_with_example,
             )
 
             return prompt_text, schema_instance.document_model

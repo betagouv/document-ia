@@ -1,7 +1,9 @@
 from typing import Optional, Type
+
 from pydantic import BaseModel, Field
 
 from document_ia_schemas import BaseDocumentTypeSchema
+from document_ia_schemas.base_document_type_schema import FuzzyDate
 
 
 class AvisImpositionModel(BaseModel):
@@ -21,13 +23,13 @@ class AvisImpositionModel(BaseModel):
         alias="Année des revenus",
         examples=["2023"],
     )
-    date_mise_en_recouvrement: Optional[str] = Field(
+    date_mise_en_recouvrement: FuzzyDate = Field(
         default=None,
         description=(
             "Date de mise en recouvrement de l'impôt (format JJ/MM/AAAA). Si absente, renseigner `null`."
         ),
         alias="Date de mise en recouvrement",
-        examples=["31/07/2024"],
+        examples=["2024-07-31"],
     )
     declarant_1_nom: str = Field(
         description="Nom de famille du premier déclarant",

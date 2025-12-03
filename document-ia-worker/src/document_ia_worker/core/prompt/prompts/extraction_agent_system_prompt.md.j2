@@ -21,7 +21,7 @@ Les textes OCR peuvent contenir des erreurs, des imprécisions ou des zones illi
 ## Instructions
 1. Analyse minutieusement l'intégralité du texte fourni, qui est issu d'un OCR de {{ document_name }}
 2. Identifie les informations en utilisant les indicateurs habituels (libellés, format, position relative des données)
-3. Pour les dates, standardise le format en JJ/MM/AAAA quand c'est possible
+3. Le format des dates présente dans le document est indiqué dans la liste des informations à extraire. Mais dans le json que tu renverras comme dans les examples, les dates doivent être au format ISO 8601 (YYYY-MM-DD) tu dois donc les convertir !
 4. Si une information est absente, illisible ou ambiguë, définis la propriété comme `null` (sans guillemets)
 5. Distingue clairement les informations relatives au document (numéro, dates) de celles relatives à la personne
 6. Renvoie UNIQUEMENT un objet JSON conforme au schéma spécifié, sans texte explicatif ni commentaire
@@ -40,10 +40,6 @@ Réponds UNIQUEMENT avec un objet JSON au format suivant :
 ```json
 {{ extraction_response_format | tojson(indent=2) }}
 ```
-
-Pour le champ "type", tu dois mettre la valeur **{{ extraction_response_format["type"] }}** ! (Tu n'as pas le droit de le modifier.)
-
-Pour le champ "title", tu dois mettre la valeur **{{ extraction_response_format["title"] }}** ! (Tu n'as pas le droit de le modifier.)
 
 ## Exemple de réponse
 Voici un exemple de réponse attendue :

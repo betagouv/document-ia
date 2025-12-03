@@ -1,9 +1,49 @@
 from abc import ABC
-from typing import TypeVar, Generic, Type, Any
+from datetime import date, datetime
+from typing import TypeVar, Generic, Type, Any, Optional, Annotated
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, BeforeValidator
 
 T = TypeVar("T", bound=BaseModel)
+
+
+def parse_flexible_date(value: Any) -> Optional[date]:
+    """
+    Tente de convertir une chaîne en date en essayant plusieurs formats.
+    Gère aussi les cas où le LLM renvoie 'null' ou 'None' en string.
+    """
+    if value is None:
+        return None
+
+    # Si c'est déjà une date (ex: conversion automatique de certaines lib)
+    if isinstance(value, date):
+        return value
+
+    if isinstance(value, str):
+        value = value.strip()
+        # Gestion des cas où le LLM écrit littéralement "null" ou "None"
+        if value.lower() in ["null", "none", ""]:
+            return None
+
+        # Liste des formats acceptés
+        formats = [
+            "%Y-%m-%d",  # ISO (Préféré) : 1990-01-01
+            "%d/%m/%Y",  # Français : 01/01/1990
+            "%d-%m-%Y",  # Français tirets : 01-01-1990
+            "%d.%m.%Y"  # Autre : 01.01.1990
+        ]
+
+        for fmt in formats:
+            try:
+                return datetime.strptime(value, fmt).date()
+            except ValueError:
+                continue
+
+    # Si rien n'a marché, on laisse Pydantic lever l'erreur ou on renvoie None selon ta politique
+    # Ici, je lève une erreur pour que tu saches que l'extraction a échoué sur ce champ
+    raise ValueError(f"Format de date non reconnu : {value}")
+
+FuzzyDate = Annotated[Optional[date], BeforeValidator(parse_flexible_date)]
 
 
 class BaseDocumentTypeSchema(BaseModel, Generic[T], ABC):

@@ -3,6 +3,7 @@ from typing import Optional, Type
 from pydantic import BaseModel, Field
 
 from document_ia_schemas import BaseDocumentTypeSchema
+from document_ia_schemas.base_document_type_schema import FuzzyDate
 
 
 class PermisConduireModel(BaseModel):
@@ -11,15 +12,15 @@ class PermisConduireModel(BaseModel):
         alias="Numéro du permis",
         examples=["1234567890123456789"],
     )
-    date_delivrance: str = Field(
+    date_delivrance: FuzzyDate = Field(
         description="Date de délivrance du permis de conduire (format JJ/MM/AAAA). Si absente, renseigner `null`.",
         alias="Date de délivrance",
-        examples=["15/06/2010"],
+        examples=["2010-06-15"],
     )
-    date_expiration: str = Field(
+    date_expiration: FuzzyDate = Field(
         description="Date limite de validité du permis de conduire (format JJ/MM/AAAA). Si absente, renseigner `null`.",
         alias="Date d'expiration",
-        examples=["15/06/2030"],
+        examples=["2030-06-15"],
     )
     nom: str = Field(
         description="Nom de famille du titulaire (en majuscules sur le document).",
@@ -31,10 +32,10 @@ class PermisConduireModel(BaseModel):
         alias="Prénom",
         examples=["JEAN"],
     )
-    date_naissance: str = Field(
+    date_naissance: FuzzyDate = Field(
         description="Date de naissance du titulaire (format JJ/MM/AAAA). Si absente, renseigner `null`.",
         alias="Date de naissance",
-        examples=["01/01/1990"],
+        examples=["1990-01-01"],
     )
     lieu_naissance: Optional[str] = Field(
         default=None,
