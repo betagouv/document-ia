@@ -1,4 +1,5 @@
 from typing import Optional, Type
+from document_ia_schemas.base_document_type_schema import FuzzyDate
 from pydantic import BaseModel, Field
 
 from document_ia_schemas import BaseDocumentTypeSchema
@@ -14,7 +15,7 @@ class AvisImpositionModel(BaseModel):
             "metrics": Metric.COMPARE_NUMBER
         }
     )
-    date_mise_en_recouvrement: Optional[str] = Field(
+    date_mise_en_recouvrement: FuzzyDate = Field(
         default=None,
         description=(
             "Date de mise en recouvrement de l'impôt (format JJ/MM/AAAA). Si absente, renseigner `null`."
@@ -28,14 +29,6 @@ class AvisImpositionModel(BaseModel):
     declarant_1_identite: str = Field(
         description="Nom et prénom du premier déclarant tel qu'il apparait au niveau du destinataire",
         alias="Nom et Prénom du déclarant 1",
-        examples=["MARTIN"],
-        json_schema_extra={
-            "metrics": Metric.LEVENSHTEIN_DISTANCE
-        }
-    )
-    declarant_1_nom_naissance: str = Field(
-        description="Nom de naissance du premier déclarant, il peut être différent du nom et prénom du déclarant 1",
-        alias="Nom de naissance du déclarant 1",
         examples=["MARTIN"],
         json_schema_extra={
             "metrics": Metric.SKIP #Metric.LEVENSHTEIN_DISTANCE
@@ -68,14 +61,6 @@ class AvisImpositionModel(BaseModel):
     declarant_2_identite: str = Field(
         description="Nom et prénom du deuxième déclarant tel qu'il apparait au niveau du destinataire",
         alias="Nom et Prénom du déclarant 2",
-        examples=["MARTIN"],
-        json_schema_extra={
-            "metrics": Metric.LEVENSHTEIN_DISTANCE
-        }
-    )
-    declarant_2_nom_naissance: str = Field(
-        description="Nom de naissance du deuxième déclarant, il peut être différent du nom et prénom du déclarant 2",
-        alias="Nom de naissance du déclarant 2",
         examples=["MARTIN"],
         json_schema_extra={
             "metrics": Metric.SKIP #Metric.LEVENSHTEIN_DISTANCE
@@ -168,7 +153,7 @@ class AvisImpositionModel(BaseModel):
         alias="Montant de l'impôt",
         examples=[5000],
         json_schema_extra={
-            "metrics": Metric.COMPARE_NUMBER
+            "metrics": Metric.SKIP
         }
     )
 

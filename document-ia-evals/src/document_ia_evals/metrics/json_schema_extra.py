@@ -179,6 +179,87 @@ def render_results(experiment_results: Dict[str, Any]) -> None:
     st.info(f"📊 Found **{len(model_versions)}** model version(s): {', '.join(model_versions)}")
     st.divider()
     
+    # Add Field-Level Metrics Comparison by Model table
+    st.write("## 📊 Field-Level Metrics Comparison by Model")
+    
+    from collections import defaultdict
+    
+    # Extract field-level metrics and metric types from all observations
+    field_scores_by_model = defaultdict(lambda: defaultdict(list))
+    field_metrics_all = defaultdict(set)
+    all_models = set()
+    
+    for obs in observations:
+        model_version = obs.get("model_version", "Unknown")
+        all_models.add(model_version)
+        observation_str = obs.get("observation")
+        
+        if observation_str:
+            try:
+                obs_data = JsonSchemaExtraObservation.model_validate_json(observation_str)
+                
+                for field_name, field_score in obs_data.field_scores.items():
+                    field_scores_by_model[field_name][model_version].append(float(field_score))
+                    
+                    # Extract metric type from field_details
+                    if field_name in obs_data.field_details:
+                        details = obs_data.field_details[field_name]
+                        if "metric" in details:
+                            field_metrics_all[field_name].add(str(details["metric"]))
+                            
+            except (json.JSONDecodeError, TypeError, ValueError):
+                continue
+    
+    if field_scores_by_model:
+        # Prepare data for table
+        comparison_data = []
+        for field_name in sorted(field_scores_by_model.keys()):
+            # Get metric type(s) for this field
+            metrics = field_metrics_all.get(field_name, set())
+            metric_str = ", ".join(sorted(metrics)) if metrics else "N/A"
+            
+            row = {
+                'Field': field_name,
+                'Metric': metric_str
+            }
+            
+            # Calculate mean for each model
+            has_skip = False
+            for model_version in sorted(all_models):
+                scores = field_scores_by_model[field_name].get(model_version, [])
+                if scores:
+                    # Check if all scores are -1.0 (skipped)
+                    if all(s == -1.0 for s in scores):
+                        row[model_version] = "SKIPPED"
+                        has_skip = True
+                    else:
+                        mean_value = np.mean(scores)
+                        row[model_version] = f"{mean_value:.3f}"
+                else:
+                    row[model_version] = "SKIPPED"
+                    has_skip = True
+            
+            row['_has_skip'] = has_skip
+            comparison_data.append(row)
+        
+        if comparison_data:
+            # Remove the helper column before displaying
+            for row in comparison_data:
+                del row['_has_skip']
+            
+            comparison_df = pd.DataFrame(comparison_data)
+            
+            def highlight_skip_rows(row: pd.Series) -> list[str]:
+                # Check if any value in the row is "SKIPPED"
+                if any(val == "SKIPPED" for val in row.values):
+                    return ['background-color: #FFF3CD; color: #856404'] * len(row)
+                return [''] * len(row)
+            
+            styled_comparison_df = comparison_df.style.apply(highlight_skip_rows, axis=1)
+            st.dataframe(styled_comparison_df, use_container_width=True, hide_index=True)
+    
+    st.divider()
+    
     for model_version in model_versions:
         st.write(f"## 🤖 Model: `{model_version}`")
         
