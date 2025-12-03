@@ -182,8 +182,9 @@ class EventStoreService:
         workflow_id: str,
         execution_id: str,
         organization_id: UUID,
-        file_info: FileInfo,
+        file_info: Optional[FileInfo],
         metadata: Dict[str, Any],
+        file_url: Optional[str] = None,
         classification_parameters: Optional[ClassificationParameters] = None,
         extraction_parameters: Optional[ExtractionParameters] = None,
     ) -> WorkflowExecutionStartedEvent:
@@ -194,7 +195,8 @@ class EventStoreService:
             organization_id=organization_id,
             created_at=datetime.now(),
             version=1,  # Will be updated when stored
-            file_info=file_info,
+            s3_file_info=file_info,
+            file_url=file_url,
             metadata=metadata,
             classification_parameters=classification_parameters
             or ClassificationParameters(),
@@ -282,8 +284,9 @@ class EventStoreService:
         workflow_id: str,
         execution_id: str,
         organization_id: UUID,
-        file_info: FileInfo,
+        file_info: Optional[FileInfo],
         metadata: Dict[str, Any],
+        file_url: Optional[str] = None,
         classification_parameters: Optional[ClassificationParameters] = None,
         extraction_parameters: Optional[ExtractionParameters] = None,
     ) -> EventStoreRecord:
@@ -293,6 +296,7 @@ class EventStoreService:
             execution_id=execution_id,
             organization_id=organization_id,
             file_info=file_info,
+            file_url=file_url,
             metadata=metadata,
             classification_parameters=classification_parameters,
             extraction_parameters=extraction_parameters,

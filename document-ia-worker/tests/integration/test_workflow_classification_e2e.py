@@ -56,7 +56,7 @@ async def test_workflow_classification_end_to_end(organization_id):
         execution_id=execution_id,
         created_at=datetime.now(timezone.utc),
         version=1,
-        file_info=file_info,
+        s3_file_info=file_info,
         metadata={"source": "integration-test"},
         classification_parameters=ClassificationParameters(),
         extraction_parameters=ExtractionParameters(),

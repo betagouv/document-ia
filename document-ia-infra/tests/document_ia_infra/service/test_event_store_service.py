@@ -70,7 +70,7 @@ def sample_event():
         execution_id="test_execution_001",
         created_at=datetime.now(UTC),
         version=1,
-        file_info=_sample_file_info(),
+        s3_file_info=_sample_file_info(),
         metadata={"source": "test"},
         classification_parameters=ClassificationParameters(),
         extraction_parameters=ExtractionParameters(),
@@ -168,7 +168,7 @@ class TestEventStoreService:
         assert isinstance(event, WorkflowExecutionStartedEvent)
         assert event.workflow_id == "test_workflow_001"
         assert event.execution_id == "test_execution_001"
-        assert event.file_info.filename == "test.pdf"
+        assert event.s3_file_info.filename == "test.pdf"
         assert event.metadata == {"source": "test"}
 
     def test_create_step_completed_event(self, event_store_service):

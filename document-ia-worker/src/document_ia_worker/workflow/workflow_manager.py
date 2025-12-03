@@ -226,7 +226,9 @@ class WorkflowManager:
                 if step == "download_file":
                     self.step_list.append(
                         DownloadFileStep(
-                            self.main_workflow_context, self.event_data.file_info
+                            self.main_workflow_context,
+                            self.event_data.s3_file_info,
+                            self.event_data.file_url,
                         )
                     )
                 if step == "preprocess_file":

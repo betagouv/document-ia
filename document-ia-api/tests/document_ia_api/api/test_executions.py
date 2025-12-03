@@ -27,7 +27,7 @@ class TestExecutions:
             "organization_id": str(organization_id),
             "execution_id": execution_id,
             "created_at": created.isoformat(),
-            "file_info": {
+            "s3_file_info": {
                 "filename": "test.pdf",
                 "s3_key": "uploads/test.pdf",
                 "size": 1024,
@@ -134,9 +134,9 @@ class TestExecutions:
         data = response.json()
         assert data["id"] == execution_id
         assert data["status"] == "STARTED"
-        assert data["data"]["file_name"] == "test.pdf"
-        assert data["data"]["content_type"] == "application/pdf"
-        assert "presigned_url" in data["data"]
+        assert data["data"]["s3_file_info"]["file_name"] == "test.pdf"
+        assert data["data"]["s3_file_info"]["content_type"] == "application/pdf"
+        assert "presigned_url" in data["data"]["s3_file_info"]
         assert "created_at" in data["data"]
 
     def test_get_execution_done_success(
