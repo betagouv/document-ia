@@ -100,10 +100,11 @@ class LLMExtractDocumentStep(BaseStep[LLMExtractionResult]):
                 response,
                 request_tokens,
                 response_tokens,
-            ) = await self.openai_manager.generate_typed_response(
+            ) = await self.openai_manager.get_extraction_response(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 response_class=response_class,
+                document_type=document_type,
                 model=self.model,
             )
         except OpenAIAuthentificationError as e:

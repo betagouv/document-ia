@@ -3,6 +3,7 @@ from typing import Type, Optional
 from pydantic import BaseModel, Field
 
 from document_ia_schemas import BaseDocumentTypeSchema
+from document_ia_schemas.base_document_type_schema import FuzzyDate
 
 
 class BulletinSalaireModel(BaseModel):
@@ -39,22 +40,22 @@ class BulletinSalaireModel(BaseModel):
     )
 
     # --- Détails du contrat ---
-    periode_debut: Optional[str] = Field(
+    periode_debut: FuzzyDate = Field(
         description="Date de début de la période de paie concernée (format JJ/MM/AAAA)",
         alias="Période début",
-        examples=["01/01/2024"],
+        examples=["2024-01-01"],
         default=None
     )
-    periode_fin: Optional[str] = Field(
+    periode_fin: FuzzyDate = Field(
         description="Date de fin de la période de paie concernée (format JJ/MM/AAAA)",
         alias="Période fin",
-        examples=["31/01/2024"],
+        examples=["2024-01-31"],
         default=None
     )
-    date_paiement: Optional[str] = Field(
+    date_paiement: FuzzyDate = Field(
         description="Date de mise en paiement du salaire (format JJ/MM/AAAA)",
         alias="Date de paiement",
-        examples=["02/02/2024"],
+        examples=["2024-02-02"],
         default=None
     )
     emploi: Optional[str] = Field(
@@ -63,10 +64,10 @@ class BulletinSalaireModel(BaseModel):
         examples=["INGENIEUR D'ETUDES", "VENDEUR"],
         default=None
     )
-    anciennete: Optional[str] = Field(
+    anciennete: FuzzyDate = Field(
         description="Date d'ancienneté ou d'entrée dans l'entreprise (format JJ/MM/AAAA)",
         alias="Date d'ancienneté",
-        examples=["15/05/2018"],
+        examples=["2018-05-15"],
         default=None
     )
 

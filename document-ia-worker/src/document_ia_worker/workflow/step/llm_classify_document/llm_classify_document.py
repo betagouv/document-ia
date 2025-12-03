@@ -64,7 +64,7 @@ class LLMClassifyDocumentStep(BaseStep[LLMClassificationResult]):
                 response,
                 request_token,
                 response_token,
-            ) = await self.openai_manager.generate_typed_response(
+            ) = await self.openai_manager.get_classification_response(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 response_class=DocumentClassification,
@@ -72,8 +72,6 @@ class LLMClassifyDocumentStep(BaseStep[LLMClassificationResult]):
             )
         except OpenAIAuthentificationError as e:
             raise RetryableException(e.message)
-
-        logger.debug(f"LLM classification response: {response}")
 
         return (
             LLMClassificationResult(data=response),

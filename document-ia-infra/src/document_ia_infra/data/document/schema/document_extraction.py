@@ -7,7 +7,6 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class DocumentExtraction(BaseModel, Generic[T]):
-    title: str
     type: SupportedDocumentType
     properties: T = Field(description="Document properties")
 

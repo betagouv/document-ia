@@ -1,8 +1,9 @@
-from typing import Optional, Type
+from typing import Type
 
 from pydantic import BaseModel, Field
 
 from document_ia_schemas import BaseDocumentTypeSchema
+from document_ia_schemas.base_document_type_schema import FuzzyDate
 
 
 class PasseportModel(BaseModel):
@@ -38,23 +39,23 @@ class PasseportModel(BaseModel):
             "P<FRADUPONT<<JEAN<ROBIN<ADRIEN<<<><><<<<<>>>123456789012FRA0002152F2809160<<<<<<<<<<<<<<00"
         ],
     )
-    date_delivrance: Optional[str] = Field(
+    date_delivrance: FuzzyDate = Field(
         default=None,
         description="Date d'émission du passeport (format JJ/MM/AAAA). Si absente, renseigner `null`.",
         alias="Date d'émission",
-        examples=["01/01/2010"],
+        examples=["2010-01-01"],
     )
-    date_expiration: Optional[str] = Field(
+    date_expiration: FuzzyDate = Field(
         default=None,
         description="Date limite de validité du passeport (format JJ/MM/AAAA). Si absente, renseigner `null`.",
         alias="Date d'expiration",
-        examples=["01/01/2020"],
+        examples=["2010-01-01"],
     )
-    date_naissance: Optional[str] = Field(
+    date_naissance: FuzzyDate = Field(
         default=None,
         description="Date de naissance du titulaire (format JJ/MM/AAAA). Si absente, renseigner `null`.",
         alias="Date de naissance",
-        examples=["01/01/1990"],
+        examples=["1990-01-01"],
     )
 
 

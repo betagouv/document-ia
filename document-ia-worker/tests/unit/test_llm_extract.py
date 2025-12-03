@@ -46,16 +46,15 @@ class TestLLMExtract:
 
         # Monkeypatch OpenAIManager to avoid real API calls
         class FakeOpenAIManager:
-            async def generate_typed_response(
+            async def get_extraction_response(
                 self,
                 system_prompt: str,
                 user_prompt: str,
                 response_class,
-                model: str,
-                temperature: float = 0.7,
+                document_type: SupportedDocumentType,
+                model: str
             ):
                 payload = {
-                    "title": "Extraction CNI",
                     "type": "cni",
                     "properties": {
                         "numero_document": "123456789012",
@@ -90,7 +89,6 @@ class TestLLMExtract:
 
         assert isinstance(result, LLMExtractionResult)
         data_out = result.data
-        assert getattr(data_out, "title", None) == "Extraction CNI"
         assert getattr(data_out, "type", None) == "cni"
 
         props = getattr(data_out, "properties", None)
