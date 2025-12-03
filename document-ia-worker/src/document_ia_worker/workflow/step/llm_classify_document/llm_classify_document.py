@@ -35,6 +35,7 @@ class LLMClassifyDocumentStep(BaseStep[LLMClassificationResult]):
         self.model = model
         self.openai_manager = OpenAIManager()
         self.prompt_service = PromptService()
+        self.extraction_parameters = main_workflow_context.extraction_parameters
 
     def get_context_result_key(self) -> str:
         return LLMClassificationResult.__name__
@@ -51,6 +52,28 @@ class LLMClassifyDocumentStep(BaseStep[LLMClassificationResult]):
 
     async def _execute_internal(self) -> tuple[LLMClassificationResult, StepMetadata]:
         assert self.ocr_result is not None
+
+        if (
+            self.extraction_parameters is not None
+            and self.extraction_parameters.document_type is not None
+        ):
+            logger.info(
+                f"LLM classification step skipped due to specified extraction parameters document type {self.extraction_parameters.document_type}"
+            )
+            return (
+                LLMClassificationResult(
+                    data=DocumentClassification(
+                        document_type=self.extraction_parameters.document_type,
+                        explanation="Classification skipped due to specified extraction parameters document type.",
+                        confidence=1.0,
+                    )
+                ),
+                StepLLMMetadata(
+                    step_name=self.__class__.__name__,
+                    request_tokens=0,
+                    response_tokens=0,
+                ),
+            )
 
         system_prompt = self.prompt_service.get_classification_prompt(
             GENERIC_CLASSIFICATION_MODEL
