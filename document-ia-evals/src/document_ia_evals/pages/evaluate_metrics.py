@@ -113,6 +113,9 @@ def render_results(results: dict, metric_name: str) -> None:
     """
     Render evaluation results using metric-specific or default renderer.
     
+    Looks for a dedicated renderer in document_ia_evals.metrics.renderers first,
+    then falls back to the metric module itself for backward compatibility.
+    
     Args:
         results: Evaluation results dictionary
         metric_name: Name of the metric used
@@ -128,23 +131,35 @@ def render_results(results: dict, metric_name: str) -> None:
     
     st.divider()
     
-    # Get metric info and call its render function if available
-    metric_info = metric_registry.get_metric(metric_name)
-    if metric_info:
-        metric_module_name = metric_info['func'].__module__
-        
-        # Try to import and call the render function
-        try:
-            metric_module = importlib.import_module(metric_module_name)
-            
-            if hasattr(metric_module, 'render_results'):
-                # Call the metric's custom render function
-                metric_module.render_results(results)
-                return
-        except Exception as e:
-            st.error(f"Error loading metric renderer: {str(e)}")
+    # Try to find a dedicated renderer in the metrics/renderers directory
+    renderer_module_name = f"document_ia_evals.metrics.renderers.{metric_name}_renderer"
     
-    # Default rendering
+    try:
+        renderer_module = importlib.import_module(renderer_module_name)
+        
+        if hasattr(renderer_module, 'render_results'):
+            # Call the dedicated renderer function
+            renderer_module.render_results(results)
+            return
+    except ImportError:
+        # No dedicated renderer found, try the old location (backward compatibility)
+        metric_info = metric_registry.get_metric(metric_name)
+        if metric_info:
+            metric_module_name = metric_info['func'].__module__
+            
+            try:
+                metric_module = importlib.import_module(metric_module_name)
+                
+                if hasattr(metric_module, 'render_results'):
+                    # Call the metric's custom render function (backward compatibility)
+                    metric_module.render_results(results)
+                    return
+            except Exception as e:
+                st.error(f"Error loading metric renderer: {str(e)}")
+    except Exception as e:
+        st.error(f"Error loading dedicated renderer: {str(e)}")
+    
+    # Default rendering if no custom renderer found
     st.subheader("Observations")
     for obs in observations:
         with st.expander(f"Task {obs.get('task_id')} - Model {obs.get('model_version')}", expanded=False):

@@ -142,36 +142,46 @@ def main():
                 
                 st.divider()
                 
-                # Render results using metric's render function
+                # Render results using dedicated renderer or metric's render function
                 st.subheader("📊 Detailed Results")
                 
-                metric_info = metric_registry.get_metric(exp_data['metric_name'])
-                if metric_info:
-                    metric_module_name = metric_info['func'].__module__
+                import importlib
+                
+                # Try to find a dedicated renderer in the metrics/renderers directory
+                renderer_module_name = f"document_ia_evals.metrics.renderers.{exp_data['metric_name']}_renderer"
+                renderer_found = False
+                
+                try:
+                    renderer_module = importlib.import_module(renderer_module_name)
                     
-                    try:
-                        import importlib
-                        metric_module = importlib.import_module(metric_module_name)
+                    if hasattr(renderer_module, 'render_results'):
+                        # Call the dedicated renderer function
+                        renderer_module.render_results(exp_data)
+                        renderer_found = True
+                except ImportError:
+                    # No dedicated renderer found, try the old location (backward compatibility)
+                    metric_info = metric_registry.get_metric(exp_data['metric_name'])
+                    if metric_info:
+                        metric_module_name = metric_info['func'].__module__
                         
-                        if hasattr(metric_module, 'render_results'):
-                            # Call the metric's render function with loaded data
-                            metric_module.render_results(exp_data)
-                        else:
-                            # Fallback: show observations
-                            st.info("This metric doesn't have a custom render function")
-                            for idx, obs in enumerate(exp_data.get('observations', []), 1):
-                                with st.expander(f"Observation {idx}", expanded=False):
-                                    st.json(obs.get('observation', '{}'))
-                    except Exception as e:
-                        st.error(f"Error rendering results: {str(e)}")
-                        st.exception(e)
-                        # Fallback display
-                        with st.expander("Raw Data", expanded=False):
-                            st.json(exp_data)
-                else:
-                    st.warning(f"Metric '{exp_data['metric_name']}' not found in registry")
-                    with st.expander("Raw Data", expanded=True):
-                        st.json(exp_data)
+                        try:
+                            metric_module = importlib.import_module(metric_module_name)
+                            
+                            if hasattr(metric_module, 'render_results'):
+                                # Call the metric's render function (backward compatibility)
+                                metric_module.render_results(exp_data)
+                                renderer_found = True
+                        except Exception as e:
+                            st.error(f"Error rendering results from metric module: {str(e)}")
+                except Exception as e:
+                    st.error(f"Error loading dedicated renderer: {str(e)}")
+                
+                # Fallback if no renderer found
+                if not renderer_found:
+                    st.info("This metric doesn't have a custom render function")
+                    for idx, obs in enumerate(exp_data.get('observations', []), 1):
+                        with st.expander(f"Observation {idx}", expanded=False):
+                            st.json(obs.get('observation', '{}'))
             else:
                 st.error("Experiment not found")
                 del st.session_state.view_experiment_id
