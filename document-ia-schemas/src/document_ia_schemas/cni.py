@@ -1,8 +1,9 @@
 from typing import Type, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from document_ia_schemas import BaseDocumentTypeSchema
+from document_ia_schemas.base_document_model import BaseDocumentModel
 from document_ia_schemas.base_document_type_schema import FuzzyDate
 from document_ia_schemas.field_metrics import Metric
 

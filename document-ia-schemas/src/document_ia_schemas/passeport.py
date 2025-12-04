@@ -1,4 +1,4 @@
-from typing import Type
+from typing import Type, Optional
 
 from pydantic import BaseModel, Field
 
@@ -8,7 +8,8 @@ from document_ia_schemas.field_metrics import Metric
 
 
 class PasseportModel(BaseModel):
-    numero_document: str = Field(
+    numero_document: Optional[str] = Field(
+        default=None,
         description="Identifiant unique / Numéro du passeport (format alphanumérique)",
         alias="Numéro du passeport",
         examples=["123456789012"],
@@ -16,7 +17,8 @@ class PasseportModel(BaseModel):
             "metrics": Metric.COMPARE_NUMBER
         }
     )
-    nom: str = Field(
+    nom: Optional[str] = Field(
+        default=None,
         description="Nom de famille du titulaire (en majuscules sur le document)",
         alias="Nom",
         examples=["DUPONT"],
@@ -24,7 +26,8 @@ class PasseportModel(BaseModel):
             "metrics": Metric.LEVENSHTEIN_DISTANCE
         }
     )
-    prenom: str = Field(
+    prenom: Optional[str] = Field(
+        default=None,
         description="Prénom du titulaire (premier prénom)",
         alias="Prénom",
         examples=["JEAN"],
@@ -32,7 +35,8 @@ class PasseportModel(BaseModel):
             "metrics": Metric.LEVENSHTEIN_DISTANCE
         }
     )
-    lieu_naissance: str = Field(
+    lieu_naissance: Optional[str] = Field(
+        default=None,
         description="Lieu de naissance du titulaire (ville)",
         alias="Lieu de naissance",
         examples=["PARIS 15e"],
@@ -40,7 +44,8 @@ class PasseportModel(BaseModel):
             "metrics": Metric.LEVENSHTEIN_DISTANCE
         }
     )
-    nationalite: str = Field(
+    nationalite: Optional[str] = Field(
+        default=None,
         description="Nationalité du titulaire",
         alias="Nationalité",
         examples=["Française"],
@@ -48,7 +53,8 @@ class PasseportModel(BaseModel):
             "metrics": Metric.LEVENSHTEIN_DISTANCE
         }
     )
-    bande_mrz: str = Field(
+    bande_mrz: Optional[str] = Field(
+        default=None,
         description="Bande MRZ du passeport",
         alias="Bande MRZ",
         examples=[

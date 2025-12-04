@@ -8,7 +8,8 @@ from document_ia_schemas.base_document_type_schema import FuzzyDate
 from document_ia_schemas.field_metrics import Metric
 
 class PermisConduireModel(BaseModel):
-    numero_document: str = Field(
+    numero_document: Optional[str] = Field(
+        default=None,
         description="Identifiant unique du permis de conduire (format alphanumérique).",
         alias="Numéro du permis",
         examples=["1234567890123456789"],
@@ -32,7 +33,8 @@ class PermisConduireModel(BaseModel):
             "metrics": Metric.STRING_DATE_EQUALITY
         }
     )
-    nom: str = Field(
+    nom: Optional[str] = Field(
+        default=None,
         description="Nom de famille du titulaire (en majuscules sur le document).",
         alias="Nom",
         examples=["DUPONT"],
@@ -40,7 +42,8 @@ class PermisConduireModel(BaseModel):
             "metrics": Metric.LEVENSHTEIN_DISTANCE
         }
     )
-    prenom: str = Field(
+    prenom: Optional[str] = Field(
+        default=None,
         description="Prénom du titulaire (premier prénom).",
         alias="Prénom",
         examples=["JEAN"],
