@@ -4,7 +4,6 @@ from datetime import datetime
 
 import pandas as pd
 import streamlit as st
-from document_ia_evals.components.sidebar import render_sidebar
 from document_ia_evals.database.connection import init_db, test_db_connection
 from document_ia_evals.metrics import metric_registry
 from document_ia_evals.services.experiment_service import (
@@ -33,8 +32,6 @@ def format_datetime(dt_str: str) -> str:
 
 def main():
     """Main experiment history page."""
-    # Render sidebar
-    render_sidebar()
     
     st.title("📚 Experiment History")
     st.markdown("View and manage your saved experiment results.")
