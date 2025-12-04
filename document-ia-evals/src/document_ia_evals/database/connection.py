@@ -1,21 +1,15 @@
 """Database connection and session management."""
 
-import os
 from contextlib import contextmanager
 from typing import Generator, Optional
 
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import NullPool
-from dotenv import load_dotenv
 
 from document_ia_evals.database.models import Base
-
 from document_ia_infra.data.data_settings import database_settings
-
-# Load environment variables
-load_dotenv()
 
 
 class DatabaseManager:
