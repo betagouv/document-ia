@@ -6,13 +6,10 @@ from typing import List, Optional
 
 from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, Index, Text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
-
-class Base(DeclarativeBase):
-    """Base class for all models."""
-    pass
+from document_ia_infra.data.database import Base
 
 
 class Experiment(Base):
