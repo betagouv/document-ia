@@ -1,27 +1,17 @@
-from typing import Any, Dict, Optional, Tuple
+"""JSON Schema Extra metric computation logic."""
 
-from document_ia_schemas.field_metrics import Metric
+from typing import Any, Dict, Tuple
 from pydantic import BaseModel
 
-from document_ia_evals.metrics import metric_registry
+from document_ia_evals.metrics import metric_registry, MetricName
 from document_ia_evals.metrics.compare_functions import (
     METRIC_FUNCTIONS,
     levenshtein_distance,
 )
 from document_ia_evals.metrics.utils.pydantic_helpers import get_field_metric
+from document_ia_schemas.field_metrics import Metric
 
-
-class JsonSchemaExtraObservation(BaseModel):
-    """Data model for json_schema_extra metric observations."""
-    
-    score: float
-    document_type: Optional[str] = None
-    model_type: Optional[str] = None
-    field_scores: Dict[str, float] = {}
-    field_details: Dict[str, Dict[str, Any]] = {}
-    evaluated_fields: int = 0
-    skipped_fields: int = 0
-    error: Optional[str] = None
+from .models import JsonSchemaExtraObservation
 
 
 def compare_pydantic_models(
@@ -74,7 +64,7 @@ def compare_pydantic_models(
 
 
 @metric_registry.register(
-    name="json_schema_extra",
+    name=MetricName.JSON_SCHEMA_EXTRA,
     description="Compare Pydantic model instances using field-specific metrics defined in json_schema_extra",
     metric_type="pydantic_comparison",
     require=["prediction", "ground_truth", "document_type"],
@@ -139,4 +129,3 @@ def json_schema_extra_metric(
             skipped_fields=0,
         )
         return 0.0, obs.model_dump_json(indent=2), prediction
-

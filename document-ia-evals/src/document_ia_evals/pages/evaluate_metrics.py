@@ -1,7 +1,5 @@
 """Evaluate Predictions Metrics page - select project, metric and run evaluation."""
 
-import importlib
-
 import pandas as pd
 import streamlit as st
 
@@ -20,6 +18,7 @@ from document_ia_evals.services.metric_evaluation_service import (
     run_metric_evaluation,
 )
 from document_ia_evals.utils.config import config
+from document_ia_evals.utils.experiment_renderer import render_experiment_results
 from document_ia_evals.utils.label_studio import get_project_url
 
 # Page configuration
@@ -111,10 +110,7 @@ def render_processing_time_stats(observations: list[dict]) -> None:
 
 def render_results(results: dict, metric_name: str) -> None:
     """
-    Render evaluation results using metric-specific or default renderer.
-    
-    Looks for a dedicated renderer in document_ia_evals.metrics.renderers first,
-    then falls back to the metric module itself for backward compatibility.
+    Render evaluation results with processing time stats and metric-specific visualization.
     
     Args:
         results: Evaluation results dictionary
@@ -131,41 +127,8 @@ def render_results(results: dict, metric_name: str) -> None:
     
     st.divider()
     
-    # Try to find a dedicated renderer in the metrics/renderers directory
-    renderer_module_name = f"document_ia_evals.metrics.renderers.{metric_name}_renderer"
-    
-    try:
-        renderer_module = importlib.import_module(renderer_module_name)
-        
-        if hasattr(renderer_module, 'render_results'):
-            # Call the dedicated renderer function
-            renderer_module.render_results(results)
-            return
-    except ImportError:
-        # No dedicated renderer found, try the old location (backward compatibility)
-        metric_info = metric_registry.get_metric(metric_name)
-        if metric_info:
-            metric_module_name = metric_info['func'].__module__
-            
-            try:
-                metric_module = importlib.import_module(metric_module_name)
-                
-                if hasattr(metric_module, 'render_results'):
-                    # Call the metric's custom render function (backward compatibility)
-                    metric_module.render_results(results)
-                    return
-            except Exception as e:
-                st.error(f"Error loading metric renderer: {str(e)}")
-    except Exception as e:
-        st.error(f"Error loading dedicated renderer: {str(e)}")
-    
-    # Default rendering if no custom renderer found
-    st.subheader("Observations")
-    for obs in observations:
-        with st.expander(f"Task {obs.get('task_id')} - Model {obs.get('model_version')}", expanded=False):
-            st.markdown(f"**Score:** {obs.get('score', 0):.3f}")
-            if obs.get('observation'):
-                st.json(obs['observation'])
+    # Use shared rendering utility
+    render_experiment_results(results, metric_name)
 
 
 def main():

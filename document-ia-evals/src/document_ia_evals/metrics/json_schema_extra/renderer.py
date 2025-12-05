@@ -1,3 +1,5 @@
+"""Streamlit renderer for json_schema_extra metric results."""
+
 import json
 from collections import defaultdict
 from typing import Any, Dict, Optional
@@ -6,9 +8,11 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from document_ia_evals.metrics.json_schema_extra import JsonSchemaExtraObservation
+from document_ia_evals.metrics import metric_registry, MetricName
+from .models import JsonSchemaExtraObservation
 
 
+@metric_registry.renderer(name=MetricName.JSON_SCHEMA_EXTRA)
 def render_results(experiment_results: Dict[str, Any]) -> None:
     """Render the results of the json_schema_extra metric, grouped by model_version."""
     st.subheader("📝 Pydantic Model Comparison Analysis")

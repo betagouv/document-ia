@@ -4,14 +4,15 @@ from datetime import datetime
 
 import pandas as pd
 import streamlit as st
+
 from document_ia_evals.database.connection import init_db, test_db_connection
-from document_ia_evals.metrics import metric_registry
 from document_ia_evals.services.experiment_service import (
     delete_experiment,
     list_experiments,
     load_experiment,
 )
 from document_ia_evals.utils.config import config
+from document_ia_evals.utils.experiment_renderer import render_experiment_results
 
 # Page configuration
 st.set_page_config(
@@ -142,46 +143,9 @@ def main():
                 
                 st.divider()
                 
-                # Render results using dedicated renderer or metric's render function
+                # Render results using shared rendering utility
                 st.subheader("📊 Detailed Results")
-                
-                import importlib
-                
-                # Try to find a dedicated renderer in the metrics/renderers directory
-                renderer_module_name = f"document_ia_evals.metrics.renderers.{exp_data['metric_name']}_renderer"
-                renderer_found = False
-                
-                try:
-                    renderer_module = importlib.import_module(renderer_module_name)
-                    
-                    if hasattr(renderer_module, 'render_results'):
-                        # Call the dedicated renderer function
-                        renderer_module.render_results(exp_data)
-                        renderer_found = True
-                except ImportError:
-                    # No dedicated renderer found, try the old location (backward compatibility)
-                    metric_info = metric_registry.get_metric(exp_data['metric_name'])
-                    if metric_info:
-                        metric_module_name = metric_info['func'].__module__
-                        
-                        try:
-                            metric_module = importlib.import_module(metric_module_name)
-                            
-                            if hasattr(metric_module, 'render_results'):
-                                # Call the metric's render function (backward compatibility)
-                                metric_module.render_results(exp_data)
-                                renderer_found = True
-                        except Exception as e:
-                            st.error(f"Error rendering results from metric module: {str(e)}")
-                except Exception as e:
-                    st.error(f"Error loading dedicated renderer: {str(e)}")
-                
-                # Fallback if no renderer found
-                if not renderer_found:
-                    st.info("This metric doesn't have a custom render function")
-                    for idx, obs in enumerate(exp_data.get('observations', []), 1):
-                        with st.expander(f"Observation {idx}", expanded=False):
-                            st.json(obs.get('observation', '{}'))
+                render_experiment_results(exp_data, exp_data['metric_name'])
             else:
                 st.error("Experiment not found")
                 del st.session_state.view_experiment_id
