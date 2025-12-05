@@ -7,11 +7,10 @@ import streamlit as st
 
 from document_ia_evals.components import (
     ClientType,
-    get_client,
     render_project_selector,
 )
 from document_ia_evals.utils.config import config
-from document_ia_evals.utils.label_studio import get_label_studio_client_legacy, get_project_url
+from document_ia_evals.utils.label_studio import fetch_project_tasks, get_project_url
 
 # Page configuration
 st.set_page_config(
@@ -19,50 +18,6 @@ st.set_page_config(
     page_icon="📥",
     layout=cast(Any, config.LAYOUT)
 )
-
-
-def fetch_project_tasks(project_id: int) -> list[dict[str, Any]]:
-    """
-    Fetch all tasks from a Label Studio project with full predictions.
-    Handles pagination to get all tasks.
-    
-    Args:
-        project_id: Label Studio project ID
-        
-    Returns:
-        List of task dictionaries with annotations and predictions
-    """
-    client_l = get_label_studio_client_legacy()
-    
-    all_tasks: list[dict[str, Any]] = []
-    page = 1
-    page_size = 100  # Request 100 tasks per page
-    
-    while True:
-        response = client_l.make_request(  # type: ignore
-            "GET",
-            f"/api/projects/{project_id}/tasks",
-            params={
-                'page': page,
-                'page_size': page_size,
-            }
-        )
-        
-        # Parse response - it should already be parsed JSON
-        tasks_batch: list[dict[str, Any]] = response.json() if hasattr(response, 'json') else response
-        
-        if not tasks_batch or len(tasks_batch) == 0:
-            break
-            
-        all_tasks.extend(tasks_batch)
-        
-        # If we got less than page_size, we've reached the end
-        if len(tasks_batch) < page_size:
-            break
-            
-        page += 1
-    
-    return all_tasks
 
 
 def main():

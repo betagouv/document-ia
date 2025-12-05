@@ -26,7 +26,7 @@ def get_label_studio_client() -> LabelStudio:
     ls_client = LabelStudio(base_url=config.LABEL_STUDIO_URL, api_key=config.LABEL_STUDIO_API_KEY)
     return ls_client
 
-def get_label_studio_client_legacy() -> Optional[Client]: 
+def get_label_studio_client_legacy() -> Client: 
    
     client = Client(url=config.LABEL_STUDIO_URL, api_key=config.LABEL_STUDIO_API_KEY)
     if config.ALLOW_INSECURE_REQUESTS is True:
@@ -96,6 +96,61 @@ def get_project_settings_url(project_id: int) -> str:
     base_url = get_label_studio_url()
     return f"{base_url}/projects/{project_id}/settings"
 
+
+
+def fetch_project_tasks(project_id: int) -> list[dict[str, Any]]:
+    """
+    Fetch all tasks from a Label Studio project with full predictions.
+    Handles pagination to get all tasks.
+    
+    Args:
+        project_id: Label Studio project ID
+        
+    Returns:
+        List of task dictionaries with annotations and predictions
+        
+    Example:
+        >>> tasks = fetch_project_tasks(10)
+        >>> len(tasks)
+        42
+    """
+    client_l = get_label_studio_client_legacy()
+    
+    all_tasks: list[dict[str, Any]] = []
+    page = 1
+    page_size = 100  # Request 100 tasks per page
+    
+    while True:
+        response = client_l.make_request(  # type: ignore
+            "GET",
+            f"/api/projects/{project_id}/tasks",
+            params={
+                'page': page,
+                'page_size': page_size,
+            }
+        )
+        
+        # Parse response from Label Studio API
+        try:
+            tasks_batch: list[dict[str, Any]] = response.json()
+        except (AttributeError, json.JSONDecodeError, ValueError) as e:
+            raise RuntimeError(
+                f"Failed to parse tasks from Label Studio API for project {project_id} "
+                f"(page {page}): {e}"
+            ) from e
+        
+        if not tasks_batch:
+            break
+            
+        all_tasks.extend(tasks_batch)
+        
+        # If we got less than page_size, we've reached the end
+        if len(tasks_batch) < page_size:
+            break
+            
+        page += 1
+    
+    return all_tasks
 
 
 METADATA_KEY = '__metadata__'
