@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Any, Optional
 
 from document_ia_infra.exception.retryable_exception import RetryableException
@@ -52,5 +53,17 @@ class ExtractContentHttpOcrStep(BaseStep[OcrResult]):
         if not result.success:
             raise RetryableException("HTTP OCR extraction failed")
         return OcrResult(
-            pages=[OcrResultPage(page_number=1, text=result.content, has_failed=False)]
+            pages=[
+                OcrResultPage(
+                    page_number=1,
+                    text=self._clean_ocr_output(result.content),
+                    has_failed=False,
+                )
+            ]
         ), None
+
+    def _clean_ocr_output(self, text: str) -> str:
+        # Retire les balises images markdown du type ![](...)
+        # Regex pour trouver ![...](...)
+        text = re.sub(r"!\[.*?\]\(.*?\)", "", text)
+        return text.strip()

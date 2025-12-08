@@ -9,10 +9,14 @@ from document_ia_infra.exception.openai_authentification_error import (
 )
 from document_ia_infra.exception.retryable_exception import RetryableException
 from document_ia_infra.openai.openai_manager import OpenAIManager
+from document_ia_schemas import SupportedDocumentType
 from document_ia_worker.core.prompt.prompt_configuration import (
     GENERIC_CLASSIFICATION_MODEL,
 )
 from document_ia_worker.core.prompt.prompt_service import PromptService
+from document_ia_worker.exception.unsupported_document_type import (
+    UnsupportedDocumentType,
+)
 from document_ia_worker.workflow.main_workflow_context import (
     MainWorkflowContext,
     StepMetadata,
@@ -95,6 +99,11 @@ class LLMClassifyDocumentStep(BaseStep[LLMClassificationResult]):
             )
         except OpenAIAuthentificationError as e:
             raise RetryableException(e.message)
+
+        if response.document_type == SupportedDocumentType.OTHER:
+            raise UnsupportedDocumentType(
+                "The document type could not be determined by the LLM."
+            )
 
         return (
             LLMClassificationResult(data=response),

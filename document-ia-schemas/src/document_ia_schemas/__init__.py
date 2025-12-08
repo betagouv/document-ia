@@ -66,6 +66,7 @@ def resolve_extract_schema(name: str) -> BaseDocumentTypeSchema[BaseModel]:
 
 
 class SupportedDocumentType(str, Enum):
+    OTHER = "other"
     CNI = "cni"
     PASSEPORT = "passeport"
     PERMIS_CONDUIRE = "permis_conduire"

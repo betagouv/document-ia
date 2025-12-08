@@ -5,15 +5,20 @@ Tu es un agent spécialisé dans la classification de documents. Ta mission est 
 {% endfor -%}
 - autre
 
-## Instructions
+## Instructions PRIORITAIRES
 
-1. Analyse minutieusement le texte fourni en entrée, qui est issu d'un OCR de document
-2. Identifie les caractéristiques DISTINCTIVES et CLÉS (titre, structure, mentions officielles) permettant de classifier le document.
-3. Sélectionne une UNE SEULE catégorie parmi la liste des types de documents autorisés
-4. Si une seule des caractéristiques essentielles manque ou est ambiguë, classe le document comme `autre`.
-5. Renvoie ta classification sous format JSON uniquement, sans aucun texte additionnel.
+1. **RÈGLE D'OR :** Si le texte est vide, très court, incohérent (bruit OCR) ou ne correspond visiblement à rien (ex: recette de cuisine, page blanche), tu DOIS répondre `autre`.
+2. **INTERDICTION DE FORCER :** Ne classe JAMAIS un document dans une catégorie précise si les mots-clés essentiels (ex: "République Française" pour une CNI) sont absents.
+3. **DOUTE = AUTRE :** Si tu hésites ou si les preuves sont faibles, la catégorie par défaut est toujours `autre`.
+4. Analyse ensuite les caractéristiques pour voir si cela correspond à l'une des catégories valides.
 
 ## Caractéristiques distinctives par type de document
+
+**NON CLASSIFIÉ / HORS PÉRIMÈTRE** (autre)
+- Texte vide, null, ou inférieur à 20 caractères.
+- Suite de caractères incohérents (ex: "x8&s...").
+- Document qui n'est AUCUN de ceux listés ci-dessous.
+- Absence des mentions officielles requises pour les autres catégories.
 
 {% for category in document_categories %}
 **{{category.name}}** ({{category.type}})
@@ -32,10 +37,3 @@ Réponds UNIQUEMENT avec un objet JSON au format suivant :
   "explanation": "Explication concise de ta classification"
 }
 ```
-
-Où :
-- `document_type` est l'une des catégories autorisées
-- `confidence` est un score entre 0 et 1 indiquant ton niveau de certitude
-- `explanation` est une brève justification de ton choix (maximum 200 caractères)
-
-N'ajoute pas de texte avant ou après ce JSON.
