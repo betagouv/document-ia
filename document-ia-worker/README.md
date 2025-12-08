@@ -9,6 +9,8 @@ An asynchronous worker that executes document-processing workflows by consuming 
 - Error Handling, Retry, and DLQ
 - Redis Consumer (Multi-thread)
 - Configuration & Running
+- Environment Variables
+- Scheduled Tasks (Task Scheduler)
 - Best Practices & Troubleshooting
 
 ---
@@ -118,55 +120,103 @@ poetry run python src/document_ia_worker/main.py
 ```
 
 
-## Env Variables
+## Environment Variables
 
-## Marker configuration
+### Marker configuration
 - `MARKER_API_KEY` (secret, default: `None`) — API key for Marker service.
 - `MARKER_BASE_URL` (str, default: `None`) — Base URL for Marker API.
 
 ### Redis
-- `REDIS_HOST` (str, défaut : `"localhost"`) — hôte Redis.
-- `REDIS_PORT` (int, défaut : `6379`) — port Redis.
-- `REDIS_DB` (int, défaut : `0`) — index de base de données Redis.
-- `REDIS_PASSWORD` (secret, défaut : `"password"`) — mot de passe Redis.
-- `REDIS_WORKER_NUMBER` (int, défaut : `1`) — nombre de workers Redis (pour les consumers côté infra).
-- `REDIS_URL` (str, défaut : `None`) — URL de connexion Redis complète (si fournie, peut remplacer host/port/db).
-- `EVENT_STREAM_NAME` (str, défaut : `"event_stream"`) — nom du stream Redis pour les évènements.
-- `EVENT_STREAM_EXPIRATION` (int, défaut : `300`) — TTL (en secondes) des entrées du stream.
-- `EVENT_STREAM_MAXLEN` (int, défaut : `1000`) — taille max du stream avant trimming.
-- `EVENT_CONSUMER_GROUP` (str, défaut : `"workflow_execution_consumer"`) — nom du consumer group Redis.
+- `REDIS_HOST` (str, default: `"localhost"`)
+- `REDIS_PORT` (int, default: `6379`)
+- `REDIS_DB` (int, default: `0`)
+- `REDIS_PASSWORD` (secret, default: `"password"`)
+- `REDIS_WORKER_NUMBER` (int, default: `1`)
+- `REDIS_URL` (str, default: `None`)
+- `EVENT_STREAM_NAME` (str, default: `"event_stream"`)
+- `EVENT_STREAM_EXPIRATION` (int, default: `300`)
+- `EVENT_STREAM_MAXLEN` (int, default: `1000`)
+- `EVENT_CONSUMER_GROUP` (str, default: `"workflow_execution_consumer"`)
 
 ### S3 / MinIO
-- `S3_ENDPOINT_URL` (str, défaut : `"http://localhost:9000"`) — endpoint S3/MinIO.
-- `S3_ACCESS_KEY_ID` (secret, défaut : `"minioadmin"`) — access key S3/MinIO.
-- `S3_SECRET_ACCESS_KEY` (secret, défaut : `"minioadmin"`) — secret key S3/MinIO.
-- `S3_BUCKET_NAME` (str, défaut : `"document-ia"`) — nom du bucket par défaut.
-- `S3_REGION_NAME` (str, défaut : `"us-east-1"`) — région S3 (placeholder pour MinIO).
-- `S3_USE_SSL` (bool, défaut : `False`) — active HTTPS vers S3/MinIO.
+- `S3_ENDPOINT_URL` (str, default: `"http://localhost:9000"`)
+- `S3_ACCESS_KEY_ID` (secret, default: `"minioadmin"`)
+- `S3_SECRET_ACCESS_KEY` (secret, default: `"minioadmin"`)
+- `S3_BUCKET_NAME` (str, default: `"document-ia"`)
+- `S3_REGION_NAME` (str, default: `"us-east-1"`)
+- `S3_USE_SSL` (bool, default: `False`)
 
-### Base de Données PostgreSQL
-- `POSTGRES_DB` (str, défaut : `None`) — nom de la base.
-- `POSTGRES_HOST` (str, défaut : `None`) — hôte PostgreSQL.
-- `POSTGRES_PORT` (int, défaut : `5432`) — port PostgreSQL.
-- `POSTGRES_SSL_MODE` (str, défaut : `None`) — mode SSL (`disable`, `require`, etc.).
-- `POSTGRES_USER` (str, défaut : `None`) — utilisateur DB.
-- `POSTGRES_PASSWORD` (secret, défaut : `None`) — mot de passe DB.
-- `POSTGRESQL_URL` (str, défaut : `None`) — URL de connexion complète (si fournie, prioritaire).
+### PostgreSQL
+- `POSTGRES_DB` (str, default: `None`)
+- `POSTGRES_HOST` (str, default: `None`)
+- `POSTGRES_PORT` (int, default: `5432`)
+- `POSTGRES_SSL_MODE` (str, default: `None`)
+- `POSTGRES_USER` (str, default: `None`)
+- `POSTGRES_PASSWORD` (secret, default: `None`)
+- `POSTGRESQL_URL` (str, default: `None`)
 
 ### Logging & Loki
-- `LOKI_URL` (str, défaut : `""`) — URL de l’instance Loki.
-- `LOKI_LOGGING_ENABLED` (bool, défaut : `True`) — active/désactive l’envoi des logs vers Loki.
+- `LOKI_URL` (str, default: `""`)
+- `LOKI_LOGGING_ENABLED` (bool, default: `True`)
 
 ### OpenAI / LLM
-- `OPENAI_API_KEY` (secret, défaut : `None`) — clé API OpenAI.
-- `OPENAI_BASE_URL` (str, défaut : `None`) — endpoint OpenAI custom (par ex. proxy).
-- `OPENAI_ENCODING_MODEL` (str, défaut : `"gpt-4"`) — modèle utilisé pour le comptage de tokens.
-- `OPENAI_TIMEOUT` (int, défaut : `30`) — timeout (en secondes) des requêtes OpenAI.
-- `OPENAI_MAX_RETRIES` (int, défaut : `3`) — nombre max de retries pour les appels OpenAI.
+- `OPENAI_API_KEY` (secret, default: `None`)
+- `OPENAI_BASE_URL` (str, default: `None`)
+- `OPENAI_ENCODING_MODEL` (str, default: `"gpt-4"`)
+- `OPENAI_TIMEOUT` (int, default: `30`)
+- `OPENAI_MAX_RETRIES` (int, default: `3`)
 
+### Task Scheduler
+- `EVENT_STORE_PPI_RETENTION_DAYS` (int, default: `7`)
 
 Local dependency `document-ia-infra`:
 - The worker depends on `document-ia-infra` (installed in editable mode). Changes in `document-ia-infra/src` become visible after restarting the worker process.
+
+---
+
+## Scheduled Tasks (Task Scheduler)
+
+The worker also ships with a lightweight task scheduler used to run recurring jobs (maintenance, anonymization, cleanup, etc.).
+
+### Task definition: `cron.json`
+
+Scheduled tasks are declared in the `cron.json` file at the root of the worker project. Each entry typically specifies:
+
+- the **task name** (`task_name`),
+- the **schedule** (cron-like expression or interval, depending on your implementation),
+- optional **parameters** or flags (for example, `enabled`).
+
+Example (illustrative only):
+
+```json
+[
+  {
+    "task_name": "anonymize_events",
+    "schedule": "0 * * * *",
+    "enabled": true
+  }
+]
+```
+
+### Task code location
+
+For each `task_name` defined in `cron.json`, the corresponding implementation lives under:
+
+```text
+src/document_ia_task_scheduler/task/<task_name>/main.py
+```
+
+By convention:
+- `<task_name>` must match exactly the `task_name` value from `cron.json`.
+- The `main.py` module exposes the entry point for the task (for example, `async def run()` or `def main()`), which contains the actual job logic.
+
+Example: for a task named `anonymize_events` in `cron.json`, the code would be located at:
+
+```text
+src/document_ia_task_scheduler/task/anonymize_events/main.py
+```
+
+The scheduler uses this convention to resolve and execute the appropriate task module at runtime.
 
 ---
 

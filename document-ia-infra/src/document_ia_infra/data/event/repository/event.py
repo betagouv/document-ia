@@ -6,6 +6,7 @@ providing async CRUD operations and event stream reconstruction.
 """
 
 import logging
+from datetime import datetime
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 
@@ -13,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from document_ia_infra.data.event.dto.anonymization_enum import AnonymizationStatus
 from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.entity.event_entity import EventEntity
@@ -249,3 +251,63 @@ class EventRepository:
             )
             for event in events
         ]
+
+    async def get_not_anonymized_events_before(
+        self,
+        before_date: datetime,
+    ) -> List[EventEntity]:
+        """
+        Retrieve not anonymized events before a specific date.
+
+        Args:
+            before_date: Date to filter events
+
+        Returns:
+            List[EventDTO]: List of not anonymized events
+        """
+
+        query = (
+            select(EventEntity)
+            .where(
+                EventEntity.created_at <= before_date,
+                EventEntity.anonymization_status == AnonymizationStatus.PENDING.value,
+            )
+            .order_by(EventEntity.created_at.asc())
+        )
+
+        result = await self.session.execute(query)
+        events = result.scalars().all()
+
+        return list(events)
+
+    async def anonymize_event(self, event: EventEntity) -> None:
+        """
+        Anonymize an event.
+
+        Args:
+            event: EventEntity to anonymize
+        """
+
+        if event.event_type == EventType.WORKFLOW_EXECUTION_STARTED.value:
+            event.event["file_info"] = {}  # Clear file info
+            event.event["metadata"] = {}  # Clear metadata
+
+        elif event.event_type == EventType.WORKFLOW_EXECUTION_STEP_COMPLETED.value:
+            event.event["final_result"] = {}  # Clear final result
+
+        event.anonymization_status = AnonymizationStatus.DONE.value
+        self.session.add(event)
+        await self.session.flush()
+        await self.session.commit()
+
+    async def save_failed_anonymization(self, event: EventEntity) -> None:
+        """
+        Mark an event's anonymization as failed.
+
+        Args:
+            event: entity of the event to mark as failed
+        """
+        event.anonymization_status = AnonymizationStatus.ERROR.value
+        self.session.add(event)
+        await self.session.flush()
+        await self.session.commit()
