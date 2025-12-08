@@ -5,7 +5,8 @@ description = "Worker document ia"
 authors = ["Nicolas Sagon <nicolas.sagon@beta.gouv.fr>"]
 readme = "README.md"
 packages = [
-    { include = "*", from = "src" },
+    { include = "document_ia_worker", from = "src" },
+    { include = "document_ia_task_scheduler", from = "src" },
 ]
 
 [tool.poetry.dependencies]

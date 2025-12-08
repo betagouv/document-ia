@@ -72,6 +72,13 @@ class EventEntity(Base):
         JSONB, nullable=False, comment="Event payload as JSON"
     )
 
+    anonymization_status: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        default="PENDING",
+        comment="Anonymization status of the event data",
+    )
+
     # TODO: add constraint
     # UNIQUE CONSTRAINT (workflow_id, execution_id, event_type, version)
 
@@ -95,6 +102,7 @@ class EventEntity(Base):
             f"organization_id={self.organization_id}, "
             f"execution_id={self.execution_id}, "
             f"event_type={self.event_type}, "
+            f"has_been_anonymized={self.anonymization_status})>"
         )
 
     def to_dict(self) -> dict[str, Any]:  # type: ignore[override]
@@ -107,4 +115,5 @@ class EventEntity(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "event_type": self.event_type,
             "event": self.event,
+            "has_been_anonymized": self.anonymization_status,
         }

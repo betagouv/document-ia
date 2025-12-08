@@ -1,0 +1,8 @@
+{
+  "jobs": [
+    {
+      "command": "0 3 * * * python -u src/document_ia_task_scheduler/task/remove_ppi/main.py",
+      "size": "S"
+    }
+  ]
+}

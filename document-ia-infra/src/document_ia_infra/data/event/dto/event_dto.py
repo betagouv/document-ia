@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from document_ia_infra.data.event.dto.anonymization_enum import AnonymizationStatus
 from document_ia_infra.data.event.dto.event_type_enum import EventType
 
 
@@ -15,3 +16,4 @@ class EventDTO:
     created_at: datetime
     event_type: EventType
     event: dict[str, Any]
+    anonymization_status: AnonymizationStatus = AnonymizationStatus.PENDING
