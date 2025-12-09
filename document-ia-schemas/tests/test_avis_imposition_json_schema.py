@@ -25,12 +25,15 @@ def _extract_types(prop_schema) -> Set[str]:
 
 
 essential_fields = {
-    "reference_avis",
     "annee_revenus",
     "date_mise_en_recouvrement",
-    "declarant_1_nom",
-    "declarant_1_prenom",
+    "declarant_1_identite",
+    "declarant_1_nom_naissance",
     "declarant_1_numero_fiscal",
+    "declarant_2_identite",
+    "declarant_2_nom_naissance",
+    "declarant_2_numero_fiscal",
+    "reference_avis",
     "nombre_parts",
     "revenu_fiscal_reference",
     "revenu_brut_global",
@@ -58,8 +61,13 @@ def test_json_schema_keys_exact_and_no_alias():
     forbidden_aliases = {
         "Référence d'avis d'impôt",
         "Année des revenus",
+        "Nom et Prénom du déclarant 1",
+        "Nom de naissance du déclarant 1",
         "Numéro fiscal du déclarant 1",
+        "Nom et Prénom du déclarant 2",
+        "Nom de naissance du déclarant 2",
         "Revenu fiscal de référence",
+        "Date de mise en recouvrement",
     }
     assert forbidden_aliases.isdisjoint(set(props.keys()))
 
@@ -72,7 +80,14 @@ def test_json_schema_required_and_types():
 
     # Champs requis: variables (non Optional) du modèle
     required = set(js.get("required", []))
-    expected_required = {"annee_revenus", "declarant_1_nom", "revenu_fiscal_reference"}
+    expected_required = {
+        "annee_revenus",
+        "declarant_1_identite",
+        "declarant_1_nom_naissance",
+        "declarant_2_identite",
+        "declarant_2_nom_naissance",
+        "revenu_fiscal_reference"
+    }
     assert required == expected_required
 
     # Vérifier quelques types clés
