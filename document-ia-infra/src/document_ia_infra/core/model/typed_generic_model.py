@@ -10,7 +10,7 @@ class GenericProperty(BaseModel):
     value: Union[str, int, float, bool, list["GenericProperty"], None] = Field(
         json_schema_extra={"x-mask": True},
     )
-    type: Literal["string", "number", "boolean", "object", "date"]
+    type: Literal["string", "number", "boolean", "object", "date", "list"]
 
     @classmethod
     def convert_pydantic_model(
@@ -23,47 +23,7 @@ class GenericProperty(BaseModel):
         model_fields = getattr(type(model), "model_fields", {})
 
         for field_name, field_value in model:
-            # 1. Gestion des Nested Models (Pydantic) -> recursion
-            if isinstance(field_value, BaseModel):
-                nested_props = cls.convert_pydantic_model(field_value)
-                properties.append(
-                    GenericProperty(
-                        name=field_name,
-                        value=nested_props,
-                        type="object",
-                    )
-                )
-                continue
-
-            # 2. Gestion stricte des Dict[str, str]
-            if isinstance(field_value, dict):
-                nested_dict_props: list[GenericProperty] = []
-
-                for key, val in field_value.items():  # pyright: ignore [reportUnknownVariableType]
-                    safe_key: str = cast(str, key)
-                    safe_val: Any = cast(Any, val)
-                    # Validation stricte : on refuse tout ce qui n'est pas str
-                    if not isinstance(val, str):
-                        raise ValueError(
-                            f"Erreur de type dans le champ '{field_name}'. "
-                            f"La clé '{safe_key}' a une valeur de type '{type(safe_val).__name__}'. "
-                            "Seuls les dictionnaires de type Dict[str, str] sont supportés."
-                        )
-
-                    nested_dict_props.append(
-                        GenericProperty(name=safe_key, value=val, type="string")
-                    )
-
-                properties.append(
-                    GenericProperty(
-                        name=field_name,
-                        value=nested_dict_props,
-                        type="object",
-                    )
-                )
-                continue
-
-            # 3. Récupération de l'annotation classique
+            # Récupérer l'annotation du champ
             field_info = model_fields.get(field_name)
             annotation: Any = (  # pyright: ignore [reportUnknownVariableType]
                 field_info.annotation
@@ -71,23 +31,45 @@ class GenericProperty(BaseModel):
                 else type(field_value)
             )
 
-            # 4. Déduction du type UI
+            # Déduire le type UI
             ui_type = cls._infer_ui_type(annotation, field_value)
+            final_value: Any = field_value
 
-            # 5. Formatage spécifique
-            final_value = field_value
-
-            if ui_type == "date" and isinstance(field_value, (date, datetime)):
+            # Convertir selon le type de valeur
+            if isinstance(field_value, BaseModel):
+                final_value = cls.convert_pydantic_model(field_value)
+                ui_type = "object"
+            elif isinstance(field_value, list) and field_value and isinstance(field_value[0], BaseModel):
+                final_value = [
+                    GenericProperty(
+                        name="item",
+                        value=cls.convert_pydantic_model(item),
+                        type="object",
+                    )
+                    for item in field_value
+                    if isinstance(item, BaseModel)
+                ]
+            elif isinstance(field_value, dict):
+                nested_dict_props: list[GenericProperty] = []
+                for key, val in field_value.items():  # pyright: ignore [reportUnknownVariableType]
+                    if not isinstance(val, str):
+                        raise ValueError(
+                            f"Erreur de type dans le champ '{field_name}'. "
+                            f"La clé '{cast(str, key)}' a une valeur de type '{type(val).__name__}'. "
+                            "Seuls les dictionnaires de type Dict[str, str] sont supportés."
+                        )
+                    nested_dict_props.append(
+                        GenericProperty(name=cast(str, key), value=val, type="string")
+                    )
+                final_value = nested_dict_props
+                ui_type = "object"
+            elif ui_type == "date" and isinstance(field_value, (date, datetime)):
                 final_value = field_value.isoformat()
             elif isinstance(field_value, Decimal):
                 final_value = float(field_value)
 
             properties.append(
-                GenericProperty(
-                    name=field_name,
-                    value=final_value,
-                    type=ui_type,
-                )
+                GenericProperty(name=field_name, value=final_value, type=ui_type)
             )
 
         return properties
@@ -95,7 +77,7 @@ class GenericProperty(BaseModel):
     @classmethod
     def _infer_ui_type(
         cls, annotation: Any, runtime_value: Any
-    ) -> Literal["string", "number", "boolean", "object", "date"]:
+    ) -> Literal["string", "number", "boolean", "object", "date", "list"]:
         origin = get_origin(annotation)
         args = get_args(annotation)
 
@@ -111,7 +93,7 @@ class GenericProperty(BaseModel):
 
         # B. Gestion des Listes
         if origin is list or annotation is list:
-            return "object"
+            return "list"
 
         # C. Gestion des Literals
         if origin is Literal:
@@ -145,6 +127,8 @@ class GenericProperty(BaseModel):
                 return "number"
             if isinstance(runtime_value, str):
                 return "string"
+            if isinstance(runtime_value, list):
+                return "list"
             if isinstance(runtime_value, dict):
                 return "object"
 
