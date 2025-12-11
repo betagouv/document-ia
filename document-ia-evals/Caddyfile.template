@@ -1,0 +1,23 @@
+{
+    auto_https off
+    admin off
+}
+
+:{$PORT} {
+
+    # Groupe de règles pour les IPs autorisées
+    @allowed_client {
+        # Les lignes "header X-Forwarded-For <IP>" seront injectées ici
+__ALLOWED_RULES__
+    }
+
+    # 1. Si le header matche une IP autorisée -> On passe
+    handle @allowed_client {
+        reverse_proxy 127.0.0.1:8501
+    }
+
+    # 2. Sinon -> On bloque avec un message de debug CLAIR
+    handle {
+        respond "Forbidden" 403
+    }
+}

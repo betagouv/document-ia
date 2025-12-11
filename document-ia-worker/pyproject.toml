@@ -24,6 +24,7 @@ greenlet = "^3.2.4"
 zxing-cpp = {git = "https://github.com/zxing-cpp/zxing-cpp.git", rev = "v2.3.0", subdirectory = "wrappers/python"}
 2ddoc-parser = {git = "https://github.com/betagouv/2ddoc-parser.git", tag = "v1.0.2"}
 python-magic = "^0.4.27"
+psycopg2-binary = "^2.9.10"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.12.11"

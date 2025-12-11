@@ -6,6 +6,7 @@ from typing import Any, Type, cast
 from pydantic import BaseModel
 
 from .base_document_type_schema import BaseDocumentTypeSchema
+from .field_metrics import Metric
 
 
 def _find_extract_schema_in_module(
@@ -78,3 +79,9 @@ class SupportedDocumentType(str, Enum):
             return SupportedDocumentType(label)
         except ValueError:
             raise ValueError(f"Unknown SupportedDocumentType: {label}")
+__all__ = [
+    "BaseDocumentTypeSchema",
+    "SupportedDocumentType",
+    "Metric",
+    "resolve_extract_schema",
+]
