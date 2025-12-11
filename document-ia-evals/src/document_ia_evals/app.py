@@ -11,7 +11,7 @@ config.ensure_directories()
 st.set_page_config(
     page_title=config.APP_TITLE,
     page_icon=config.PAGE_ICON,
-    layout=config.LAYOUT,
+    layout=config.LAYOUT,  # pyright: ignore [reportArgumentType]
     initial_sidebar_state="expanded"
 )
 
@@ -37,11 +37,14 @@ def main():
         ],
         "Data": [
             st.Page("pages/export_dataset.py", title="📤 Export Dataset"),
+        ],
+        "Administration": [
+            st.Page("pages/administration.py", title="⚙️ Administration"),
         ]
     }
-    
+
     pg = st.navigation(pages)
     pg.run()
-    
+
 if __name__ == "__main__":
     main()

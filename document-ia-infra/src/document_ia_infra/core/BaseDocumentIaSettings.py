@@ -6,7 +6,7 @@ class BaseDocumentIaSettings(BaseSettings):
     @staticmethod
     def _find_env_file(filename: str = ".env") -> str | None:
         # Start from this file's directory and walk up to filesystem root looking for filename
-        current = Path(__file__).resolve().parent
+        current = Path.cwd()
         root = current.anchor
         while True:
             candidate = current / filename
