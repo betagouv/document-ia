@@ -16,6 +16,9 @@ GENERIC_CLASSIFICATION_MODEL: list[SupportedDocumentType] = [
     SupportedDocumentType.AVIS_IMPOSITION,
     SupportedDocumentType.ATTESTATION_AFFILIATION,
     SupportedDocumentType.BULLETIN_SALAIRE,
+    SupportedDocumentType.QUITTANCE_LOYER,
+    SupportedDocumentType.FACTURE_ENERGIE,
+    SupportedDocumentType.ATTESTATION_CONTRAT_ENERGIE,
     SupportedDocumentType.VISALE,
 ]
 
