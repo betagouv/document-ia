@@ -9,7 +9,6 @@ from document_ia_evals.components import (
     ClientType,
     get_client,
     render_document_type_selector,
-    render_extraction_params_info,
     render_project_selector,
     render_workflow_selector,
 )
@@ -121,8 +120,7 @@ def handle_workflow_execution(
     ls_client: Any,
     n_workers: int,
     model_version: str,
-    is_fast_workflow: bool,
-    selected_doc_type: SupportedDocumentType,
+    selected_doc_type: SupportedDocumentType | None,
 ) -> None:
     """
     Handle the workflow execution process.
@@ -135,12 +133,11 @@ def handle_workflow_execution(
         ls_client: Label Studio client
         n_workers: Number of parallel workers
         model_version: Model version for predictions
-        is_fast_workflow: Whether workflow is a fast workflow
-        selected_doc_type: Selected document type
+        selected_doc_type: Selected document type (optional)
     """
-    # Prepare extraction parameters for fast workflows
+    # Prepare extraction parameters if document type is provided
     extraction_parameters = None
-    if is_fast_workflow:
+    if selected_doc_type:
         extraction_parameters = {"document-type": selected_doc_type.value}
     
     st.info(f"🚀 Exécution du workflow '{workflow_id}' sur le dataset '{project_title}'...")
@@ -200,20 +197,12 @@ def main() -> None:
     api_key = config.DOCUMENT_IA_API_KEY
     
     # Workflow selection using component
-    workflow_selection = render_workflow_selector(
-        show_fast_warning=False,
-    )
+    workflow_selection = render_workflow_selector()
     if workflow_selection is None:
         return
     
-    # Document type selector
-    selected_doc_type = render_document_type_selector(
-        label="Type de document (requis pour les workflows fast)",
-        help_text="Spécifiez le type de document pour les workflows qui n'incluent pas de classification",
-    )
-    
-    # Show extraction parameters info for fast workflows
-    render_extraction_params_info(workflow_selection.is_fast_workflow, selected_doc_type)
+    # Document type selector (optional, for all workflows)
+    selected_doc_type = render_document_type_selector()
     
     # Project selection using component (SDK client)
     project_selection = render_project_selector(
@@ -244,7 +233,6 @@ def main() -> None:
             ls_client=ls_client,
             n_workers=n_workers,
             model_version=model_version,
-            is_fast_workflow=workflow_selection.is_fast_workflow,
             selected_doc_type=selected_doc_type,
         )
 

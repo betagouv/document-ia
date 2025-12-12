@@ -74,6 +74,7 @@ def render_metric_selection() -> tuple[str | None, str | None]:
             selected_doc_type = render_document_type_selector(
                 label="Select Document Type:",
                 help_text="This is required for the json_schema_extra metric to know which schema to use",
+                optional=False
             )
             selected_document_type = selected_doc_type.value
         
