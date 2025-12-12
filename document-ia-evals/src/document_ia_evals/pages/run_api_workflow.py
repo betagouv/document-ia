@@ -4,7 +4,6 @@ import streamlit as st
 
 from document_ia_evals.components import (
     render_document_type_selector,
-    render_extraction_params_info,
     render_workflow_selector,
 )
 from document_ia_evals.utils.api import execute_workflow, wait_for_execution
@@ -20,20 +19,12 @@ def main():
     st.markdown("Cette page vous permet de tester rapidement un workflow Document IA sur un document.")
     
     # Workflow selection using component
-    workflow_selection = render_workflow_selector(
-        show_fast_warning=False,
-    )
+    workflow_selection = render_workflow_selector()
     if workflow_selection is None:
         return
     
-    # Document type selector for fast workflows
-    selected_doc_type = None
-    if workflow_selection.is_fast_workflow:
-        selected_doc_type = render_document_type_selector(
-            label="Type de document (requis pour les workflows fast)",
-            help_text="Spécifiez le type de document pour les workflows qui n'incluent pas de classification",
-        )
-        render_extraction_params_info(workflow_selection.is_fast_workflow, selected_doc_type)
+    # Document type selector (optional, for all workflows)
+    selected_doc_type = render_document_type_selector()
 
     api_key = config.DOCUMENT_IA_API_KEY
     if not api_key:
@@ -50,9 +41,9 @@ def main():
             st.warning("Veuillez sélectionner un fichier avant de lancer l'extraction.")
             return
 
-        # Prepare extraction parameters for fast workflows
+        # Prepare extraction parameters if document type is provided
         extraction_parameters = None
-        if workflow_selection.is_fast_workflow and selected_doc_type:
+        if selected_doc_type:
             extraction_parameters = {"document-type": selected_doc_type.value}
         
         # Show request parameters

@@ -11,7 +11,6 @@ from document_ia_evals.components.project_selector import (
 )
 from document_ia_evals.components.workflow_selector import (
     WorkflowSelection,
-    render_extraction_params_info,
     render_workflow_selector,
 )
 
@@ -19,7 +18,6 @@ __all__ = [
     # Workflow selector
     "WorkflowSelection",
     "render_workflow_selector",
-    "render_extraction_params_info",
     # Document type selector
     "render_document_type_selector",
     # Project selector

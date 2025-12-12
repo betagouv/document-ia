@@ -7,7 +7,6 @@ import streamlit as st
 # Local imports
 from document_ia_evals.components import (
     render_document_type_selector,
-    render_extraction_params_info,
     render_workflow_selector,
 )
 from document_ia_evals.services.create_dataset_service import (
@@ -53,12 +52,9 @@ def render_configuration_warnings() -> bool:
     return True
 
 
-def render_dataset_form(is_fast_workflow: bool) -> tuple[str, SupportedDocumentType, str]:
+def render_dataset_form() -> tuple[str, SupportedDocumentType | None, str]:
     """
     Render dataset configuration form.
-    
-    Args:
-        is_fast_workflow: Whether the selected workflow is a fast workflow
     
     Returns:
         Tuple of (dataset_name, document_type, s3_prefix)
@@ -71,17 +67,11 @@ def render_dataset_form(is_fast_workflow: bool) -> tuple[str, SupportedDocumentT
         help="Nom unique pour identifier ce dataset"
     )
 
-    if is_fast_workflow:
-        # Document type selector
-        selected_doc_type = render_document_type_selector()
-    else:
-        selected_doc_type = None
+    # Document type selector (optional, for all workflows)
+    selected_doc_type = render_document_type_selector()
     
-    # Show extraction parameters info for fast workflows
-    render_extraction_params_info(is_fast_workflow, selected_doc_type)
-
     # S3 prefix (computed, read-only)
-    s3_prefix = f"{dataset_name}_{selected_doc_type.value}" if dataset_name else ""
+    s3_prefix = f"{dataset_name}_{selected_doc_type.value}" if dataset_name and selected_doc_type else dataset_name
     st.text_input(
         "Préfixe S3",
         value=s3_prefix,
@@ -161,11 +151,10 @@ def handle_dataset_creation(
     dataset_name: str,
     folder: list,
     workflow_id: str,
-    selected_doc_type: SupportedDocumentType,
+    selected_doc_type: SupportedDocumentType | None,
     s3_prefix: str,
     n_workers: int,
     api_key: str,
-    is_fast_workflow: bool,
 ) -> None:
     """
     Handle the dataset creation process.
@@ -174,11 +163,10 @@ def handle_dataset_creation(
         dataset_name: Name for the dataset
         folder: List of uploaded files
         workflow_id: Selected workflow ID
-        selected_doc_type: Selected document type
+        selected_doc_type: Selected document type (optional)
         s3_prefix: S3 prefix path
         n_workers: Number of parallel workers
         api_key: API key for authentication
-        is_fast_workflow: Whether workflow is a fast workflow
     """
     if not dataset_name:
         st.warning("⚠️ Veuillez entrer un nom pour le dataset.")
@@ -204,7 +192,6 @@ def handle_dataset_creation(
             s3_prefix=s3_prefix,
             n_workers=n_workers,
             document_type=selected_doc_type,
-            is_fast_workflow=is_fast_workflow,
             on_progress=update_progress,
         )
     
@@ -256,16 +243,12 @@ def main() -> None:
     api_key = config.DOCUMENT_IA_API_KEY
     
     # Workflow selection using component
-    workflow_selection = render_workflow_selector(
-        show_fast_warning=True,
-    )
+    workflow_selection = render_workflow_selector()
     if workflow_selection is None:
         return
 
     # Dataset form
-    dataset_name, selected_doc_type, s3_prefix = render_dataset_form(
-        workflow_selection.is_fast_workflow
-    )
+    dataset_name, selected_doc_type, s3_prefix = render_dataset_form()
     
     # File uploader
     folder = render_file_uploader()
@@ -283,7 +266,6 @@ def main() -> None:
             s3_prefix=s3_prefix,
             n_workers=n_workers,
             api_key=api_key,
-            is_fast_workflow=workflow_selection.is_fast_workflow,
         )
 
 

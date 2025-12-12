@@ -37,7 +37,6 @@ def process_single_file(
     s3_prefix: str,
     bucket_name: str,
     document_type: SupportedDocumentType | None = None,
-    is_fast_workflow: bool = False,
 ) -> FileProcessingResult:
     """
     Process a single file: execute workflow, upload to S3 with ground truth.
@@ -48,8 +47,7 @@ def process_single_file(
         workflow_id: ID of the workflow to execute
         s3_prefix: S3 prefix path for the dataset
         bucket_name: S3 bucket name
-        document_type: Optional document type for fast workflows
-        is_fast_workflow: Whether the workflow is a fast workflow
+        document_type: Optional document type to override classification
     
     Returns:
         FileProcessingResult with success status and any error details
@@ -58,9 +56,9 @@ def process_single_file(
     execution_id: str | None = None
     
     try:
-        # Prepare extraction parameters for fast workflows
+        # Prepare extraction parameters if document type is provided
         extraction_parameters = None
-        if is_fast_workflow and document_type:
+        if document_type:
             extraction_parameters = {"document-type": document_type.value}
         
         # Execute workflow to get ground truth
@@ -161,7 +159,6 @@ def _file_consumer(
     s3_prefix: str,
     bucket_name: str,
     document_type: SupportedDocumentType | None = None,
-    is_fast_workflow: bool = False,
 ) -> None:
     """
     Consumer function for processing files from a queue.
@@ -181,7 +178,6 @@ def _file_consumer(
             s3_prefix=s3_prefix,
             bucket_name=bucket_name,
             document_type=document_type,
-            is_fast_workflow=is_fast_workflow,
         )
         callback.put(result)
 
@@ -193,7 +189,6 @@ def process_files_parallel(
     s3_prefix: str,
     n_workers: int = 5,
     document_type: SupportedDocumentType | None = None,
-    is_fast_workflow: bool = False,
     on_progress: Callable[[int, int], None] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """
@@ -205,8 +200,7 @@ def process_files_parallel(
         workflow_id: ID of the workflow to execute
         s3_prefix: S3 prefix path for the dataset
         n_workers: Number of parallel workers
-        document_type: Optional document type for fast workflows
-        is_fast_workflow: Whether the workflow is a fast workflow
+        document_type: Optional document type to override classification
         on_progress: Optional callback for progress updates (current, total)
     
     Returns:
@@ -235,7 +229,6 @@ def process_files_parallel(
                 s3_prefix,
                 bucket_name,
                 document_type,
-                is_fast_workflow,
             ),
             daemon=True
         )
