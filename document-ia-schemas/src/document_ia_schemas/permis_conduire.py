@@ -19,7 +19,7 @@ class PermisConduireModel(BaseModel):
     date_delivrance: FuzzyDate = Field(
         description="Date de délivrance du permis de conduire (format JJ/MM/AAAA). Si absente, renseigner `null`.",
         alias="Date de délivrance",
-        examples=["15/06/2010"],
+        examples=["2010-06-15"],
         json_schema_extra={
             "metrics": Metric.STRING_DATE_EQUALITY
         }
@@ -27,7 +27,7 @@ class PermisConduireModel(BaseModel):
     date_expiration: FuzzyDate = Field(
         description="Date limite de validité du permis de conduire (format JJ/MM/AAAA). Si absente, renseigner `null`.",
         alias="Date d'expiration",
-        examples=["15/06/2030"],
+        examples=["2030-06-15"],
         json_schema_extra={
             "metrics": Metric.STRING_DATE_EQUALITY
         }
@@ -51,7 +51,7 @@ class PermisConduireModel(BaseModel):
     date_naissance: FuzzyDate = Field(
         description="Date de naissance du titulaire (format JJ/MM/AAAA). Si absente, renseigner `null`.",
         alias="Date de naissance",
-        examples=["01/01/1990"],
+        examples=["1990-01-01"],
         json_schema_extra={
             "metrics": Metric.STRING_DATE_EQUALITY
         }

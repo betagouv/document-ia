@@ -59,7 +59,7 @@ class BulletinSalaireModel(BaseModel):
     periode_debut: FuzzyDate = Field(
         description="Date de début de la période de paie concernée (format JJ/MM/AAAA)",
         alias="Période début",
-        examples=["01/01/2024"],
+        examples=["2024-01-01"],
         default=None,
         json_schema_extra={
             "metrics": Metric.STRING_DATE_EQUALITY
@@ -68,7 +68,7 @@ class BulletinSalaireModel(BaseModel):
     periode_fin: FuzzyDate = Field(
         description="Date de fin de la période de paie concernée (format JJ/MM/AAAA)",
         alias="Période fin",
-        examples=["31/01/2024"],
+        examples=["2024-01-31"],
         default=None,
         json_schema_extra={
             "metrics": Metric.STRING_DATE_EQUALITY
@@ -77,7 +77,7 @@ class BulletinSalaireModel(BaseModel):
     date_paiement: FuzzyDate = Field(
         description="Date de mise en paiement du salaire (format JJ/MM/AAAA)",
         alias="Date de paiement",
-        examples=["02/02/2024"],
+        examples=["2024-02-02"],
         default=None,
         json_schema_extra={
             "metrics": Metric.STRING_DATE_EQUALITY
@@ -95,7 +95,7 @@ class BulletinSalaireModel(BaseModel):
     anciennete: FuzzyDate = Field(
         description="Date d'ancienneté ou d'entrée dans l'entreprise (format JJ/MM/AAAA)",
         alias="Date d'ancienneté",
-        examples=["15/05/2018"],
+        examples=["2018-05-15"],
         default=None,
         json_schema_extra={
             "metrics": Metric.STRING_DATE_EQUALITY
