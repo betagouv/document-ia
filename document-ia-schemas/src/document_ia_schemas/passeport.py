@@ -43,7 +43,7 @@ class PasseportModel(BaseModel):
     nationalite: str = Field(
         description="Nationalité du titulaire",
         alias="Nationalité",
-        examples=["Française"], 
+        examples=["Française"],
         json_schema_extra={
             "metrics": Metric.LEVENSHTEIN_DISTANCE
         }
@@ -62,7 +62,7 @@ class PasseportModel(BaseModel):
         default=None,
         description="Date d'émission du passeport (format JJ/MM/AAAA). Si absente, renseigner `null`.",
         alias="Date d'émission",
-        examples=["01/01/2010"],
+        examples=["2010-01-01"],
         json_schema_extra={
             "metrics": Metric.STRING_DATE_EQUALITY
         }
@@ -71,7 +71,7 @@ class PasseportModel(BaseModel):
         default=None,
         description="Date limite de validité du passeport (format JJ/MM/AAAA). Si absente, renseigner `null`.",
         alias="Date d'expiration",
-        examples=["01/01/2020"],
+        examples=["2020-01-01"],
         json_schema_extra={
             "metrics": Metric.STRING_DATE_EQUALITY
         }
@@ -80,7 +80,7 @@ class PasseportModel(BaseModel):
         default=None,
         description="Date de naissance du titulaire (format JJ/MM/AAAA). Si absente, renseigner `null`.",
         alias="Date de naissance",
-        examples=["01/01/1990"],    
+        examples=["1990-01-01"],
         json_schema_extra={
             "metrics": Metric.STRING_DATE_EQUALITY
         }
