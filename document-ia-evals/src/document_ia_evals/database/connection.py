@@ -30,7 +30,10 @@ def get_session() -> Generator[Session, None, None]:
 def init_db():
     """Initialize the database (create tables if they don't exist)."""
     try:
-        Base.metadata.create_all(database_manager.sync_engine)
+        # Use a sync session to access the underlying bound engine/connection
+        with database_manager.sync_session_context() as session:
+            bind = session.get_bind()
+            Base.metadata.create_all(bind=bind)
         return True
     except Exception as e:
         print(f"Failed to initialize database: {e}")
@@ -45,9 +48,9 @@ def test_db_connection() -> bool:
         bool: True if connection successful, False otherwise
     """
     try:
-        with database_manager.sync_engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-            conn.commit()
+        with database_manager.sync_session_context() as session:
+            session.execute(text("SELECT 1"))
+            session.commit()
         return True
     except Exception as e:
         print(f"Database connection failed: {e}")

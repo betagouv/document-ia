@@ -90,8 +90,6 @@ class WorkflowManager:
     ):
         self.message = message
         logger.info("New workflow_manager instance")
-        # We can't use the singleton here because we need a new session for each thread
-        self.database_manager = DatabaseManager()
 
         # Instance-scoped state to avoid cross-thread leakage
         self.retry_count = retry_count
@@ -123,7 +121,8 @@ class WorkflowManager:
         err_type: Optional[str] = None
         err_message: Optional[str] = None
         failed_step: Optional[str] = None
-        async with self.database_manager.local_session() as session:
+        local_database_manager = DatabaseManager(pool_size=1, max_overflow=1)
+        async with local_database_manager.local_session() as session:
             try:
                 await self._prepare_workflow(session)
                 self.event_data = self._parse_start_event()
@@ -168,6 +167,11 @@ class WorkflowManager:
                     failed_step,
                     self.main_workflow_context.steps_metadata,
                 )
+        # We destroy correctly the databaeManager
+        try:
+            await local_database_manager.dispose_async()
+        except Exception as e:
+            logger.error(f"Error while disposing local database manager: {e}")
 
     async def _prepare_workflow(self, session: AsyncSession):
         try:

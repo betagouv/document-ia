@@ -19,6 +19,12 @@ class DatabaseSettings(BaseDocumentIaSettings):
 
     WEBHOOK_SECRET_ENCRYPTION_KEY: SecretStr | None = Field(default=None)
 
+    DB_POOL_SIZE: int = Field(default=5)
+    DB_MAX_OVERFLOW: int = Field(default=10)
+    DB_POOL_TIMEOUT: int = Field(default=30)  # seconds to wait
+    DB_POOL_RECYCLE: int = Field(default=1800)  # seconds to recycle
+    DB_POOL_PRE_PING: bool = Field(default=True)
+
     def _sanitize_postgresql_url(self, url: str, async_connection: bool = False) -> str:
         """Sanitize PostgreSQL URL by removing unsupported SSL parameters."""
         parsed = urlparse(url)
