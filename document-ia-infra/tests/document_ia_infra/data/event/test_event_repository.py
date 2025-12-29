@@ -312,13 +312,13 @@ class TestGetCreatedEventIfExecutionNotCompletedOrFailed:
         with pytest.raises(RetryableException):
             await event_repository.get_created_event_if_execution_not_completed_or_failed("exec1")
 
-    async def test_empty_events_list_raises_and_rolls_back(
+    async def test_empty_events_list_returns_none(
         self, event_repository, mock_session
     ):
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = []
         mock_session.execute.return_value = mock_result
 
-        with pytest.raises(Exception):
-            await event_repository.get_created_event_if_execution_not_completed_or_failed("exec1")
-        mock_session.rollback.assert_called_once()
+        result = await event_repository.get_created_event_if_execution_not_completed_or_failed("exec1")
+        assert result is None
+        mock_session.rollback.assert_not_called()

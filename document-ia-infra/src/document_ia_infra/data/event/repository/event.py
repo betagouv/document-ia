@@ -118,6 +118,10 @@ class EventRepository:
             events = results.scalars().all()
             event: Optional[EventEntity] = None
 
+            # If no events found, return None
+            if not events:
+                return None
+
             last_event = events[-1]
             # If last_event for an execution is Completed return None no need to reexecute the process
             if last_event.event_type == EventType.WORKFLOW_EXECUTION_COMPLETED:

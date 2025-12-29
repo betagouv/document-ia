@@ -15,6 +15,7 @@ from document_ia_infra.data.event.schema.workflow.workflow_execution_started_eve
 from document_ia_infra.data.webhook.repository.webhook_repository import (
     WebHookRepository,
 )
+from document_ia_infra.data.workflow.dto.workflow_dto import WorkflowDTO
 from document_ia_infra.data.workflow.repository.worflow import workflow_repository
 from document_ia_infra.exception.retryable_exception import RetryableException
 from document_ia_infra.redis.model.webhook_message import WebHookMessage
@@ -81,6 +82,7 @@ class WorkflowManager:
     step_list: list[BaseStep[Any]]
     workflow_context: dict[str, Any]
     main_workflow_context: Optional[MainWorkflowContext]
+    workflow: Optional[WorkflowDTO]
 
     def __init__(
         self,
@@ -99,6 +101,7 @@ class WorkflowManager:
         self.step_list = []
         self.workflow_context = {}
         self.main_workflow_context = None
+        self.workflow = None
 
         # Aggregated logging context init (per workflow execution)
         setup_logging_worker()
