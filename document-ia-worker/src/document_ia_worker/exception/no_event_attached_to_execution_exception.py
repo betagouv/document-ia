@@ -1,4 +1,7 @@
-class NoEventAttachedToExecutionException(Exception):
+from document_ia_infra.exception.retryable_exception import RetryableException
+
+
+class NoEventAttachedToExecutionException(RetryableException):
     """Raised when there is no event attached to the execution."""
 
     def __init__(self, execution_id: str):
