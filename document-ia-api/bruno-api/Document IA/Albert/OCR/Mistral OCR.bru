@@ -1,0 +1,26 @@
+meta {
+  name: Mistral OCR
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{url}}/v1/ocr
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "model" : "mistral-ocr-2505",
+    "document": {
+      "type": "document_url",
+      "document_url": "https://document-ia-evaluation.oos.cloudgouv-eu-west-1.outscale.com/bulletin_salaire-golden_bulletin_salaire/source/18%20399%20663.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=3GRWJB2O1DNFWTK2UM55/20260112/us-east-1/s3/aws4_request&X-Amz-Date=20260112T145406Z&X-Amz-Expires=86400&X-Amz-SignedHeaders=host&X-Amz-Signature=317d2b419f708bdc5c09463eb5931e264fa88ee1c06c634b7d97a6328ab1fa3f"
+    }
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

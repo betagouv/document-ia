@@ -51,6 +51,9 @@ from document_ia_worker.workflow.step.extract_barcode_data.extract_barcode_data 
 from document_ia_worker.workflow.step.extract_content_ocr.extract_content_marker_ocr import (
     ExtractContentMarkerOcrStep,
 )
+from document_ia_worker.workflow.step.extract_content_ocr.extract_content_mistral_ocr import (
+    ExtractContentMistralOcrStep,
+)
 from document_ia_worker.workflow.step.extract_content_ocr.extract_content_nanonets_ocr import (
     ExtractContentNanonetsOcrStep,
 )
@@ -255,6 +258,10 @@ class WorkflowManager:
                 if step == "extract_content_marker_ocr":
                     self.step_list.append(
                         ExtractContentMarkerOcrStep(self.main_workflow_context)
+                    )
+                if step == "extract_content_mistral_ocr":
+                    self.step_list.append(
+                        ExtractContentMistralOcrStep(self.main_workflow_context)
                     )
                 if step == "extract_content_nanonets_ocr":
                     self.step_list.append(
