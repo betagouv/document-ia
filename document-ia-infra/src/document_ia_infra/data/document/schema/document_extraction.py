@@ -36,12 +36,14 @@ class DocumentExtraction(BaseModel, Generic[T]):
                     schema_cls = resolve_extract_schema(doc_type_str)
                     model_cls = getattr(schema_cls, "document_model", None)
                     if model_cls is not None:
-                        # Replace raw dict with a concrete BaseModel instance
-                        return cast(
-                            Any, {**dict_data, "properties": model_cls(**props)}
+                        # Replace raw dict with a concrete BaseModel instance using model_validate
+                        instance = model_cls.model_validate(
+                            props, by_alias=False, by_name=True
                         )
-        except Exception:
+                        return cast(Any, {**dict_data, "properties": instance})
+        except Exception as e:
             # Fail-soft: keep original data if anything goes wrong
+            print(f"E = {e}")
             return cast(Any, data)
         return cast(Any, data)
 
@@ -49,4 +51,4 @@ class DocumentExtraction(BaseModel, Generic[T]):
     @field_serializer("properties")
     def _serialize_properties(self, value: BaseModel) -> Any:
         # Render nested Pydantic model as dict (keep aliases, drop None)
-        return value.model_dump(by_alias=True, exclude_none=True)
+        return value.model_dump(by_alias=False, exclude_none=True)

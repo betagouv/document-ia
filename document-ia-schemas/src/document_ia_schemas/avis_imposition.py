@@ -8,6 +8,7 @@ from document_ia_schemas.field_metrics import Metric
 
 class AvisImpositionModel(BaseModel):
     annee_revenus: Optional[str] = Field(
+        default=None,
         description="Année fiscale concernée par la déclaration de revenus (format AAAA)",
         alias="Année des revenus",
         examples=["2023"],
@@ -27,6 +28,7 @@ class AvisImpositionModel(BaseModel):
         }
     )
     declarant_1_identite: Optional[str] = Field(
+        default=None,
         description="Nom et prénom du premier déclarant tel qu'il apparait au niveau du destinataire",
         alias="Nom et Prénom du déclarant 1",
         examples=["MARTIN"],
@@ -35,6 +37,7 @@ class AvisImpositionModel(BaseModel):
         }
     )
     declarant_1_nom_naissance: Optional[str] = Field(
+        default=None,
         description="Nom de naissance du premier déclarant, il peut être différent du nom et prénom du déclarant 1",
         alias="Nom de naissance du déclarant 1",
         examples=["MARTIN"],
@@ -53,6 +56,7 @@ class AvisImpositionModel(BaseModel):
 
     )
     declarant_2_identite: Optional[str] = Field(
+        default=None,
         description="Nom et prénom du deuxième déclarant tel qu'il apparait au niveau du destinataire",
         alias="Nom et Prénom du déclarant 2",
         examples=["MARTIN"],
@@ -61,6 +65,7 @@ class AvisImpositionModel(BaseModel):
         }
     )
     declarant_2_nom_naissance: Optional[str] = Field(
+        default=None,
         description="Nom de naissance du deuxième déclarant, il peut être différent du nom et prénom du déclarant 2",
         alias="Nom de naissance du déclarant 2",
         examples=["MARTIN"],
@@ -98,7 +103,8 @@ class AvisImpositionModel(BaseModel):
         }
 
     )
-    revenu_fiscal_reference: float = Field(
+    revenu_fiscal_reference: Optional[float] = Field(
+        default=None,
         description="Revenu fiscal de référence (RFR) du foyer en euros",
         alias="Revenu fiscal de référence",
         examples=[45000],
