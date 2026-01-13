@@ -1,8 +1,9 @@
 # Standard library imports
-import json
+from typing import Any
 
 # Third-party imports
 import streamlit as st
+from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 # Local imports
 from document_ia_evals.components import (
@@ -67,22 +68,32 @@ def render_dataset_form() -> tuple[str, SupportedDocumentType | None, str]:
         help="Nom unique pour identifier ce dataset"
     )
 
+    dataset_name_clean = dataset_name.strip().strip("/")
+
     # Document type selector (optional, for all workflows)
     selected_doc_type = render_document_type_selector()
-    
+
     # S3 prefix (computed, read-only)
-    s3_prefix = f"{dataset_name}/{selected_doc_type.value}" if dataset_name and selected_doc_type else dataset_name
+    # Use a path-like convention to avoid ambiguity when dataset_name and doc type contain underscores.
+    doc_type_segment = selected_doc_type.value.strip("/") if selected_doc_type else None
+    s3_prefix = (
+        f"{dataset_name_clean}/{doc_type_segment}"
+        if dataset_name_clean and doc_type_segment
+        else dataset_name_clean
+    )
+    s3_prefix_display = f"{s3_prefix}/" if s3_prefix else ""
+
     st.text_input(
         "Préfixe S3",
-        value=s3_prefix,
+        value=s3_prefix_display,
         disabled=True,
-        help="Chemin où les fichiers seront stockés dans S3"
+        help="Chemin où les fichiers seront stockés dans S3 (format: dataset_name/doc_type/)"
     )
-    
-    return dataset_name, selected_doc_type, s3_prefix
+
+    return dataset_name_clean, selected_doc_type, s3_prefix
 
 
-def render_file_uploader():
+def render_file_uploader() -> list[UploadedFile] | None:
     """
     Render file uploader widget.
     
@@ -112,7 +123,7 @@ def render_worker_config() -> int:
     )
 
 
-def render_upload_results(results: dict) -> None:
+def render_upload_results(results: dict[str, dict[str, Any]]) -> None:
     """
     Render upload results summary and errors.
     
@@ -131,7 +142,7 @@ def render_upload_results(results: dict) -> None:
                 st.info(f"  Execution ID: `{execution_id}`")
 
 
-def render_label_studio_result(project_info: dict) -> None:
+def render_label_studio_result(project_info: dict[str, Any]) -> None:
     """
     Render Label Studio project creation result.
     
@@ -149,7 +160,7 @@ def render_label_studio_result(project_info: dict) -> None:
 
 def handle_dataset_creation(
     dataset_name: str,
-    folder: list,
+    folder: list[UploadedFile] | None,
     workflow_id: str,
     selected_doc_type: SupportedDocumentType | None,
     s3_prefix: str,
@@ -202,16 +213,22 @@ def handle_dataset_creation(
     
     # Step 2: Create Label Studio project
     if success_count > 0:
-        st.info("📊 Étape 2/2: Création du projet Label Studio...")
-        try:
-            project_info = create_label_studio_project(
-                dataset_name=dataset_name,
-                doc_type=selected_doc_type,
-                s3_prefix=s3_prefix
+        if selected_doc_type is None:
+            st.warning(
+                "⚠️ Aucun type de document n'a été sélectionné : "
+                "la création du projet Label Studio est ignorée."
             )
-            render_label_studio_result(project_info)
-        except Exception as e:
-            st.error(f"❌ Erreur lors de la création du projet Label Studio: {e}")
+        else:
+            st.info("📊 Étape 2/2: Création du projet Label Studio...")
+            try:
+                project_info = create_label_studio_project(
+                    dataset_name=dataset_name,
+                    doc_type=selected_doc_type,
+                    s3_prefix=s3_prefix,
+                )
+                render_label_studio_result(project_info)
+            except Exception as e:
+                st.error(f"❌ Erreur lors de la création du projet Label Studio: {e}")
     
     # Show detailed results
     with st.expander("Détails des résultats"):
@@ -241,6 +258,7 @@ def main() -> None:
         return
     
     api_key = config.DOCUMENT_IA_API_KEY
+    assert api_key is not None
     
     # Workflow selection using component
     workflow_selection = render_workflow_selector()
