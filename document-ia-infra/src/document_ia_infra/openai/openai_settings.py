@@ -14,7 +14,7 @@ class OpenAISettings(BaseDocumentIaSettings):
         default=30, description="Timeout for OpenAI API requests in seconds"
     )
     OPENAI_MAX_RETRIES: int = Field(
-        default=3, description="Maximum number of retries for OpenAI API requests"
+        default=1, description="Maximum number of retries for OpenAI API requests"
     )
 
 

@@ -11,21 +11,22 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import TypeVar, Generic, Optional, Any, Coroutine, cast
 
+from redis import ResponseError
+from redis.asyncio import Redis
+from redis.typing import FieldT, EncodableT
+
 from document_ia_infra.exception.retryable_exception import RetryableException
 from document_ia_infra.redis.redis_manager import (
     redis_manager as redis_manager_main_thread,
 )
 from document_ia_infra.redis.redis_settings import redis_settings
 from document_ia_infra.redis.serializable_message import SerializableMessage
-from redis import ResponseError
-from redis.asyncio import Redis
-from redis.typing import FieldT, EncodableT
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=SerializableMessage)
 
-RECLAIM_IDLE_MS = 60000
+RECLAIM_IDLE_MS = 300000
 
 
 class Consumer(Generic[T]):
@@ -106,45 +107,82 @@ class Consumer(Generic[T]):
 
     async def _start_listening_messages(self):
         self.redis = await self._get_safe_redis_connection()
+
+        # On stocke les futures en cours EN DEHORS de la boucle while
+        # Map: Future -> (msg_id, fields)
+        active_futures: dict[asyncio.Future[Any], tuple[str, dict[str, Any]]] = {}
+
         try:
             loop = asyncio.get_running_loop()
-            # This loop continue until stop_flag is set
-            # Stop flag is a signal when the process need to be shutdown
+
             while not self.stop_flag.is_set():
-                response = await self.redis.xreadgroup(
-                    self.consumer_group,
-                    self.consumer_name,
-                    streams={self.stream_name: ">"},
-                    count=self.batch_size,
-                    block=self.block_time,
-                )
+                # 1. Nettoyage des tâches terminées (ACK/DLQ)
+                # On vérifie s'il y a des tâches finies sans attendre
+                # (Sauf si on est plein, voir plus bas)
+                done_futures = [f for f in active_futures if f.done()]
+
+                for fut in done_futures:
+                    msg_id, fields = active_futures.pop(fut)
+                    await self._handle_finished_future(fut, msg_id, fields, self.redis)
+
+                # 2. Calcul de la capacité restante
+                running_count = len(active_futures)
+                free_slots = self.worker_number - running_count
+
+                # 3. Stratégie de lecture
+                if free_slots == 0:
+                    # CAS A: On est PLEIN.
+                    # On ne lit rien sur Redis. On attend obligatoirement qu'une tâche se finisse.
+                    if active_futures:
+                        _, _ = await asyncio.wait(
+                            active_futures.keys(), return_when=asyncio.FIRST_COMPLETED
+                        )
+                    continue
+
+                # CAS B: Il reste de la place.
+                # On adapte le temps de blocage Redis.
+                # Si on a des tâches en cours, on ne veut pas bloquer Redis trop longtemps
+                # pour pouvoir ACK rapidement les tâches qui se terminent.
+                current_block_time = 1000 if running_count > 0 else self.block_time
+
+                try:
+                    response = await self.redis.xreadgroup(
+                        self.consumer_group,
+                        self.consumer_name,
+                        streams={self.stream_name: ">"},
+                        count=free_slots,
+                        block=current_block_time,
+                    )
+                except Exception as e:
+                    logger.error(f"Error reading stream: {e}")
+                    await asyncio.sleep(1)
+                    continue
+
                 if not response:
-                    logger.info("No new messages, continuing...")
                     continue
 
                 _, entries = response[0]
                 if not entries:
                     continue
 
-                # We use this barbaric definition to keep track of which future corresponds to which message
-                future_map: dict[asyncio.Future[Any], tuple[str, dict[str, Any]]] = {}
-                # Soumission en parallèle
+                # 4. Soumission des nouveaux messages
                 for msg_id, fields in entries:
                     raw_data = fields.get("data")
                     retry_count = int(fields.get("retries", "0"))
-                    # We have to cast the data of the message to the type intended for the consumer
+
                     try:
                         message_data: T = cast(
                             T, self.message_class.from_json(raw_data)
                         )
-                    # If we have an exception during the decoding of the data, we put the message in the DLQ because we will not be able to process it
                     except Exception as decode_err:
                         logger.error(f"Erreur décodage message {msg_id}: {decode_err}")
-                        # We acknowledge the message to remove it from the stream
-                        await self.redis.xack(
-                            self.stream_name, self.consumer_group, msg_id
-                        )
-                        # Send to DLQ
+                        try:
+                            await self.redis.xack(
+                                self.stream_name, self.consumer_group, msg_id
+                            )
+                        except Exception:
+                            # Ne pas crash si ACK échoue
+                            logger.error(f"ACK failed for decode_error {msg_id}")
                         await self._send_to_dlq(
                             redis_connection=self.redis,
                             msg_id=msg_id,
@@ -154,96 +192,102 @@ class Consumer(Generic[T]):
                         )
                         continue
 
-                    # We start the processing in a thread managed by a ThreadPoolExecutor
                     func = functools.partial(
                         self._process_message_sync_wrapper, message_data, retry_count
                     )
-                    # noinspection PyTypeChecker
-                    fut = loop.run_in_executor(self.executor, func)
-                    # We store the future in a map we the message data along to be able to ack/nack later
-                    future_map[fut] = (msg_id, fields)
 
-                pending = set(future_map.keys())
-                while pending:
-                    # We wait for the first future to complete
-                    # And we loop again
-                    done, pending = await asyncio.wait(
-                        pending, return_when=asyncio.FIRST_COMPLETED
-                    )
-                    for fut in done:
-                        msg_id, fields = future_map[fut]
-                        # We check if the future raised an exception
-                        try:
-                            fut.result()
-                        # If the processing raised a RetryableException, we requeue the message with an incremented retry count
-                        except RetryableException as retry_exc:
-                            logger.warning(
-                                f"Échec de traitement du message {msg_id}: {retry_exc} retry it"
-                            )
-                            # We get the data stored along the future to re-send the message in the queue
-                            retry_count = int(fields.get("retries", "0"))
-                            data = fields.get("data", "")
-                            # If the retry number is not exceeded, we requeue the message
-                            if retry_count < self.max_retry_number - 1:
-                                try:
-                                    await self.redis.xadd(
-                                        self.stream_name,
-                                        {"data": data, "retries": str(retry_count + 1)},
-                                    )
-                                    logger.info(
-                                        f"Message {msg_id} requeued with retry count {retry_count + 1}"
-                                    )
-                                # If we have an error during the requeue, we log it and move the message to the DLQ
-                                except Exception as requeue_err:
-                                    logger.error(
-                                        f"Failed to requeue message {msg_id}: {requeue_err}"
-                                    )
-                                    # Push to DLQ if we cannot requeue
-                                    await self._send_to_dlq(
-                                        redis_connection=self.redis,
-                                        msg_id=msg_id,
-                                        fields=fields,
-                                        reason="error_requeueing_message",
-                                        error=str(requeue_err),
-                                    )
-                            else:
-                                logger.error(
-                                    f"Max retry count exceeded for message {msg_id}. Moving to DLQ."
-                                )
-                                await self._send_to_dlq(
-                                    redis_connection=self.redis,
-                                    msg_id=msg_id,
-                                    fields=fields,
-                                    reason="max_retries_exceeded",
-                                    error=str(retry_exc),
-                                )
-                        # If we have an error that is not retryable, we log it and ack the message to remove it from the stream
-                        # And move it to the DLQ
-                        except Exception as proc_err:
-                            logger.error(
-                                f"Echec traitement message {msg_id}: {proc_err}. Moving to DLQ."
-                            )
-                            await self._send_to_dlq(
-                                redis_connection=self.redis,
-                                msg_id=msg_id,
-                                fields=fields,
-                                reason="not_retryable_error",
-                                error=str(proc_err),
-                            )
-                        try:
-                            logger.info("Message successfully acknowledged")
-                            await self.redis.xack(
-                                self.stream_name, self.consumer_group, msg_id
-                            )
-                        except Exception as ack_err:
-                            logger.error(
-                                f"Erreur ACK message {msg_id}: {ack_err} (risk de retraitement)."
-                            )
+                    fut = loop.run_in_executor(self.executor, func)
+                    active_futures[fut] = (msg_id, fields)
 
         except Exception as e:
             logger.error(f"Error in consumer loop shutdown: {e}")
             self.stop_flag.set()
             raise e
+        finally:
+            # Attendre la fin des tâches restantes à l'arrêt si nécessaire
+            if active_futures:
+                logger.info(f"Waiting for {len(active_futures)} tasks to finish...")
+                done, _ = await asyncio.wait(active_futures.keys(), timeout=10)
+                # Traiter les futures terminées pour ACK/DLQ
+                for fut in done:
+                    msg_id, fields = active_futures.pop(fut, (None, None))  # type: ignore
+                    if msg_id is not None and fields is not None:
+                        await self._handle_finished_future(
+                            fut, msg_id, fields, self.redis
+                        )
+
+    async def _handle_finished_future(
+        self,
+        fut: asyncio.Future[Any],
+        msg_id: str,
+        fields: dict[str, Any],
+        redis_connection: Redis,
+    ) -> None:
+        """Gestionnaire de résultat extrait de la boucle principale pour lisibilité"""
+        try:
+            fut.result()
+            # Succès
+            try:
+                await redis_connection.xack(
+                    self.stream_name, self.consumer_group, msg_id
+                )
+            except Exception:
+                # Ne pas crash si ACK échoue
+                logger.error(f"ACK failed for success {msg_id}")
+
+        except RetryableException as retry_exc:
+            logger.warning(f"Retryable failure for {msg_id}: {retry_exc}")
+            retry_count = int(fields.get("retries", "0"))
+            data = fields.get("data", "")
+
+            if retry_count < self.max_retry_number - 1:
+                try:
+                    await redis_connection.xadd(
+                        self.stream_name,
+                        {"data": data, "retries": str(retry_count + 1)},
+                    )
+                    try:
+                        await redis_connection.xack(
+                            self.stream_name, self.consumer_group, msg_id
+                        )
+                    except Exception:
+                        logger.error(f"ACK failed after requeue {msg_id}")
+                except Exception as requeue_err:
+                    logger.error(f"Requeue failed {msg_id}: {requeue_err}")
+                    await self._send_to_dlq(
+                        redis_connection,
+                        msg_id,
+                        fields,
+                        "error_requeueing_message",
+                        str(requeue_err),
+                    )
+            else:
+                logger.error(f"Max retries exceeded {msg_id}")
+                await self._send_to_dlq(
+                    redis_connection,
+                    msg_id,
+                    fields,
+                    "max_retries_exceeded",
+                    str(retry_exc),
+                )
+                try:
+                    await redis_connection.xack(
+                        self.stream_name, self.consumer_group, msg_id
+                    )
+                except Exception:
+                    logger.error(f"ACK failed for max_retries_exceeded {msg_id}")
+
+        except Exception as proc_err:
+            logger.error(f"Fatal error message {msg_id}: {proc_err}")
+            await self._send_to_dlq(
+                redis_connection, msg_id, fields, "not_retryable_error", str(proc_err)
+            )
+            try:
+                await redis_connection.xack(
+                    self.stream_name, self.consumer_group, msg_id
+                )
+            except Exception:
+                logger.error(f"ACK failed for not_retryable_error {msg_id}")
 
     def _process_message_sync_wrapper(self, message: T, retry_count: int) -> None:
         """Fonction exécutée dans un thread.
@@ -370,10 +414,13 @@ class Consumer(Generic[T]):
                         fields["retries"] = str(retry_count + 1)
                         await self.redis.xadd(self.stream_name, fields)
                         logger.info(f"Add new message with fields: {fields}")
-                        await self.redis.xack(
-                            self.stream_name, self.consumer_group, msg_id
-                        )
-                        logger.info(f"Acknowledged reclaimed message {msg_id}")
+                        try:
+                            await self.redis.xack(
+                                self.stream_name, self.consumer_group, msg_id
+                            )
+                            logger.info(f"Acknowledged reclaimed message {msg_id}")
+                        except Exception:
+                            logger.error(f"ACK failed for reclaimed {msg_id}")
                     except Exception as ack_err:
                         logger.error(
                             f"Failed to requeue reclaimed message {msg_id}: {ack_err}"
