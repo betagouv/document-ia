@@ -357,16 +357,18 @@ def create_label_studio_project(
         'region_name': config.S3_REGION
     }
     
+    normalized_prefix = s3_prefix.rstrip('/')
+
     source_storage = project.connect_s3_import_storage(  # type: ignore
         **s3_params,
-        prefix=f"{s3_prefix}/tasks",
+        prefix=f"{normalized_prefix}/tasks",
         presign=True,
         regex_filter=r'.*\.json$',
         use_blob_urls=False
     )
     target_storage = project.connect_s3_export_storage(  # type: ignore
         **s3_params,
-        prefix=f"{s3_prefix}/target"
+        prefix=f"{normalized_prefix}/target"
     )
     
     # Sync storage to import tasks
