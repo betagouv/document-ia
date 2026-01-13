@@ -64,6 +64,7 @@ class EventRepository:
 
             self.session.add(event_record)
             await self.session.flush()  # Flush to get the ID
+            await self.session.commit()
             await self.session.refresh(event_record)
 
             logger.debug(
