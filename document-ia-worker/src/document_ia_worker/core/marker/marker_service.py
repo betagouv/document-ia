@@ -43,7 +43,7 @@ class MarkerService:
         logger.info(f"Appel Marker url: {self.base_url} fichier={file_path}")
 
         try:
-            timeout = httpx.Timeout(30.0, connect=10.0)
+            timeout = httpx.Timeout(60.0, connect=60.0)
             async with httpx.AsyncClient(timeout=timeout) as client:
                 with open(file_path, "rb") as f:
                     files = {
