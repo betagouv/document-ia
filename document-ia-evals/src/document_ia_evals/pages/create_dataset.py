@@ -71,7 +71,7 @@ def render_dataset_form() -> tuple[str, SupportedDocumentType | None, str]:
     selected_doc_type = render_document_type_selector()
     
     # S3 prefix (computed, read-only)
-    s3_prefix = f"{dataset_name}_{selected_doc_type.value}" if dataset_name and selected_doc_type else dataset_name
+    s3_prefix = f"{dataset_name}/{selected_doc_type.value}" if dataset_name and selected_doc_type else dataset_name
     st.text_input(
         "Préfixe S3",
         value=s3_prefix,
