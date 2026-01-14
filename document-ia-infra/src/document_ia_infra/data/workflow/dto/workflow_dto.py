@@ -7,6 +7,8 @@ from pydantic import BaseModel
 class LLMModel(str, Enum):
     ALBERT_LARGE = "albert-large"
     ALBERT_SMALL = "albert-small"
+    OPEN_WEIGHT_LARGE = "openweight-large"
+    OPEN_WEIGHT_SMALL = "openweight-small"
 
 
 class WorkflowDTO(BaseModel):
