@@ -13,6 +13,7 @@ from document_ia_infra.exception.openai_authentification_error import (
     OpenAIAuthentificationError,
 )
 from document_ia_infra.openai.openai_settings import openai_settings
+from document_ia_infra.openai.response_format import get_response_format
 from document_ia_schemas import SupportedDocumentType
 
 logger = logging.getLogger(__name__)
@@ -101,18 +102,20 @@ class OpenAIManager:
         data: Dict[str, Any] = {
             "model": model,
             "messages": message,
-            "stream": False,
             "temperature": temperature,
             "extra_body": {
-                "guided_json": response_class.model_json_schema(by_alias=False)
+                "guided_json": get_response_format(response_class).model_json_schema()
             },
         }
 
         try:
             response: ChatCompletion = cast(
-                ChatCompletion, await self.client.chat.completions.create(**data)
+                ChatCompletion,
+                await self.client.chat.completions.parse(
+                    **data, response_format=get_response_format(response_class)
+                ),
             )
-            result = self.clean_json_response(response.choices[0].message.content)
+            result = response.choices[0].message.content
             if result is None:
                 raise Exception(f"Failed to generate response: {response}")
 
@@ -135,44 +138,3 @@ class OpenAIManager:
                 raise OpenAIAuthentificationError()
             logger.error(f"Error generating response: {e}")
             raise e
-
-    def clean_json_response(self, json_content: str | None) -> str | None:
-        """Nettoie une réponse JSON potentiellement mal formée.
-
-        - Enlève les fences de code Markdown (```json ... ``` ou ``` ... ```)
-        - Extrait la sous-chaîne entre la première '{' et la dernière '}'
-        - Retourne la chaîne JSON nettoyée (ou None si vide)
-        """
-        if json_content is None:
-            return None
-
-        s = json_content.strip()
-        if not s:
-            return None
-
-        # Retirer les fences de code Markdown
-        # Cas: ```json\n{...}\n``` ou ```\n{...}\n```
-        if s.startswith("```") and s.endswith("```"):
-            # Supprimer les trois backticks de fin et début
-            s = s[3:-3].strip()
-            # Si la première ligne est 'json' ou une langue, la supprimer
-            first_newline = s.find("\n")
-            if first_newline != -1:
-                first_line = s[:first_newline].strip().lower()
-                if first_line in {"json", "javascript", "js", "python"}:
-                    s = s[first_newline + 1 :].strip()
-
-        # Aussi gérer le cas où le modèle renvoie "json { ... }" sur une seule ligne
-        if s.lower().startswith("json "):
-            s = s[5:].strip()
-
-        # Extraire le contenu entre la première '{' et la dernière '}'
-        start = s.find("{")
-        end = s.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            s = s[start : end + 1]
-        else:
-            # Pas de JSON détecté
-            return None
-
-        return s
