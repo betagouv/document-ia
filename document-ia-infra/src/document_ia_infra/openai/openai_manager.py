@@ -112,7 +112,7 @@ class OpenAIManager:
             response: ChatCompletion = cast(
                 ChatCompletion, await self.client.chat.completions.create(**data)
             )
-            result = response.choices[0].message.content
+            result = self.clean_json_response(response.choices[0].message.content)
             if result is None:
                 raise Exception(f"Failed to generate response: {response}")
 
@@ -135,3 +135,44 @@ class OpenAIManager:
                 raise OpenAIAuthentificationError()
             logger.error(f"Error generating response: {e}")
             raise e
+
+    def clean_json_response(self, json_content: str | None) -> str | None:
+        """Nettoie une réponse JSON potentiellement mal formée.
+
+        - Enlève les fences de code Markdown (```json ... ``` ou ``` ... ```)
+        - Extrait la sous-chaîne entre la première '{' et la dernière '}'
+        - Retourne la chaîne JSON nettoyée (ou None si vide)
+        """
+        if json_content is None:
+            return None
+
+        s = json_content.strip()
+        if not s:
+            return None
+
+        # Retirer les fences de code Markdown
+        # Cas: ```json\n{...}\n``` ou ```\n{...}\n```
+        if s.startswith("```") and s.endswith("```"):
+            # Supprimer les trois backticks de fin et début
+            s = s[3:-3].strip()
+            # Si la première ligne est 'json' ou une langue, la supprimer
+            first_newline = s.find("\n")
+            if first_newline != -1:
+                first_line = s[:first_newline].strip().lower()
+                if first_line in {"json", "javascript", "js", "python"}:
+                    s = s[first_newline + 1 :].strip()
+
+        # Aussi gérer le cas où le modèle renvoie "json { ... }" sur une seule ligne
+        if s.lower().startswith("json "):
+            s = s[5:].strip()
+
+        # Extraire le contenu entre la première '{' et la dernière '}'
+        start = s.find("{")
+        end = s.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            s = s[start : end + 1]
+        else:
+            # Pas de JSON détecté
+            return None
+
+        return s
