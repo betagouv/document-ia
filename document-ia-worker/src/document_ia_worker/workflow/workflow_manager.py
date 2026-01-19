@@ -33,6 +33,18 @@ from document_ia_worker.core.aggregator_log import (
     start_time_var,
     handle_finish_execution,
 )
+from document_ia_worker.core.ocr.deepseek.deepseek_http_ocr_service import (
+    DeepSeekHttpHttpOcrService,
+)
+from document_ia_worker.core.ocr.marker.marker_http_ocr_service import (
+    MarkerHttpHttpOcrService,
+)
+from document_ia_worker.core.ocr.mistral.mistral_http_ocr_service import (
+    MistralHttpOcrService,
+)
+from document_ia_worker.core.ocr.nanonets.nanonets_http_ocr_service import (
+    NanonetsHttpHttpOcrService,
+)
 from document_ia_worker.exception.no_event_attached_to_execution_exception import (
     NoEventAttachedToExecutionException,
 )
@@ -48,17 +60,8 @@ from document_ia_worker.workflow.step.download_file.download_file import (
 from document_ia_worker.workflow.step.extract_barcode_data.extract_barcode_data import (
     ExtractBarcodeData,
 )
-from document_ia_worker.workflow.step.extract_content_ocr.extract_content_marker_ocr import (
-    ExtractContentMarkerOcrStep,
-)
-from document_ia_worker.workflow.step.extract_content_ocr.extract_content_mistral_ocr import (
-    ExtractContentMistralOcrStep,
-)
-from document_ia_worker.workflow.step.extract_content_ocr.extract_content_nanonets_ocr import (
-    ExtractContentNanonetsOcrStep,
-)
-from document_ia_worker.workflow.step.extract_content_ocr.extract_content_deepseek_ocr import (
-    ExtractContentDeepseekOcrStep,
+from document_ia_worker.workflow.step.extract_content_ocr.extract_content_http_ocr import (
+    ExtractContentHttpOcrStep,
 )
 from document_ia_worker.workflow.step.extract_content_ocr.extract_content_ocr import (
     ExtractContentOcrStep,
@@ -257,19 +260,27 @@ class WorkflowManager:
                     )
                 if step == "extract_content_marker_ocr":
                     self.step_list.append(
-                        ExtractContentMarkerOcrStep(self.main_workflow_context)
+                        ExtractContentHttpOcrStep(
+                            self.main_workflow_context, MarkerHttpHttpOcrService()
+                        )
                     )
                 if step == "extract_content_mistral_ocr":
                     self.step_list.append(
-                        ExtractContentMistralOcrStep(self.main_workflow_context)
+                        ExtractContentHttpOcrStep(
+                            self.main_workflow_context, MistralHttpOcrService()
+                        )
                     )
                 if step == "extract_content_nanonets_ocr":
                     self.step_list.append(
-                        ExtractContentNanonetsOcrStep(self.main_workflow_context)
+                        ExtractContentHttpOcrStep(
+                            self.main_workflow_context, NanonetsHttpHttpOcrService()
+                        )
                     )
                 if step == "extract_content_deepseek_ocr":
                     self.step_list.append(
-                        ExtractContentDeepseekOcrStep(self.main_workflow_context)
+                        ExtractContentHttpOcrStep(
+                            self.main_workflow_context, DeepSeekHttpHttpOcrService()
+                        )
                     )
                 if step == "extract_barcode_data":
                     self.step_list.append(ExtractBarcodeData())

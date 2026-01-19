@@ -1,8 +1,8 @@
 import pathlib
 import pytest
 
-from document_ia_worker.core.marker.marker_service import MarkerService
-from document_ia_worker.core.marker.marker_settings import marker_settings
+from document_ia_worker.core.ocr.marker.marker_http_ocr_service import MarkerHttpHttpOcrService
+from document_ia_worker.core.ocr.marker.marker_settings import marker_settings
 
 
 @pytest.mark.asyncio
@@ -15,9 +15,9 @@ async def test_extract_text_from_image_e2e_success():
         pytest.skip("MARKER_API_KEY / MARKER_BASE_URL non configurés, skip e2e")
 
     fixture_path = pathlib.Path(__file__).resolve().parents[1] / "fixtures" / "test_download_file.pdf"
-    service = MarkerService()
+    service = MarkerHttpHttpOcrService()
 
-    result = await service.extract_text_from_image(str(fixture_path))
+    result = await service.extract_text_from_image(str(fixture_path), mime_type="application/pdf")
 
     # Assertions minimales pour e2e réel
     assert result is not None
@@ -35,13 +35,13 @@ async def test_extract_text_from_image_e2e_unauthorized():
         pytest.skip("MARKER_API_KEY / MARKER_BASE_URL non configurés, skip e2e")
 
     fixture_path = pathlib.Path(__file__).resolve().parents[1] / "fixtures" / "test_download_file.pdf"
-    service = MarkerService()
+    service = MarkerHttpHttpOcrService()
 
     # Forcer une clé invalide et conserver la base_url valide
-    service.api_key = "invalid-key-for-test"
+    service.get_api_key = "invalid-key-for-test"
     service.base_url = marker_settings.MARKER_BASE_URL
 
-    result = await service.extract_text_from_image(str(fixture_path))
+    result = await service.extract_text_from_image(str(fixture_path), mime_type="application/pdf")
 
     # Avec une clé invalide, on s'attend à un échec (le service renvoie un JSON sans "text" ou 401)
     assert result is not None

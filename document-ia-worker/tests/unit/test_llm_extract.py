@@ -1,7 +1,5 @@
 import json
-from datetime import datetime
 from pathlib import Path
-from uuid import uuid4
 
 import pytest
 
@@ -20,7 +18,6 @@ from document_ia_worker.workflow.step.step_result.ocr_result import (
     OcrResultPage,
 )
 
-
 FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures"
 SNAPSHOT_PATH = FIXTURES_DIR / "ocr_result_cni.json"
 
@@ -29,7 +26,6 @@ class TestLLMExtract:
     @pytest.mark.skipif(not SNAPSHOT_PATH.exists(), reason="OCR snapshot not found")
     @pytest.mark.asyncio
     async def test_extract_with_cni_fixture_and_mocked_classification(self, monkeypatch, main_workflow_context):
-
         # Build OcrResult from snapshot
         data = json.loads(SNAPSHOT_PATH.read_text())
         pages = [OcrResultPage(**p) for p in data.get("pages", [])]
@@ -47,12 +43,12 @@ class TestLLMExtract:
         # Monkeypatch OpenAIManager to avoid real API calls
         class FakeOpenAIManager:
             async def get_extraction_response(
-                self,
-                system_prompt: str,
-                user_prompt: str,
-                response_class,
-                document_type: SupportedDocumentType,
-                model: str
+                    self,
+                    system_prompt: str,
+                    user_prompt: str,
+                    response_class,
+                    document_type: SupportedDocumentType,
+                    model: str
             ):
                 payload = {
                     "type": "cni",

@@ -2,7 +2,7 @@ import logging
 from typing import Any, Optional
 
 from document_ia_infra.exception.retryable_exception import RetryableException
-from document_ia_worker.core.deepseek_ocr.deepseek_ocr_service import DeepseekOcrService
+from document_ia_worker.core.ocr.base_http_ocr_service import BaseHttpOCRService
 from document_ia_worker.workflow.main_workflow_context import (
     MainWorkflowContext,
     StepMetadata,
@@ -19,11 +19,16 @@ from document_ia_worker.workflow.step.step_result.ocr_result import (
 logger = logging.getLogger(__name__)
 
 
-class ExtractContentDeepseekOcrStep(BaseStep[OcrResult]):
+class ExtractContentHttpOcrStep(BaseStep[OcrResult]):
     download_file_result: Optional[DownloadFileResult] = None
 
-    def __init__(self, main_workflow_context: MainWorkflowContext):
+    def __init__(
+        self,
+        main_workflow_context: MainWorkflowContext,
+        http_ocr_service: BaseHttpOCRService[Any],
+    ):
         self.execution_id = main_workflow_context.execution_id
+        self.http_ocr_service = http_ocr_service
 
     def get_context_result_key(self) -> str:
         return OcrResult.__name__
@@ -41,12 +46,11 @@ class ExtractContentDeepseekOcrStep(BaseStep[OcrResult]):
 
     async def _execute_internal(self) -> tuple[OcrResult, Optional[StepMetadata]]:
         assert self.download_file_result is not None
-        deepseek_ocr_service = DeepseekOcrService()
-        result = await deepseek_ocr_service.extract_text_from_image(
-            self.download_file_result.file_path
+        result = await self.http_ocr_service.extract_text_from_image(
+            self.download_file_result.file_path, self.download_file_result.content_type
         )
         if not result.success:
-            raise RetryableException("Deepseek OCR extraction failed")
+            raise RetryableException("HTTP OCR extraction failed")
         return OcrResult(
             pages=[OcrResultPage(page_number=1, text=result.content, has_failed=False)]
         ), None

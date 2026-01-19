@@ -1,8 +1,8 @@
 import pathlib
 import pytest
 
-from document_ia_worker.core.mistral_ocr.mistral_ocr_service import MistralOcrService
-from document_ia_worker.core.mistral_ocr.mistral_ocr_settings import mistral_ocr_settings
+from document_ia_worker.core.ocr.mistral.mistral_http_ocr_service import MistralHttpOcrService
+from document_ia_worker.core.ocr.mistral.mistral_ocr_settings import mistral_ocr_settings
 
 
 @pytest.mark.asyncio
@@ -18,7 +18,7 @@ async def test_extract_text_from_image_e2e_success():
         pytest.skip("MISTRAL_OCR_API_KEY / MISTRAL_ORC_BASE_URL non configurés, skip e2e")
 
     fixture_path = pathlib.Path(__file__).resolve().parents[1] / "fixtures" / "test_download_file.pdf"
-    service = MistralOcrService()
+    service = MistralHttpOcrService()
 
     # Le service Mistral nécessite le mime_type pour construire l'URL data
     result = await service.extract_text_from_image(str(fixture_path), mime_type="application/pdf")
@@ -42,10 +42,10 @@ async def test_extract_text_from_image_e2e_unauthorized():
         pytest.skip("MISTRAL_OCR_API_KEY / MISTRAL_ORC_BASE_URL non configurés, skip e2e")
 
     fixture_path = pathlib.Path(__file__).resolve().parents[1] / "fixtures" / "test_download_file.pdf"
-    service = MistralOcrService()
+    service = MistralHttpOcrService()
 
     # Forcer une clé invalide et conserver la base_url valide
-    service.api_key = "invalid-key-for-test"
+    service.get_api_key = "invalid-key-for-test"
     service.base_url = mistral_ocr_settings.MISTRAL_ORC_BASE_URL
 
     result = await service.extract_text_from_image(str(fixture_path), mime_type="application/pdf")

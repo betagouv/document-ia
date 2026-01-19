@@ -13,8 +13,8 @@ post {
 body:multipart-form {
   metadata: {"test":"test"} @contentType(String)
   file: @file(/Users/nsagon/Projects/files/carte d'identité recto.pdf)
+  extraction-parameters: {"document-type": "cni"}
   ~classification-parameters: {}
-  ~extraction-parameters: {"document-type": "cni"}
 }
 
 vars:pre-request {
