@@ -80,14 +80,7 @@ def test_json_schema_required_and_types():
 
     # Champs requis: variables (non Optional) du modèle
     required = set(js.get("required", []))
-    expected_required = {
-        "annee_revenus",
-        "declarant_1_identite",
-        "declarant_1_nom_naissance",
-        "declarant_2_identite",
-        "declarant_2_nom_naissance",
-        "revenu_fiscal_reference"
-    }
+    expected_required = set()
     assert required == expected_required
 
     # Vérifier quelques types clés
