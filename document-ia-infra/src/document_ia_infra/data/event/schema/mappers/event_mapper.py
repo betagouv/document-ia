@@ -6,6 +6,9 @@ from document_ia_infra.data.event.schema.event import EventStoreRecord, BaseEven
 from document_ia_infra.data.event.schema.workflow.workflow_execution_completed_event import (
     WorkflowExecutionCompletedEvent,
 )
+from document_ia_infra.data.event.schema.workflow.workflow_execution_failed_event import (
+    WorkflowExecutionFailedEvent,
+)
 from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import (
     WorkflowExecutionStartedEvent,
 )
@@ -34,5 +37,7 @@ def convert_inner_event_dto(data: dict[str, Any], event_type: EventType) -> Base
             return WorkflowExecutionStepCompletedEvent(**data)
         case EventType.WORKFLOW_EXECUTION_COMPLETED:
             return WorkflowExecutionCompletedEvent(**data)
+        case EventType.WORKFLOW_EXECUTION_FAILED:
+            return WorkflowExecutionFailedEvent(**data)
         case _:
             raise ValueError(f"Unsupported event type: {event_type}")
