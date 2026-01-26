@@ -1,16 +1,12 @@
 import logging
 import os
-from abc import ABC
-from json import JSONDecodeError
+from abc import ABC, abstractmethod
 from typing import TypeVar
 
 import httpx
 
 from document_ia_infra.core.BaseDocumentIaSettings import BaseDocumentIaSettings
 from document_ia_worker.core.ocr.ocr_result import HttpOcrResult
-from document_ia_worker.exception.http_ocr_miss_configuration_exception import (
-    HTTPOCRMissConfigurationException,
-)
 
 C = TypeVar("C", bound=BaseDocumentIaSettings)
 
@@ -38,32 +34,8 @@ class BaseHttpOCRService[C](ABC):
                 response = await self.make_request(client, file_path, mime_type)
                 return self.parse_response(response)
 
-        except HTTPOCRMissConfigurationException as e:
-            logger.error(f"{e}")
-            return HttpOcrResult(
-                success=False,
-                content="",
-            )
-        except httpx.TimeoutException as e:
-            logger.error(f"Timeout lors de l'appel OCR HTTP: {e}")
-            return HttpOcrResult(
-                success=False,
-                content="",
-            )
-        except httpx.RequestError as e:
-            logger.error(f"Erreur appel OCR: {e}")
-            return HttpOcrResult(
-                success=False,
-                content="",
-            )
-        except JSONDecodeError as e:
-            logger.error(f"Erreur parsing JSON OCR: {e}")
-            return HttpOcrResult(
-                success=False,
-                content="",
-            )
-        except Exception:
-            logger.exception("Exception inattendue lors de l'appel http OCR")
+        except Exception as e:
+            logger.error(f"Unexpected error during HTTP OCR call: {e}")
             return HttpOcrResult(
                 success=False,
                 content="",
@@ -96,8 +68,10 @@ class BaseHttpOCRService[C](ABC):
                 content="",
             )
 
+    @abstractmethod
     def get_api_key(self) -> str:
         raise NotImplementedError("Subclasses must implement get_api_key method")
 
+    @abstractmethod
     def get_base_url(self) -> str:
         raise NotImplementedError("Subclasses must implement get_base_url method")

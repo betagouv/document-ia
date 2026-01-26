@@ -103,9 +103,6 @@ class OpenAIManager:
             "model": model,
             "messages": message,
             "temperature": temperature,
-            "extra_body": {
-                "guided_json": get_response_format(response_class).model_json_schema()
-            },
         }
 
         try:
