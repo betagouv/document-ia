@@ -305,9 +305,6 @@ async def execute_workflow(
             request_extraction_parameter=parsed_extraction_parameters,
         )
 
-        # Commit the database session to persist all changes (including events)
-        await db_session.commit()
-
         logger.info(
             "Workflow execution started successfully",
             extra={

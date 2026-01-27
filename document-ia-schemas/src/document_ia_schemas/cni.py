@@ -8,7 +8,8 @@ from document_ia_schemas.field_metrics import Metric
 
 
 class CNIModel(BaseModel):
-    numero_document: str = Field(
+    numero_document: Optional[str] = Field(
+        default=None,
         description="Identifiant unique de la carte d'identité (format alphanumérique)",
         alias="Numero de la carte d'identité",
         examples=["123456789012"],
@@ -34,7 +35,8 @@ class CNIModel(BaseModel):
             "metrics": Metric.STRING_DATE_EQUALITY
         }
     )
-    nom: str = Field(
+    nom: Optional[str] = Field(
+        default=None,
         description="Nom de famille du titulaire (en majuscules sur le document",
         alias="Nom",
         examples=["DUPONT"],
@@ -42,10 +44,11 @@ class CNIModel(BaseModel):
             "metrics": Metric.LEVENSHTEIN_DISTANCE
         }
     )
-    prenom: str = Field(
+    prenom: Optional[str] = Field(
+        default=None,
         description="Prénom du titulaire, uniquement le premier s'il y en a plusieurs",
         alias="Prénom",
-        examples=["JEAN"],  
+        examples=["JEAN"],
         json_schema_extra={
             "metrics": Metric.LEVENSHTEIN_DISTANCE
         }
@@ -59,7 +62,8 @@ class CNIModel(BaseModel):
             "metrics": Metric.STRING_DATE_EQUALITY
         }
     )
-    lieu_naissance: str = Field(
+    lieu_naissance: Optional[str] = Field(
+        default=None,
         description="Lieu de naissance du titulaire",
         alias="Lieu de naissance",
         examples=["PARIS 15e"],
@@ -67,7 +71,8 @@ class CNIModel(BaseModel):
             "metrics": Metric.LEVENSHTEIN_DISTANCE
         }
     )
-    nationalite: str = Field(
+    nationalite: Optional[str] = Field(
+        default=None,
         description="Nationalité du titulaire (en majuscules sur le document)",
         alias="Nationalité",
         examples=["FRANÇAISE"],

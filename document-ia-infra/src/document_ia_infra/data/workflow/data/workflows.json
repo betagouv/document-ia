@@ -77,6 +77,110 @@
     "updated_at": "2025-09-01T10:00:00Z"
   },
   {
+    "id": "document-extraction-mistral-v1",
+    "name": "Document extraction with Mistral v1 and albert medium",
+    "description": "Generic workflow to extract and process document content with mistral ocr",
+    "version": "1.0.0",
+    "enabled": true,
+    "supported_file_types": [
+      "application/pdf",
+      "image/jpeg",
+      "image/png"
+    ],
+    "steps": [
+      "download_file",
+      "preprocess_file",
+      "extract_barcode_data",
+      "extract_content_mistral_ocr",
+      "llm_classify_document",
+      "llm_extract_data",
+      "save_workflow_result"
+    ],
+    "llm_model": "albert-large",
+    "max_file_size_mb": 25,
+    "processing_timeout_minutes": 5,
+    "created_at": "2025-09-01T10:00:00Z",
+    "updated_at": "2025-09-01T10:00:00Z"
+  },
+  {
+    "id": "document-extraction-mistral-v1-mistral-medium",
+    "name": "Document extraction with Mistral v1 and mistral medium",
+    "description": "Generic workflow to extract and process document content with mistral ocr",
+    "version": "1.0.0",
+    "enabled": true,
+    "supported_file_types": [
+      "application/pdf",
+      "image/jpeg",
+      "image/png"
+    ],
+    "steps": [
+      "download_file",
+      "preprocess_file",
+      "extract_barcode_data",
+      "extract_content_mistral_ocr",
+      "llm_classify_document",
+      "llm_extract_data",
+      "save_workflow_result"
+    ],
+    "llm_model": "mistral-medium-2508",
+    "max_file_size_mb": 25,
+    "processing_timeout_minutes": 5,
+    "created_at": "2025-09-01T10:00:00Z",
+    "updated_at": "2025-09-01T10:00:00Z"
+  },
+  {
+    "id": "document-extraction-mistral-v1-small",
+    "name": "Document extraction with Mistral v1 and albert small",
+    "description": "Generic workflow to extract and process document content with mistral ocr",
+    "version": "1.0.0",
+    "enabled": true,
+    "supported_file_types": [
+      "application/pdf",
+      "image/jpeg",
+      "image/png"
+    ],
+    "steps": [
+      "download_file",
+      "preprocess_file",
+      "extract_barcode_data",
+      "extract_content_mistral_ocr",
+      "llm_classify_document",
+      "llm_extract_data",
+      "save_workflow_result"
+    ],
+    "llm_model": "openweight-small",
+    "max_file_size_mb": 25,
+    "processing_timeout_minutes": 5,
+    "created_at": "2025-09-01T10:00:00Z",
+    "updated_at": "2025-09-01T10:00:00Z"
+  },
+    {
+    "id": "document-extraction-mistral-v1-large",
+    "name": "Document extraction with Mistral v1 and albert large",
+    "description": "Generic workflow to extract and process document content with mistral ocr",
+    "version": "1.0.0",
+    "enabled": true,
+    "supported_file_types": [
+      "application/pdf",
+      "image/jpeg",
+      "image/png"
+    ],
+    "steps": [
+      "download_file",
+      "preprocess_file",
+      "extract_barcode_data",
+      "extract_content_mistral_ocr",
+      "llm_classify_document",
+      "llm_extract_data",
+      "save_workflow_result"
+    ],
+    "llm_model": "openweight-large",
+    "max_file_size_mb": 25,
+    "processing_timeout_minutes": 5,
+    "created_at": "2025-09-01T10:00:00Z",
+    "updated_at": "2025-09-01T10:00:00Z"
+  },
+  {
     "id": "document-extraction-nanonets-v1",
     "name": "Document extraction with Nanonets v1",
     "description": "Generic workflow to extract and process document content with nanonets ocr",

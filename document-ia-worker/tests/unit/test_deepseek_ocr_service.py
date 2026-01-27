@@ -1,8 +1,8 @@
 import pathlib
 import pytest
 
-from document_ia_worker.core.deepseek_ocr.deepseek_ocr_service import DeepseekOcrService
-from document_ia_worker.core.deepseek_ocr.deepseek_ocr_settings import deepseek_ocr_settings
+from document_ia_worker.core.ocr.deepseek.deepseek_http_ocr_service import DeepSeekHttpHttpOcrService
+from document_ia_worker.core.ocr.deepseek.deepseek_ocr_settings import deepseek_ocr_settings
 
 
 @pytest.mark.asyncio
@@ -15,9 +15,9 @@ async def test_extract_text_from_image_e2e_success():
         pytest.skip("DEEPSEEK_OCR_API_KEY / DEEPSEEK_OCR_BASE_URL non configurés, skip e2e")
 
     fixture_path = pathlib.Path(__file__).resolve().parents[1] / "fixtures" / "test_download_file.pdf"
-    service = DeepseekOcrService()
+    service = DeepSeekHttpHttpOcrService()
 
-    result = await service.extract_text_from_image(str(fixture_path))
+    result = await service.extract_text_from_image(str(fixture_path), mime_type="application/pdf")
 
     # Assertions minimales pour e2e réel
     assert result is not None
@@ -35,13 +35,13 @@ async def test_extract_text_from_image_e2e_unauthorized():
         pytest.skip("DEEPSEEK_OCR_API_KEY / DEEPSEEK_OCR_BASE_URL non configurés, skip e2e")
 
     fixture_path = pathlib.Path(__file__).resolve().parents[1] / "fixtures" / "test_download_file.pdf"
-    service = DeepseekOcrService()
+    service = DeepSeekHttpHttpOcrService()
 
     # Forcer une clé invalide et conserver la base_url valide
-    service.api_key = "invalid-key-for-test"
+    service.get_api_key = "invalid-key-for-test"
     service.base_url = deepseek_ocr_settings.DEEPSEEK_OCR_BASE_URL
 
-    result = await service.extract_text_from_image(str(fixture_path))
+    result = await service.extract_text_from_image(str(fixture_path), mime_type="application/pdf")
 
     # Avec une clé invalide, on s'attend à un échec (le service renvoie un JSON sans "text" ou 401)
     assert result is not None

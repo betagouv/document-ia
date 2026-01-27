@@ -29,7 +29,8 @@ class BulletinSalaireModel(BaseModel):
     )
 
     # --- Identité Salarié ---
-    nom_salarie: str = Field(
+    nom_salarie: Optional[str] = Field(
+        default=None,
         description="Nom de famille du salarié",
         alias="Nom du salarié",
         examples=["MARTIN"],
@@ -37,7 +38,8 @@ class BulletinSalaireModel(BaseModel):
             "metrics": Metric.LEVENSHTEIN_DISTANCE
         }
     )
-    prenom_salarie: str = Field(
+    prenom_salarie: Optional[str] = Field(
+        default=None,
         description="Prénom du salarié",
         alias="Prénom du salarié",
         examples=["THOMAS"],
@@ -130,7 +132,8 @@ class BulletinSalaireModel(BaseModel):
             "metrics": Metric.COMPARE_NUMBER
         }
     )
-    net_a_payer: float = Field(
+    net_a_payer: Optional[float] = Field(
+        default=None,
         description="Montant final Net à Payer (le montant viré sur le compte bancaire, en bas de page en gras)",
         alias="Net à Payer",
         examples=["2649.80"],

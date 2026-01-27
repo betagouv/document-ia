@@ -64,6 +64,7 @@ class EventRepository:
 
             self.session.add(event_record)
             await self.session.flush()  # Flush to get the ID
+            await self.session.commit()
             await self.session.refresh(event_record)
 
             logger.debug(
@@ -117,6 +118,10 @@ class EventRepository:
             results = await self.session.execute(query)
             events = results.scalars().all()
             event: Optional[EventEntity] = None
+
+            # If no events found, return None
+            if not events:
+                return None
 
             last_event = events[-1]
             # If last_event for an execution is Completed return None no need to reexecute the process

@@ -15,6 +15,7 @@ from document_ia_infra.data.event.schema.workflow.workflow_execution_started_eve
 from document_ia_infra.data.webhook.repository.webhook_repository import (
     WebHookRepository,
 )
+from document_ia_infra.data.workflow.dto.workflow_dto import WorkflowDTO
 from document_ia_infra.data.workflow.repository.worflow import workflow_repository
 from document_ia_infra.exception.retryable_exception import RetryableException
 from document_ia_infra.redis.model.webhook_message import WebHookMessage
@@ -32,6 +33,18 @@ from document_ia_worker.core.aggregator_log import (
     start_time_var,
     handle_finish_execution,
 )
+from document_ia_worker.core.ocr.deepseek.deepseek_http_ocr_service import (
+    DeepSeekHttpHttpOcrService,
+)
+from document_ia_worker.core.ocr.marker.marker_http_ocr_service import (
+    MarkerHttpHttpOcrService,
+)
+from document_ia_worker.core.ocr.mistral.mistral_http_ocr_service import (
+    MistralHttpOcrService,
+)
+from document_ia_worker.core.ocr.nanonets.nanonets_http_ocr_service import (
+    NanonetsHttpHttpOcrService,
+)
 from document_ia_worker.exception.no_event_attached_to_execution_exception import (
     NoEventAttachedToExecutionException,
 )
@@ -47,14 +60,8 @@ from document_ia_worker.workflow.step.download_file.download_file import (
 from document_ia_worker.workflow.step.extract_barcode_data.extract_barcode_data import (
     ExtractBarcodeData,
 )
-from document_ia_worker.workflow.step.extract_content_ocr.extract_content_marker_ocr import (
-    ExtractContentMarkerOcrStep,
-)
-from document_ia_worker.workflow.step.extract_content_ocr.extract_content_nanonets_ocr import (
-    ExtractContentNanonetsOcrStep,
-)
-from document_ia_worker.workflow.step.extract_content_ocr.extract_content_deepseek_ocr import (
-    ExtractContentDeepseekOcrStep,
+from document_ia_worker.workflow.step.extract_content_ocr.extract_content_http_ocr import (
+    ExtractContentHttpOcrStep,
 )
 from document_ia_worker.workflow.step.extract_content_ocr.extract_content_ocr import (
     ExtractContentOcrStep,
@@ -81,6 +88,7 @@ class WorkflowManager:
     step_list: list[BaseStep[Any]]
     workflow_context: dict[str, Any]
     main_workflow_context: Optional[MainWorkflowContext]
+    workflow: Optional[WorkflowDTO]
 
     def __init__(
         self,
@@ -90,8 +98,6 @@ class WorkflowManager:
     ):
         self.message = message
         logger.info("New workflow_manager instance")
-        # We can't use the singleton here because we need a new session for each thread
-        self.database_manager = DatabaseManager()
 
         # Instance-scoped state to avoid cross-thread leakage
         self.retry_count = retry_count
@@ -101,6 +107,7 @@ class WorkflowManager:
         self.step_list = []
         self.workflow_context = {}
         self.main_workflow_context = None
+        self.workflow = None
 
         # Aggregated logging context init (per workflow execution)
         setup_logging_worker()
@@ -123,7 +130,8 @@ class WorkflowManager:
         err_type: Optional[str] = None
         err_message: Optional[str] = None
         failed_step: Optional[str] = None
-        async with self.database_manager.local_session() as session:
+        local_database_manager = DatabaseManager(pool_size=1, max_overflow=1)
+        async with local_database_manager.local_session() as session:
             try:
                 await self._prepare_workflow(session)
                 self.event_data = self._parse_start_event()
@@ -168,6 +176,11 @@ class WorkflowManager:
                     failed_step,
                     self.main_workflow_context.steps_metadata,
                 )
+        # We destroy correctly the databaeManager
+        try:
+            await local_database_manager.dispose_async()
+        except Exception as e:
+            logger.error(f"Error while disposing local database manager: {e}")
 
     async def _prepare_workflow(self, session: AsyncSession):
         try:
@@ -247,15 +260,27 @@ class WorkflowManager:
                     )
                 if step == "extract_content_marker_ocr":
                     self.step_list.append(
-                        ExtractContentMarkerOcrStep(self.main_workflow_context)
+                        ExtractContentHttpOcrStep(
+                            self.main_workflow_context, MarkerHttpHttpOcrService()
+                        )
+                    )
+                if step == "extract_content_mistral_ocr":
+                    self.step_list.append(
+                        ExtractContentHttpOcrStep(
+                            self.main_workflow_context, MistralHttpOcrService()
+                        )
                     )
                 if step == "extract_content_nanonets_ocr":
                     self.step_list.append(
-                        ExtractContentNanonetsOcrStep(self.main_workflow_context)
+                        ExtractContentHttpOcrStep(
+                            self.main_workflow_context, NanonetsHttpHttpOcrService()
+                        )
                     )
                 if step == "extract_content_deepseek_ocr":
                     self.step_list.append(
-                        ExtractContentDeepseekOcrStep(self.main_workflow_context)
+                        ExtractContentHttpOcrStep(
+                            self.main_workflow_context, DeepSeekHttpHttpOcrService()
+                        )
                     )
                 if step == "extract_barcode_data":
                     self.step_list.append(ExtractBarcodeData())

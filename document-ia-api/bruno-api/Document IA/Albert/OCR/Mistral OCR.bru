@@ -1,0 +1,26 @@
+meta {
+  name: Mistral OCR
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{url}}/v1/ocr
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "model" : "mistral-ocr-2512",
+    "document": {
+      "type": "document_url",
+      "document_url": ""
+    }
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

@@ -13,6 +13,7 @@ from document_ia_infra.exception.openai_authentification_error import (
     OpenAIAuthentificationError,
 )
 from document_ia_infra.openai.openai_settings import openai_settings
+from document_ia_infra.openai.response_format import get_response_format
 from document_ia_schemas import SupportedDocumentType
 
 logger = logging.getLogger(__name__)
@@ -101,16 +102,15 @@ class OpenAIManager:
         data: Dict[str, Any] = {
             "model": model,
             "messages": message,
-            "stream": False,
             "temperature": temperature,
-            "extra_body": {
-                "guided_json": response_class.model_json_schema(by_alias=False)
-            },
         }
 
         try:
             response: ChatCompletion = cast(
-                ChatCompletion, await self.client.chat.completions.create(**data)
+                ChatCompletion,
+                await self.client.chat.completions.parse(
+                    **data, response_format=get_response_format(response_class)
+                ),
             )
             result = response.choices[0].message.content
             if result is None:
