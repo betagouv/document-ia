@@ -126,61 +126,75 @@ class WorkflowManager:
             organization_id=None,
             steps_metadata=[],
         )
+        need_to_notify_webhook = True
         is_success = True
         err_type: Optional[str] = None
         err_message: Optional[str] = None
         failed_step: Optional[str] = None
         local_database_manager = DatabaseManager(pool_size=1, max_overflow=1)
-        async with local_database_manager.local_session() as session:
-            try:
-                await self._prepare_workflow(session)
-                self.event_data = self._parse_start_event()
-                self._prepare_executor(session)
-                await self._execute_workflow()
-            except Exception as e:
-                logger.error(f"Workflow execution failed: {e}")
-                is_success = False
-                # We use the WorkflowStepException to know in which step the error happened
-                # and we dispatch the inner exception to have the original exception
-                if isinstance(e, WorkflowStepException):
-                    failed_step = e.step_name
-                    inner_exc = e.inner_exception
-                else:
-                    inner_exc = e
-                err_type = (
-                    RetryableException.__name__
-                    if isinstance(inner_exc, RetryableException)
-                    else inner_exc.__class__.__name__
-                )
-                err_message = str(inner_exc)
-                await self._save_failure_event(session, e)
-                if isinstance(e, WorkflowStepException):
-                    raise e.inner_exception
-                else:
-                    raise e
-            finally:
-                # Persist DB changes
-                await session.commit()
-                await self._notify_webhook_execution_finished(session)
-                handle_finish_execution(
-                    logger,
-                    self.workflow.id if self.workflow else "unknown",
-                    is_success,
-                    self.retry_count,
-                    self.workflow.steps if self.workflow else [],
-                    self._agg_token_exec,
-                    self._agg_token_buf,
-                    self._agg_token_started_at,
-                    err_type,
-                    err_message,
-                    failed_step,
-                    self.main_workflow_context.steps_metadata,
-                )
-        # We destroy correctly the databaeManager
         try:
-            await local_database_manager.dispose_async()
-        except Exception as e:
-            logger.error(f"Error while disposing local database manager: {e}")
+            async with local_database_manager.local_session() as session:
+                try:
+                    await self._prepare_workflow(session)
+                    self.event_data = self._parse_start_event()
+                    self._prepare_executor(session)
+                    await self._execute_workflow()
+                except Exception as e:
+                    logger.error(f"Workflow execution failed: {e}")
+                    is_success = False
+                    # We use the WorkflowStepException to know in which step the error happened
+                    # and we dispatch the inner exception to have the original exception
+                    if isinstance(e, WorkflowStepException):
+                        failed_step = e.step_name
+                        inner_exc = e.inner_exception
+                    else:
+                        inner_exc = e
+                    err_type = (
+                        RetryableException.__name__
+                        if isinstance(inner_exc, RetryableException)
+                        else inner_exc.__class__.__name__
+                    )
+                    err_message = str(inner_exc)
+
+                    # we need to notify the webhook for every not retryable exception or if it's the last retry
+                    # By default the need_to_notify_webhook is True
+                    # So if an exception is Retryable and it's not the last_retry we set it to False to skip the webhook notification
+                    if (
+                        WorkflowStepException.is_retryable_exception(e)
+                        and not self.is_last_retry
+                    ):
+                        need_to_notify_webhook = False
+
+                    await self._save_failure_event(session, e)
+                    if isinstance(e, WorkflowStepException):
+                        raise e.inner_exception
+                    else:
+                        raise e
+                finally:
+                    # Persist DB changes
+                    await session.commit()
+                    if need_to_notify_webhook:
+                        await self._notify_webhook_execution_finished(session)
+                    handle_finish_execution(
+                        logger,
+                        self.workflow.id if self.workflow else "unknown",
+                        is_success,
+                        self.retry_count,
+                        self.workflow.steps if self.workflow else [],
+                        self._agg_token_exec,
+                        self._agg_token_buf,
+                        self._agg_token_started_at,
+                        err_type,
+                        err_message,
+                        failed_step,
+                        self.main_workflow_context.steps_metadata,
+                    )
+        finally:
+            # We destroy correctly the databaeManager
+            try:
+                await local_database_manager.dispose_async()
+            except Exception as e:
+                logger.error(f"Error while disposing local database manager: {e}")
 
     async def _prepare_workflow(self, session: AsyncSession):
         try:
