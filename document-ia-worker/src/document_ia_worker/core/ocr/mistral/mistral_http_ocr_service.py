@@ -42,12 +42,20 @@ class MistralHttpOcrService(BaseHttpOCRService[MistralOcrSettings]):
         # Construction de l'URL data, en utilisant le mime_type fourni
         data_url = f"data:{mime_type};base64,{b64_content}"
 
-        payload = {
-            "model": "mistral-ocr-2512",
-            "document": {
+        if mime_type.startswith("image/"):
+            document_content = {
+                "type": "image_url",
+                "image_url": data_url,
+            }
+        else:
+            document_content = {
                 "type": "document_url",
                 "document_url": data_url,
-            },
+            }
+
+        payload = {
+            "model": "mistral-ocr-2512",
+            "document": document_content,
         }
 
         timeout = httpx.Timeout(self.timeout, connect=self.connection_timeout)
