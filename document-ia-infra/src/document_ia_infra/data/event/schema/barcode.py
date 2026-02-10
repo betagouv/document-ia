@@ -2,6 +2,8 @@ from enum import Enum
 from typing import Any, Annotated, Union, Literal, Optional
 
 from pydantic import BaseModel, Field
+from datetime import date
+
 
 from document_ia_infra.core.model.typed_generic_model import GenericProperty
 
@@ -37,6 +39,7 @@ class Ants2DDoc(BarcodeModel):
     typed_data: list[GenericProperty] = Field(
         default=[], json_schema_extra={"x-mask": True}
     )
+    issue_date: Optional[date] = Field(default=None)
     ants_type: Optional[str] = Field(default=None)
 
 

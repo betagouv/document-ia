@@ -100,6 +100,7 @@ class ExtractBarcodeData(BaseStep[BarcodeResult]):
                                 ),
                                 page_number=idx + 1,
                                 ants_type=result.ants_type,
+                                issue_date=result.header.issue_date,
                             )
                         )
                     except Exception as e:
