@@ -27,16 +27,16 @@ repos:
         language: system
         pass_filenames: false
         files: ^document-ia-api/pyproject.toml$
-        entry: bash -c 'cd document-ia-api && poetry lock --no-update'
+        entry: bash -c 'cd document-ia-api && poetry lock'
       - id: poetry-lock-infra
         name: poetry lock (infra)
         language: system
         pass_filenames: false
         files: ^document-ia-infra/pyproject.toml$
-        entry: bash -c 'cd document-ia-infra && poetry lock --no-update'
+        entry: bash -c 'cd document-ia-infra && poetry lock'
       - id: poetry-lock-worker
         name: poetry lock (worker)
         language: system
         pass_filenames: false
         files: ^document-ia-worker/pyproject.toml$
-        entry: bash -c 'cd document-ia-worker && poetry lock --no-update'
+        entry: bash -c 'cd document-ia-worker && poetry lock'
