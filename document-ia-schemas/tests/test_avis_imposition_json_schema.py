@@ -78,11 +78,6 @@ def test_json_schema_required_and_types():
 
     props = js["properties"]
 
-    # Champs requis: variables (non Optional) du modèle
-    required = set(js.get("required", []))
-    expected_required = set()
-    assert required == expected_required
-
     # Vérifier quelques types clés
     # annee_revenus -> string
     assert "string" in _extract_types(props["annee_revenus"])

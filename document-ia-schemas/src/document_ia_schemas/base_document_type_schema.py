@@ -43,6 +43,7 @@ def parse_flexible_date(value: Any) -> Optional[date]:
     # Ici, je lève une erreur pour que tu saches que l'extraction a échoué sur ce champ
     raise ValueError(f"Format de date non reconnu : {value}")
 
+
 FuzzyDate = Annotated[Optional[date], BeforeValidator(parse_flexible_date)]
 
 

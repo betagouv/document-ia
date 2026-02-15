@@ -40,7 +40,6 @@ class TestLLMExtract:
         )
         llm_classification_result = LLMClassificationResult(data=classification, request_tokens=1, response_tokens=1)
 
-        # Monkeypatch OpenAIManager to avoid real API calls
         class FakeOpenAIManager:
             async def get_extraction_response(
                     self,
@@ -50,17 +49,29 @@ class TestLLMExtract:
                     document_type: SupportedDocumentType,
                     model: str
             ):
-                payload = {
-                    "type": "cni",
-                    "properties": {
-                        "numero_document": "123456789012",
-                        "nom": "DUPONT",
-                        "prenom": "JEAN",
-                        "lieu_naissance": "PARIS",
-                        "nationalite": "Française",
-                    },
+                # Dans le step, response_class == DocumentExtraction[extract_class]
+                # On reconstitue le inner_class exactement comme dans OpenAIManager
+                inner_class = response_class.model_fields["properties"].annotation
+
+                # On simule ce que _generate_typed_response ferait : un JSON de CNIModel
+                cni_payload = {
+                    "numero_document": "123456789012",
+                    "nom": "DUPONT",
+                    "prenom": "JEAN",
+                    "lieu_naissance": "PARIS",
+                    "nationalite": "Française",
                 }
-                return (response_class.model_validate(payload, by_name=True, by_alias=False), 1, 1)
+
+                # On parse comme dans `_generate_typed_response` : par nom de champ
+                cni_model = inner_class.model_validate(cni_payload, by_name=True, by_alias=False)
+
+                # Puis on reconstruit un DocumentExtraction comme dans get_extraction_response
+                doc_extraction = response_class(
+                    type=document_type,
+                    properties=cni_model,
+                )
+
+                return doc_extraction, 1, 1
 
         monkeypatch.setattr(
             "document_ia_worker.workflow.step.llm_extract_document.llm_extract_document.OpenAIManager",

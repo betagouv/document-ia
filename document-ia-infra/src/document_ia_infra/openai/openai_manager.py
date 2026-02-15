@@ -1,13 +1,17 @@
+import json
 import logging
-from typing import Any, Dict, cast, TypeVar
+from typing import Any, Dict, cast, TypeVar, Union
 
 import tiktoken
 from openai import AsyncOpenAI, AuthenticationError, PermissionDeniedError
 from openai.types.chat import ChatCompletion
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter
 
 from document_ia_infra.data.document.schema.document_extraction import (
     DocumentExtraction,
+)
+from document_ia_infra.exception.llm_extraction_failure_exception import (
+    LLMExtractionFailureException,
 )
 from document_ia_infra.exception.openai_authentification_error import (
     OpenAIAuthentificationError,
@@ -15,6 +19,7 @@ from document_ia_infra.exception.openai_authentification_error import (
 from document_ia_infra.openai.openai_settings import openai_settings
 from document_ia_infra.openai.response_format import get_response_format
 from document_ia_schemas import SupportedDocumentType
+from document_ia_schemas.base_document_model import EchecExtraction
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +104,15 @@ class OpenAIManager:
             {"role": "user", "content": user_prompt},
         ]
 
+        ResponseUnion = Union[response_class, EchecExtraction]
+
+        adapter = cast(
+            TypeAdapter[Union[T, EchecExtraction]],
+            TypeAdapter(ResponseUnion),
+        )
+
+        guided_json = adapter.json_schema(by_alias=False)
+
         data: Dict[str, Any] = {
             "model": model,
             "messages": message,
@@ -118,6 +132,16 @@ class OpenAIManager:
 
             response_tokens = len(self.encoding.encode(result))
             logger.info(f"Response size : {response_tokens}")
+
+            try:
+                parsed_json = json.loads(result)
+            except json.JSONDecodeError:
+                raise Exception("Le LLM a renvoyé un format JSON invalide.")
+
+            if parsed_json.get("status") == "failure":
+                reason = parsed_json.get("raison", "Raison non spécifiée par le modèle")
+
+                raise LLMExtractionFailureException(f"Extraction impossible : {reason}")
 
             return (
                 response_class.model_validate_json(

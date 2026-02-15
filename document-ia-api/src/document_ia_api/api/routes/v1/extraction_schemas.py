@@ -82,10 +82,15 @@ async def get_all_extraction_schemas() -> list[APIExtractionSchemaResult]:
     result: list[APIExtractionSchemaResult] = []
     try:
         for dt in SupportedDocumentType:
-            extract_schema = resolve_extract_schema(dt.value)
+            value: str = str(dt.value)
+            # Other is a generic type without a specific schema
+            # Only used for classification fallback
+            if dt == SupportedDocumentType.OTHER:
+                continue
+            extract_schema = resolve_extract_schema(value)
             result.append(
                 APIExtractionSchemaResult(
-                    document_type=dt.value,
+                    document_type=value,
                     model=extract_schema.get_json_schema_dict(),
                 )
             )
