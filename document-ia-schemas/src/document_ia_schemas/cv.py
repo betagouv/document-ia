@@ -39,10 +39,17 @@ class CVModel(BaseModel):
     skills: List[str] = Field(
         description="Liste des compétences",
         examples=[
-            "Promouvoir une action, une démarche",
-            "Connaisance de la Politique sociale du logement",
-            "Faire preuve d'initiative",
-        ],
+            [
+                "Promouvoir une action, une démarche",
+                "Connaisance de la Politique sociale du logement",
+                "Faire preuve d'initiative",
+            ],
+            [
+                "Connaissance du vocabulaire médical",
+                "Elaborer, adapter et optimiser le planning de travail, de rendez-vous, des visites",
+                "Utiliser les outils bureautiques et les logiciels métiers"
+            ]
+        ]
     )
 
 
