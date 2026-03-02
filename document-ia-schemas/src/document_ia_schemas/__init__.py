@@ -75,6 +75,7 @@ class SupportedDocumentType(str, Enum):
     QUITTANCE_LOYER = "quittance_loyer"
     FACTURE_ENERGIE = "facture_energie"
     ATTESTATION_CONTRAT_ENERGIE = "attestation_contrat_energie"
+    VISALE = "visale_certificate"
 
     @staticmethod
     def from_str(label: str) -> "SupportedDocumentType":
