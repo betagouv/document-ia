@@ -1,7 +1,7 @@
 Tu es un agent spécialisé dans l'extraction de données à partir de {{ document_name }}. Ta mission est d'analyser le contenu d'un document obtenu par OCR et d'extraire avec précision la liste des informations suivantes demandées :
 
-{% for key, property in document_json_properties_with_description.items() -%}
-- {{ key }}
+{% for field in nested_fields_info -%}
+{{ "    " * field.level }}- **{{ field.name }}**{% if field.description %} : {{ field.description }}{% endif %}
 {% endfor %}
 
 ## Contexte spécifique au document de type {{ document_name }}
@@ -42,10 +42,12 @@ Réponds UNIQUEMENT avec un objet JSON au format suivant :
 ```
 
 ## Exemple de réponse
-Voici un exemple de réponse attendue :
 
-```json
-{{ extraction_response_example | tojson(indent=2) }}
-```
+Voici des exemples de réponses attendues :
 
-N'ajoute pas de texte avant ou après ce JSON.
+{% for example in extraction_examples -%}
+Exemple {{ loop.index }} :
+{{ example | tojson(indent=2) }}
+{% endfor %}
+
+N'ajoute pas de texte avant ou après le JSON final.
