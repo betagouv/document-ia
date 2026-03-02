@@ -15,6 +15,7 @@ GENERIC_CLASSIFICATION_MODEL: list[SupportedDocumentType] = [
     SupportedDocumentType.PERMIS_CONDUIRE,
     SupportedDocumentType.AVIS_IMPOSITION,
     SupportedDocumentType.BULLETIN_SALAIRE,
+    SupportedDocumentType.VISALE,
 ]
 
 
