@@ -121,7 +121,7 @@ class TestGenericPropertyConvertPydanticModel:
 
     def test_convert_empty_list_of_basemodel(self):
         """Test conversion d'une liste vide de BaseModel
-        
+
         Note: Une liste vide ne peut pas être détectée comme liste de BaseModel
         au runtime, donc elle sera traitée comme une liste normale avec type "list"
         """
@@ -211,3 +211,40 @@ class TestGenericPropertyConvertPydanticModel:
         assert props_dict["required"].value == "test"
         assert props_dict["optional"].value == "optional_value"
 
+    def test_convert_complex_model(self):
+        """Test conversion d'un modèle temporaire vers GenericProperty."""
+        class TempExperience(BaseModel):
+            title: str = Field(description="Job title")
+            company: str = Field(description="Company")
+            sector: Optional[str] = Field(default=None, description="Sector")
+            description: str = Field(description="Responsibilities")
+
+        class TempCV(BaseModel):
+            experiences: list[TempExperience]
+            skills: list[str]
+
+        model = TempCV(
+            experiences=[
+                TempExperience(
+                    title="Charged de la renovation urbaine",
+                    company="Direction Departementale des Territoires",
+                    sector="Logement",
+                    description="Propose des options strategiques et coordonne.",
+                )
+            ],
+            skills=[
+                "Promouvoir une action, une demarche",
+                "Connaissance de la politique sociale du logement",
+            ],
+        )
+
+        result = GenericProperty.convert_pydantic_model(model)
+
+        assert isinstance(result, list)
+        props_dict = {prop.name: prop for prop in result}
+        assert set(props_dict.keys()) == {"experiences", "skills"}
+        assert props_dict["skills"].type == "list"
+        assert props_dict["skills"].value == [
+            "Promouvoir une action, une demarche",
+            "Connaissance de la politique sociale du logement",
+        ]

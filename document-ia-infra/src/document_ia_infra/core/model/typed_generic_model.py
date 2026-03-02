@@ -7,7 +7,18 @@ from pydantic import BaseModel, Field
 
 class GenericProperty(BaseModel):
     name: str
-    value: Union[str, int, float, bool, list["GenericProperty"], None] = Field(
+    value: Union[
+        str,
+        int,
+        float,
+        bool,
+        list["GenericProperty"],
+        list[str],
+        list[int],
+        list[float],
+        list[bool],
+        None,
+    ] = Field(
         json_schema_extra={"x-mask": True},
     )
     type: Literal["string", "number", "boolean", "object", "date", "list"]
@@ -23,7 +34,7 @@ class GenericProperty(BaseModel):
         model_fields = getattr(type(model), "model_fields", {})
 
         for field_name, field_value in model:
-            # Récupérer l'annotation du champ
+            # Resolve the field annotation to decide the UI type.
             field_info = model_fields.get(field_name)
             annotation: Any = (  # pyright: ignore [reportUnknownVariableType]
                 field_info.annotation
@@ -31,15 +42,19 @@ class GenericProperty(BaseModel):
                 else type(field_value)
             )
 
-            # Déduire le type UI
+            # Infer the UI type from annotation and runtime value.
             ui_type = cls._infer_ui_type(annotation, field_value)
             final_value: Any = field_value
 
-            # Convertir selon le type de valeur
+            # Normalize the value based on its runtime type.
             if isinstance(field_value, BaseModel):
                 final_value = cls.convert_pydantic_model(field_value)
                 ui_type = "object"
-            elif isinstance(field_value, list) and field_value and isinstance(field_value[0], BaseModel):
+            elif (
+                isinstance(field_value, list)
+                and field_value
+                and isinstance(field_value[0], BaseModel)
+            ):
                 final_value = [
                     GenericProperty(
                         name="item",
@@ -81,21 +96,21 @@ class GenericProperty(BaseModel):
         origin = get_origin(annotation)
         args = get_args(annotation)
 
-        # Si l'annotation dit Dict, on retourne object (le contenu sera traité par la boucle principale)
+        # Dict annotations are treated as objects; values are handled in the caller.
         if origin is dict or origin is Dict:
             return "object"
 
-        # A. Gestion des Optionnels
+        # A. Optional types
         if origin is Union and type(None) in args:
             non_none_args = [a for a in args if a is not type(None)]
             if non_none_args:
                 return cls._infer_ui_type(non_none_args[0], None)
 
-        # B. Gestion des Listes
+        # B. Lists
         if origin is list or annotation is list:
             return "list"
 
-        # C. Gestion des Literals
+        # C. Literals
         if origin is Literal:
             if args:
                 first_arg = args[0]
@@ -107,7 +122,7 @@ class GenericProperty(BaseModel):
                     return "boolean"
             return "string"
 
-        # D. Primitifs
+        # D. Primitives
         if annotation in (date, datetime):
             return "date"
         if annotation is str:
@@ -117,7 +132,7 @@ class GenericProperty(BaseModel):
         if annotation is bool:
             return "boolean"
 
-        # E. Fallback Runtime
+        # E. Runtime fallback
         if runtime_value is not None:
             if isinstance(runtime_value, (date, datetime)):
                 return "date"

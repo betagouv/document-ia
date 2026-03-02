@@ -2,9 +2,15 @@ import logging
 from typing import Dict, Any, List, Tuple, Type, cast
 
 import jinja2
-from document_ia_schemas import BaseDocumentTypeSchema, resolve_extract_schema
 from pydantic import BaseModel
 
+from document_ia_schemas import BaseDocumentTypeSchema, resolve_extract_schema
+from document_ia_schemas.utils.pydantic_utils import (
+    extract_fields_info,
+    build_response_format,
+    get_max_examples_count,
+    build_example_at_index,
+)
 from document_ia_worker.core.prompt.prompt_configuration import (
     PromptConfiguration,
     TaskType,
@@ -90,25 +96,42 @@ class PromptService:
 
         try:
             schema_instance = self._get_schema_class_instance(document_type)
+            schema_dict = schema_instance.get_json_schema_dict()
             properties: dict[str, Any] = cast(
-                dict[str, Any], schema_instance.get_json_schema_dict().get("properties")
+                dict[str, Any], schema_dict.get("properties")
             )
+            defs: dict[str, Any] = cast(
+                dict[str, Any],
+                schema_dict.get("$defs", schema_dict.get("definitions", {})),
+            )
+
+            nested_fields_info: list[dict[str, Any]] = extract_fields_info(
+                properties, defs
+            )
+            extraction_response_format: dict[str, Any] = build_response_format(
+                properties, defs
+            )
+
+            max_examples_to_build: int = max(
+                1, get_max_examples_count(properties, defs)
+            )
+
+            extraction_examples: list[dict[str, Any]] = []
+            for i in range(max_examples_to_build):
+                example_dict = build_example_at_index(properties, defs, index=i)
+                extraction_examples.append(example_dict)
+
             document_json_properties_with_description: Dict[str, str] = {
                 key: value.get("description") for key, value in properties.items()
-            }
-            document_json_properties_with_type: Dict[str, str] = {
-                key: value.get("type", "string") for key, value in properties.items()
-            }
-            document_json_properties_with_example: Dict[str, Any] = {
-                key: value.get("examples", "")[0] for key, value in properties.items()
             }
 
             prompt_text = prompt_template.render(
                 document_name=schema_instance.name,
                 document_description=schema_instance.description,
                 document_json_properties_with_description=document_json_properties_with_description,
-                extraction_response_format=document_json_properties_with_type,
-                extraction_response_example=document_json_properties_with_example,
+                extraction_response_format=extraction_response_format,
+                extraction_examples=extraction_examples,
+                nested_fields_info=nested_fields_info,
             )
 
             return prompt_text, schema_instance.document_model
