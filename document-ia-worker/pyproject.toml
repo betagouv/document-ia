@@ -1,0 +1,52 @@
+[tool.poetry]
+name = "document-ia-worker"
+version = "1.0.0"
+description = "Worker document ia"
+authors = ["Nicolas Sagon <nicolas.sagon@beta.gouv.fr>"]
+readme = "README.md"
+packages = [
+    { include = "document_ia_worker", from = "src" },
+    { include = "document_ia_task_scheduler", from = "src" },
+]
+
+[tool.poetry.dependencies]
+python = "^3.13"
+document-ia-infra = { path = "../document-ia-infra", develop = false }
+document-ia-schemas = { path = "../document-ia-schemas", develop = false }
+python-dotenv = "^1.0.0"
+pydantic-settings = "^2.1.0"
+pytesseract = "^0.3.13"
+pymupdf = "^1.26.3"
+opencv-python-headless = "^4.12.0.88"
+jinja2 = "^3.1.6"
+pydantic = "^2.11.9"
+mypy-boto3-s3 = "^1.40.26"
+greenlet = "^3.2.4"
+zxing-cpp = {git = "https://github.com/zxing-cpp/zxing-cpp.git", rev = "v2.3.0", subdirectory = "wrappers/python"}
+2ddoc-parser = {git = "https://github.com/betagouv/2ddoc-parser.git", tag = "v1.0.3"}
+python-magic = "^0.4.27"
+psycopg2-binary = "^2.9.10"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.12.11"
+pytest = "^8.4.1"
+pytest-asyncio = "^0.23.0"
+pre-commit = "^3.6.0"
+uvicorn = "^0.38.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

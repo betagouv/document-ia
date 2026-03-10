@@ -1,0 +1,94 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: document-ia-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - document-ia-network
+
+  redis:
+    image: redis:8-alpine
+    container_name: document-ia-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - document-ia-network
+
+  minio:
+    image: minio/minio:latest-cicd
+    container_name: document-ia-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "${MINIO_API_PORT}:9000"
+      - "${MINIO_CONSOLE_PORT}:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - document-ia-network
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  mockserver:
+    image: mockserver/mockserver:latest
+    container_name: mockserver
+    ports:
+      - "1080:1080"
+    environment:
+      MOCKSERVER_LOG_LEVEL: INFO
+      MOCKSERVER_INITIALIZATION_JSON_PATH: /config/expectations.json
+    volumes:
+      - ./mockserver/config:/config
+
+  init-s3-bucket:
+    image: python:3.11-alpine
+    container_name: document-ia-init-s3-bucket
+    restart: no
+    environment:
+      S3_ENDPOINT_URL: http://minio:${MINIO_API_PORT}
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME}
+      S3_REGION_NAME: ${S3_REGION_NAME}
+      S3_USE_SSL: ${S3_USE_SSL}
+      PYTHONPATH: /app
+    command: |
+      sh -c "
+        apk add --no-cache curl &&
+        pip install boto3 python-dotenv &&
+        python /app/scripts/init-s3-bucket.py
+      "
+    volumes:
+      - .:/app
+    networks:
+      - document-ia-network
+    depends_on:
+      minio:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+
+networks:
+  document-ia-network:
+    driver: bridge

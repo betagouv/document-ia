@@ -1,0 +1,436 @@
+# Document IA - Cursor Rules
+
+## Project Overview
+This is a FastAPI-based document analysis API with PostgreSQL, Redis, and S3 integration. The project follows Clean Architecture principles with dependency injection for external interfaces.
+
+This is the beginning of the project, KEEP IT SIMPLE ! STAY PRAGMATIC in your design choices
+
+## Architecture & Design Patterns
+
+### Clean Architecture Implementation
+- **External Dependencies**: Database, caching, messaging, and file storage should be injected as dependencies
+- **Domain Layer**: Core business logic should be independent of external frameworks
+- **Application Layer**: Use cases and orchestration logic
+- **Infrastructure Layer**: External interfaces (DB, Redis, S3) implementations
+- **Interface Layer**: API routes and controllers
+
+### Directory Structure Guidelines
+```
+document-ia-api/
+├── src/
+│   ├── __init__.py
+│   ├── main.py                      # FastAPI application entry point
+│   ├── api/                         # Interface layer (routes, controllers)
+│   │   ├── __init__.py
+│   │   ├── exceptions/             # API exceptions
+│   │   ├── auth.py                 # Authentication logic
+│   │   ├── config.py               # Configuration management
+│   │   └── routes.py               # API routes
+│   ├── application/                 # Application layer (use cases, services)
+│   │   ├── __init__.py
+│   │   └── services/               # Application services
+│   ├── core/                        # Domain layer (business logic, entities)
+│   │   ├── __init__.py
+│   │   ├── config.py               # Configuration management
+│   │   └── exceptions/             # Domain exceptions
+│   ├── infra/                      # Infrastructure layer (DB, Redis, S3 adapters)
+│   │   ├── __init__.py
+│   │   ├── database/               # Database adapters and repositories
+│   │   ├── cache/                  # Redis caching adapters
+│   │   ├── storage/                # S3 storage adapters
+│   │   └── messaging/              # Redis messaging adapters
+│   ├── middleware/                  # FastAPI middleware
+│   ├── models/                      # SQLAlchemy models
+│   └── schemas/                     # Pydantic schemas
+├── tests/                          # Unit and integration tests
+├── pyproject.toml                  # Poetry configuration
+└── poetry.lock                     # Dependency lock file
+```
+
+## Database & ORM
+
+### PostgreSQL with SQLAlchemy
+- Use SQLAlchemy 2.0+ with async support
+- Implement repository pattern for data access
+- Use dependency injection for database sessions
+- Always use async/await for database operations
+- Implement proper connection pooling
+- Use migrations for schema changes
+
+### Code Examples
+```python
+# Repository pattern
+class DocumentRepository:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def get_by_id(self, id: int) -> Optional[Document]:
+        result = await self.session.execute(
+            select(Document).where(Document.id == id)
+        )
+        return result.scalar_one_or_none()
+
+# Dependency injection
+async def get_document_repository(session: AsyncSession = Depends(get_db)) -> DocumentRepository:
+    return DocumentRepository(session)
+```
+
+## Caching & Messaging with Redis
+
+### Redis Configuration
+- Use Redis for both caching and message queuing
+- Implement Redis connection pooling
+- Use async Redis client (redis-py with async support)
+- Implement proper error handling and fallbacks
+
+### Message Queue Requirements
+- **Load Balancing Compatible**: Use Redis Streams or Redis Pub/Sub with consumer groups
+- **Idempotency**: All message processing must be idempotent
+- **Concurrent Workers**: Support multiple workers in the same consumer group
+- **Message Acknowledgment**: Implement proper message acknowledgment
+- **Robust Reconnection Policy**: Implement exponential backoff with jitter for connection failures
+  - Start with 1-second delay, double up to 60 seconds maximum
+  - Add random jitter (±25%) to prevent thundering herd
+  - Log connection attempts and failures with correlation IDs
+  - Graceful degradation when Redis is unavailable
+
+### Code Examples
+```python
+# Redis messaging with consumer groups and robust reconnection
+import asyncio
+import random
+import logging
+from typing import Optional
+from redis.asyncio import Redis
+from redis.exceptions import ConnectionError, TimeoutError
+
+class RedisMessageQueue:
+    def __init__(self, redis_client: Redis):
+        self.redis = redis_client
+        self.logger = logging.getLogger(__name__)
+        self.connection_attempts = 0
+        self.max_retries = 10
+        self.base_delay = 1.0
+        self.max_delay = 60.0
+
+    async def _get_retry_delay(self) -> float:
+        """Calculate exponential backoff delay with jitter"""
+        delay = min(self.base_delay * (2 ** self.connection_attempts), self.max_delay)
+        jitter = delay * 0.25 * random.uniform(-1, 1)
+        return max(0.1, delay + jitter)
+
+    async def _ensure_connection(self) -> bool:
+        """Ensure Redis connection with retry logic"""
+        while self.connection_attempts < self.max_retries:
+            try:
+                await self.redis.ping()
+                if self.connection_attempts > 0:
+                    self.logger.info(f"Redis connection restored after {self.connection_attempts} attempts")
+                self.connection_attempts = 0
+                return True
+            except (ConnectionError, TimeoutError) as e:
+                self.connection_attempts += 1
+                delay = await self._get_retry_delay()
+                self.logger.warning(
+                    f"Redis connection failed (attempt {self.connection_attempts}/{self.max_retries}): {e}. "
+                    f"Retrying in {delay:.2f}s"
+                )
+                await asyncio.sleep(delay)
+
+        self.logger.error("Max Redis connection retries exceeded")
+        return False
+
+    async def publish_message(self, stream: str, data: dict):
+        """Publish message with connection retry"""
+        if not await self._ensure_connection():
+            raise ConnectionError("Unable to establish Redis connection")
+
+        try:
+            await self.redis.xadd(stream, data)
+        except (ConnectionError, TimeoutError) as e:
+            self.logger.error(f"Failed to publish message to stream {stream}: {e}")
+            raise
+
+    async def consume_messages(self, stream: str, group: str, consumer: str):
+        """Consume messages with robust error handling"""
+        while True:
+            try:
+                if not await self._ensure_connection():
+                    self.logger.error("Cannot consume messages - Redis unavailable")
+                    await asyncio.sleep(30)  # Wait before retry
+                    continue
+
+                messages = await self.redis.xreadgroup(
+                    group, consumer, {stream: '>'}, count=1, block=1000
+                )
+
+                for message in messages:
+                    try:
+                        await self.process_message(message)
+                        await self.redis.xack(stream, group, message[0])
+                    except Exception as e:
+                        # Log error but don't ack - message will be retried
+                        self.logger.error(f"Error processing message: {e}")
+
+            except (ConnectionError, TimeoutError) as e:
+                self.logger.error(f"Redis connection error during consumption: {e}")
+                await asyncio.sleep(5)  # Brief pause before retry
+            except Exception as e:
+                self.logger.error(f"Unexpected error in message consumption: {e}")
+                await asyncio.sleep(10)  # Longer pause for unexpected errors
+```
+
+## Asynchronous Operations
+
+### Async Requirements
+- All external calls (PostgreSQL, Redis, S3) must be asynchronous
+- Use `asyncio` for concurrent operations
+- Implement proper error handling for async operations
+- Use connection pooling for all external services
+
+### S3 Integration
+```python
+# Async S3 operations
+class S3Service:
+    def __init__(self, s3_client):
+        self.s3_client = s3_client
+
+    async def upload_file(self, bucket: str, key: str, file_data: bytes):
+        await self.s3_client.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=file_data
+        )
+
+    async def download_file(self, bucket: str, key: str) -> bytes:
+        response = await self.s3_client.get_object(Bucket=bucket, Key=key)
+        return await response['Body'].read()
+```
+
+## Multi-threading Compatibility
+
+### Thread Safety Guidelines
+- Use thread-safe data structures
+- Avoid global state
+- Use dependency injection for shared resources
+- Implement proper locking mechanisms when needed
+- Use async/await patterns to avoid blocking operations
+
+### Code Examples
+```python
+# Thread-safe service with dependency injection
+class DocumentService:
+    def __init__(self,
+                 db_repo: DocumentRepository,
+                 cache_service: CacheService,
+                 s3_service: S3Service):
+        self.db_repo = db_repo
+        self.cache_service = cache_service
+        self.s3_service = s3_service
+
+    async def process_document(self, document_id: int):
+        # All operations are async and thread-safe
+        document = await self.db_repo.get_by_id(document_id)
+        cached_result = await self.cache_service.get(f"doc_{document_id}")
+        # ... rest of processing
+```
+
+## Idempotency Requirements
+
+### HTTP Request Idempotency
+- Use idempotency keys for all state-changing operations
+- Implement idempotency checking in middleware
+- Store idempotency keys in Redis with TTL
+- Return same response for duplicate requests
+
+### Async Task Idempotency
+- All background tasks must be idempotent
+- Use unique task IDs for tracking
+- Implement deduplication logic
+- Log all task executions for audit
+
+### Code Examples
+```python
+# Idempotency middleware
+class IdempotencyMiddleware:
+    def __init__(self, redis_client: Redis):
+        self.redis = redis_client
+
+    async def __call__(self, request: Request, call_next):
+        idempotency_key = request.headers.get("Idempotency-Key")
+        if idempotency_key and request.method in ["POST", "PUT", "PATCH"]:
+            cached_response = await self.redis.get(f"idempotency:{idempotency_key}")
+            if cached_response:
+                return JSONResponse(content=json.loads(cached_response))
+
+            response = await call_next(request)
+            await self.redis.setex(
+                f"idempotency:{idempotency_key}",
+                3600,  # 1 hour TTL
+                response.body.decode()
+            )
+            return response
+        return await call_next(request)
+```
+
+## Logging & Data Sanitization
+
+### Logging Requirements
+- Sanitize all personal information before logging
+- Use structured logging (JSON format)
+- Implement different log levels (DEBUG, INFO, WARNING, ERROR)
+- Include correlation IDs for request tracing
+- Log performance metrics for critical operations
+
+### Data Sanitization
+```python
+# Data sanitization utilities
+class LogSanitizer:
+    SENSITIVE_FIELDS = ['email', 'phone', 'ssn', 'password', 'token']
+
+    @staticmethod
+    def sanitize_data(data: dict) -> dict:
+        sanitized = data.copy()
+        for field in LogSanitizer.SENSITIVE_FIELDS:
+            if field in sanitized:
+                sanitized[field] = "***REDACTED***"
+        return sanitized
+
+    @staticmethod
+    def sanitize_log_message(message: str) -> str:
+        # Remove sensitive patterns from log messages
+        patterns = [
+            r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',  # Email
+            r'\b\d{3}-\d{2}-\d{4}\b',  # SSN
+            r'\b\d{10}\b',  # Phone
+        ]
+        for pattern in patterns:
+            message = re.sub(pattern, "***REDACTED***", message)
+        return message
+```
+
+## Code Quality & Standards
+
+### Python and FastAPI Standards
+- Use Python 3.11+ features
+- IMPORTANT: Allow use absolute imports
+- Follow PEP 8 style guidelines
+- Use type hints for all function parameters and return values
+- Use systematically Pydantic models for data structures (requests, response, error)
+- Implement proper error handling with custom exceptions
+
+### Testing Requirements
+- Unit tests for all business logic
+- Integration tests for external dependencies
+- Async test support
+- Mock external services in tests
+- Test idempotency behavior
+
+### Code Examples
+```python
+# Type hints and error handling
+from typing import Optional, List
+from pydantic import BaseModel
+
+class DocumentCreateRequest(BaseModel):
+    title: str
+    content: str
+    user_id: int
+
+class DocumentService:
+    async def create_document(
+        self,
+        request: DocumentCreateRequest,
+        user_id: int
+    ) -> Document:
+        try:
+            document = await self.db_repo.create(request.dict())
+            await self.cache_service.set(f"doc_{document.id}", document)
+            return document
+        except DatabaseError as e:
+            logger.error(f"Database error creating document: {e}")
+            raise DocumentCreationError("Failed to create document")
+```
+
+## Security Guidelines
+
+### API Security
+- Implement proper authentication and authorization
+- Use API keys with proper validation
+- Sanitize all user inputs
+- Implement rate limiting
+- Use HTTPS in production
+- Validate file uploads
+
+### Environment Configuration
+- Use environment variables for all configuration
+- Never commit secrets to version control
+- Use different configurations for development/staging/production
+- Implement proper secret management
+
+## Performance Guidelines
+
+### Optimization
+- Use connection pooling for all external services
+- Implement caching strategies
+- Use async operations to avoid blocking
+- Monitor and log performance metrics
+- Implement proper indexing for database queries
+
+### Monitoring
+- Log request/response times
+- Monitor external service latencies
+- Track error rates and types
+- Implement health checks
+- Use structured logging for easy analysis
+
+## Deployment & DevOps
+
+### Heroku Deployment
+- Use Procfile for process management
+- Configure buildpacks properly
+- Set environment variables in Heroku dashboard
+- Use Heroku Postgres and Redis add-ons
+- Implement proper logging for Heroku
+
+### Development Workflow
+- Use Poetry for dependency management
+- Always use virtual environment !
+- Run tests before deployment
+- Use pre-commit hooks for code quality
+- Implement CI/CD pipeline
+- Use Docker for local development
+
+## Common Patterns & Anti-patterns
+
+### Do's
+- ✅ Use dependency injection for external services
+- ✅ Implement proper error handling
+- ✅ Use async/await for all I/O operations
+- ✅ Sanitize data before logging
+- ✅ Make operations idempotent
+- ✅ Use type hints
+- ✅ Write comprehensive tests
+
+### Don'ts
+- ❌ Don't use global variables
+- ❌ Don't block the event loop
+- ❌ Don't log sensitive information
+- ❌ Don't ignore exceptions
+- ❌ Don't use synchronous operations for I/O
+- ❌ Don't hardcode configuration values
+- ❌ Don't skip error handling
+
+## File Naming Conventions
+- Use snake_case for Python files and functions
+- Use PascalCase for classes
+- Use UPPER_CASE for constants
+- Use descriptive names that indicate purpose
+- Group related functionality in modules
+
+## Documentation
+- Document all public APIs
+- Include usage examples
+- Document configuration options
+- Maintain up-to-date README
+- Use docstrings for complex functions

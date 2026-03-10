@@ -1,0 +1,21 @@
+meta {
+  name: delete an api key
+  type: http
+  seq: 3
+}
+
+delete {
+  url: {{server}}api/v1/admin/organizations/{{organization_id}}/api-keys/{{api_key_id}}
+  body: none
+  auth: inherit
+}
+
+vars:pre-request {
+  organization_id: 510dda06-56a9-43e3-8df3-6be23651bab8
+  api_key_id: e18eec09-7b7a-4ee1-bbd1-09a1090b008e
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

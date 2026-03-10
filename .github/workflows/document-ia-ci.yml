@@ -1,0 +1,194 @@
+name: document-ia API CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-test:
+    name: Ruff lint and Pytest (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            project: document-ia-api
+            pythonpath: document-ia-api/src
+            needs_docker_stack: true
+            needs_tesseract: false
+          - name: infra
+            project: document-ia-infra
+            pythonpath: document-ia-infra/src
+            needs_docker_stack: true
+            needs_tesseract: false
+          - name: worker
+            project: document-ia-worker
+            pythonpath: document-ia-worker/src
+            needs_docker_stack: true
+            needs_tesseract: true
+          - name: schemas
+            project: document-ia-schemas
+            pythonpath: document-ia-schemas/src
+            needs_docker_stack: false
+            needs_tesseract: false
+    env:
+      # Python path per project
+      PYTHONPATH: ${{ matrix.pythonpath }}
+
+      # API configuration
+      API_KEY: your-secret-api-key-here
+
+      # PostgreSQL
+      POSTGRES_DB: document_ia_test
+      POSTGRES_HOST: localhost
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: your-secure-postgres-password
+      POSTGRES_PORT: 5432
+
+      WEBHOOK_SECRET_ENCRYPTION_KEY: H0NUUmyF6mUoiWcZ8LvVFLEPkYTkYR1ymeI4YouMYhM=
+
+      # Redis
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      REDIS_PASSWORD: your-secure-redis-password
+
+      # MinIO (S3 compatible)
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_API_PORT: 9000
+      MINIO_CONSOLE_PORT: 9001
+
+      # S3 settings
+      S3_ENDPOINT_URL: http://localhost:9000
+      S3_ACCESS_KEY_ID: minioadmin
+      S3_SECRET_ACCESS_KEY: minioadmin
+      S3_BUCKET_NAME: document-ia-test
+      S3_REGION_NAME: us-east-1
+      S3_USE_SSL: false
+
+      DOCUMENT_IA_API_KEY: dia_dev_1_A222AAAA_A222AAAAAAAAAAAAAAA2A2AA2A2AAAAAAAAA22AAAAA22AA2A2AA_T2BR
+      APP_ENV: dev
+
+      # OpenAI / Albert
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+
+      # Tesseract
+      TESSERACT_LANG: fra
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+          installer-parallel: true
+
+      # Install Tesseract OCR and French trained data
+      - name: Install Tesseract OCR (with French language)
+        if: ${{ matrix.needs_tesseract == true }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-fra
+          tesseract --version
+          tesseract --list-langs | grep -i '\bfra\b' || (echo "French language not found" && exit 1)
+
+      - name: Install dependencies (matrix project)
+        run: |
+          cd ${{ matrix.project }}
+          poetry install --no-interaction --no-ansi --with dev
+
+      - name: Ruff - Lint sources
+        run: |
+          cd ${{ matrix.project }}
+          poetry run ruff check src
+
+      - name: Start PostgreSQL
+        if: ${{ matrix.needs_docker_stack == true }}
+        run: |
+          docker run -d \
+            --name postgres-test \
+            -e POSTGRES_DB=${POSTGRES_DB} \
+            -e POSTGRES_USER=${POSTGRES_USER} \
+            -e POSTGRES_PASSWORD=${POSTGRES_PASSWORD} \
+            -p ${POSTGRES_PORT}:5432 \
+            postgres:17-alpine
+
+      - name: Start Redis
+        if: ${{ matrix.needs_docker_stack == true }}
+        run: |
+          docker run -d \
+            --name redis-test \
+            -p ${REDIS_PORT}:6379 \
+            redis:8-alpine
+
+      - name: Start MinIO
+        if: ${{ matrix.needs_docker_stack == true }}
+        run: |
+          docker run -d \
+            --name minio-test \
+            -e MINIO_ROOT_USER=${MINIO_ROOT_USER} \
+            -e MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD} \
+            -p ${MINIO_API_PORT}:9000 \
+            -p ${MINIO_CONSOLE_PORT}:9001 \
+            minio/minio:latest-cicd server /data --console-address ":9001"
+
+      - name: Wait for PostgreSQL to be ready
+        if: ${{ matrix.needs_docker_stack == true }}
+        run: |
+          timeout 60s bash -c 'until docker exec postgres-test pg_isready -U ${POSTGRES_USER}; do sleep 1; done'
+          echo "PostgreSQL is ready!"
+
+      - name: Wait for Redis to be ready
+        if: ${{ matrix.needs_docker_stack == true }}
+        run: |
+          timeout 60s bash -c 'until docker exec redis-test redis-cli ping | grep -q PONG; do sleep 1; done'
+          echo "Redis is ready!"
+
+      - name: Wait for MinIO to be ready
+        if: ${{ matrix.needs_docker_stack == true }}
+        run: |
+          timeout 60s bash -c 'until curl -f http://localhost:${MINIO_API_PORT}/minio/health/live; do sleep 1; done'
+          echo "MinIO is ready!"
+
+      - name: Run migrations
+        if: ${{ matrix.needs_docker_stack == true }}
+        # We need to install deps of the API to run alembic migrations even on the worker
+        run: |
+          cd document-ia-api
+          poetry install --no-interaction --no-ansi --with dev
+          poetry run alembic upgrade head
+
+      - name: Init S3 bucket
+        if: ${{ matrix.needs_docker_stack == true }}
+        run: |
+          cd ${{ matrix.project }}
+          # Le script est à la racine du repo; on remonte et on l'exécute dans le venv courant
+          poetry run python ../scripts/init-s3-bucket.py
+
+      - name: Pytest - Tests (matrix project)
+        run: |
+          cd ${{ matrix.project }}
+          poetry run pytest --maxfail=1 --disable-warnings
+
+      - name: Cleanup Docker containers
+        if: ${{ always() && matrix.needs_docker_stack == true }}
+        run: |
+          docker stop postgres-test redis-test minio-test || true
+          docker rm postgres-test redis-test minio-test || true

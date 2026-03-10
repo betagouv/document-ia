@@ -1,0 +1,50 @@
+from abc import ABC
+from datetime import datetime
+from typing import Optional, List
+from uuid import UUID, uuid4
+
+from pydantic import BaseModel, Field
+
+from document_ia_infra.data.event.dto.event_type_enum import EventType
+
+
+class BaseEvent(BaseModel, ABC):
+    """Base event class with common fields for all events."""
+
+    event_id: UUID = Field(
+        description="Unique identifier for this event", default_factory=uuid4
+    )
+    organization_id: UUID = Field(description="Organization identifier")
+    workflow_id: str = Field(description="Workflow identifier")
+    execution_id: str = Field(description="Execution instance identifier")
+    created_at: datetime = Field(description="Event timestamp")
+    version: int = Field(description="Event version for optimistic locking")
+    event_type: EventType = Field(description="Event type")
+
+
+class EventStoreRecord(BaseModel):
+    """Schema for event store database record."""
+
+    id: UUID = Field(description="Primary key")
+    workflow_id: str = Field(description="Workflow identifier")
+    execution_id: str = Field(description="Execution instance identifier")
+    organization_id: UUID = Field(description="Organization identifier")
+    created_at: datetime = Field(description="Event timestamp")
+    event_type: EventType = Field(description="Type of event")
+    event: BaseEvent = Field(description="Event payload as JSON")
+
+
+class EventStream(BaseModel):
+    """Schema for event stream response."""
+
+    execution_id: str = Field(description="Execution instance identifier")
+    workflow_id: str = Field(description="Workflow identifier")
+    organization_id: UUID = Field(description="Organization identifier")
+    events: List[EventStoreRecord] = Field(description="List of events in the stream")
+    total_events: int = Field(description="Total number of events")
+    first_event_at: Optional[datetime] = Field(
+        default=None, description="Timestamp of first event"
+    )
+    last_event_at: Optional[datetime] = Field(
+        default=None, description="Timestamp of last event"
+    )

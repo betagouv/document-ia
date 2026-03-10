@@ -1,0 +1,27 @@
+meta {
+  name: Execute Workflow Sync
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{server}}api/v1/workflows/{{workflow_id}}/execute-sync
+  body: multipartForm
+  auth: inherit
+}
+
+body:multipart-form {
+  metadata: {"test":"test"} @contentType(String)
+  file: @file()
+  ~extraction-parameters: {"document-type": "cni"}
+  ~classification-parameters: {}
+}
+
+vars:pre-request {
+  workflow_id: document-extraction-mistral-v1-small
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

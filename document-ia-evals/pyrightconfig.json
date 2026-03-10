@@ -1,0 +1,7 @@
+{
+  "extraPaths": [
+    "../document-ia-schemas/src"
+  ],
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "basic"
+}

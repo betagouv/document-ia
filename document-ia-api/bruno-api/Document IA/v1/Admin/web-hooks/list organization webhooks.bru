@@ -1,0 +1,20 @@
+meta {
+  name: list organization webhooks
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{server}}api/v1/admin/organizations/{{organization_id}}/webhooks
+  body: none
+  auth: inherit
+}
+
+vars:pre-request {
+  organization_id: 510dda06-56a9-43e3-8df3-6be23651bab8
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

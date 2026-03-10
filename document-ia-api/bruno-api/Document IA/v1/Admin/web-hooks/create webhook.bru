@@ -1,0 +1,29 @@
+meta {
+  name: create webhook
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{server}}api/v1/admin/organizations/{{organization_id}}/webhooks
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+      "url": "http://localhost:8090/api/webhook/v1/document-ia",
+      "headers": {
+          "x-api-key": "Azerty123!"
+      }
+  }
+}
+
+vars:pre-request {
+  organization_id: 510dda06-56a9-43e3-8df3-6be23651bab8
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

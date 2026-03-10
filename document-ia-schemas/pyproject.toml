@@ -1,0 +1,32 @@
+[tool.poetry]
+name = "document-ia-schemas"
+version = "1.0.0"
+description = "Projet pour stocker les schémas de documents de Document IA"
+authors = ["Nicolas Sagon <nicolas.sagon@beta.gouv.fr>"]
+readme = "README.md"
+license = "MIT"
+packages = [
+    { include = "document_ia_schemas", from = "src" }
+]
+
+[tool.poetry.dependencies]
+python = "^3.13"
+pydantic = "^2.11.9"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.12.11"
+pytest = "^8.4.1"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"

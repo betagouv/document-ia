@@ -1,0 +1,21 @@
+meta {
+  name: update api key status for organization
+  type: http
+  seq: 2
+}
+
+put {
+  url: {{server}}api/v1/admin/organizations/{{organization_id}}/api-keys/{{api_key_id}}/status
+  body: none
+  auth: inherit
+}
+
+vars:pre-request {
+  organization_id: b0f2d3c5-d348-44b9-8817-1ba822cac9f2
+  api_key_id: 123
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

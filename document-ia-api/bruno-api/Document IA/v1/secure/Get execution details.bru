@@ -1,0 +1,30 @@
+meta {
+  name: Get execution details
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{server}}api/v1/executions/{{execution_id}}?is_debug_mode=true
+  body: none
+  auth: apikey
+}
+
+params:query {
+  is_debug_mode: true
+}
+
+auth:apikey {
+  key: X-Api-Key
+  value: {{admin-api-key}}
+  placement: header
+}
+
+vars:pre-request {
+  execution_id: 511c7e55-f099-4a62-a2b4-b210c1150de7
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

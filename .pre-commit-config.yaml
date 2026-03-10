@@ -1,0 +1,42 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.12.11
+    hooks:
+      - id: ruff
+        args: [document-ia-api, --fix]
+        files: ^(document-ia-api|document-ia-infra|document-ia-worker)/src/.*.py$
+      - id: ruff-format
+        files: ^(document-ia-api|document-ia-infra|document-ia-worker)/src/.*.py$
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        exclude: ^document-ia-api/src/static/
+      - id: check-merge-conflict
+      - id: debug-statements
+
+  # Hooks locaux pour gérer poetry lock par sous-projet lorsque le pyproject.toml change
+  - repo: local
+    hooks:
+      - id: poetry-lock-api
+        name: poetry lock (api)
+        language: system
+        pass_filenames: false
+        files: ^document-ia-api/pyproject.toml$
+        entry: bash -c 'cd document-ia-api && poetry lock'
+      - id: poetry-lock-infra
+        name: poetry lock (infra)
+        language: system
+        pass_filenames: false
+        files: ^document-ia-infra/pyproject.toml$
+        entry: bash -c 'cd document-ia-infra && poetry lock'
+      - id: poetry-lock-worker
+        name: poetry lock (worker)
+        language: system
+        pass_filenames: false
+        files: ^document-ia-worker/pyproject.toml$
+        entry: bash -c 'cd document-ia-worker && poetry lock'
