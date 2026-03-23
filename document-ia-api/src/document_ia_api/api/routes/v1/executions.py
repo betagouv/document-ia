@@ -21,7 +21,7 @@ from document_ia_api.api.exceptions.entity_not_found_exception import (
 from document_ia_api.application.services.execution_service import ExecutionService
 from document_ia_infra.data.database import database_manager
 from document_ia_infra.data.organization.dto.organization_dto import OrganizationDTO
-from document_ia_infra.data.workflow.repository.worflow import workflow_repository
+from document_ia_infra.data.workflow.repository.workflow import workflow_repository
 from document_ia_infra.exception.entity_not_found_exception import (
     EntityNotFoundException,
 )

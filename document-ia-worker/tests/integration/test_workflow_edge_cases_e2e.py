@@ -34,7 +34,7 @@ class TestWorkflowEdgeCasesE2E:
         wf_id = "wf-missing-download"
         fake_workflow = SimpleNamespace(id=wf_id, steps=["preprocess_file"], llm_model="albert-large")
 
-        import document_ia_infra.data.workflow.repository.worflow as wf_repo_mod
+        import document_ia_infra.data.workflow.repository.workflow as wf_repo_mod
 
         async def fake_get_workflow_by_id(_id: str):
             return fake_workflow if _id == wf_id else None
@@ -104,7 +104,7 @@ class TestWorkflowEdgeCasesE2E:
         fake_workflow = SimpleNamespace(id=wf_id, steps=["download_file", "extract_content_ocr"],
                                         llm_model="albert-large")
 
-        import document_ia_infra.data.workflow.repository.worflow as wf_repo_mod
+        import document_ia_infra.data.workflow.repository.workflow as wf_repo_mod
 
         async def fake_get_workflow_by_id(_id: str):  # noqa: ANN001
             return fake_workflow if _id == wf_id else None
@@ -180,7 +180,7 @@ class TestWorkflowEdgeCasesE2E:
             type="classification",
         )
 
-        import document_ia_infra.data.workflow.repository.worflow as wf_repo_mod
+        import document_ia_infra.data.workflow.repository.workflow as wf_repo_mod
 
         async def fake_get_workflow_by_id(_id: str):  # noqa: ANN001
             return fake_workflow if _id == wf_id else None

@@ -16,7 +16,7 @@ from document_ia_infra.data.webhook.repository.webhook_repository import (
     WebHookRepository,
 )
 from document_ia_infra.data.workflow.dto.workflow_dto import WorkflowDTO
-from document_ia_infra.data.workflow.repository.worflow import workflow_repository
+from document_ia_infra.data.workflow.repository.workflow import workflow_repository
 from document_ia_infra.exception.retryable_exception import RetryableException
 from document_ia_infra.redis.model.webhook_message import WebHookMessage
 from document_ia_infra.redis.model.workflow_execution_message import (

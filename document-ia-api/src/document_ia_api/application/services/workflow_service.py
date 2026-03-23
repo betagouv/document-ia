@@ -28,7 +28,7 @@ from document_ia_infra.data.event.schema.workflow.workflow_execution_started_eve
     ClassificationParameters,
     ExtractionParameters,
 )
-from document_ia_infra.data.workflow.repository.worflow import workflow_repository
+from document_ia_infra.data.workflow.repository.workflow import workflow_repository
 from document_ia_infra.redis.model.workflow_execution_message import (
     WorkflowExecutionMessage,
 )
