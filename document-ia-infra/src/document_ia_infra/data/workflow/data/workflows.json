@@ -2,7 +2,7 @@
   {
     "id": "document-classification-v1",
     "name": "Document Classification v1",
-    "description": "Analyzes uploaded documents for content extraction and classification",
+    "description": "Analyzes uploaded documents for OCR, barcode extraction, and classification",
     "version": "1.0.0",
     "enabled": true,
     "supported_file_types": [
@@ -78,8 +78,8 @@
   },
   {
     "id": "document-extraction-mistral-v1",
-    "name": "Document extraction with Mistral v1 and albert medium",
-    "description": "Generic workflow to extract and process document content with mistral ocr",
+    "name": "Document extraction with Mistral v1 and albert-large",
+    "description": "Generic workflow to extract and process document content with mistral ocr and albert-large LLM",
     "version": "1.0.0",
     "enabled": true,
     "supported_file_types": [
@@ -104,8 +104,8 @@
   },
   {
     "id": "document-extraction-mistral-v1-mistral-medium",
-    "name": "Document extraction with Mistral v1 and mistral medium",
-    "description": "Generic workflow to extract and process document content with mistral ocr",
+    "name": "Document extraction with Mistral v1 and mistral-medium-2508",
+    "description": "Generic workflow to extract and process document content with mistral ocr and mistral-medium-2508 LLM",
     "version": "1.0.0",
     "enabled": true,
     "supported_file_types": [
@@ -130,8 +130,8 @@
   },
   {
     "id": "document-extraction-mistral-v1-small",
-    "name": "Document extraction with Mistral v1 and albert small",
-    "description": "Generic workflow to extract and process document content with mistral ocr",
+    "name": "Document extraction with Mistral v1 and openweight-small",
+    "description": "Generic workflow to extract and process document content with mistral ocr and openweight-small LLM",
     "version": "1.0.0",
     "enabled": true,
     "supported_file_types": [
@@ -156,8 +156,8 @@
   },
     {
     "id": "document-extraction-mistral-v1-large",
-    "name": "Document extraction with Mistral v1 and albert large",
-    "description": "Generic workflow to extract and process document content with mistral ocr",
+    "name": "Document extraction with Mistral v1 and openweight-large",
+    "description": "Generic workflow to extract and process document content with mistral ocr and openweight-large LLM",
     "version": "1.0.0",
     "enabled": true,
     "supported_file_types": [
