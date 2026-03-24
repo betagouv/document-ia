@@ -7,11 +7,7 @@ from typing import (
     Iterable,
 )
 
-from fr_2ddoc_parser.api import decode_2d_doc
-
-from document_ia_infra.core.model.typed_generic_model import GenericProperty
 from document_ia_infra.data.event.schema.barcode import (
-    Ants2DDoc,
     QrCode,
     BarcodePosition,
     BarcodeVariant,
@@ -83,40 +79,21 @@ class BaseExtractBarcode(BaseStep[BarcodeResult]):
     ) -> tuple[Optional[BarcodeVariant], Optional[str], bool]:
         """
         Decodes a single barcode into a BarcodeVariant.
-        Returns (variant, key, is_ants_2ddoc).
+        Returns (variant, key, is_specialized_variant).
         """
         format_str = str(barcode.format)
 
         if format_str == "BarcodeFormat.DataMatrix":
             key = f"dm:{barcode.text}"
-            try:
-                result = decode_2d_doc(barcode.text)
-                return (
-                    Ants2DDoc(
-                        position=self._map_position_like_to_model(barcode.position),
-                        is_valid=result.is_valid,
-                        raw_data=None if result.ants_type is not None else result.typed,
-                        typed_data=[]
-                        if result.ants_type is None
-                        else GenericProperty.convert_pydantic_model(result.typed),
-                        page_number=page_number,
-                        ants_type=result.ants_type,
-                        issue_date=result.header.issue_date,
-                    ),
-                    key,
-                    True,
-                )
-            except Exception as e:
-                logger.warning(f"Failed to decode 2D Doc barcode : {e}")
-                return (
-                    DataMatrix(
-                        position=self._map_position_like_to_model(barcode.position),
-                        raw_data=barcode.text,
-                        page_number=page_number,
-                    ),
-                    key,
-                    False,
-                )
+            return (
+                DataMatrix(
+                    position=self._map_position_like_to_model(barcode.position),
+                    raw_data=barcode.text,
+                    page_number=page_number,
+                ),
+                key,
+                False,
+            )
 
         if format_str == "BarcodeFormat.QRCode":
             key = f"qr:{barcode.text}"
@@ -140,15 +117,15 @@ class BaseExtractBarcode(BaseStep[BarcodeResult]):
     ) -> tuple[list[BarcodeVariant], set[str], bool]:
         """
         Processes a batch of barcodes, handling deduplication.
-        Returns (variants, updated_seen_keys, has_ants_2ddoc).
+        Returns (variants, updated_seen_keys, has_specialized_variant).
         """
         variants: list[BarcodeVariant] = []
         if seen_keys is None:
             seen_keys = set()
-        has_ants = False
+        has_specialized = False
 
         for barcode in barcodes:
-            variant, key, is_ants = self._decode_barcode_to_variant(
+            variant, key, is_specialized = self._decode_barcode_to_variant(
                 barcode,
                 page_number,
             )
@@ -158,7 +135,7 @@ class BaseExtractBarcode(BaseStep[BarcodeResult]):
                 continue
             seen_keys.add(key)
             variants.append(variant)
-            if is_ants:
-                has_ants = True
+            if is_specialized:
+                has_specialized = True
 
-        return variants, seen_keys, has_ants
+        return variants, seen_keys, has_specialized

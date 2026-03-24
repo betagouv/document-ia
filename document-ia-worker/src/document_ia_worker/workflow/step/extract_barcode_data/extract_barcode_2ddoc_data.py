@@ -15,8 +15,10 @@ from qrdet import QRDetector
 
 from document_ia_worker.core.barcode_settings import barcode_settings
 from document_ia_worker.workflow.main_workflow_context import StepMetadata
+from document_ia_worker.workflow.step.extract_barcode_data.base_extract_barcode_2ddoc import (
+    BaseExtractBarcode2DDoc,
+)
 from document_ia_worker.workflow.step.extract_barcode_data.base_extract_barcode import (
-    BaseExtractBarcode,
     BarcodeLike,
 )
 from document_ia_worker.workflow.step.step_result.barcode_result import (
@@ -134,7 +136,7 @@ def _iter_qrdet_crops(
 # it runs a YOLO-based detector (QRDet) to isolate candidate 2DDoc regions, then adds a white
 # background and upscales the crops to improve ZXingCPP decoding. The final output aggregates
 # and de-duplicates all detected codes (2DDoc and QRCode) across the page.
-class ExtractBarcode2DDocData(BaseExtractBarcode):
+class ExtractBarcode2DDocData(BaseExtractBarcode2DDoc):
     async def _execute_internal(self) -> tuple[BarcodeResult, Optional[StepMetadata]]:
         assert self.preprocess_file_result is not None
 

@@ -234,8 +234,8 @@
   },
   {
     "id": "document-barcode-extraction",
-    "name": "Document barcode",
-    "description": "Workflow to extract barcode informations",
+    "name": "Extract Barcodes",
+    "description": "**DEPRECATED** Workflow to extract barcode informations. If you want raw data : document-barcode-raw-extraction. If you want 2ddoc optimized workflow used : document-2ddoc-extraction  **DEPRECATED**",
     "version": "1.0.0",
     "enabled": true,
     "supported_file_types": [
@@ -256,9 +256,32 @@
     "updated_at": "2025-09-01T10:00:00Z"
   },
   {
+    "id": "document-barcode-raw-extraction",
+    "name": "Extract Raw Barcodes",
+    "description": "Workflow to extract raw barcode",
+    "version": "2.0.0",
+    "enabled": true,
+    "supported_file_types": [
+      "application/pdf",
+      "image/jpeg",
+      "image/png"
+    ],
+    "steps": [
+      "download_file",
+      "preprocess_file",
+      "extract_barcode_raw_data",
+      "save_workflow_result"
+    ],
+    "llm_model": "albert-large",
+    "max_file_size_mb": 25,
+    "processing_timeout_minutes": 5,
+    "created_at": "2025-09-01T10:00:00Z",
+    "updated_at": "2025-09-01T10:00:00Z"
+  },
+  {
     "id": "document-2ddoc-extraction",
-    "name": "Document barcode",
-    "description": "Workflow to extract barcode informations specialized for 2D doc",
+    "name": "Extract 2DDoc Barcodes",
+    "description": "Workflow to extract 2ddoc barcodes",
     "version": "1.0.0",
     "enabled": true,
     "supported_file_types": [
