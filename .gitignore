@@ -10,6 +10,7 @@ __pycache__/
 *.so
 
 .idea
+/eval
 
 */logs
 
