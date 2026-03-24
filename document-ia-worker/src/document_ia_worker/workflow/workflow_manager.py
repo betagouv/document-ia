@@ -57,8 +57,14 @@ from document_ia_worker.workflow.step.base_step import BaseStep
 from document_ia_worker.workflow.step.download_file.download_file import (
     DownloadFileStep,
 )
+from document_ia_worker.workflow.step.extract_barcode_data.extract_barcode_2ddoc_data import (
+    ExtractBarcode2DDocData,
+)
 from document_ia_worker.workflow.step.extract_barcode_data.extract_barcode_data import (
     ExtractBarcodeData,
+)
+from document_ia_worker.workflow.step.extract_barcode_data.extract_barcode_raw_data import (
+    ExtractBarcodeRawData,
 )
 from document_ia_worker.workflow.step.extract_content_ocr.extract_content_http_ocr import (
     ExtractContentHttpOcrStep,
@@ -298,6 +304,10 @@ class WorkflowManager:
                     )
                 if step == "extract_barcode_data":
                     self.step_list.append(ExtractBarcodeData())
+                if step == "extract_barcode_raw_data":
+                    self.step_list.append(ExtractBarcodeRawData())
+                if step == "extract_barcode_2ddoc_data":
+                    self.step_list.append(ExtractBarcode2DDocData())
                 if step == "llm_classify_document":
                     self.step_list.append(
                         LLMClassifyDocumentStep(
