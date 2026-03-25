@@ -5,10 +5,8 @@ import cv2
 import zxingcpp
 
 from document_ia_worker.workflow.main_workflow_context import StepMetadata
-from document_ia_worker.workflow.step.extract_barcode_data.base_extract_barcode_2ddoc import (
-    BaseExtractBarcode2DDoc,
-)
 from document_ia_worker.workflow.step.extract_barcode_data.base_extract_barcode import (
+    BaseExtractBarcode,
     BarcodeLike,
 )
 from document_ia_worker.workflow.step.step_result.barcode_result import (
@@ -19,8 +17,9 @@ from document_ia_worker.workflow.step.step_result.barcode_result import (
 logger = logging.getLogger(__name__)
 
 
-# Deprecated step, kept for backward compatibility. Use ExtractBarcode2DDocData or ExtractBarcodeRawData instead.
-class ExtractBarcodeData(BaseExtractBarcode2DDoc):
+# Step to read barcodes content.
+# No parsing is done on the content, only the raw text is extracted.
+class ExtractBarcodeRawData(BaseExtractBarcode):
     async def _execute_internal(self) -> tuple[BarcodeResult, Optional[StepMetadata]]:
         assert self.preprocess_file_result is not None
 

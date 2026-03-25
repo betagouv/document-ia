@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import streamlit as st
 
-from document_ia_infra.data.workflow.repository.worflow import workflow_repository
+from document_ia_infra.data.workflow.repository.workflow import workflow_repository
 
 
 @dataclass
