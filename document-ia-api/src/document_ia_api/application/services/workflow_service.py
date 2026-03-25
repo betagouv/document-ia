@@ -370,6 +370,8 @@ class WorkflowService:
         parameters: ClassificationParameters = ClassificationParameters()
         if request_classification_parameter.llm_model:
             parameters.llm_model = request_classification_parameter.llm_model
+        if request_classification_parameter.document_types:
+            parameters.document_types = request_classification_parameter.document_types
         return parameters
 
     def _map_extraction_parameters(
