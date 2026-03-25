@@ -29,20 +29,11 @@ class BulletinSalaireModel(BaseModel):
     )
 
     # --- Identité Salarié ---
-    nom_salarie: Optional[str] = Field(
+    identite_salarie: Optional[str] = Field(
         default=None,
-        description="Nom de famille du salarié",
-        alias="Nom du salarié",
-        examples=["MARTIN"],
-        json_schema_extra={
-            "metrics": Metric.LEVENSHTEIN_DISTANCE
-        }
-    )
-    prenom_salarie: Optional[str] = Field(
-        default=None,
-        description="Prénom du salarié",
-        alias="Prénom du salarié",
-        examples=["THOMAS"],
+        description="Nom de famille et Prénoms du salarié",
+        alias="Nom et Prénoms du salarié",
+        examples=["MARTIN Thomas"],
         json_schema_extra={
             "metrics": Metric.LEVENSHTEIN_DISTANCE
         }
@@ -85,33 +76,13 @@ class BulletinSalaireModel(BaseModel):
             "metrics": Metric.STRING_DATE_EQUALITY
         }
     )
-    emploi: Optional[str] = Field(
-        description="Intitulé du poste ou de l'emploi occupé",
-        alias="Emploi / Qualification",
-        examples=["INGENIEUR D'ETUDES", "VENDEUR"],
-        default=None,
-        json_schema_extra={
-            "metrics": Metric.LEVENSHTEIN_DISTANCE
-        }
-    )
-    anciennete: FuzzyDate = Field(
-        description="Date d'ancienneté ou d'entrée dans l'entreprise (format JJ/MM/AAAA)",
-        alias="Date d'ancienneté",
+    date_debut_contrat: FuzzyDate = Field(
+        description="Date d'ancienneté ou d'entrée dans l'entreprise (format JJ/MM/AAAA), si absente, renseigner `null`.",
+        alias="Date de début de contrat",
         examples=["2018-05-15"],
         default=None,
         json_schema_extra={
             "metrics": Metric.STRING_DATE_EQUALITY
-        }
-    )
-
-    # --- Données Financières ---
-    salaire_brut: Optional[float] = Field(
-        description="Montant total du salaire brut (Total Brut)",
-        alias="Salaire Brut",
-        examples=["3500.00", "2 150,50"],
-        default=None,
-        json_schema_extra={
-            "metrics": Metric.COMPARE_NUMBER
         }
     )
     net_imposable: Optional[float] = Field(
@@ -123,35 +94,8 @@ class BulletinSalaireModel(BaseModel):
             "metrics": Metric.COMPARE_NUMBER
         }
     )
-    impot_sur_le_revenu: Optional[float] = Field(
-        description="Montant du prélèvement à la source (PAS) si présent",
-        alias="Impôt à la source",
-        examples=["150.20"],
-        default=None,
-        json_schema_extra={
-            "metrics": Metric.COMPARE_NUMBER
-        }
-    )
-    net_a_payer: Optional[float] = Field(
-        default=None,
-        description="Montant final Net à Payer (le montant viré sur le compte bancaire, en bas de page en gras)",
-        alias="Net à Payer",
-        examples=["2649.80"],
-        json_schema_extra={
-            "metrics": Metric.COMPARE_NUMBER
-        }
-    )
-    net_social: Optional[float] = Field(
-        description="Montant Net Social (mention obligatoire depuis 2023/2024)",
-        alias="Montant Net Social",
-        examples=["2700.00"],
-        default=None,
-        json_schema_extra={
-            "metrics": Metric.COMPARE_NUMBER
-        }
-    )
-    cumul_imposable_annuel: Optional[float] = Field(
-        description="Cumul annuel du Net Imposable (souvent en bas de page)",
+    cumul_net_imposable: Optional[float] = Field(
+        description="Cumul annuel du Net Imposable (souvent en bas de page), si absente, renseigner `null`.",
         alias="Cumul Imposable Annuel",
         examples=["32500.00"],
         default=None,
@@ -170,6 +114,5 @@ class BulletinSalaireExtractSchema(BaseDocumentTypeSchema[BulletinSalaireModel])
         "Présence d'un tableau avec des colonnes (libellé, base, taux, montant)",
         "Contient des montants Brut, Net Imposable et Net à Payer",
         "Mentionne souvent l'URSSAF, la CSG, la CRDS",
-        "Présence obligatoire du montant 'Net Social' sur les fiches récentes",
     ]
     document_model: Type[BulletinSalaireModel] = BulletinSalaireModel
