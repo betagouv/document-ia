@@ -12,6 +12,7 @@ An asynchronous worker that executes document-processing workflows by consuming 
 - Environment Variables
 - Scheduled Tasks (Task Scheduler)
 - Best Practices & Troubleshooting
+- POC Embedding (Dataset + Classification)
 
 ---
 
@@ -27,6 +28,56 @@ Key paths:
 - `src/document_ia_worker/workflow/step/*` — workflow Steps (download, preprocess, ocr, llm, save...).
 - `document-ia-infra/src/document_ia_infra/redis/consumer.py` — generic Redis consumer (shared infra code).
 - `document-ia-infra/src/document_ia_infra/service/event_store_service.py` — event publishing.
+
+---
+
+## POC Embedding (Dataset + Classification)
+This POC validates an embedding-first pipeline for document classification.
+
+### Dataset ingestion flow
+Workflow: `poc-embedding-dataset`
+
+1) Download and preprocess the file (split pages if needed).
+2) OCR each page (Tesseract by default).
+3) LLM anonymization replaces PII with tags like [NOM], [ADRESSE], [ID].
+4) Embedding generation per page (one vector per page).
+5) Persist in PostgreSQL `document_template_embedding`:
+   - `document_type_code` (label)
+   - `document_instance_id` (source doc id)
+   - `page_number`
+   - `anonymized_text` (for reranking/debugging)
+   - `embedding` (pgvector)
+
+Important privacy rule: we only store anonymized OCR text and vectors.
+
+### Embedding-based classification flow
+Workflow: `poc-embedding-classification`
+
+1) OCR per page -> embeddings per page.
+2) For each page embedding, query pgvector top-k (default 5) filtered by `page_number`.
+3) Merge all candidates and keep the global top-5.
+4) Filter out candidates below the similarity threshold (default 0.70).
+5) Majority vote on remaining categories:
+   - if one category has a strict majority -> accept
+   - otherwise -> `AUTRE`
+
+This logic lives in:
+- `src/document_ia_worker/workflow/step/embedding_classify_document/embedding_classify_document.py`
+- `document-ia-infra/src/document_ia_infra/data/embedding/repository/document_template_embedding_repository.py`
+
+### OCR quality limitations
+The embedding quality depends on OCR quality. If OCR returns very few tokens
+or near-empty text, the resulting embedding can be weak and non-representative.
+This can yield low similarity scores and a classification fallback to `AUTRE`.
+
+Known cases:
+- some CNI pages produce almost empty OCR -> weak embeddings in DB
+- noisy scans or low contrast reduce OCR recall and similarity
+
+Mitigations (POC):
+- improve OCR preprocessing (binarization, contrast, rotation)
+- use higher-quality OCR services for hard cases
+- apply a minimum OCR length gate before storing embeddings
 
 ---
 

@@ -7,6 +7,7 @@ from document_ia_schemas import SupportedDocumentType
 class TaskType(str, Enum):
     CLASSIFICATION = "classification"
     EXTRACTION = "extraction"
+    ANONYMIZATION = "anonymization"
 
 
 GENERIC_CLASSIFICATION_MODEL: list[SupportedDocumentType] = [
