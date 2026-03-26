@@ -78,11 +78,23 @@ from document_ia_worker.workflow.step.llm_classify_document.llm_classify_documen
 from document_ia_worker.workflow.step.llm_extract_document.llm_extract_document import (
     LLMExtractDocumentStep,
 )
+from document_ia_worker.workflow.step.llm_anonymize_content.llm_anonymize_content import (
+    LLMAnonymizeContentStep,
+)
+from document_ia_worker.workflow.step.llm_embedding.llm_embedding import (
+    LLMEmbeddingStep,
+)
+from document_ia_worker.workflow.step.embedding_classify_document.embedding_classify_document import (
+    EmbeddingClassifyDocumentStep,
+)
 from document_ia_worker.workflow.step.preprocess_file.preprocess_file import (
     PreprocessFileStep,
 )
 from document_ia_worker.workflow.step.save_workflow_result.save_workflow_result import (
     SaveWorkflowResultStep,
+)
+from document_ia_worker.workflow.step.save_embedding_dataset.save_embedding_dataset import (
+    SaveEmbeddingDatasetStep,
 )
 
 logger = logging.getLogger(__name__)
@@ -170,6 +182,14 @@ class WorkflowManager:
                         and not self.is_last_retry
                     ):
                         need_to_notify_webhook = False
+
+                    try:
+                        await session.rollback()
+                    except Exception as rollback_error:
+                        logger.error(
+                            "Failed to rollback session before saving failure event: %s",
+                            rollback_error,
+                        )
 
                     await self._save_failure_event(session, e)
                     if isinstance(e, WorkflowStepException):
@@ -334,11 +354,44 @@ class WorkflowManager:
                             else self.workflow.llm_model,
                         )
                     )
+                if step == "llm_anonymize_content":
+                    self.step_list.append(
+                        LLMAnonymizeContentStep(
+                            self.main_workflow_context,
+                            self.main_workflow_context.extraction_parameters.llm_model
+                            if (
+                                self.main_workflow_context.extraction_parameters
+                                and self.main_workflow_context.extraction_parameters.llm_model
+                                is not None
+                            )
+                            else self.workflow.llm_model,
+                        )
+                    )
+                if step == "llm_embedding":
+                    self.step_list.append(
+                        LLMEmbeddingStep(
+                            self.main_workflow_context,
+                        )
+                    )
+                if step == "embedding_classify_document":
+                    self.step_list.append(
+                        EmbeddingClassifyDocumentStep(
+                            self.main_workflow_context,
+                            session,
+                        )
+                    )
                 if step == "save_workflow_result":
                     self.step_list.append(
                         SaveWorkflowResultStep(
                             self.main_workflow_context,
                             self.workflow.id,
+                            session,
+                        )
+                    )
+                if step == "save_embedding_dataset":
+                    self.step_list.append(
+                        SaveEmbeddingDatasetStep(
+                            self.main_workflow_context,
                             session,
                         )
                     )

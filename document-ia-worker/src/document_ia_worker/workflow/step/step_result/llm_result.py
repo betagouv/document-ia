@@ -23,3 +23,7 @@ class LLMClassificationResult(LLMResult):
 
 class LLMExtractionResult(LLMResult):
     data: DocumentExtraction[BaseModel]
+
+
+class LLMEmbeddingResult(LLMResult):
+    embeddings_by_page: list[list[float]]
