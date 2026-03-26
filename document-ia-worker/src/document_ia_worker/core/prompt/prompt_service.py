@@ -62,6 +62,9 @@ class PromptService:
             TaskType.EXTRACTION: PromptConfiguration(
                 task_type=TaskType.EXTRACTION,
             ),
+            TaskType.ANONYMIZATION: PromptConfiguration(
+                task_type=TaskType.ANONYMIZATION,
+            ),
         }
 
     def get_classification_prompt(
@@ -135,6 +138,41 @@ class PromptService:
             )
 
             return prompt_text, schema_instance.document_model
+
+        except Exception as e:
+            logger.error("DocumentSchema for %s not found: %s", document_type, e)
+            raise UnsupportedDocumentType(document_type) from e
+
+    def get_anonymization_prompt(self, document_type: SupportedDocumentType) -> str:
+        prompt_template = self.template_env.get_template(
+            self.allowed_tasks[TaskType.ANONYMIZATION].get_template_file()
+        )
+
+        try:
+            schema_instance = self._get_schema_class_instance(document_type)
+            schema_dict = schema_instance.get_json_schema_dict()
+            properties: dict[str, Any] = cast(
+                dict[str, Any], schema_dict.get("properties")
+            )
+            defs: dict[str, Any] = cast(
+                dict[str, Any],
+                schema_dict.get("$defs", schema_dict.get("definitions", {})),
+            )
+
+            nested_fields_info: list[dict[str, Any]] = extract_fields_info(
+                properties, defs
+            )
+
+            document_json_properties_with_description: Dict[str, str] = {
+                key: value.get("description") for key, value in properties.items()
+            }
+
+            return prompt_template.render(
+                document_name=schema_instance.name,
+                document_description=schema_instance.description,
+                document_json_properties_with_description=document_json_properties_with_description,
+                nested_fields_info=nested_fields_info,
+            )
 
         except Exception as e:
             logger.error("DocumentSchema for %s not found: %s", document_type, e)

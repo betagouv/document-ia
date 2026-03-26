@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:17-alpine
+    image: pgvector/pgvector:0.8.2-pg17-trixie
     container_name: document-ia-postgres
     restart: unless-stopped
     environment:

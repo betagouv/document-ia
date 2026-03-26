@@ -88,7 +88,7 @@ class BulletinSalaireModel(BaseModel):
     net_imposable: Optional[float] = Field(
         description="Montant du Net Imposable (base pour les impôts)",
         alias="Net Imposable",
-        examples=["2800.00"],
+        examples=[2800.00],
         default=None,
         json_schema_extra={
             "metrics": Metric.COMPARE_NUMBER

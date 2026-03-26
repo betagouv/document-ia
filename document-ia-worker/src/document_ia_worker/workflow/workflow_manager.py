@@ -78,6 +78,9 @@ from document_ia_worker.workflow.step.llm_classify_document.llm_classify_documen
 from document_ia_worker.workflow.step.llm_extract_document.llm_extract_document import (
     LLMExtractDocumentStep,
 )
+from document_ia_worker.workflow.step.llm_anonymize_content.llm_anonymize_content import (
+    LLMAnonymizeContentStep,
+)
 from document_ia_worker.workflow.step.preprocess_file.preprocess_file import (
     PreprocessFileStep,
 )
@@ -324,6 +327,19 @@ class WorkflowManager:
                 if step == "llm_extract_data":
                     self.step_list.append(
                         LLMExtractDocumentStep(
+                            self.main_workflow_context,
+                            self.main_workflow_context.extraction_parameters.llm_model
+                            if (
+                                self.main_workflow_context.extraction_parameters
+                                and self.main_workflow_context.extraction_parameters.llm_model
+                                is not None
+                            )
+                            else self.workflow.llm_model,
+                        )
+                    )
+                if step == "llm_anonymize_content":
+                    self.step_list.append(
+                        LLMAnonymizeContentStep(
                             self.main_workflow_context,
                             self.main_workflow_context.extraction_parameters.llm_model
                             if (
