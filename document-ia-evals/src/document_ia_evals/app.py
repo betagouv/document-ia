@@ -35,6 +35,9 @@ def main():
             st.Page("pages/evaluate_metrics.py", title="🎯 Evaluate Predictions Metrics"),
             st.Page("pages/list_experiments.py", title="📚 List Previous Evaluations"),
         ],
+        "Prompt Playground": [
+            st.Page("pages/prompt_playground.py", title="⚙️ Prompt Playground"),
+        ],
         "Data": [
             st.Page("pages/export_dataset.py", title="📤 Export Dataset"),
         ],
