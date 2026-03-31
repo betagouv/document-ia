@@ -1,10 +1,50 @@
+import calendar
+import logging
+import re
 from abc import ABC
-from datetime import date, datetime
+from datetime import date
 from typing import TypeVar, Generic, Type, Any, Optional, Annotated
 
 from pydantic import BaseModel, ConfigDict, BeforeValidator
 
 T = TypeVar("T", bound=BaseModel)
+logger = logging.getLogger(__name__)
+
+DATE_FORMAT_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"^(?P<year>\d{4})-(?P<month>\d{1,2})-(?P<day>\d{1,2})$"),
+    re.compile(r"^(?P<day>\d{1,2})/(?P<month>\d{1,2})/(?P<year>\d{4})$"),
+    re.compile(r"^(?P<day>\d{1,2})-(?P<month>\d{1,2})-(?P<year>\d{4})$"),
+    re.compile(r"^(?P<day>\d{1,2})\.(?P<month>\d{1,2})\.(?P<year>\d{4})$"),
+]
+
+
+def _parse_date_with_day_clamp(raw_value: str) -> Optional[date]:
+    for pattern in DATE_FORMAT_PATTERNS:
+        match = pattern.fullmatch(raw_value)
+        if match is None:
+            continue
+
+        year = int(match.group("year"))
+        month = int(match.group("month"))
+        day = int(match.group("day"))
+
+        if month < 1 or month > 12 or day < 1:
+            raise ValueError(f"Format de date non reconnu : {raw_value}")
+
+        max_day = calendar.monthrange(year, month)[1]
+        normalized_day = min(day, max_day)
+        normalized_date = date(year, month, normalized_day)
+
+        if normalized_day != day:
+            logger.warning(
+                "Corrected invalid date value during extraction normalization: input=%s corrected=%s",
+                raw_value,
+                normalized_date.isoformat(),
+            )
+
+        return normalized_date
+
+    return None
 
 
 def parse_flexible_date(value: Any) -> Optional[date]:
@@ -25,19 +65,9 @@ def parse_flexible_date(value: Any) -> Optional[date]:
         if value.lower() in ["null", "none", ""]:
             return None
 
-        # Liste des formats acceptés
-        formats = [
-            "%Y-%m-%d",  # ISO (Préféré) : 1990-01-01
-            "%d/%m/%Y",  # Français : 01/01/1990
-            "%d-%m-%Y",  # Français tirets : 01-01-1990
-            "%d.%m.%Y"  # Autre : 01.01.1990
-        ]
-
-        for fmt in formats:
-            try:
-                return datetime.strptime(value, fmt).date()
-            except ValueError:
-                continue
+        parsed_date = _parse_date_with_day_clamp(value)
+        if parsed_date is not None:
+            return parsed_date
 
     # Si rien n'a marché, on laisse Pydantic lever l'erreur ou on renvoie None selon ta politique
     # Ici, je lève une erreur pour que tu saches que l'extraction a échoué sur ce champ

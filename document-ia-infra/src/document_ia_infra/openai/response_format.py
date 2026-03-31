@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, get_args, get_origin, Type, Union
+from typing import Any, Dict, get_args, get_origin, Type, Union, Annotated
 
 from pydantic import BaseModel, Field, create_model
 
@@ -68,6 +68,11 @@ def get_response_format(
     for name, f in model_cls.model_fields.items():
         ann = f.annotation
         norm_ann = _normalize_annotation(ann, cache)
+
+        # Preserve field metadata (e.g. BeforeValidator from Annotated/FuzzyDate)
+        # so runtime coercions still apply on the OpenAI wrapper model.
+        if f.metadata:
+            norm_ann = Annotated[norm_ann, *f.metadata]
 
         # Preserve default if present; else mark as required
         if f.is_required():
