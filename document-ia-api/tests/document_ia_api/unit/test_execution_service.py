@@ -181,3 +181,53 @@ def test__convert_extraction_result_unit(service: ExecutionService, monkeypatch:
     types = {p.name: p.type for p in result.properties}
     assert types["first_name"] == "string"
     assert types["age"] == "number"
+
+
+def test_get_event_model_completed_with_other_extraction_skips_schema_resolution(
+    service: ExecutionService, monkeypatch: pytest.MonkeyPatch
+):
+    extraction = DocumentExtraction[SampleProps](
+        type=SupportedDocumentType.OTHER,
+        properties=SampleProps(first_name="ignored"),
+    )
+    completed = WorkflowExecutionCompletedEvent(
+        event_id=uuid4(),
+        organization_id=uuid4(),
+        workflow_id="wf",
+        execution_id="exec",
+        created_at=datetime.now(UTC),
+        version=1,
+        final_result=CompletedEventResult(
+            extraction=extraction,
+            classification=None,
+            barcodes=[],
+        ),
+        total_processing_time_ms=100,
+        output_summary={},
+        steps_completed=3,
+        workflow_metadata=[],
+    )
+
+    def _should_not_be_called(name: str):  # noqa: ARG001
+        raise AssertionError("resolve_extract_schema must not be called for OTHER")
+
+    monkeypatch.setattr(
+        "document_ia_api.application.services.execution_service.resolve_extract_schema",
+        _should_not_be_called,
+    )
+
+    dto = EventDTO(
+        id=uuid4(),
+        organization_id=uuid4(),
+        workflow_id="wf",
+        execution_id="exec",
+        created_at=datetime.now(UTC),
+        event_type=EventType.WORKFLOW_EXECUTION_COMPLETED,
+        event=completed.model_dump(mode="json"),
+    )
+
+    res = service.get_event_model(dto, execution_id="exec", is_debug_mode=False)
+    assert res.status == ExecutionStatus.SUCCESS
+    assert res.data.result.extraction is not None
+    assert res.data.result.extraction.type == SupportedDocumentType.OTHER
+    assert res.data.result.extraction.properties == []

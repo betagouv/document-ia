@@ -38,7 +38,11 @@ from document_ia_infra.data.event.schema.workflow.workflow_execution_failed_even
 from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import (
     WorkflowExecutionStartedEvent,
 )
-from document_ia_schemas import resolve_extract_schema, BaseDocumentTypeSchema
+from document_ia_schemas import (
+    resolve_extract_schema,
+    BaseDocumentTypeSchema,
+    SupportedDocumentType,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -105,12 +109,18 @@ class ExecutionService:
             )
 
         if event_data.final_result.extraction is not None:
-            extraction_class = resolve_extract_schema(
-                event_data.final_result.extraction.type.value
-            )
-            success_result.extraction = self._convert_extraction_result(
-                event_data.final_result.extraction, extraction_class
-            )
+            if event_data.final_result.extraction.type == SupportedDocumentType.OTHER:
+                success_result.extraction = ExtractionResult(
+                    type=event_data.final_result.extraction.type,
+                    properties=[],
+                )
+            else:
+                extraction_class = resolve_extract_schema(
+                    event_data.final_result.extraction.type.value
+                )
+                success_result.extraction = self._convert_extraction_result(
+                    event_data.final_result.extraction, extraction_class
+                )
 
         success_result.barcodes = event_data.final_result.barcodes
 

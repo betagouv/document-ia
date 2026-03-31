@@ -82,6 +82,8 @@ async def get_all_extraction_schemas() -> list[APIExtractionSchemaResult]:
     result: list[APIExtractionSchemaResult] = []
     try:
         for dt in SupportedDocumentType:
+            if dt == SupportedDocumentType.OTHER:
+                continue
             extract_schema = resolve_extract_schema(dt.value)
             result.append(
                 APIExtractionSchemaResult(

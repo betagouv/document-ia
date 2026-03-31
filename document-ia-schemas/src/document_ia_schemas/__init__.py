@@ -72,6 +72,7 @@ class SupportedDocumentType(str, Enum):
     AVIS_IMPOSITION = "avis_imposition"
     BULLETIN_SALAIRE = "bulletin_salaire"
     VISALE = "visale_certificate"
+    OTHER = "autre"
 
     @staticmethod
     def from_str(label: str) -> "SupportedDocumentType":

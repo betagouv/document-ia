@@ -1,6 +1,8 @@
 import logging
 from typing import Optional, Any, cast
 
+from pydantic import BaseModel
+
 from document_ia_infra.data.document.schema.document_extraction import (
     DocumentExtraction,
 )
@@ -24,6 +26,10 @@ from document_ia_worker.workflow.step.step_result.llm_result import (
 from document_ia_worker.workflow.step.step_result.ocr_result import OcrResult
 
 logger = logging.getLogger(__name__)
+
+
+class EmptyExtractionProperties(BaseModel):
+    pass
 
 
 class LLMExtractDocumentStep(BaseStep[LLMExtractionResult]):
@@ -80,6 +86,24 @@ class LLMExtractDocumentStep(BaseStep[LLMExtractionResult]):
 
         if document_type is None:
             raise ValueError("Document type could not be determined for extraction")
+
+        if document_type == SupportedDocumentType.OTHER:
+            logger.info(
+                "LLM extraction step skipped because classification returned 'autre'"
+            )
+            return (
+                LLMExtractionResult(
+                    data=DocumentExtraction[EmptyExtractionProperties](
+                        type=document_type,
+                        properties=EmptyExtractionProperties(),
+                    )
+                ),
+                StepLLMMetadata(
+                    step_name=self.__class__.__name__,
+                    request_tokens=0,
+                    response_tokens=0,
+                ),
+            )
 
         system_prompt, extract_class = self.prompt_service.get_extraction_prompt(
             document_type
