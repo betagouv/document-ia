@@ -105,4 +105,20 @@ class CNIExtractSchema(BaseDocumentTypeSchema[CNIModel]):
         "Mention de l'autorité de délivrance (préfécture ou sous-préfécture)",
         "Peut contenir des codes MRZ (Machine Readable Zone) sous forme de lignes de caractères avec symboles <",
     ]
+    examples: list[CNIModel] = [
+        CNIModel(
+            numero_document="123456789012",
+            date_delivrance="2010-01-01",
+            date_expiration="2020-01-01",
+            nom="DUPONT",
+            prenom="JEAN",
+            date_naissance="1990-01-01",
+            lieu_naissance="PARIS 15e",
+            nationalite="FRANÇAISE",
+            bande_mrz=(
+                "IDFRADUPONT<<JEAN<ROBIN<ADRIEN<<<><><<<<<>>>123456789012FRA"
+                "0002152F2809160<<<<<<<<<<<<<<00"
+            ),
+        )
+    ]
     document_model: Type[CNIModel] = CNIModel

@@ -98,4 +98,20 @@ class PasseportExtractSchema(BaseDocumentTypeSchema[PasseportModel]):
         "Dates de délivrance et d'expiration",
         "Peut contenir des codes MRZ (Machine Readable Zone) sous forme de lignes de caractères avec symboles <",
     ]
+    examples: list[PasseportModel] = [
+        PasseportModel(
+            numero_document="123456789012",
+            nom="DUPONT",
+            prenom="JEAN",
+            lieu_naissance="PARIS 15e",
+            nationalite="Française",
+            bande_mrz=(
+                "P<FRADUPONT<<JEAN<ROBIN<ADRIEN<<<><><<<<<>>>123456789012FRA"
+                "0002152F2809160<<<<<<<<<<<<<<00"
+            ),
+            date_delivrance="2010-01-01",
+            date_expiration="2020-01-01",
+            date_naissance="1990-01-01",
+        )
+    ]
     document_model: Type[PasseportModel] = PasseportModel
