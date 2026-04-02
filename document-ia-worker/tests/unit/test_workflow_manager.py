@@ -36,7 +36,7 @@ class TestWorkflowManager:
                 patch("document_ia_worker.workflow.workflow_manager.start_time_var") as mock_start_var, \
                 patch("document_ia_worker.workflow.workflow_manager.handle_finish_execution") as mock_handle_finish, \
                 patch("document_ia_worker.workflow.workflow_manager.Publisher") as mock_publisher, \
-                patch("document_ia_worker.workflow.workflow_manager.RedisManager") as mock_redis:
+                patch("document_ia_worker.workflow.workflow_manager.RedisManager"):
             mock_publisher_instance = mock_publisher.return_value
             mock_publisher_instance.publish_message = AsyncMock()
 
@@ -97,7 +97,7 @@ class TestWorkflowManager:
         """Test avec une exception générique non gérée (TypeError par ex)."""
         manager = WorkflowManager(mock_workflow_message, retry_count=0)
 
-        with patch.object(manager, '_prepare_workflow', side_effect=TypeError("Generic Error")) as mock_prepare, \
+        with patch.object(manager, '_prepare_workflow', side_effect=TypeError("Generic Error")), \
                 patch.object(manager, '_save_failure_event', new_callable=AsyncMock) as mock_save_fail, \
                 patch.object(manager, '_notify_webhook_execution_finished', new_callable=AsyncMock) as mock_notify:
             with pytest.raises(TypeError, match="Generic Error"):
