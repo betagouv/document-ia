@@ -1,4 +1,6 @@
 import logging
+import json
+from pathlib import Path
 from typing import Optional, Any, cast
 
 from pydantic import BaseModel
@@ -24,6 +26,7 @@ from document_ia_worker.workflow.step.step_result.llm_result import (
     LLMClassificationResult,
 )
 from document_ia_worker.workflow.step.step_result.ocr_result import OcrResult
+from document_ia_worker.workflow.step.llm_extract_document.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +70,35 @@ class LLMExtractDocumentStep(BaseStep[LLMExtractionResult]):
         self.llm_classification_result = self._get_not_mandatory_workflow_context_key(
             LLMClassificationResult, context
         )
+
+    def _save_openai_replay_payload(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        model: str,
+        document_type: SupportedDocumentType,
+    ) -> None:
+        replay_dir = Path(settings.OPENAI_REPLAY_PAYLOAD_SAVE_PATH)
+        replay_dir.mkdir(parents=True, exist_ok=True)
+
+        document_type_name = (
+            document_type.value
+            if hasattr(document_type, "value")
+            else str(document_type)
+        )
+        replay_payload = {
+            "execution_id": self.execution_id,
+            "document_type": document_type_name,
+            "model": model,
+            "system_prompt": system_prompt,
+            "user_prompt": user_prompt,
+        }
+        replay_file = replay_dir / f"{self.execution_id}.json"
+        replay_file.write_text(
+            json.dumps(replay_payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        logger.info("OpenAI replay payload saved to %s", replay_file)
 
     async def _execute_internal(self) -> tuple[LLMExtractionResult, StepMetadata]:
         assert self.ocr_result is not None
@@ -112,6 +144,21 @@ class LLMExtractDocumentStep(BaseStep[LLMExtractionResult]):
         user_prompt = ""
         for page in self.ocr_result.pages:
             user_prompt += f"{page.text}\n\n"
+
+        if settings.OPENAI_REPLAY_PAYLOAD_SAVE_ENABLED:
+            try:
+                self._save_openai_replay_payload(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    model=self.model,
+                    document_type=document_type,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to save OpenAI replay payload for execution %s: %s",
+                    self.execution_id,
+                    e,
+                )
 
         # Build the parameterized GenericModel type at runtime. This is valid at runtime because
         # DocumentExtraction is a pydantic.generics.GenericModel. Static type checkers may warn.
