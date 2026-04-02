@@ -7,8 +7,12 @@ from document_ia_infra.core.model.file_info import FileInfo
 from document_ia_infra.data.database import DatabaseManager
 from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.repository.event import EventRepository
-from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import WorkflowExecutionStartedEvent, \
-    ClassificationParameters, ExtractionParameters
+from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import (
+    ClassificationParameters,
+    ExtractionParameters,
+    WorkflowExecutionStartedEvent,
+)
+from document_ia_schemas import SupportedDocumentType
 from document_ia_infra.redis.model.workflow_execution_message import (
     WorkflowExecutionMessage,
 )
@@ -120,4 +124,73 @@ async def test_workflow_classification_end_to_end(organization_id):
             assert isinstance(first_meta["execution_time"], (int, float))
 
     # Cleanup S3 object
+    s3.delete_file(key)
+
+
+@pytest.mark.asyncio
+async def test_workflow_classification_with_restricted_document_types(organization_id):
+    """Workflow classification should complete successfully when document_types is restricted."""
+    assert PDF_FIXTURE.exists(), "Fixture PDF is missing"
+
+    s3 = S3Manager()
+    content = PDF_FIXTURE.read_bytes()
+    key = f"integration/workflow/{uuid4()}/test_download_file.pdf"
+    s3.upload_file(file_key=key, file_data=content, content_type="application/pdf")
+
+    execution_id = str(uuid4())
+    workflow_id = "document-classification-v1"
+    file_info = FileInfo(
+        filename=PDF_FIXTURE.name,
+        s3_key=key,
+        size=len(content),
+        content_type="application/pdf",
+        uploaded_at=datetime.now(timezone.utc).isoformat(),
+        presigned_url="",
+    )
+
+    started_event = WorkflowExecutionStartedEvent(
+        workflow_id=workflow_id,
+        organization_id=organization_id,
+        execution_id=execution_id,
+        created_at=datetime.now(timezone.utc),
+        version=1,
+        s3_file_info=file_info,
+        metadata={"source": "integration-test"},
+        classification_parameters=ClassificationParameters(
+            document_types=[SupportedDocumentType.CNI, SupportedDocumentType.PASSEPORT]
+        ),
+        extraction_parameters=ExtractionParameters(),
+    ).model_dump(mode="json")
+
+    dbm = DatabaseManager()
+    async with dbm.local_session() as session:
+        repo = EventRepository(session)
+        await repo.put_event(
+            workflow_id=workflow_id,
+            organization_id=organization_id,
+            execution_id=execution_id,
+            event_type=EventType.WORKFLOW_EXECUTION_STARTED,
+            event_data=started_event,
+        )
+        await session.commit()
+
+    message = WorkflowExecutionMessage(workflow_execution_id=execution_id)
+    manager = WorkflowManager(message=message, retry_count=0, is_last_retry=False)
+    await manager.start()
+
+    async with dbm.local_session() as session:
+        repo = EventRepository(session)
+        last_event = await repo.get_last_event_by_execution_id(execution_id)
+        assert last_event is not None, "No event found after workflow execution"
+        assert (
+            last_event.event_type == EventType.WORKFLOW_EXECUTION_COMPLETED
+        ), f"Unexpected last event type: {last_event.event_type}"
+
+        payload = last_event.event
+        final_result = payload.get("final_result")
+        assert isinstance(final_result, dict)
+        classification = final_result.get("classification")
+        assert isinstance(classification, dict), "classification result missing"
+        assert classification.get("document_type", "").strip().lower() in ("cni", "passeport", "autre")
+
     s3.delete_file(key)

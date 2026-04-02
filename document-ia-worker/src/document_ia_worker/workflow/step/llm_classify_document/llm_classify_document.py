@@ -36,6 +36,7 @@ class LLMClassifyDocumentStep(BaseStep[LLMClassificationResult]):
         self.openai_manager = OpenAIManager()
         self.prompt_service = PromptService()
         self.extraction_parameters = main_workflow_context.extraction_parameters
+        self.classification_parameters = main_workflow_context.classification_parameters
 
     def get_context_result_key(self) -> str:
         return LLMClassificationResult.__name__
@@ -75,9 +76,13 @@ class LLMClassifyDocumentStep(BaseStep[LLMClassificationResult]):
                 ),
             )
 
-        system_prompt = self.prompt_service.get_classification_prompt(
-            GENERIC_CLASSIFICATION_MODEL
+        document_type_list = (
+            self.classification_parameters.document_types
+            if self.classification_parameters
+            and self.classification_parameters.document_types
+            else GENERIC_CLASSIFICATION_MODEL
         )
+        system_prompt = self.prompt_service.get_classification_prompt(document_type_list)
         user_prompt = ""
         for page in self.ocr_result.pages:
             user_prompt += f"{page.text}\n\n"

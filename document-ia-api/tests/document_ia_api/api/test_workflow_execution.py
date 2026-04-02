@@ -325,6 +325,45 @@ class TestWorkflowExecution:
         payload = response.json()
         assert payload["status"] == ExecutionStatus.SUCCESS
 
+    def test_execute_workflow_with_classification_document_types(
+        self, client_with_api_key_standard, standard_api_key_value, valid_metadata, mock_pdf_file
+    ):
+        """Test that classification-parameters with document-types is accepted and returns 200."""
+        classification_params = json.dumps({"document-types": ["cni", "passeport"]})
+
+        response = client_with_api_key_standard.post(
+            f"/api/v1/workflows/{valid_workflow_id}/execute",
+            files={"file": ("test.pdf", mock_pdf_file, "application/pdf")},
+            data={
+                "metadata": json.dumps(valid_metadata),
+                "classification-parameters": classification_params,
+            },
+            headers={"X-API-KEY": standard_api_key_value},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "success"
+        assert data["data"]["execution_id"] is not None
+
+    def test_execute_workflow_with_invalid_classification_document_type(
+        self, client_with_api_key_standard, standard_api_key_value, valid_metadata, mock_pdf_file
+    ):
+        """Test that an invalid document type in document-types returns 422."""
+        classification_params = json.dumps({"document-types": ["not_a_valid_type"]})
+
+        response = client_with_api_key_standard.post(
+            f"/api/v1/workflows/{valid_workflow_id}/execute",
+            files={"file": ("test.pdf", mock_pdf_file, "application/pdf")},
+            data={
+                "metadata": json.dumps(valid_metadata),
+                "classification-parameters": classification_params,
+            },
+            headers={"X-API-KEY": standard_api_key_value},
+        )
+
+        assert response.status_code == 422
+
     def test_execute_workflow_sync_timeout(
         self,
         client_with_api_key_standard,

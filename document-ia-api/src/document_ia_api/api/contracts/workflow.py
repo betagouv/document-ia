@@ -14,6 +14,11 @@ class WorkflowClassificationParameterRequest(BaseModel):
         description="LLM model to be used for classification override workflow parameter",
         alias="llm-model",
     )
+    document_types: Optional[list[SupportedDocumentType]] = Field(
+        default=None,
+        description="Restrict classification to these document types. If not set, all supported types are used.",
+        alias="document-types",
+    )
 
 
 class WorkflowExtractionParameterRequest(BaseModel):
