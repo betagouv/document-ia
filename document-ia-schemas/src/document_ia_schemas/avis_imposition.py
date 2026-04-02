@@ -166,5 +166,41 @@ class AvisImpositionExtractSchema(BaseDocumentTypeSchema[AvisImpositionModel]):
         "Date de mise en recouvrement de l'impôt",
         "Peut contenir un QR code pour vérification en ligne",
     ]
+    examples: list[AvisImpositionModel] = [
+        AvisImpositionModel(
+            annee_revenus="2023",
+            date_mise_en_recouvrement="2024-07-31",
+            declarant_1_identite="MARTIN",
+            declarant_1_nom_naissance="MARTIN",
+            declarant_1_numero_fiscal="1234567890123",
+            declarant_2_identite="MARTIN",
+            declarant_2_nom_naissance="MARTIN",
+            declarant_2_numero_fiscal="1234567890123",
+            reference_avis="1234567890123",
+            nombre_parts=2.5,
+            revenu_fiscal_reference=45000,
+            revenu_brut_global=50000,
+            revenu_imposable=42000,
+            impot_revenu_net_avant_corrections=5500,
+            montant_impot=5000,
+        ),
+        AvisImpositionModel(
+            annee_revenus="2023",
+            date_mise_en_recouvrement="2024-07-31",
+            declarant_1_identite="MARTIN",
+            declarant_1_nom_naissance="MARTIN",
+            declarant_1_numero_fiscal="1234567890123",
+            declarant_2_identite="MARTIN",
+            declarant_2_nom_naissance="MARTIN",
+            declarant_2_numero_fiscal="1234567890123",
+            reference_avis="12 34 5678912 34",
+            nombre_parts=2.5,
+            revenu_fiscal_reference=45000,
+            revenu_brut_global=50000,
+            revenu_imposable=42000,
+            impot_revenu_net_avant_corrections=5500,
+            montant_impot=5000,
+        ),
+    ]
 
     document_model: Type[AvisImpositionModel] = AvisImpositionModel
