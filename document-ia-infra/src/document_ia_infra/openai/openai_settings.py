@@ -6,6 +6,7 @@ from document_ia_infra.core.BaseDocumentIaSettings import BaseDocumentIaSettings
 class OpenAISettings(BaseDocumentIaSettings):
     OPENAI_API_KEY: SecretStr | None = Field(default=None)
     OPENAI_BASE_URL: str | None = Field(default=None)
+    OPENAI_DUMP_REQUESTS: bool = Field(default=False)
     OPENAI_ENCODING_MODEL: str = Field(
         default="gpt-4",
         description="Model used for token encoding to calculate request /response size",

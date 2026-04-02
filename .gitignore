@@ -13,6 +13,7 @@ __pycache__/
 /eval
 
 */logs
+*/openai-dumps
 
 # Typescript
 node_modules/
