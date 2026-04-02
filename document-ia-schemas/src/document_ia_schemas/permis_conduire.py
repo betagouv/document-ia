@@ -89,5 +89,17 @@ class PermisConduireExtractSchema(BaseDocumentTypeSchema[PermisConduireModel]):
         "Dates de délivrance et d'expiration pour chaque catégorie",
         "Photo d'identité du titulaire, signature et éventuellement une puce électronique",
     ]
+    examples: list[PermisConduireModel] = [
+        PermisConduireModel(
+            numero_document="1234567890123456789",
+            date_delivrance="2010-06-15",
+            date_expiration="2030-06-15",
+            nom="DUPONT",
+            prenom="JEAN",
+            date_naissance="1990-01-01",
+            lieu_naissance="PARIS",
+            adresse="123 Rue de la Paix, 75008 Paris",
+        )
+    ]
 
     document_model: Type[PermisConduireModel] = PermisConduireModel
