@@ -8,8 +8,6 @@ from document_ia_schemas import BaseDocumentTypeSchema, resolve_extract_schema
 from document_ia_schemas.utils.pydantic_utils import (
     extract_fields_info,
     build_response_format,
-    get_max_examples_count,
-    build_example_at_index,
 )
 from document_ia_worker.core.prompt.prompt_configuration import (
     PromptConfiguration,
@@ -112,14 +110,10 @@ class PromptService:
                 properties, defs
             )
 
-            max_examples_to_build: int = max(
-                1, get_max_examples_count(properties, defs)
-            )
-
-            extraction_examples: list[dict[str, Any]] = []
-            for i in range(max_examples_to_build):
-                example_dict = build_example_at_index(properties, defs, index=i)
-                extraction_examples.append(example_dict)
+            extraction_examples: list[dict[str, Any]] = [
+                example.model_dump(mode="json")
+                for example in schema_instance.examples
+            ]
 
             document_json_properties_with_description: Dict[str, str] = {
                 key: value.get("description") for key, value in properties.items()
