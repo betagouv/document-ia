@@ -89,6 +89,12 @@ class TestPromptService:
         for desc in schema_instance.description:
             assert desc in prompt_text
 
+        # The prompt should embed the explicit schema examples
+        for key, value in schema_instance.examples[0].model_dump(mode="json").items():
+            assert f'"{key}"' in prompt_text
+            if value is not None:
+                assert str(value) in prompt_text
+
         # The template iterates document_json_properties: ensure keys and property descriptions are present
         for key, prop in schema_instance.get_json_schema_dict().get("properties", {}).items():
             assert key in prompt_text
