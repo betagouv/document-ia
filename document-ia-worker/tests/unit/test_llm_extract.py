@@ -92,3 +92,56 @@ class TestLLMExtract:
         assert isinstance(props, CNIModel)
         assert props.numero_document == "123456789012"
         assert props.nom == "DUPONT" and props.prenom == "JEAN"
+
+    @pytest.mark.asyncio
+    async def test_extract_skips_llm_when_classification_is_other(
+        self, monkeypatch, main_workflow_context
+    ):
+        ocr_result = OcrResult(
+            pages=[
+                OcrResultPage(
+                    page_number=1,
+                    text="Document ambigu et incomplet",
+                    has_failed=False,
+                )
+            ]
+        )
+
+        classification = DocumentClassification(
+            explanation="Aucune categorie fiable",
+            document_type=SupportedDocumentType.AUTRE,
+            confidence=0.31,
+        )
+        llm_classification_result = LLMClassificationResult(
+            data=classification, request_tokens=1, response_tokens=1
+        )
+
+        class FakeOpenAIManager:
+            async def get_extraction_response(self, *args, **kwargs):  # noqa: ANN002, ANN003
+                raise AssertionError(
+                    "OpenAI extraction should not be called for document_type=autre"
+                )
+
+        monkeypatch.setattr(
+            "document_ia_worker.workflow.step.llm_extract_document.llm_extract_document.OpenAIManager",
+            lambda: FakeOpenAIManager(),
+        )
+
+        step = LLMExtractDocumentStep(
+            main_workflow_context=main_workflow_context, model="dummy-model"
+        )
+        step.inject_workflow_context(
+            {
+                OcrResult.__name__: ocr_result,
+                LLMClassificationResult.__name__: llm_classification_result,
+            }
+        )
+
+        result, metadata = await step.execute()
+
+        assert metadata.step_name == "LLMExtractDocumentStep"
+        assert metadata.request_tokens == 0
+        assert metadata.response_tokens == 0
+        assert isinstance(result, LLMExtractionResult)
+        assert result.data.type == SupportedDocumentType.AUTRE
+        assert result.data.properties.model_dump() == {}

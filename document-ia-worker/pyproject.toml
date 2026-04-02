@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "document-ia-worker"
-version = "1.0.1"
+version = "1.0.2"
 description = "Worker document ia"
 authors = ["Nicolas Sagon <nicolas.sagon@beta.gouv.fr>"]
 readme = "README.md"
@@ -22,8 +22,8 @@ jinja2 = "^3.1.6"
 pydantic = "^2.11.9"
 mypy-boto3-s3 = "^1.40.26"
 greenlet = "^3.2.4"
-zxing-cpp = {git = "https://github.com/zxing-cpp/zxing-cpp.git", rev = "v2.3.0", subdirectory = "wrappers/python"}
-2ddoc-parser = {git = "https://github.com/betagouv/2ddoc-parser.git", tag = "v1.0.4"}
+zxing-cpp = "==2.3.0"
+2ddoc-parser = {git = "https://github.com/betagouv/2ddoc-parser.git", tag = "v1.0.5"}
 python-magic = "^0.4.27"
 psycopg2-binary = "^2.9.10"
 torch = [

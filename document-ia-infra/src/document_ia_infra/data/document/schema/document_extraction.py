@@ -1,9 +1,11 @@
+import logging
 from typing import Generic, TypeVar, Any, cast
 
 from document_ia_schemas import SupportedDocumentType, resolve_extract_schema
 from pydantic import BaseModel, Field, model_validator, field_serializer
 
 T = TypeVar("T", bound=BaseModel)
+logger = logging.getLogger(__name__)
 
 
 class DocumentExtraction(BaseModel, Generic[T]):
@@ -33,6 +35,8 @@ class DocumentExtraction(BaseModel, Generic[T]):
                         if isinstance(doc_type_raw, SupportedDocumentType)
                         else doc_type_raw
                     )
+                    if doc_type_str == SupportedDocumentType.AUTRE:
+                        return cast(Any, data)
                     schema_cls = resolve_extract_schema(doc_type_str)
                     model_cls = getattr(schema_cls, "document_model", None)
                     if model_cls is not None:
@@ -43,7 +47,7 @@ class DocumentExtraction(BaseModel, Generic[T]):
                         return cast(Any, {**dict_data, "properties": instance})
         except Exception as e:
             # Fail-soft: keep original data if anything goes wrong
-            print(f"E = {e}")
+            logger.exception("Failed to coerce document extraction properties: %s", e)
             return cast(Any, data)
         return cast(Any, data)
 
