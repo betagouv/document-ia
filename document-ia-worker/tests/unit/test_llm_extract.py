@@ -109,7 +109,7 @@ class TestLLMExtract:
 
         classification = DocumentClassification(
             explanation="Aucune categorie fiable",
-            document_type=SupportedDocumentType.OTHER,
+            document_type=SupportedDocumentType.AUTRE,
             confidence=0.31,
         )
         llm_classification_result = LLMClassificationResult(
@@ -143,5 +143,5 @@ class TestLLMExtract:
         assert metadata.request_tokens == 0
         assert metadata.response_tokens == 0
         assert isinstance(result, LLMExtractionResult)
-        assert result.data.type == SupportedDocumentType.OTHER
+        assert result.data.type == SupportedDocumentType.AUTRE
         assert result.data.properties.model_dump() == {}

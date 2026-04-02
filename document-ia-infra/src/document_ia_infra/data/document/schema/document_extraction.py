@@ -35,7 +35,7 @@ class DocumentExtraction(BaseModel, Generic[T]):
                         if isinstance(doc_type_raw, SupportedDocumentType)
                         else doc_type_raw
                     )
-                    if doc_type_str == SupportedDocumentType.OTHER:
+                    if doc_type_str == SupportedDocumentType.AUTRE:
                         return cast(Any, data)
                     schema_cls = resolve_extract_schema(doc_type_str)
                     model_cls = getattr(schema_cls, "document_model", None)

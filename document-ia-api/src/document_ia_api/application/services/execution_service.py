@@ -109,7 +109,7 @@ class ExecutionService:
             )
 
         if event_data.final_result.extraction is not None:
-            if event_data.final_result.extraction.type == SupportedDocumentType.OTHER:
+            if event_data.final_result.extraction.type == SupportedDocumentType.AUTRE:
                 success_result.extraction = ExtractionResult(
                     type=event_data.final_result.extraction.type,
                     properties=[],

@@ -23,11 +23,11 @@ class TestPromptService:
         # When rendering the classification prompt
         rendered = service.get_classification_prompt(doc_types)
 
-        # Then the bullet list should include each category.type, plus only one category 'autre' (OTHER)
+        # Then the bullet list should include each category.type, plus only one category 'autre' (AUTRE)
         for dt in doc_types:
             schema = service._get_schema_class_instance(dt)
             assert f"- {schema.type}" in rendered
-        # Category 'autre' (OTHER) only once
+        # Category 'autre' (AUTRE) only once
         assert rendered.count("- autre") == 1
 
         # And the distinctive characteristics section should include headers and each description item

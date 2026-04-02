@@ -87,9 +87,9 @@ class LLMExtractDocumentStep(BaseStep[LLMExtractionResult]):
         if document_type is None:
             raise ValueError("Document type could not be determined for extraction")
 
-        if document_type == SupportedDocumentType.OTHER:
+        if document_type == SupportedDocumentType.AUTRE:
             logger.info(
-                "LLM extraction step skipped because classification returned 'autre'"
+                f"LLM extraction step skipped because classification returned {document_type.value}"
             )
             return (
                 LLMExtractionResult(

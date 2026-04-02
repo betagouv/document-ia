@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 from document_ia_api.application.services.execution_service import ExecutionService
 from document_ia_api.api.contracts.execution.types import ExecutionStatus
@@ -187,7 +187,7 @@ def test_get_event_model_completed_with_other_extraction_skips_schema_resolution
     service: ExecutionService, monkeypatch: pytest.MonkeyPatch
 ):
     extraction = DocumentExtraction[SampleProps](
-        type=SupportedDocumentType.OTHER,
+        type=SupportedDocumentType.AUTRE,
         properties=SampleProps(first_name="ignored"),
     )
     completed = WorkflowExecutionCompletedEvent(
@@ -208,12 +208,10 @@ def test_get_event_model_completed_with_other_extraction_skips_schema_resolution
         workflow_metadata=[],
     )
 
-    def _should_not_be_called(name: str):  # noqa: ARG001
-        raise AssertionError("resolve_extract_schema must not be called for OTHER")
-
+    resolve_extract_schema_mock = MagicMock()
     monkeypatch.setattr(
         "document_ia_api.application.services.execution_service.resolve_extract_schema",
-        _should_not_be_called,
+        resolve_extract_schema_mock,
     )
 
     dto = EventDTO(
@@ -229,5 +227,6 @@ def test_get_event_model_completed_with_other_extraction_skips_schema_resolution
     res = service.get_event_model(dto, execution_id="exec", is_debug_mode=False)
     assert res.status == ExecutionStatus.SUCCESS
     assert res.data.result.extraction is not None
-    assert res.data.result.extraction.type == SupportedDocumentType.OTHER
+    assert res.data.result.extraction.type == SupportedDocumentType.AUTRE
     assert res.data.result.extraction.properties == []
+    resolve_extract_schema_mock.assert_not_called()
