@@ -88,7 +88,7 @@ class BulletinSalaireModel(BaseModel):
     net_imposable: Optional[float] = Field(
         description="Montant du Net Imposable (base pour les impôts)",
         alias="Net Imposable",
-        examples=["2800.00"],
+        examples=[2800.00],
         default=None,
         json_schema_extra={
             "metrics": Metric.COMPARE_NUMBER
@@ -97,7 +97,7 @@ class BulletinSalaireModel(BaseModel):
     cumul_net_imposable: Optional[float] = Field(
         description="Cumul annuel du Net Imposable (souvent en bas de page), si absente, renseigner `null`.",
         alias="Cumul Imposable Annuel",
-        examples=["32500.00"],
+        examples=[32500.00],
         default=None,
         json_schema_extra={
             "metrics": Metric.COMPARE_NUMBER
@@ -114,5 +114,31 @@ class BulletinSalaireExtractSchema(BaseDocumentTypeSchema[BulletinSalaireModel])
         "Présence d'un tableau avec des colonnes (libellé, base, taux, montant)",
         "Contient des montants Brut, Net Imposable et Net à Payer",
         "Mentionne souvent l'URSSAF, la CSG, la CRDS",
+    ]
+    examples: list[BulletinSalaireModel] = [
+        BulletinSalaireModel(
+            nom_employeur="ACME CORPORATION",
+            siret="12345678900012",
+            identite_salarie="MARTIN Thomas",
+            adresse_salarie="10 RUE DE LA PAIX 75000 PARIS",
+            periode_debut="2024-01-01",
+            periode_fin="2024-01-31",
+            date_paiement="2024-02-02",
+            date_debut_contrat="2018-05-15",
+            net_imposable=2800.00,
+            cumul_net_imposable=32500.00,
+        ),
+        BulletinSalaireModel(
+            nom_employeur="BOULANGERIE DUPONT",
+            siret="12345678900012",
+            identite_salarie="MARTIN Thomas",
+            adresse_salarie="10 RUE DE LA PAIX 75000 PARIS",
+            periode_debut="2024-01-01",
+            periode_fin="2024-01-31",
+            date_paiement="2024-02-02",
+            date_debut_contrat="2018-05-15",
+            net_imposable=2800.00,
+            cumul_net_imposable=32500.00,
+        ),
     ]
     document_model: Type[BulletinSalaireModel] = BulletinSalaireModel

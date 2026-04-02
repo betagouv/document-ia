@@ -68,5 +68,25 @@ class VisaleExtractSchema(BaseDocumentTypeSchema[VisaleModel]):
         "Mentionne l'identité complète des candidats locataires certifiés sous forme de liste numérotée",
         "Cette garantie peut couvrir un ou plusieurs candidats locataires"
     ]
+    examples: list[VisaleModel] = [
+        VisaleModel(
+            numero_visa="V11706816406",
+            date_delivrance="2026-03-02",
+            date_fin_validite="2026-05-31",
+            beneficiaires=[BeneficiaireModel(nom="DUPONT", prenoms="Grégoire")],
+        ),
+        VisaleModel(
+            numero_visa="V11706816406",
+            date_delivrance="2026-03-02",
+            date_fin_validite="2026-05-31",
+            beneficiaires=[BeneficiaireModel(nom="DE LACROIX", prenoms="Sophie-marie")],
+        ),
+        VisaleModel(
+            numero_visa="V11706816406",
+            date_delivrance="2026-03-02",
+            date_fin_validite="2026-05-31",
+            beneficiaires=[BeneficiaireModel(nom="Rouzet", prenoms="Jean Michel")],
+        ),
+    ]
 
     document_model: Type[VisaleModel] = VisaleModel
