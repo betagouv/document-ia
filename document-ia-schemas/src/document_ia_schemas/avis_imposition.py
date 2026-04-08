@@ -10,7 +10,6 @@ class AvisImpositionModel(BaseModel):
     annee_revenus: Optional[str] = Field(
         default=None,
         description="Année fiscale concernée par la déclaration de revenus (format AAAA)",
-        alias="Année des revenus",
         examples=["2023"],
         json_schema_extra={
             "metrics": Metric.COMPARE_NUMBER
@@ -21,7 +20,6 @@ class AvisImpositionModel(BaseModel):
         description=(
             "Date de mise en recouvrement de l'impôt (format JJ/MM/AAAA). Si absente, renseigner `null`."
         ),
-        alias="Date de mise en recouvrement",
         examples=["2024-07-31"],
         json_schema_extra={
             "metrics": Metric.STRING_DATE_EQUALITY
@@ -30,7 +28,6 @@ class AvisImpositionModel(BaseModel):
     declarant_1_identite: Optional[str] = Field(
         default=None,
         description="Nom et prénom du premier déclarant tel qu'il apparait au niveau du destinataire",
-        alias="Nom et Prénom du déclarant 1",
         examples=["MARTIN"],
         json_schema_extra={
             "metrics": Metric.SKIP #Metric.LEVENSHTEIN_DISTANCE
@@ -39,7 +36,6 @@ class AvisImpositionModel(BaseModel):
     declarant_1_nom_naissance: Optional[str] = Field(
         default=None,
         description="Nom de naissance du premier déclarant, il peut être différent du nom et prénom du déclarant 1",
-        alias="Nom de naissance du déclarant 1",
         examples=["MARTIN"],
         json_schema_extra={
             "metrics": Metric.SKIP #Metric.LEVENSHTEIN_DISTANCE
@@ -48,7 +44,6 @@ class AvisImpositionModel(BaseModel):
     declarant_1_numero_fiscal: Optional[str] = Field(
         default=None,
         description="Numéro fiscal personnel du premier déclarant (13 chiffres)",
-        alias="Numéro fiscal du déclarant 1",
         examples=["1234567890123"],
         json_schema_extra={
             "metrics": Metric.COMPARE_NUMBER
@@ -58,7 +53,6 @@ class AvisImpositionModel(BaseModel):
     declarant_2_identite: Optional[str] = Field(
         default=None,
         description="Nom et prénom du deuxième déclarant tel qu'il apparait au niveau du destinataire",
-        alias="Nom et Prénom du déclarant 2",
         examples=["MARTIN"],
         json_schema_extra={
             "metrics": Metric.SKIP #Metric.LEVENSHTEIN_DISTANCE
@@ -67,7 +61,6 @@ class AvisImpositionModel(BaseModel):
     declarant_2_nom_naissance: Optional[str] = Field(
         default=None,
         description="Nom de naissance du deuxième déclarant, il peut être différent du nom et prénom du déclarant 2",
-        alias="Nom de naissance du déclarant 2",
         examples=["MARTIN"],
         json_schema_extra={
             "metrics": Metric.SKIP #Metric.LEVENSHTEIN_DISTANCE
@@ -76,7 +69,6 @@ class AvisImpositionModel(BaseModel):
     declarant_2_numero_fiscal: Optional[str] = Field(
         default=None,
         description="Numéro fiscal personnel du deuxième déclarant (13 chiffres)",
-        alias="Numéro fiscal du déclarant 2",
         examples=["1234567890123"],
         json_schema_extra={
             "metrics": Metric.COMPARE_NUMBER
@@ -87,7 +79,6 @@ class AvisImpositionModel(BaseModel):
         description=(
             "Référence unique de l'avis d'imposition (format numérique, généralement 13 ou 14 chiffres). Information présente juste après la mention \"référence de l'avis\"."
         ),
-        alias="Référence d'avis d'impôt",
         examples=["1234567890123", "12 34 5678912 34"],
         json_schema_extra={
             "metrics": Metric.COMPARE_NUMBER
@@ -96,7 +87,6 @@ class AvisImpositionModel(BaseModel):
     nombre_parts: Optional[float] = Field(
         default=None,
         description="Nombre de parts fiscales du foyer (peut être décimal)",
-        alias="Nombre de parts",
         examples=[2.5],
         json_schema_extra={
             "metrics": Metric.COMPARE_NUMBER
@@ -106,7 +96,6 @@ class AvisImpositionModel(BaseModel):
     revenu_fiscal_reference: Optional[float] = Field(
         default=None,
         description="Revenu fiscal de référence (RFR) du foyer en euros",
-        alias="Revenu fiscal de référence",
         examples=[45000],
         json_schema_extra={
             "metrics": Metric.COMPARE_NUMBER
@@ -115,7 +104,6 @@ class AvisImpositionModel(BaseModel):
     revenu_brut_global: Optional[float] = Field(
         default=None,
         description="Revenu brut global du foyer en euros.",
-        alias="Revenu brut global",
         examples=[50000],
         json_schema_extra={
             "metrics": Metric.COMPARE_NUMBER
@@ -124,7 +112,6 @@ class AvisImpositionModel(BaseModel):
     revenu_imposable: Optional[float] = Field(
         default=None,
         description="Revenu net imposable du foyer en euros.",
-        alias="Revenu imposable",
         examples=[42000],
         json_schema_extra={
             "metrics": Metric.COMPARE_NUMBER
@@ -133,7 +120,6 @@ class AvisImpositionModel(BaseModel):
     impot_revenu_net_avant_corrections: Optional[float] = Field(
         default=None,
         description="Montant de l'impôt sur le revenu net avant corrections en euros.",
-        alias="Impôt sur le revenu net avant corrections",
         examples=[5500],
         json_schema_extra={
             "metrics": Metric.COMPARE_NUMBER
@@ -144,7 +130,6 @@ class AvisImpositionModel(BaseModel):
         description=(
             "Montant total de l'impôt à payer ou remboursement en euros (peut être négatif)."
         ),
-        alias="Montant de l'impôt",
         examples=[5000],
         json_schema_extra={
             "metrics": Metric.SKIP
