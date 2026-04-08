@@ -11,7 +11,6 @@ class BulletinSalaireModel(BaseModel):
     # --- Identité Employeur ---
     nom_employeur: Optional[str] = Field(
         description="Nom ou raison sociale de l'employeur",
-        alias="Employeur",
         examples=["ACME CORPORATION", "BOULANGERIE DUPONT"],
         default=None,
         json_schema_extra={
@@ -20,7 +19,6 @@ class BulletinSalaireModel(BaseModel):
     )
     siret: Optional[str] = Field(
         description="Numéro SIRET de l'employeur (14 chiffres)",
-        alias="SIRET Employeur",
         examples=["12345678900012"],
         default=None,
         json_schema_extra={
@@ -32,7 +30,6 @@ class BulletinSalaireModel(BaseModel):
     identite_salarie: Optional[str] = Field(
         default=None,
         description="Nom de famille et Prénoms du salarié",
-        alias="Nom et Prénoms du salarié",
         examples=["MARTIN Thomas"],
         json_schema_extra={
             "metrics": Metric.LEVENSHTEIN_DISTANCE
@@ -40,7 +37,6 @@ class BulletinSalaireModel(BaseModel):
     )
     adresse_salarie: Optional[str] = Field(
         description="Adresse postale complète du salarié",
-        alias="Adresse du salarié",
         examples=["10 RUE DE LA PAIX 75000 PARIS"],
         default=None,
         json_schema_extra={
@@ -51,7 +47,6 @@ class BulletinSalaireModel(BaseModel):
     # --- Détails du contrat ---
     periode_debut: FuzzyDate = Field(
         description="Date de début de la période de paie concernée (format JJ/MM/AAAA)",
-        alias="Période début",
         examples=["2024-01-01"],
         default=None,
         json_schema_extra={
@@ -60,7 +55,6 @@ class BulletinSalaireModel(BaseModel):
     )
     periode_fin: FuzzyDate = Field(
         description="Date de fin de la période de paie concernée (format JJ/MM/AAAA)",
-        alias="Période fin",
         examples=["2024-01-31"],
         default=None,
         json_schema_extra={
@@ -69,7 +63,6 @@ class BulletinSalaireModel(BaseModel):
     )
     date_paiement: FuzzyDate = Field(
         description="Date de mise en paiement du salaire (format JJ/MM/AAAA)",
-        alias="Date de paiement",
         examples=["2024-02-02"],
         default=None,
         json_schema_extra={
@@ -78,7 +71,6 @@ class BulletinSalaireModel(BaseModel):
     )
     date_debut_contrat: FuzzyDate = Field(
         description="Date d'ancienneté ou d'entrée dans l'entreprise (format JJ/MM/AAAA), si absente, renseigner `null`.",
-        alias="Date de début de contrat",
         examples=["2018-05-15"],
         default=None,
         json_schema_extra={
@@ -87,7 +79,6 @@ class BulletinSalaireModel(BaseModel):
     )
     net_imposable: Optional[float] = Field(
         description="Montant du Net Imposable (base pour les impôts)",
-        alias="Net Imposable",
         examples=[2800.00],
         default=None,
         json_schema_extra={
@@ -96,7 +87,6 @@ class BulletinSalaireModel(BaseModel):
     )
     cumul_net_imposable: Optional[float] = Field(
         description="Cumul annuel du Net Imposable (souvent en bas de page), si absente, renseigner `null`.",
-        alias="Cumul Imposable Annuel",
         examples=[32500.00],
         default=None,
         json_schema_extra={
