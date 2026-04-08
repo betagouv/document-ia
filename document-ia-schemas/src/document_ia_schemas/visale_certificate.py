@@ -28,7 +28,6 @@ class VisaleModel(BaseModel):
     numero_visa: Optional[str] = Field(
         default=None,
         description="Numéro unique du visa Visale (commence généralement par la lettre V suivie de chiffres)",
-        alias="Numéro de visa",
         examples=["V11706816406"],
         json_schema_extra={
             "metrics": Metric.LEVENSHTEIN_DISTANCE
@@ -37,7 +36,6 @@ class VisaleModel(BaseModel):
     date_delivrance: FuzzyDate = Field(
         default=None,
         description="Date d'attribution ou de délivrance du visa (format JJ/MM/AAAA). Si absente, renseigner `null`.",
-        alias="Date de délivrance",
         examples=["2026-03-02"],
         json_schema_extra={
             "metrics": Metric.STRING_DATE_EQUALITY
@@ -46,7 +44,6 @@ class VisaleModel(BaseModel):
     date_fin_validite: FuzzyDate = Field(
         default=None,
         description="Date limite jusqu'à laquelle le visa est valable pour la signature du bail (format JJ/MM/AAAA).",
-        alias="Date de fin de validité",
         examples=["2026-05-31"],
         json_schema_extra={
             "metrics": Metric.STRING_DATE_EQUALITY
@@ -54,7 +51,6 @@ class VisaleModel(BaseModel):
     )
     beneficiaires: List[BeneficiaireModel] = Field(
         description="Liste des candidats locataires (bénéficiaires) mentionnés sur le certificat. Lorsque plusieurs locataires sont couverts par la même garantie VISALE, leurs différentes identités sont déclinées (Prénom 1, Nom 1)",
-        alias="Liste des bénéficiaires"
     )
 
 
