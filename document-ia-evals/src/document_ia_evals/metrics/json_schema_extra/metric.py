@@ -19,7 +19,7 @@ def compare_pydantic_models(
     ground_truth: BaseModel
 ) -> Tuple[Dict[str, Dict[str, float]], Dict[str, Dict[str, Any]]]:
     """Compare two Pydantic model instances field by field using specified metrics."""
-    if type(prediction) != type(ground_truth):
+    if type(prediction) is not type(ground_truth):
         raise ValueError(
             f"Models must be of the same type. "
             f"Got {type(prediction).__name__} and {type(ground_truth).__name__}"
