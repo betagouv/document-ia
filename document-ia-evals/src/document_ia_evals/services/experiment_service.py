@@ -123,9 +123,9 @@ def save_experiment(
                 sanitized_field_details = {}
                 for field_name, details in parsed_obs['field_details'].items():
                     sanitized_field_details[field_name] = {
-                        'metric': details.get('metric'),
-                        'score': details.get('score'),
-                        'distance': details.get('distance'),  # Keep distance for Levenshtein
+                        'metrics': details.get('metrics', []),
+                        'scores': details.get('scores', {}),
+                        'distances': details.get('distances', {}),
                     }
                 metric_results['field_details'] = sanitized_field_details
 
