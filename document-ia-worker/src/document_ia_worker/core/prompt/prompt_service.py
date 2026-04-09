@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import Dict, Any, List, Tuple, Type, cast
 
@@ -52,6 +53,7 @@ class PromptService:
         )
         # Register custom filters
         self.template_env.filters["dict_to_bullets"] = _dict_to_bullets
+        self.template_env.filters["python_json"] = json.dumps
 
         self.allowed_tasks = {
             TaskType.CLASSIFICATION: PromptConfiguration(

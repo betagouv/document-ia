@@ -140,17 +140,44 @@ Les textes OCR peuvent contenir des erreurs, des imprécisions ou des zones illi
 5. Distingue clairement les informations relatives au document (numéro, dates) de celles relatives à la personne
 6. Renvoie UNIQUEMENT un objet JSON conforme au schéma spécifié, sans texte explicatif ni commentaire
 
+## Informations à extraire
+- **numero_document**: Identifiant unique de la carte d'identité (format alphanumérique)
+- **date_delivrance**: Date d'émission du document (format JJ MM AAAA). Si absente, renseigner `null`.
+- **date_expiration**: Date limite de validité du document (format JJ MM AAAA). Une carte d'identité est valide 10 ans. Si absente renseigner `null`.
+- **nom**: Nom de famille du titulaire (en majuscules sur le document
+- **prenom**: Prénom du titulaire, uniquement le premier s'il y en a plusieurs
+- **date_naissance**: Date de naissance du titulaire (format JJ MM AAAA). Si absente renseigner `null`.
+- **lieu_naissance**: Lieu de naissance du titulaire
+- **nationalite**: Nationalité du titulaire (en majuscules sur le document)
+- **bande_mrz**: Bande Mrz de la carte d'identité (Machine Readable Zone). Si absent, renseigné `null`.
+
 ## Vérification finale avant réponse
 - Vérifie une dernière fois que tu n'as PAS INVENTÉ de données manquantes.
 - Confirme que les champs pour lesquels aucune information n'est disponible sont bien définis comme `null`.
 - Vérifie particulièrement les dates, qui doivent être `null` si non explicitement mentionnées.
 
-## Exemples de réponse
+## Format de réponse
+Réponds UNIQUEMENT avec un objet JSON au format suivant :
+
+```json
+{
+  "numero_document": "string",
+  "date_delivrance": "string",
+  "date_expiration": "string",
+  "nom": "string",
+  "prenom": "string",
+  "date_naissance": "string",
+  "lieu_naissance": "string",
+  "nationalite": "string",
+  "bande_mrz": "string"
+}
+```
+
+## Exemple de réponse
 
 Voici des exemples de réponses attendues :
 
 Exemple 1 :
-```json
 {
   "numero_document": "123456789012",
   "date_delivrance": "2010-01-01",
@@ -162,7 +189,6 @@ Exemple 1 :
   "nationalite": "FRANÇAISE",
   "bande_mrz": "IDFRADUPONT\u003c\u003cJEAN\u003cROBIN\u003cADRIEN\u003c\u003c\u003c\u003e\u003c\u003e\u003c\u003c\u003c\u003c\u003c\u003e\u003e\u003e123456789012FRA0002152F2809160\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c00"
 }
-```
 
 
 N'ajoute pas de texte avant ou après le JSON final."""
