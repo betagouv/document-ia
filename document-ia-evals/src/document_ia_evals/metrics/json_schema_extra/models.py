@@ -10,7 +10,7 @@ class JsonSchemaExtraObservation(BaseModel):
     score: float
     document_type: Optional[str] = None
     model_type: Optional[str] = None
-    field_scores: Dict[str, float] = {}
+    field_scores: Dict[str, Dict[str, float]] = {}
     field_details: Dict[str, Dict[str, Any]] = {}
     evaluated_fields: int = 0
     skipped_fields: int = 0
