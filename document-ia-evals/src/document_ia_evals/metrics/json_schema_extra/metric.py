@@ -8,7 +8,7 @@ from document_ia_evals.metrics.compare_functions import (
     METRIC_FUNCTIONS,
     levenshtein_distance,
 )
-from document_ia_evals.metrics.utils.pydantic_helpers import get_field_metric
+from document_ia_evals.metrics.utils.pydantic_helpers import get_field_metrics
 from document_ia_schemas.field_metrics import Metric
 
 from .models import JsonSchemaExtraObservation
@@ -17,7 +17,7 @@ from .models import JsonSchemaExtraObservation
 def compare_pydantic_models(
     prediction: BaseModel,
     ground_truth: BaseModel
-) -> Tuple[Dict[str, float], Dict[str, Dict[str, Any]]]:
+) -> Tuple[Dict[str, Dict[str, float]], Dict[str, Dict[str, Any]]]:
     """Compare two Pydantic model instances field by field using specified metrics."""
     if type(prediction) != type(ground_truth):
         raise ValueError(
@@ -25,7 +25,7 @@ def compare_pydantic_models(
             f"Got {type(prediction).__name__} and {type(ground_truth).__name__}"
         )
     
-    field_scores: Dict[str, float] = {}
+    field_scores: Dict[str, Dict[str, float]] = {}
     field_details: Dict[str, Dict[str, Any]] = {}
 
     model_fields = type(ground_truth).model_fields
@@ -41,24 +41,33 @@ def compare_pydantic_models(
         except AttributeError:
             predicted_value = None
         
-        metric_type = get_field_metric(field_info) or Metric.EQUALITY
-        compare_func = METRIC_FUNCTIONS[metric_type]
-        score = compare_func(expected_value, predicted_value)
-        
-        field_scores[field_name] = score
+        metric_types = get_field_metrics(field_info)
+        metric_values = [metric.value for metric in metric_types]
+        scores_by_metric: Dict[str, float] = {}
+        distances_by_metric: Dict[str, int] = {}
+
+        for metric_type in metric_types:
+            compare_func = METRIC_FUNCTIONS[metric_type]
+            score = compare_func(expected_value, predicted_value)
+            metric_key = metric_type.value
+            scores_by_metric[metric_key] = score
+
+            if metric_type == Metric.LEVENSHTEIN_DISTANCE:
+                expected_str = str(expected_value) if expected_value is not None else ""
+                predicted_str = str(predicted_value) if predicted_value is not None else ""
+                distances_by_metric[metric_key] = levenshtein_distance(
+                    expected_str, predicted_str
+                )
+
+        field_scores[field_name] = scores_by_metric
         field_details[field_name] = {
             "expected": expected_value,
             "predicted": predicted_value,
-            "metric": metric_type.value,
-            "score": score,
+            "metrics": metric_values,
+            "scores": scores_by_metric,
         }
-        
-        if metric_type == Metric.LEVENSHTEIN_DISTANCE:
-            expected_str = str(expected_value) if expected_value is not None else ""
-            predicted_str = str(predicted_value) if predicted_value is not None else ""
-            field_details[field_name]["distance"] = levenshtein_distance(
-                expected_str, predicted_str
-            )
+        if distances_by_metric:
+            field_details[field_name]["distances"] = distances_by_metric
     
     return field_scores, field_details
 
@@ -104,8 +113,13 @@ def json_schema_extra_metric(
     
         field_scores, field_details = compare_pydantic_models(model_prediction, model_ground_truth)
         
-        evaluated_scores = {k: v for k, v in field_scores.items() if v != -1.0}
-        overall_score = sum(evaluated_scores.values()) / len(evaluated_scores) if evaluated_scores else 0.0
+        all_scores = [
+            score
+            for scores_by_metric in field_scores.values()
+            for score in scores_by_metric.values()
+        ]
+        evaluated_scores = [score for score in all_scores if score != -1.0]
+        overall_score = sum(evaluated_scores) / len(evaluated_scores) if evaluated_scores else 0.0
         
         obs = JsonSchemaExtraObservation(
             score=overall_score,
@@ -114,7 +128,7 @@ def json_schema_extra_metric(
             field_scores=field_scores,
             field_details=field_details,
             evaluated_fields=len(evaluated_scores),
-            skipped_fields=len(field_scores) - len(evaluated_scores),
+            skipped_fields=len(all_scores) - len(evaluated_scores),
         )
         
         return overall_score, obs.model_dump_json(indent=2), prediction
