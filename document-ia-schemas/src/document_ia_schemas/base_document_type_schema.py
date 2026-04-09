@@ -82,6 +82,7 @@ class BaseDocumentTypeSchema(BaseModel, Generic[T], ABC):
     type: str = ""
     name: str = ""
     description: list[str] = []
+    examples: list[T] = []
     document_model: Type[T]
 
     # Clés à exclure du JSON Schema (issues de json_schema_extra sur les champs)

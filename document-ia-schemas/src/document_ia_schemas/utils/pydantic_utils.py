@@ -74,23 +74,6 @@ def extract_fields_info(
     return fields
 
 
-def extract_ref_from_dict(
-        fields: list[dict[str, Any]],
-        items_dict: dict[str, Any],
-        defs: dict[str, Any],
-        key: str,
-        desc: str,
-        level: int,
-        suffix: str = ""
-):
-    # Deprecated helper kept for internal backward compatibility.
-    fields.append({"name": f"{key}{suffix}", "description": desc, "level": level})
-    ref_props = _get_ref_properties_from_dict(items_dict, defs)
-    if ref_props is None:
-        return
-    fields.extend(extract_fields_info(ref_props, defs, level + 1))
-
-
 def build_response_format(
         properties: dict[str, Any],
         defs: dict[str, Any]
@@ -133,85 +116,3 @@ def build_response_format(
         result[key] = field_type
 
     return result
-
-
-def build_example_at_index(
-        properties: dict[str, Any],
-        defs: dict[str, Any],
-        index: int
-) -> dict[str, Any]:
-    """
-    Build a JSON example by selecting the n-th element of each 'examples' list.
-    If the index is out of range for a field, use the last available example.
-    """
-    result: dict[str, Any] = {}
-
-    for key, val in properties.items():
-        if not isinstance(val, dict):
-            continue
-
-        value_dict = cast(dict[str, Any], val)
-        field_type: str = str(value_dict.get("type", "string"))
-
-        examples_raw: Any = value_dict.get("examples")
-        if isinstance(examples_raw, list) and len(examples_raw) > 0:  # pyright: ignore [reportUnknownArgumentType]
-            examples_list = cast(list[Any], examples_raw)
-            safe_index = min(index, len(examples_list) - 1)
-            result[key] = examples_list[safe_index]
-            continue
-
-        array_ref_props = _get_array_ref_properties(value_dict, defs)
-        if array_ref_props is not None:
-            result[key] = [build_example_at_index(array_ref_props, defs, index)]
-            continue
-
-        if field_type == "array" and "items" in value_dict:
-            result[key] = []
-            continue
-
-        ref_props = _get_ref_properties_from_dict(value_dict, defs)
-        if ref_props is not None:
-            result[key] = build_example_at_index(ref_props, defs, index)
-            continue
-
-        if field_type == "string":
-            result[key] = "..."
-        elif field_type == "integer":
-            result[key] = 0
-        elif field_type == "boolean":
-            result[key] = True
-        else:
-            result[key] = None
-
-    return result
-
-
-def get_max_examples_count(
-        properties: dict[str, Any],
-        defs: dict[str, Any]
-) -> int:
-    """
-    Walk the schema recursively to find the maximum examples list size.
-    """
-    max_count: int = 0
-
-    for val in properties.values():
-        if not isinstance(val, dict):
-            continue
-
-        value_dict = cast(dict[str, Any], val)
-
-        examples_raw: Any = value_dict.get("examples")
-        if isinstance(examples_raw, list):
-            max_count = max(max_count, len(cast(list[Any], examples_raw)))
-
-        array_ref_props = _get_array_ref_properties(value_dict, defs)
-        if array_ref_props is not None:
-            max_count = max(max_count, get_max_examples_count(array_ref_props, defs))
-            continue
-
-        ref_props = _get_ref_properties_from_dict(value_dict, defs)
-        if ref_props is not None:
-            max_count = max(max_count, get_max_examples_count(ref_props, defs))
-
-    return max_count

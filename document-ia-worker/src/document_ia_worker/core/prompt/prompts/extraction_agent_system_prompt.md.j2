@@ -38,7 +38,7 @@ Les textes OCR peuvent contenir des erreurs, des imprécisions ou des zones illi
 Réponds UNIQUEMENT avec un objet JSON au format suivant :
 
 ```json
-{{ extraction_response_format | tojson(indent=2) }}
+{{ extraction_response_format | python_json(indent=2, ensure_ascii=False) }}
 ```
 
 ## Exemple de réponse
@@ -47,7 +47,7 @@ Voici des exemples de réponses attendues :
 
 {% for example in extraction_examples -%}
 Exemple {{ loop.index }} :
-{{ example | tojson(indent=2) }}
+{{ example | python_json(indent=2, ensure_ascii=False) }}
 {% endfor %}
 
 N'ajoute pas de texte avant ou après le JSON final.
