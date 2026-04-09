@@ -319,6 +319,37 @@ def compare_deep_equality(expected: Any, predicted: Any) -> float:
     
     return 0.0
 
+
+def _normalize_for_token_set(value: Any) -> set[str]:
+    """Normalize text into a token set for order-insensitive identity comparison."""
+    if value is None:
+        return set()
+
+    s = str(value).lower()
+    s = s.replace("-", " ")
+    s = s.replace("œ", "oe").replace("æ", "ae")
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(char for char in s if unicodedata.category(char) != "Mn")
+    s = re.sub(r"[^\w\s]", " ", s)
+    s = s.replace("_", " ")
+    return {token for token in s.split() if token}
+
+
+def compare_token_set_equality(expected: Any, predicted: Any) -> float:
+    """
+    Compare two strings as unordered sets of normalized tokens.
+
+    Returns 1.0 only when the token sets are exactly equal, 0.0 otherwise.
+    """
+    expected_tokens = _normalize_for_token_set(expected)
+    predicted_tokens = _normalize_for_token_set(predicted)
+
+    if not expected_tokens and not predicted_tokens:
+        return 1.0
+
+    return 1.0 if expected_tokens == predicted_tokens else 0.0
+
+
 def skip(expected: Any, predicted: Any) -> float:
     return -1.0
 
@@ -330,5 +361,6 @@ METRIC_FUNCTIONS: Dict[Metric, Callable[[Any, Any], float]] = {
     Metric.DEEP_EQUALITY: compare_deep_equality,
     Metric.STRING_DATE_EQUALITY: compare_string_date,
     Metric.COMPARE_NUMBER: compare_number,
+    Metric.TOKEN_SET_EQUALITY: compare_token_set_equality,
     Metric.SKIP: skip
 }
