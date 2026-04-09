@@ -32,7 +32,10 @@ class BulletinSalaireModel(BaseModel):
         description="Nom de famille et Prénoms du salarié",
         examples=["MARTIN Thomas"],
         json_schema_extra={
-            "metrics": Metric.LEVENSHTEIN_DISTANCE
+            "metrics": [
+                Metric.TOKEN_SET_EQUALITY,
+                Metric.LEVENSHTEIN_DISTANCE,
+            ]
         }
     )
     adresse_salarie: Optional[str] = Field(
