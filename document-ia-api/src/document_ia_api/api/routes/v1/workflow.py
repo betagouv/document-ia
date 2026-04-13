@@ -2,7 +2,9 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, UploadFile, File, Form, Path, HTTPException
+from fastapi.exceptions import RequestValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import ValidationError
 
 from document_ia_api.api.auth import verify_api_key, get_current_organization
 from document_ia_api.api.contracts.error.errors import ProblemDetail
@@ -281,18 +283,24 @@ async def execute_workflow(
         )
 
         if classification_parameters is not None:
-            parsed_classification_parameters = (
-                WorkflowClassificationParameterRequest.model_validate_json(
-                    classification_parameters
+            try:
+                parsed_classification_parameters = (
+                    WorkflowClassificationParameterRequest.model_validate_json(
+                        classification_parameters
+                    )
                 )
-            )
+            except ValidationError as exc:
+                raise RequestValidationError(exc.errors()) from exc
 
         if extraction_parameters is not None:
-            parsed_extraction_parameters = (
-                WorkflowExtractionParameterRequest.model_validate_json(
-                    extraction_parameters
+            try:
+                parsed_extraction_parameters = (
+                    WorkflowExtractionParameterRequest.model_validate_json(
+                        extraction_parameters
+                    )
                 )
-            )
+            except ValidationError as exc:
+                raise RequestValidationError(exc.errors()) from exc
 
         # Execute workflow using the service
         result = await workflow_service.execute_workflow(
@@ -320,6 +328,9 @@ async def execute_workflow(
             message="Workflow execution started successfully",
         )
 
+    except RequestValidationError:
+        await db_session.rollback()
+        raise
     except Exception as e:
         # Rollback the database session on any error
         await db_session.rollback()
@@ -412,18 +423,24 @@ async def execute_workflow_sync(
         )
 
         if classification_parameters is not None:
-            parsed_classification_parameters = (
-                WorkflowClassificationParameterRequest.model_validate_json(
-                    classification_parameters
+            try:
+                parsed_classification_parameters = (
+                    WorkflowClassificationParameterRequest.model_validate_json(
+                        classification_parameters
+                    )
                 )
-            )
+            except ValidationError as exc:
+                raise RequestValidationError(exc.errors()) from exc
 
         if extraction_parameters is not None:
-            parsed_extraction_parameters = (
-                WorkflowExtractionParameterRequest.model_validate_json(
-                    extraction_parameters
+            try:
+                parsed_extraction_parameters = (
+                    WorkflowExtractionParameterRequest.model_validate_json(
+                        extraction_parameters
+                    )
                 )
-            )
+            except ValidationError as exc:
+                raise RequestValidationError(exc.errors()) from exc
 
         execution = await workflow_service.execute_workflow(
             organization_id=current_org.id,
@@ -456,6 +473,9 @@ async def execute_workflow_sync(
     except HTTPException as exc:
         await db_session.rollback()
         raise exc
+    except RequestValidationError:
+        await db_session.rollback()
+        raise
     except Exception as e:
         await db_session.rollback()
         logger.error(
