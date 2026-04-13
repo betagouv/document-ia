@@ -13,6 +13,10 @@ class ClassificationParameters(BaseModel):
     llm_model: Optional[LLMModel] = Field(
         default=None, description="LLM model for classification"
     )
+    document_types: Optional[list[SupportedDocumentType]] = Field(
+        default=None,
+        description="Restrict classification to these document types. If not set, all supported types are used.",
+    )
 
 
 class ExtractionParameters(BaseModel):

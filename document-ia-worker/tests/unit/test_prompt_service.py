@@ -100,3 +100,25 @@ class TestPromptService:
         service = PromptService()
         with pytest.raises(UnsupportedDocumentType):
             service.get_extraction_prompt("type_inconnu")
+
+    def test_classification_prompt_restricts_to_provided_document_types(self):
+        """Only the provided document types should appear in the rendered prompt."""
+        service = PromptService()
+
+        restricted_types = [SupportedDocumentType.CNI, SupportedDocumentType.PASSEPORT]
+        excluded_types = [
+            SupportedDocumentType.PERMIS_CONDUIRE,
+            SupportedDocumentType.AVIS_IMPOSITION,
+            SupportedDocumentType.BULLETIN_SALAIRE,
+            SupportedDocumentType.VISALE,
+        ]
+
+        rendered = service.get_classification_prompt(restricted_types)
+
+        for dt in restricted_types:
+            schema = service._get_schema_class_instance(dt)
+            assert f"- {schema.type}" in rendered
+
+        for dt in excluded_types:
+            schema = service._get_schema_class_instance(dt)
+            assert f"- {schema.type}" not in rendered

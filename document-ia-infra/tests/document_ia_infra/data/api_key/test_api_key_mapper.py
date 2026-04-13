@@ -1,7 +1,6 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from document_ia_infra.data.api_key.dto.api_key_dto import ApiKeyDTO
 from document_ia_infra.data.api_key.entity.api_key import ApiKeyEntity
 from document_ia_infra.data.api_key.enum.api_key_status import ApiKeyStatus
 from document_ia_infra.data.api_key.mapper.api_key_mapper import (
