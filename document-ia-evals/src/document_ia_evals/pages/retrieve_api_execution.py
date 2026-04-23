@@ -1,4 +1,3 @@
-import os
 import streamlit as st
 
 from document_ia_evals.utils.api import wait_for_execution
