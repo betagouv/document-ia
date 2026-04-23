@@ -1,15 +1,34 @@
 import os
+from pathlib import Path
 
 import pytest
 
-from document_ia_schemas.cni import CNIModel
 from document_ia_worker.core.prompt.prompt_configuration import SupportedDocumentType
 from document_ia_worker.core.prompt.prompt_service import PromptService
-from document_ia_worker.exception.unsupported_document_type import UnsupportedDocumentType
+from document_ia_worker.exception.unsupported_document_type import (
+    UnsupportedDocumentType,
+)
+
+EXPECTED_EXTRACTION_PROMPTS_DIR = (
+    Path(__file__).resolve().parents[1] / "fixtures" / "prompts" / "extraction"
+)
+
+
+def _get_supported_extraction_document_types() -> list[SupportedDocumentType]:
+    service = PromptService()
+    document_types: list[SupportedDocumentType] = []
+
+    for document_type in SupportedDocumentType:
+        try:
+            service.get_extraction_prompt(document_type)
+        except UnsupportedDocumentType:
+            continue
+        document_types.append(document_type)
+
+    return document_types
 
 
 class TestPromptService:
-
     def test_classification_prompt_injects_document_categories_and_descriptions(self):
         service = PromptService()
 
@@ -70,17 +89,24 @@ class TestPromptService:
         with pytest.raises(UnsupportedDocumentType):
             service.get_classification_prompt([FakeDocType()])
 
-    def test_get_extraction_prompt_returns_schema_and_model_for_cni(self):
-        """Ensure get_extraction_prompt('cni') returns the schema content and the CNIExtract model class."""
+    @pytest.mark.parametrize(
+        "document_type",
+        _get_supported_extraction_document_types(),
+        ids=lambda dt: dt.value,
+    )
+    def test_get_extraction_prompt_returns_schema_and_model_for_supported_document_type(
+        self, document_type: SupportedDocumentType
+    ):
+        """Ensure extraction prompts are rendered with the right schema/model for each supported document type."""
+        # Given
         service = PromptService()
+        prompt_text, model_class = service.get_extraction_prompt(document_type)
 
-        prompt_text, model_class = service.get_extraction_prompt(SupportedDocumentType.CNI)
+        # When
+        schema_instance = service._get_schema_class_instance(document_type)
 
-        # The model class should be the CNIExtract defined in the cni model module
-
-        assert model_class is CNIModel
-
-        schema_instance = service._get_schema_class_instance(SupportedDocumentType.CNI)
+        # Then
+        assert model_class is schema_instance.document_model
 
         # The template should have been rendered with the document name
         assert schema_instance.name in prompt_text
@@ -94,10 +120,21 @@ class TestPromptService:
             assert f'"{key}"' in prompt_text
 
         # The template iterates document_json_properties: ensure keys and property descriptions are present
-        for key, prop in schema_instance.get_json_schema_dict().get("properties", {}).items():
+        for key, prop in (
+            schema_instance.get_json_schema_dict().get("properties", {}).items()
+        ):
             assert key in prompt_text
             if isinstance(prop, dict) and prop.get("description"):
                 assert prop.get("description") in prompt_text
+
+        # Finally, compare the rendered prompt to the expected prompt fixture (snapshot test)
+        expected_prompt_path = (
+            EXPECTED_EXTRACTION_PROMPTS_DIR / f"{document_type.value}.txt"
+        )
+        assert expected_prompt_path.exists(), f"Missing expected prompt fixture for document type: {document_type.value}"
+        expected_prompt_text = expected_prompt_path.read_text(encoding="utf-8")
+        # Use the script `regenerate_extraction_prompt_fixtures.py` to update the expected prompt fixtures if intentional changes were made
+        assert prompt_text == expected_prompt_text, f"Rendered prompt does not match expected fixture for document type: {document_type.value}"
 
     def test_get_extraction_prompt_raises_for_unknown_document(self):
         """Requesting a prompt for an unknown document type should raise UnsupportedDocumentType."""
