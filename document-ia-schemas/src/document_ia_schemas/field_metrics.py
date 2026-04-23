@@ -11,4 +11,5 @@ class Metric(str, Enum):
     DEEP_EQUALITY = "deep_equality"
     STRING_DATE_EQUALITY = "string_date_equality"
     COMPARE_NUMBER = "compare_number"
+    TOKEN_SET_EQUALITY = "token_set_equality"
     SKIP = "skip"

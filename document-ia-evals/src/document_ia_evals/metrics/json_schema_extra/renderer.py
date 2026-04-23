@@ -12,6 +12,18 @@ from document_ia_evals.metrics import metric_registry, MetricName
 from .models import JsonSchemaExtraObservation
 
 
+def _extract_field_metric_scores(
+    obs_data: JsonSchemaExtraObservation,
+) -> list[tuple[str, str, float]]:
+    """Return flattened (field, metric, score) rows from an observation."""
+    rows: list[tuple[str, str, float]] = []
+    for field_name, field_score_data in obs_data.field_scores.items():
+        if isinstance(field_score_data, dict):
+            for metric_name, score in field_score_data.items():
+                rows.append((field_name, str(metric_name), float(score)))
+    return rows
+
+
 @metric_registry.renderer(name=MetricName.JSON_SCHEMA_EXTRA)
 def render_results(experiment_results: Dict[str, Any]) -> None:
     """Render the results of the json_schema_extra metric, grouped by model_version."""
@@ -39,8 +51,7 @@ def render_results(experiment_results: Dict[str, Any]) -> None:
     st.write("## 📊 Field-Level Metrics Comparison by Model")
     
     # Extract field-level metrics and metric types from all observations
-    field_scores_by_model = defaultdict(lambda: defaultdict(list))
-    field_metrics_all = defaultdict(set)
+    field_metric_scores_by_model = defaultdict(lambda: defaultdict(list))
     all_models = set()
     
     for obs in observations:
@@ -52,35 +63,25 @@ def render_results(experiment_results: Dict[str, Any]) -> None:
             try:
                 obs_data = JsonSchemaExtraObservation.model_validate_json(observation_str)
                 
-                for field_name, field_score in obs_data.field_scores.items():
-                    field_scores_by_model[field_name][model_version].append(float(field_score))
-                    
-                    # Extract metric type from field_details
-                    if field_name in obs_data.field_details:
-                        details = obs_data.field_details[field_name]
-                        if "metric" in details:
-                            field_metrics_all[field_name].add(str(details["metric"]))
+                for field_name, metric_name, score in _extract_field_metric_scores(obs_data):
+                    field_metric_scores_by_model[(field_name, metric_name)][model_version].append(score)
                             
             except (json.JSONDecodeError, TypeError, ValueError):
                 continue
     
-    if field_scores_by_model:
+    if field_metric_scores_by_model:
         # Prepare data for table
         comparison_data = []
-        for field_name in sorted(field_scores_by_model.keys()):
-            # Get metric type(s) for this field
-            metrics = field_metrics_all.get(field_name, set())
-            metric_str = ", ".join(sorted(metrics)) if metrics else "N/A"
-            
+        for field_name, metric_name in sorted(field_metric_scores_by_model.keys()):
             row = {
                 'Field': field_name,
-                'Metric': metric_str
+                'Metric': metric_name
             }
             
             # Calculate mean for each model
             has_skip = False
             for model_version in sorted(all_models):
-                scores = field_scores_by_model[field_name].get(model_version, [])
+                scores = field_metric_scores_by_model[(field_name, metric_name)].get(model_version, [])
                 if scores:
                     # Check if all scores are -1.0 (skipped)
                     if all(s == -1.0 for s in scores):
@@ -119,8 +120,8 @@ def render_results(experiment_results: Dict[str, Any]) -> None:
         
         model_obs: list[Dict[str, Any]] = obs_by_model[model_version]
         
-        all_field_names: set[str] = set()
-        field_scores_by_name: Dict[str, list[float]] = {}
+        all_field_metric_names: set[tuple[str, str]] = set()
+        field_scores_by_name: Dict[tuple[str, str], list[float]] = {}
         global_scores: list[float] = []
         processing_times: list[float] = []
         errors_count: int = 0
@@ -136,11 +137,12 @@ def render_results(experiment_results: Dict[str, Any]) -> None:
                     obs_data = JsonSchemaExtraObservation.model_validate_json(observation_str)
                     global_scores.append(obs_data.score)
                     
-                    for field_name, field_score in obs_data.field_scores.items():
-                        all_field_names.add(field_name)
-                        if field_name not in field_scores_by_name:
-                            field_scores_by_name[field_name] = []
-                        field_scores_by_name[field_name].append(float(field_score))
+                    for field_name, metric_name, score in _extract_field_metric_scores(obs_data):
+                        key = (field_name, metric_name)
+                        all_field_metric_names.add(key)
+                        if key not in field_scores_by_name:
+                            field_scores_by_name[key] = []
+                        field_scores_by_name[key].append(score)
                     
                     if obs_data.error:
                         errors_count += 1
@@ -175,32 +177,15 @@ def render_results(experiment_results: Dict[str, Any]) -> None:
         if field_scores_by_name:
             st.write("### Field-Level Scores")
             
-            field_metrics: Dict[str, set[str]] = {}
-            for obs in model_obs:
-                observation_str = obs.get("observation")
-                if observation_str:
-                    try:
-                        obs_data = JsonSchemaExtraObservation.model_validate_json(observation_str)
-                        for field_name, details in obs_data.field_details.items():
-                            if "metric" in details:
-                                if field_name not in field_metrics:
-                                    field_metrics[field_name] = set()
-                                field_metrics[field_name].add(str(details["metric"]))
-                    except (json.JSONDecodeError, TypeError, ValueError):
-                        pass
-            
             field_data: list[Dict[str, Any]] = []
-            for field_name in sorted(all_field_names):
-                scores: list[float] = field_scores_by_name[field_name]
+            for field_name, metric_name in sorted(all_field_metric_names):
+                scores: list[float] = field_scores_by_name[(field_name, metric_name)]
                 is_skipped: bool = all(s == -1.0 for s in scores)
-                
-                metrics: set[str] = field_metrics.get(field_name, set())
-                metric_str: str = ", ".join(sorted(metrics)) if metrics else "N/A"
-                
+
                 if is_skipped:
                     field_data.append({
                         "Field": field_name,
-                        "Metric": metric_str,
+                        "Metric": metric_name,
                         "Mean": "SKIPPED",
                         "Std Dev": "SKIPPED",
                         "Min": "SKIPPED",
@@ -210,7 +195,7 @@ def render_results(experiment_results: Dict[str, Any]) -> None:
                 else:
                     field_data.append({
                         "Field": field_name,
-                        "Metric": metric_str,
+                        "Metric": metric_name,
                         "Mean": f"{np.mean(scores):.3f}",
                         "Std Dev": f"{np.std(scores):.3f}",
                         "Min": f"{min(scores):.3f}",

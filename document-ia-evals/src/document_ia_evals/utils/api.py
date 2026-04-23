@@ -1,16 +1,15 @@
 import io
 import time
 import json
-from document_ia_api.api.contracts.execution.response import ExecutionResponse
-from document_ia_api.api.contracts.execution.types import ExecutionStatus
-from document_ia_api.api.contracts.workflow import WorkflowExecuteResponse
 from typing import Any
-from pydantic import BaseModel
+from urllib.parse import urljoin
+
+from document_ia_api.api.contracts.execution.types import ExecutionStatus
+from document_ia_api.api.contracts.execution.success import ExecutionSuccessModel
+from document_ia_api.api.contracts.workflow import WorkflowExecuteResponse
 import requests
 
 from document_ia_evals.utils.config import config
-from document_ia_api.api.contracts.execution.success import ExecutionSuccessModel
-from urllib.parse import urljoin
 
 
 def execute_workflow(

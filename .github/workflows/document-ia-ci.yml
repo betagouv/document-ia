@@ -4,6 +4,7 @@ on:
   push:
     branches: [ main, develop ]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -35,6 +36,11 @@ jobs:
           - name: schemas
             project: document-ia-schemas
             pythonpath: document-ia-schemas/src
+            needs_docker_stack: false
+            needs_tesseract: false
+          - name: evals
+            project: document-ia-evals
+            pythonpath: document-ia-evals/src
             needs_docker_stack: false
             needs_tesseract: false
     env:
