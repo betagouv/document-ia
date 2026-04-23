@@ -28,6 +28,9 @@ document-ia-schemas = { path = "../document-ia-schemas", develop = false }
 document-ia-infra = { path = "../document-ia-infra", develop = false }
 document-ia-api = { path = "../document-ia-api", develop = false }
 
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.12.11"
+pytest = "^8.4.1"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
