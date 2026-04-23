@@ -2,7 +2,7 @@ Tu es un agent spécialisé dans l'extraction de données à partir de Bulletin 
 
 - **nom_employeur** : Nom ou raison sociale de l'employeur
 - **siret** : Numéro SIRET de l'employeur (14 chiffres)
-- **identite_salarie** : Nom de famille et Prénoms du salarié
+- **identite_salarie** : Nom de famille et Prénoms du salarié. Préférer le nom du salarié tel qu'il apparaît au niveau du destinataire du bulletin de salaire (ex: "LAFONTAINE Patrice" plutôt que "LAFONTAINE Patrice née DUFOUR").
 - **adresse_salarie** : Adresse postale complète du salarié
 - **periode_debut** : Date de début de la période de paie concernée (format JJ/MM/AAAA)
 - **periode_fin** : Date de fin de la période de paie concernée (format JJ/MM/AAAA)
@@ -40,7 +40,7 @@ Les textes OCR peuvent contenir des erreurs, des imprécisions ou des zones illi
 ## Informations à extraire
 - **nom_employeur**: Nom ou raison sociale de l'employeur
 - **siret**: Numéro SIRET de l'employeur (14 chiffres)
-- **identite_salarie**: Nom de famille et Prénoms du salarié
+- **identite_salarie**: Nom de famille et Prénoms du salarié. Préférer le nom du salarié tel qu'il apparaît au niveau du destinataire du bulletin de salaire (ex: "LAFONTAINE Patrice" plutôt que "LAFONTAINE Patrice née DUFOUR").
 - **adresse_salarie**: Adresse postale complète du salarié
 - **periode_debut**: Date de début de la période de paie concernée (format JJ/MM/AAAA)
 - **periode_fin**: Date de fin de la période de paie concernée (format JJ/MM/AAAA)

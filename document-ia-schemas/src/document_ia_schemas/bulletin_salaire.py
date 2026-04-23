@@ -1,11 +1,30 @@
-from typing import Type, Optional
+import re
+from typing import Annotated, Any, Type, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, BeforeValidator
 
 from document_ia_schemas import BaseDocumentTypeSchema
 from document_ia_schemas.base_document_type_schema import FuzzyDate
 
 from document_ia_schemas.field_metrics import Metric
+
+EMPLOYEE_TITLE_PREFIX_PATTERN = re.compile(
+    r"^\s*(?:(?:m(?:onsieur)?|mme|madame|mlle|docteur|dr|prof(?:esseur)?|pr)\.?\s+)+",
+    flags=re.IGNORECASE,
+)
+
+
+def normalize_employee_identity(value: Any) -> Any:
+    if value is None or not isinstance(value, str):
+        return value
+
+    normalized_value = value.replace(",", " ").strip()
+    normalized_value = EMPLOYEE_TITLE_PREFIX_PATTERN.sub("", normalized_value)
+    normalized_value = re.sub(r"\s+", " ", normalized_value).strip()
+    return normalized_value or None
+
+
+EmployeeIdentity = Annotated[Optional[str], BeforeValidator(normalize_employee_identity)]
 
 class BulletinSalaireModel(BaseModel):
     # --- Identité Employeur ---
@@ -27,9 +46,9 @@ class BulletinSalaireModel(BaseModel):
     )
 
     # --- Identité Salarié ---
-    identite_salarie: Optional[str] = Field(
+    identite_salarie: EmployeeIdentity = Field(
         default=None,
-        description="Nom de famille et Prénoms du salarié",
+        description="Nom de famille et Prénoms du salarié. Préférer le nom du salarié tel qu'il apparaît au niveau du destinataire du bulletin de salaire (ex: \"LAFONTAINE Patrice\" plutôt que \"LAFONTAINE Patrice née DUFOUR\").",
         examples=["MARTIN Thomas"],
         json_schema_extra={
             "metrics": [
