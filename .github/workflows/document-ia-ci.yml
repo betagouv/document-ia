@@ -37,6 +37,11 @@ jobs:
             pythonpath: document-ia-schemas/src
             needs_docker_stack: false
             needs_tesseract: false
+          - name: evals
+            project: document-ia-evals
+            pythonpath: document-ia-evals/src
+            needs_docker_stack: false
+            needs_tesseract: false
     env:
       # Python path per project
       PYTHONPATH: ${{ matrix.pythonpath }}
