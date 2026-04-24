@@ -6,6 +6,7 @@ from typing import TypeVar
 import httpx
 
 from document_ia_infra.core.BaseDocumentIaSettings import BaseDocumentIaSettings
+from document_ia_infra.core.ocr_type import OCRType
 from document_ia_worker.core.ocr.ocr_result import HttpOcrResult
 
 C = TypeVar("C", bound=BaseDocumentIaSettings)
@@ -75,3 +76,7 @@ class BaseHttpOCRService[C](ABC):
     @abstractmethod
     def get_base_url(self) -> str:
         raise NotImplementedError("Subclasses must implement get_base_url method")
+
+    @abstractmethod
+    def get_ocr_type(self) -> OCRType:
+        raise NotImplementedError("Subclasses must implement get_ocr_type method")

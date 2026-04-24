@@ -5,6 +5,7 @@ import cv2
 from cv2.typing import MatLike
 from pytesseract import image_to_string  # pyright: ignore [reportUnknownVariableType]
 
+from document_ia_infra.core.ocr_type import OCRType
 from document_ia_worker.workflow.main_workflow_context import (
     MainWorkflowContext,
     StepMetadata,
@@ -88,4 +89,4 @@ class ExtractContentOcrStep(BaseStep[OcrResult]):
                 del gray
                 index += 1
 
-        return OcrResult(pages=results), None
+        return OcrResult(pages=results, ocr_type=OCRType.TESSERACT), None

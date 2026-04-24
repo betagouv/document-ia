@@ -4,6 +4,7 @@ import logging
 import httpx
 from pydantic import BaseModel
 
+from document_ia_infra.core.ocr_type import OCRType
 from document_ia_worker.core.ocr.base_http_ocr_service import BaseHttpOCRService
 from document_ia_worker.core.ocr.mistral.mistral_ocr_response import MistralOcrResponse
 from document_ia_worker.core.ocr.mistral.mistral_ocr_settings import (
@@ -89,3 +90,6 @@ class MistralHttpOcrService(BaseHttpOCRService[MistralOcrSettings]):
         if self.config.MISTRAL_ORC_BASE_URL is None:
             raise HTTPOCRMissConfigurationException("Mistral")
         return self.config.MISTRAL_ORC_BASE_URL
+
+    def get_ocr_type(self) -> OCRType:
+        return OCRType.MISTRAL

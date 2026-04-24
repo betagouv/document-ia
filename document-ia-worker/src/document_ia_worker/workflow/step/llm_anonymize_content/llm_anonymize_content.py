@@ -59,7 +59,7 @@ class LLMAnonymizeContentStep(BaseStep[OcrResult]):
             LLMClassificationResult, context
         )
 
-    async def _execute_internal(self) -> tuple[OcrResult, StepMetadata]:
+    async def _execute_internal(self) -> tuple[OcrResult, Optional[StepMetadata]]:
         assert self.ocr_result is not None
 
         document_type: Optional[SupportedDocumentType] = None
@@ -111,7 +111,7 @@ class LLMAnonymizeContentStep(BaseStep[OcrResult]):
             )
 
         return (
-            OcrResult(pages=updated_pages),
+            OcrResult(pages=updated_pages, ocr_type=self.ocr_result.ocr_type),
             StepLLMMetadata(
                 step_name=self.__class__.__name__,
                 request_tokens=request_tokens_total,

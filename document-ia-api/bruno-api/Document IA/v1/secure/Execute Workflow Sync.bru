@@ -12,8 +12,8 @@ post {
 
 body:multipart-form {
   metadata: {"test":"test"} @contentType(String)
-  file: @file(/Users/nsagon/Projects/files/Avis_d_impot_2025_sur_les_revenus_2024.pdf)
-  ~extraction-parameters: {"document-type": "avis_imposition"}
+  file:
+  extraction-parameters: {"document-type": "avis_imposition"}
   ~classification-parameters: {"document-types": ["cni", "passeport"]}
 }
 
