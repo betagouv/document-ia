@@ -1,11 +1,12 @@
 from typing import Sequence
 from typing import cast as typing_cast
 
-from sqlalchemy import select
+from sqlalchemy import select, String
 from sqlalchemy import bindparam, Integer
 from sqlalchemy import cast
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from document_ia_infra.core.ocr_type import OCRType
 from document_ia_infra.data.embedding.dto.document_template_embedding_dto import (
     DocumentTemplateEmbeddingDTO,
 )
@@ -100,6 +101,7 @@ class DocumentTemplateEmbeddingRepository:
         *,
         query_vector: Sequence[float],
         limit: int = 5,
+        ocr_type: str | None = None,
         page_number: int | None = None,
         allowed_document_types: Sequence[str] | None = None,
     ) -> list[tuple[DocumentTemplateEmbeddingDTO, float]]:
@@ -118,11 +120,18 @@ class DocumentTemplateEmbeddingRepository:
             DocumentTemplateEmbeddingEntity.id,
             DocumentTemplateEmbeddingEntity.document_type_code,
             DocumentTemplateEmbeddingEntity.document_instance_id,
+            DocumentTemplateEmbeddingEntity.ocr_type,
             DocumentTemplateEmbeddingEntity.page_number,
             DocumentTemplateEmbeddingEntity.anonymized_text,
             DocumentTemplateEmbeddingEntity.embedding,
             similarity_expr.label("similarity"),
         )
+
+        if ocr_type is not None:
+            stmt = stmt.where(
+                DocumentTemplateEmbeddingEntity.ocr_type
+                == cast(bindparam("ocr_type", type_=String(100)), String(100))
+            )
 
         if page_number is not None:
             stmt = stmt.where(
@@ -149,6 +158,7 @@ class DocumentTemplateEmbeddingRepository:
         params = {
             "query_vec": query_vec,
             "limit": limit,
+            "ocr_type": ocr_type,
             "page_number": page_number,
             "allowed_document_types": list(allowed_document_types or []),
         }
@@ -162,6 +172,7 @@ class DocumentTemplateEmbeddingRepository:
                 id=row["id"],
                 document_type_code=row["document_type_code"],
                 document_instance_id=row["document_instance_id"],
+                ocr_type=OCRType(row["ocr_type"]),
                 page_number=row["page_number"],
                 anonymized_text=row["anonymized_text"],
                 embedding=self._parse_vector_value(row["embedding"]),

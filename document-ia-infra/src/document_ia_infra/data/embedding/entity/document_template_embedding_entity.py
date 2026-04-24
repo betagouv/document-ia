@@ -66,6 +66,11 @@ class DocumentTemplateEmbeddingEntity(Base):
         nullable=False,
         comment="Source document instance identifier",
     )
+    ocr_type: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        comment="OCR type used to extract text",
+    )
     page_number: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
@@ -94,6 +99,7 @@ class DocumentTemplateEmbeddingEntity(Base):
             "id": str(self.id),
             "document_type_code": self.document_type_code,
             "document_instance_id": self.document_instance_id,
+            "ocr_type": self.ocr_type,
             "page_number": self.page_number,
             "anonymized_text": self.anonymized_text,
             "embedding": self.embedding,

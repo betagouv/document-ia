@@ -3,6 +3,7 @@ from typing import Optional, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from document_ia_infra.core.ocr_type import OCRType
 from document_ia_infra.data.document.schema.document_classification import (
     DocumentClassification,
 )
@@ -125,6 +126,9 @@ class EmbeddingClassifyDocumentStep(BaseStep[LLMClassificationResult]):
             ]
 
         all_matches: list[tuple[str, float]] = []
+        ocr_type = (
+            self.ocr_result.ocr_type if self.ocr_result else None
+        ) or OCRType.TESSERACT
 
         for index, embedding in enumerate(self.llm_embedding_result.embeddings_by_page):
             if not embedding:
@@ -133,6 +137,7 @@ class EmbeddingClassifyDocumentStep(BaseStep[LLMClassificationResult]):
             matches = await self.embedding_repository.find_top_similar(
                 query_vector=embedding,
                 limit=self.top_k,
+                ocr_type=ocr_type.value,
                 page_number=page_number,
                 allowed_document_types=allowed_document_types,
             )
