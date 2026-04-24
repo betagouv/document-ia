@@ -1,3 +1,4 @@
+from document_ia_infra.core.ocr_type import OCRType
 from document_ia_worker.core.ocr.base_http_ocr_service import BaseHttpOCRService
 from document_ia_worker.core.ocr.nanonets.nanonets_settings import (
     NanonetsSettings,
@@ -26,3 +27,6 @@ class NanonetsHttpHttpOcrService(BaseHttpOCRService[NanonetsSettings]):
         if self.config.NANONETS_BASE_URL is None:
             raise HTTPOCRMissConfigurationException("Nanonets")
         return self.config.NANONETS_BASE_URL
+
+    def get_ocr_type(self) -> OCRType:
+        return OCRType.NANONETS

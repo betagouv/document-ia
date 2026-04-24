@@ -52,5 +52,6 @@ class ExtractContentHttpOcrStep(BaseStep[OcrResult]):
         if not result.success:
             raise RetryableException("HTTP OCR extraction failed")
         return OcrResult(
-            pages=[OcrResultPage(page_number=1, text=result.content, has_failed=False)]
+            pages=[OcrResultPage(page_number=1, text=result.content, has_failed=False)],
+            ocr_type=self.http_ocr_service.get_ocr_type(),
         ), None

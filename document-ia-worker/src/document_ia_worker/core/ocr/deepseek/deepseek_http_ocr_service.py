@@ -1,3 +1,4 @@
+from document_ia_infra.core.ocr_type import OCRType
 from document_ia_worker.core.ocr.base_http_ocr_service import BaseHttpOCRService
 from document_ia_worker.core.ocr.deepseek.deepseek_ocr_settings import (
     DeepseekOCRSettings,
@@ -26,3 +27,6 @@ class DeepSeekHttpHttpOcrService(BaseHttpOCRService[DeepseekOCRSettings]):
         if self.config.DEEPSEEK_OCR_BASE_URL is None:
             raise HTTPOCRMissConfigurationException("Deepseek")
         return self.config.DEEPSEEK_OCR_BASE_URL
+
+    def get_ocr_type(self) -> OCRType:
+        return OCRType.DEEPSEEK

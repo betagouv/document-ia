@@ -1,5 +1,6 @@
 from typing import Optional
 from pydantic import BaseModel
+from document_ia_infra.core.ocr_type import OCRType
 
 
 class OcrResultPage(BaseModel):
@@ -10,3 +11,4 @@ class OcrResultPage(BaseModel):
 
 class OcrResult(BaseModel):
     pages: list[OcrResultPage]
+    ocr_type: Optional[OCRType] = None

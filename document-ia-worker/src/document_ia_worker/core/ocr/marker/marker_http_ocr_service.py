@@ -1,3 +1,4 @@
+from document_ia_infra.core.ocr_type import OCRType
 from document_ia_worker.core.ocr.base_http_ocr_service import BaseHttpOCRService
 from document_ia_worker.core.ocr.marker.marker_settings import (
     MarkerSettings,
@@ -26,3 +27,6 @@ class MarkerHttpHttpOcrService(BaseHttpOCRService[MarkerSettings]):
         if self.config.MARKER_BASE_URL is None:
             raise HTTPOCRMissConfigurationException("Marker")
         return self.config.MARKER_BASE_URL
+
+    def get_ocr_type(self) -> OCRType:
+        return OCRType.MARKER

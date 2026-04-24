@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from document_ia_infra.core.ocr_type import OCRType
 from document_ia_infra.data.embedding.dto.document_template_embedding_dto import (
     DocumentTemplateEmbeddingDTO,
 )
@@ -98,6 +99,8 @@ class SaveEmbeddingDatasetStep(BaseStep[None]):
             raise ValueError("Embedding result does not match OCR page count")
 
         dtos: list[DocumentTemplateEmbeddingDTO] = []
+        ocr_type = self.anonymized_ocr_result.ocr_type or OCRType.TESSERACT
+
         for index, page in enumerate(pages):
             embedding = embeddings_by_page[index]
             if page.text is None or page.text.strip() == "" or not embedding:
@@ -108,6 +111,7 @@ class SaveEmbeddingDatasetStep(BaseStep[None]):
                     id=uuid4(),
                     document_type_code=document_type_code,
                     document_instance_id=self.execution_id,
+                    ocr_type=ocr_type,
                     page_number=page.page_number,
                     anonymized_text=page.text,
                     embedding=embedding,
