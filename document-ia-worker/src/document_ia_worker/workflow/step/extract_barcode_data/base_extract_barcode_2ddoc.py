@@ -40,13 +40,16 @@ class BaseExtractBarcode2DDoc(BaseExtractBarcode):
                     Ants2DDoc(
                         position=self._map_position_like_to_model(barcode.position),
                         is_valid=result.is_valid,
-                        raw_data=None if result.ants_type is not None else result.typed,
+                        raw_data=result.fields
+                        if len(result.fields) > 0
+                        else result.typed,
                         typed_data=[]
                         if result.ants_type is None
                         else GenericProperty.convert_pydantic_model(result.typed),
                         page_number=page_number,
                         ants_type=result.ants_type,
                         issue_date=result.header.issue_date,
+                        doc_type=result.header.doc_type,
                     ),
                     key,
                     True,

@@ -41,6 +41,7 @@ class Ants2DDoc(BarcodeModel):
     )
     issue_date: Optional[date] = Field(default=None)
     ants_type: Optional[str] = Field(default=None)
+    doc_type: Optional[str] = Field(default=None)
 
 
 class QrCode(BarcodeModel):
