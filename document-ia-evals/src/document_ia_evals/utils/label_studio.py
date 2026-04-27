@@ -26,8 +26,8 @@ def get_label_studio_client() -> LabelStudio:
     ls_client = LabelStudio(base_url=config.LABEL_STUDIO_URL, api_key=config.LABEL_STUDIO_API_KEY)
     return ls_client
 
-def get_label_studio_client_legacy() -> Client: 
-   
+def get_label_studio_client_legacy() -> Client:
+
     client = Client(url=config.LABEL_STUDIO_URL, api_key=config.LABEL_STUDIO_API_KEY)
     if config.ALLOW_INSECURE_REQUESTS is True:
         import requests
@@ -49,13 +49,13 @@ def get_label_studio_url() -> str:
 def get_project_url(project_id: int) -> str:
     """
     Generate Label Studio project data URL.
-    
+
     Args:
         project_id: Label Studio project ID
-    
+
     Returns:
         str: URL to the project's data page
-    
+
     Example:
         >>> get_project_url(10)
         'https://labeling.document-ia.beta.gouv.fr/projects/10/data'
@@ -67,14 +67,14 @@ def get_project_url(project_id: int) -> str:
 def get_task_url(project_id: int, task_id: int) -> str:
     """
     Generate Label Studio task URL.
-    
+
     Args:
         project_id: Label Studio project ID
         task_id: Task ID
-    
+
     Returns:
         str: URL to the specific task
-    
+
     Example:
         >>> get_task_url(10, 123)
         'https://labeling.document-ia.beta.gouv.fr/projects/10/data?task=123'
@@ -86,10 +86,10 @@ def get_task_url(project_id: int, task_id: int) -> str:
 def get_project_settings_url(project_id: int) -> str:
     """
     Generate Label Studio project settings URL.
-    
+
     Args:
         project_id: Label Studio project ID
-    
+
     Returns:
         str: URL to the project's settings page
     """
@@ -102,24 +102,24 @@ def fetch_project_tasks(project_id: int) -> list[dict[str, Any]]:
     """
     Fetch all tasks from a Label Studio project with full predictions.
     Handles pagination to get all tasks.
-    
+
     Args:
         project_id: Label Studio project ID
-        
+
     Returns:
         List of task dictionaries with annotations and predictions
-        
+
     Example:
         >>> tasks = fetch_project_tasks(10)
         >>> len(tasks)
         42
     """
     client_l = get_label_studio_client_legacy()
-    
+
     all_tasks: list[dict[str, Any]] = []
     page = 1
     page_size = 100  # Request 100 tasks per page
-    
+
     while True:
         response = client_l.make_request(  # type: ignore
             "GET",
@@ -129,7 +129,7 @@ def fetch_project_tasks(project_id: int) -> list[dict[str, Any]]:
                 'page_size': page_size,
             }
         )
-        
+
         # Parse response from Label Studio API
         try:
             tasks_batch: list[dict[str, Any]] = response.json()
@@ -138,32 +138,36 @@ def fetch_project_tasks(project_id: int) -> list[dict[str, Any]]:
                 f"Failed to parse tasks from Label Studio API for project {project_id} "
                 f"(page {page}): {e}"
             ) from e
-        
+
         if not tasks_batch:
             break
-            
+
         all_tasks.extend(tasks_batch)
-        
+
         # If we got less than page_size, we've reached the end
         if len(tasks_batch) < page_size:
             break
-            
+
         page += 1
-    
+
     return all_tasks
 
 
 METADATA_KEY = '__metadata__'
-def dict_to_annotation_result(data: dict[str, Any], metadata: Optional[dict[str, Any]] = None) -> list[dict[str, Any]]:
+def dict_to_annotation_result(
+    data: dict[str, Any],
+    metadata: Optional[dict[str, Any]] = None,
+    to_name: str = 'pdf'
+) -> list[dict[str, Any]]:
     """Convert workflow result data to Label Studio annotation structure."""
     results: list[dict[str, Any]] = []
-    
+
     for field_name, value in data.items():
         if value is not None:
             results.append({
                 'value': {'text': [str(value)]},
                 'from_name': field_name,
-                'to_name': 'pdf',
+                'to_name': to_name,
                 'type': 'textarea',
                 'readonly': False
             })
@@ -171,26 +175,26 @@ def dict_to_annotation_result(data: dict[str, Any], metadata: Optional[dict[str,
         results.append({
             'value': {'text': [json.dumps(metadata)]},
             'from_name': METADATA_KEY,
-            'to_name': 'pdf',
+            'to_name': to_name,
             'type': 'textarea',
             'readonly': True
         })
-        
 
-    
+
+
     return results
 
 def annotation_results_to_dict(annotation_results: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Convert Label Studio annotation results back to a dictionary.
-    
+
     This is the reverse operation of dict_to_annotation_result.
-    
+
     Args:
         annotation_results: List of Label Studio annotation result objects
-        
+
     Returns:
         dict: Dictionary mapping field names to their values
-        
+
     Example:
         >>> results = [
         ...     {
@@ -207,17 +211,17 @@ def annotation_results_to_dict(annotation_results: list[dict[str, Any]]) -> tupl
     metadata: dict[str, Any] | None = None
     for result in annotation_results:
         field_name = result.get('from_name')
-                    
+
         # Extract the value from the nested structure
         value_obj = result.get('value', {})
         text_list = value_obj.get('text', [])
-        
+
         if field_name and text_list:
             if field_name == METADATA_KEY:
                 metadata = json.loads(text_list[0])
             else:
                 data[field_name] = text_list[0]
-    
+
     return data, metadata
 
 
@@ -225,19 +229,25 @@ def annotation_results_to_dict(annotation_results: list[dict[str, Any]]) -> tupl
 
 def create_task(pdf_url: str, ground_truth: dict[str, Any] | None = None) -> dict[str, Any]:
     """Create a complete Label Studio task from Pydantic models."""
+    is_pdf = pdf_url.lower().endswith('.pdf') or 'application/pdf' in pdf_url.lower()
+
     task: dict[str, Any] = {
         'data': {
-            'pdf': pdf_url
+            'pdf_url': pdf_url if is_pdf else '',
+            'image_url': pdf_url if not is_pdf else '',
+            'pdf_display': 'block' if is_pdf else 'none',
+            'image_display': 'block' if not is_pdf else 'none'
         }
     }
     # Ground truth as annotation
     if ground_truth:
-        annotation_result = dict_to_annotation_result(ground_truth)
+        to_name = 'pdf' if is_pdf else 'image'
+        annotation_result = dict_to_annotation_result(ground_truth, to_name=to_name)
         task['annotations'] = [{
             'result': annotation_result,
             'ground_truth': True
         }]
-    
+
     return task
 
 def field_name_to_label(field_name: str) -> str:
@@ -256,60 +266,66 @@ def is_optional(field_type: Any) -> bool:
 
 def generate_label_config(model: Type[BaseModel], title: str = "Document Extraction") -> str:
     """Generate Label Studio XML configuration from a Pydantic model."""
-    
+
     fields_xml: list[str] = []
 
     for field_name, field_info in model.model_fields.items():
         field_type = field_info.annotation
         required = not is_optional(field_type)
         label = field_name_to_label(field_name)
-        
+
         field_xml = f"""
       <View style="margin-bottom: 20px;">
         <Text name="{field_name}_label" value="{label}:" style="font-weight: bold; margin-bottom: 5px;"/>
-        <Textarea name="{field_name}" toName="pdf" 
-                  placeholder="Entrez {label.lower()}" 
-                  rows="1" 
+        <Textarea name="{field_name}" toName="pdf"
+                  placeholder="Entrez {label.lower()}"
+                  rows="1"
                   editable="true"
                   required="{str(required).lower()}"
                   maxSubmissions="1"
                   showSubmitButton="false"/>
       </View>"""
         fields_xml.append(field_xml)
-    
+
     label_config = f"""<View>
-  <Header value="{title}"/>
-  
+  <Header name="header_title" value="{title}"/>
+
   <View style="display: flex; flex-direction: row; height: calc(100vh - 100px);">
-    <!-- Image à gauche -->
+    <!-- Visualisation à gauche (PDF ou Image) -->
     <View style="flex: 0 0 50%; min-width: 300px; max-width: 80%; margin-right: 20px; resize: horizontal; overflow: auto; border-right: 2px solid #ccc;">
-      <Pdf name="pdf" value="$pdf" zoom="true" zoomControl="true"/>
+      <View style="display: {{$pdf_display}}">
+        <Pdf name="pdf" value="$pdf_url" zoom="true" zoomControl="true"/>
+      </View>
+      <View style="display: {{$image_display}}">
+        <Image name="image" value="$image_url" />
+      </View>
     </View>
-    
+
     <!-- Champs à droite -->
     <View style="flex: 1; overflow-y: auto; padding-right: 10px;">
-      <Header value="Informations extraites"/>
+      <Header name="header_info" value="Informations extraites"/>
       {''.join(fields_xml)}
     </View>
   </View>
 </View>"""
-    
+
     return label_config
 
 
 def create_label_studio_project(
     dataset_name: str,
-    doc_type: SupportedDocumentType,
-    s3_prefix: str
+    doc_type: SupportedDocumentType | None,
+    s3_prefix: str,
+    mode: str = "extraction",
 ) -> dict[str, Any]:
     """
     Create a Label Studio project with S3 storage integration.
-    
+
     Args:
         dataset_name: Name for the dataset/project
         doc_type: Type of document being processed
         s3_prefix: S3 prefix where files are stored
-    
+
     Returns:
         Dictionary with project information including:
         - project_id: Label Studio project ID
@@ -317,37 +333,72 @@ def create_label_studio_project(
         - source_storage_id: S3 import storage ID
         - target_storage_id: S3 export storage ID
         - task_count: Number of tasks imported
-    
+
     Raises:
         ValueError: If Label Studio configuration is missing
     """
     # Get configuration
     label_studio_url = config.LABEL_STUDIO_URL
     api_key = config.LABEL_STUDIO_API_KEY
-    
+
     if not label_studio_url or not api_key:
         raise ValueError("LABEL_STUDIO_URL and LABEL_STUDIO_API_KEY must be set")
-    
+
     # Get the Pydantic model for the document type
-    schema = resolve_extract_schema(doc_type.value)
-    model_class = schema.document_model
-    
-    # Generate label config
-    label_config = generate_label_config(
-        model_class,
-        title=f"Extraction {schema.name}"
-    )
-    
+    if mode == "classification":
+        # Simple classification config
+        label_config = f"""<View>
+  <Header name="header_title" value="Document Classification"/>
+  <View style="display: flex; flex-direction: row; height: calc(100vh - 100px);">
+    <View style="flex: 0 0 50%; min-width: 300px; max-width: 80%; margin-right: 20px; resize: horizontal; overflow: auto; border-right: 2px solid #ccc;">
+      <View style="display: {{$pdf_display}}">
+        <Pdf name="pdf" value="$pdf_url" zoom="true" zoomControl="true"/>
+      </View>
+      <View style="display: {{$image_display}}">
+        <Image name="image" value="$image_url" />
+      </View>
+    </View>
+    <View style="flex: 1; overflow-y: auto; padding-right: 10px;">
+      <Header name="header_info" value="Information extraite"/>
+      <View style="margin-bottom: 20px;">
+        <Text name="document_type_label" value="Document Type:" style="font-weight: bold; margin-bottom: 5px;"/>
+        <Textarea name="document_type" toName="pdf"
+                  placeholder="Entrez le type de document"
+                  rows="1"
+                  editable="true"
+                  required="true"
+                  maxSubmissions="1"
+                  showSubmitButton="false"/>
+      </View>
+    </View>
+  </View>
+</View>"""
+        project_title = f"{dataset_name} - Classification"
+        project_description = f"Dataset for classification: {dataset_name}"
+    else:
+        if doc_type is None:
+            raise ValueError("doc_type is required for extraction mode")
+        schema = resolve_extract_schema(doc_type.value)
+        model_class = schema.document_model
+
+        # Generate label config
+        label_config = generate_label_config(
+            model_class,
+            title=f"Extraction {schema.name}"
+        )
+        project_title = f"{dataset_name} - {schema.name}"
+        project_description = f"Dataset: {dataset_name}\n\n" + "\n".join(schema.description)
+
     # Initialize Label Studio client
     ls = get_label_studio_client_legacy()
-    
+
     # Create project
     project = ls.create_project(  # type: ignore
-        title=f"{dataset_name} - {schema.name}",
-        description=f"Dataset: {dataset_name}\n\n" + "\n".join(schema.description),
+        title=project_title,
+        description=project_description,
         label_config=label_config
     )
-    
+
     # Configure S3 source storage
     s3_params: dict[str, Any] = {
         's3_endpoint': config.S3_ENDPOINT,
@@ -356,13 +407,13 @@ def create_label_studio_project(
         'aws_secret_access_key': config.S3_SECRET_KEY,
         'region_name': config.S3_REGION
     }
-    
+
     normalized_prefix = s3_prefix.rstrip('/')
 
     source_storage = project.connect_s3_import_storage(  # type: ignore
         **s3_params,
         prefix=f"{normalized_prefix}/tasks",
-        presign=True,
+        presign=False,
         regex_filter=r'.*\.json$',
         use_blob_urls=False
     )
@@ -370,12 +421,12 @@ def create_label_studio_project(
         **s3_params,
         prefix=f"{normalized_prefix}/target"
     )
-    
+
     # Sync storage to import tasks
     project.sync_import_storage('s3', source_storage['id'])  # type: ignore
     # Sync storage to export tasks
     project.sync_export_storage('s3', target_storage['id'])  # type: ignore
-    
+
     return {
         'project_id': project.id,  # type: ignore
         'project_title': project.params.get('title'),  # type: ignore
