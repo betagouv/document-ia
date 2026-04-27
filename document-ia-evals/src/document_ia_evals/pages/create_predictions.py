@@ -24,7 +24,7 @@ from document_ia_schemas import SupportedDocumentType
 def render_configuration_warnings() -> bool:
     """
     Check and display warnings for missing configuration.
-    
+
     Returns:
         True if all configuration is valid, False otherwise
     """
@@ -32,7 +32,7 @@ def render_configuration_warnings() -> bool:
     if not config.DOCUMENT_IA_API_KEY:
         st.warning("⚠️ DOCUMENT_IA_API_KEY environment variable is not set.")
         return False
-    
+
     # Check S3 configuration
     s3_vars = {
         'S3_ENDPOINT': config.S3_ENDPOINT,
@@ -45,14 +45,14 @@ def render_configuration_warnings() -> bool:
     if missing_s3:
         st.warning(f"⚠️ Missing S3 configuration: {', '.join(missing_s3)}")
         return False
-    
+
     return True
 
 
 def render_worker_config() -> int:
     """
     Render worker configuration.
-    
+
     Returns:
         Number of workers
     """
@@ -68,10 +68,10 @@ def render_worker_config() -> int:
 def render_model_version_input(default_value: str) -> str:
     """
     Render model version input.
-    
+
     Args:
         default_value: Default value for the input
-    
+
     Returns:
         Model version string
     """
@@ -85,13 +85,13 @@ def render_model_version_input(default_value: str) -> str:
 def render_processing_results(results: dict[int, dict[str, Any]]) -> None:
     """
     Render processing results summary and errors.
-    
+
     Args:
         results: Dictionary of task processing results
     """
     success_count, total_count = get_processing_statistics(results)
     st.success(f"✅ {success_count}/{total_count} tâches traitées avec succès")
-    
+
     if success_count < total_count:
         st.warning("⚠️ Certaines tâches n'ont pas pu être traitées:")
         failed_tasks = get_failed_tasks(results)
@@ -104,7 +104,7 @@ def render_processing_results(results: dict[int, dict[str, Any]]) -> None:
 def render_project_link(project_id: int) -> None:
     """
     Render link to Label Studio project.
-    
+
     Args:
         project_id: Label Studio project ID
     """
@@ -121,10 +121,11 @@ def handle_workflow_execution(
     n_workers: int,
     model_version: str,
     selected_doc_type: SupportedDocumentType | None,
+    mode: str = "extraction",
 ) -> None:
     """
     Handle the workflow execution process.
-    
+
     Args:
         workflow_id: Selected workflow ID
         project_id: Label Studio project ID
@@ -139,15 +140,15 @@ def handle_workflow_execution(
     extraction_parameters = None
     if selected_doc_type:
         extraction_parameters = {"document-type": selected_doc_type.value}
-    
+
     st.info(f"🚀 Exécution du workflow '{workflow_id}' sur le dataset '{project_title}'...")
-    
+
     with st.spinner("Processing tasks...", show_time=True):
         pbar = st.progress(0, text="Executing workflows and creating annotations...")
-        
+
         def update_progress(current: int, total: int) -> None:
             pbar.progress(current / total)
-        
+
         processing_results = run_workflow_on_dataset(
             workflow_id=workflow_id,
             project_id=project_id,
@@ -156,14 +157,15 @@ def handle_workflow_execution(
             n_workers=n_workers,
             model_version=model_version if model_version else None,
             extraction_parameters=extraction_parameters,
+            mode=mode,
             on_progress=update_progress,
         )
-    
+
     # Show results
     if processing_results:
         render_processing_results(processing_results)
         render_project_link(project_id)
-        
+
         # Show detailed results
         with st.expander("Détails des résultats"):
             st.json(processing_results)
@@ -181,7 +183,7 @@ def main() -> None:
         f"S3 endpoint: {config.S3_ENDPOINT}/{config.S3_BUCKET_NAME}, "
         f"Label Studio URL: {config.LABEL_STUDIO_URL}"
     )
-    
+
     st.markdown("""
     Cette page vous permet d'exécuter un workflow sur tous les fichiers d'un dataset Label Studio existant :
     1. Sélection du workflow à exécuter
@@ -189,21 +191,30 @@ def main() -> None:
     3. Exécution du workflow sur chaque fichier
     4. Création d'une nouvelle annotation avec les résultats
     """)
-    
+
     # Check configuration
     if not render_configuration_warnings():
         return
-    
+
     api_key = config.DOCUMENT_IA_API_KEY
-    
+
     # Workflow selection using component
     workflow_selection = render_workflow_selector()
     if workflow_selection is None:
         return
-    
+
+    # Mode selection
+    mode_selection = st.radio(
+        "Mode de traitement",
+        options=["Extraction", "Classification"],
+        help="Extraction: extrait des champs spécifiques. Classification: identifie le type de document.",
+        horizontal=True
+    )
+    mode = "classification" if mode_selection == "Classification" else "extraction"
+
     # Document type selector (optional, for all workflows)
     selected_doc_type = render_document_type_selector()
-    
+
     # Project selection using component (SDK client)
     project_selection = render_project_selector(
         client_type=ClientType.SDK,
@@ -213,16 +224,16 @@ def main() -> None:
     )
     if project_selection is None:
         return
-    
+
     # Get the client for later use
     ls_client = get_client(ClientType.SDK)
-    
+
     # Worker configuration
     n_workers = render_worker_config()
-    
+
     # Model version input
     model_version = render_model_version_input(workflow_selection.workflow_id)
-    
+
     # Run workflow button
     if st.button("Lancer l'exécution du workflow", type="primary"):
         handle_workflow_execution(
@@ -234,6 +245,7 @@ def main() -> None:
             n_workers=n_workers,
             model_version=model_version,
             selected_doc_type=selected_doc_type,
+            mode=mode,
         )
 
 
