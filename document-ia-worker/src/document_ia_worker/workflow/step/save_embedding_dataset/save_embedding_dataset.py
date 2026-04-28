@@ -54,14 +54,12 @@ class SaveEmbeddingDatasetStep(BaseStep[None]):
         )
         if self.llm_embedding_result is None:
             raise ValueError("LLMEmbeddingResult not injected in context")
-        if self.anonymized_ocr_result is None:
-            raise ValueError("OcrResult not injected in context")
 
     def inject_workflow_context(self, context: dict[str, Any]):
         self.llm_embedding_result = self._get_safe_workflow_context_key(
             LLMEmbeddingResult, context
         )
-        self.anonymized_ocr_result = self._get_safe_workflow_context_key(
+        self.anonymized_ocr_result = self._get_not_mandatory_workflow_context_key(
             OcrResult, context
         )
         self.llm_classification_result = self._get_not_mandatory_workflow_context_key(
@@ -70,7 +68,6 @@ class SaveEmbeddingDatasetStep(BaseStep[None]):
 
     async def _execute_internal(self) -> tuple[None, Optional[StepMetadata]]:
         assert self.llm_embedding_result is not None
-        assert self.anonymized_ocr_result is not None
 
         document_type: Optional[SupportedDocumentType] = None
         if self.llm_classification_result is not None:
@@ -92,31 +89,62 @@ class SaveEmbeddingDatasetStep(BaseStep[None]):
             else str(document_type)
         )
 
-        pages = self.anonymized_ocr_result.pages
         embeddings_by_page = self.llm_embedding_result.embeddings_by_page
-
-        if len(pages) != len(embeddings_by_page):
-            raise ValueError("Embedding result does not match OCR page count")
+        ocr_type = OCRType.TESSERACT
+        if self.anonymized_ocr_result is not None:
+            ocr_type = self.anonymized_ocr_result.ocr_type or OCRType.TESSERACT
+        elif self.llm_embedding_result.isMultiModal:
+            ocr_type = OCRType.JINA
 
         dtos: list[DocumentTemplateEmbeddingDTO] = []
-        ocr_type = self.anonymized_ocr_result.ocr_type or OCRType.TESSERACT
 
-        for index, page in enumerate(pages):
-            embedding = embeddings_by_page[index]
-            if page.text is None or page.text.strip() == "" or not embedding:
-                continue
+        if self.anonymized_ocr_result is not None:
+            pages = self.anonymized_ocr_result.pages
+            if len(pages) != len(embeddings_by_page):
+                raise ValueError("Embedding result does not match OCR page count")
 
-            dtos.append(
-                DocumentTemplateEmbeddingDTO(
-                    id=uuid4(),
-                    document_type_code=document_type_code,
-                    document_instance_id=self.execution_id,
-                    ocr_type=ocr_type,
-                    page_number=page.page_number,
-                    anonymized_text=page.text,
-                    embedding=embedding,
+            for index, page in enumerate(pages):
+                embedding = embeddings_by_page[index]
+
+                # For JINA multimodal, we allow empty text but require an embedding
+                if ocr_type == OCRType.JINA:
+                    if not embedding:
+                        continue
+                    text_to_save = page.text if page.text else ""
+                else:
+                    # Standard check for other OCR types
+                    if page.text is None or page.text.strip() == "" or not embedding:
+                        continue
+                    text_to_save = page.text
+
+                dtos.append(
+                    DocumentTemplateEmbeddingDTO(
+                        id=uuid4(),
+                        document_type_code=document_type_code,
+                        document_instance_id=self.execution_id,
+                        ocr_type=ocr_type,
+                        page_number=page.page_number,
+                        anonymized_text=text_to_save,
+                        embedding=embedding,
+                    )
                 )
-            )
+        else:
+            # No OCR result, only use embeddings (Multimodal JINA case)
+            for index, embedding in enumerate(embeddings_by_page):
+                if not embedding:
+                    continue
+
+                dtos.append(
+                    DocumentTemplateEmbeddingDTO(
+                        id=uuid4(),
+                        document_type_code=document_type_code,
+                        document_instance_id=self.execution_id,
+                        ocr_type=ocr_type,
+                        page_number=index + 1,
+                        anonymized_text="",
+                        embedding=embedding,
+                    )
+                )
 
         if not dtos:
             logger.info(

@@ -1,0 +1,20 @@
+meta {
+  name: jina-embedding
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{embedding-server}}
+  body: multipartForm
+  auth: inherit
+}
+
+body:multipart-form {
+  file: @file(/Users/nsagon/Projects/files/26884484.jpeg)
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

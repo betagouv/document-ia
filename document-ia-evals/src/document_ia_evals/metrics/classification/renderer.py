@@ -70,6 +70,28 @@ def render_classification_results(results: Dict[str, Any]) -> None:
         with st.expander(f"📦 Model: {model_version}", expanded=True):
             model_df = df[df['model'] == model_version]
 
+            # Calculate Precision and Recall per Category
+            # Recall: True Positives / (True Positives + False Negatives) -> Group by expected
+            recall_df = model_df.groupby('expected')['match'].mean().reset_index()
+            recall_df.columns = ['Category', 'Recall']
+
+            # Precision: True Positives / (True Positives + False Positives) -> Group by predicted
+            precision_df = model_df.groupby('predicted')['match'].mean().reset_index()
+            precision_df.columns = ['Category', 'Precision']
+
+            # Merge metrics
+            metrics_per_cat = pd.merge(recall_df, precision_df, on='Category', how='outer').fillna(0.0)
+
+            st.markdown("**📈 Metrics per Category**")
+            st.dataframe(
+                metrics_per_cat.style.format({
+                    'Recall': '{:.2%}',
+                    'Precision': '{:.2%}'
+                }),
+                use_container_width=True,
+                hide_index=True
+            )
+
             col1, col2 = st.columns([1, 1])
 
             with col1:

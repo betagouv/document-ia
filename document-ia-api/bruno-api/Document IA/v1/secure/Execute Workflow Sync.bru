@@ -13,12 +13,12 @@ post {
 body:multipart-form {
   metadata: {"test":"test"} @contentType(String)
   file: @file(/Users/nsagon/Projects/files/carte d'identité recto.pdf)
-  extraction-parameters: {"document-type": "cni"}
+  ~extraction-parameters: {"document-type": "cni"}
   ~classification-parameters: {"document-types": ["cni", "passeport"]}
 }
 
 vars:pre-request {
-  workflow_id: poc-embedding-dataset-mistral
+  workflow_id: poc-embedding-classification-jina
 }
 
 settings {

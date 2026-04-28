@@ -353,6 +353,30 @@
     "updated_at": "2025-09-01T10:00:00Z"
   },
   {
+    "id": "poc-embedding-dataset-jina",
+    "name": "poc embedding dataset with jina multimodal",
+    "description": "Do not use only for poc",
+    "version": "1.0.0",
+    "enabled": true,
+    "supported_file_types": [
+      "application/pdf",
+      "image/jpeg",
+      "image/png"
+    ],
+    "steps": [
+      "download_file",
+      "preprocess_file",
+      "llm_embedding_multimodal",
+      "save_embedding_dataset",
+      "save_workflow_result"
+    ],
+    "llm_model": "albert-large",
+    "max_file_size_mb": 25,
+    "processing_timeout_minutes": 5,
+    "created_at": "2025-09-01T10:00:00Z",
+    "updated_at": "2025-09-01T10:00:00Z"
+  },
+  {
     "id": "poc-embedding-dataset-mistral",
     "name": "poc embedding dataset with mistral ocr",
     "description": "Do not use only for poc",
@@ -394,6 +418,30 @@
       "preprocess_file",
       "extract_content_ocr",
       "llm_embedding",
+      "embedding_classify_document",
+      "save_workflow_result"
+    ],
+    "llm_model": "albert-large",
+    "max_file_size_mb": 25,
+    "processing_timeout_minutes": 5,
+    "created_at": "2025-09-01T10:00:00Z",
+    "updated_at": "2025-09-01T10:00:00Z"
+  },
+  {
+    "id": "poc-embedding-classification-jina",
+    "name": "poc embedding multimodal classification with jina",
+    "description": "Do not use only for poc",
+    "version": "1.0.0",
+    "enabled": true,
+    "supported_file_types": [
+      "application/pdf",
+      "image/jpeg",
+      "image/png"
+    ],
+    "steps": [
+      "download_file",
+      "preprocess_file",
+      "llm_embedding_multimodal",
       "embedding_classify_document",
       "save_workflow_result"
     ],

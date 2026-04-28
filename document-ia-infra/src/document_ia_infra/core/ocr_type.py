@@ -7,3 +7,5 @@ class OCRType(str, Enum):
     DEEPSEEK = "DEEPSEEK"
     MARKER = "MARKER"
     MISTRAL = "MISTRAL"
+    JINA_MULTIMODAL = "JINA_MULTIMODAL"
+    JINA = "JINA"
