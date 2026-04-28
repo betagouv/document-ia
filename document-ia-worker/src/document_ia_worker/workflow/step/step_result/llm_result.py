@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from document_ia_infra.data.document.schema.document_classification import (
     DocumentClassification,
@@ -27,3 +27,6 @@ class LLMExtractionResult(LLMResult):
 
 class LLMEmbeddingResult(LLMResult):
     embeddings_by_page: list[list[float]]
+    isMultiModal: bool = Field(
+        default=False, description="Whether the result is multi-modal"
+    )

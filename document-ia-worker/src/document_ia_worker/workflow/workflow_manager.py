@@ -84,6 +84,9 @@ from document_ia_worker.workflow.step.llm_anonymize_content.llm_anonymize_conten
 from document_ia_worker.workflow.step.llm_embedding.llm_embedding import (
     LLMEmbeddingStep,
 )
+from document_ia_worker.workflow.step.llm_embedding_multimodal.llm_embedding_multimodal import (
+    LLMEmbeddingMultimodalStep,
+)
 from document_ia_worker.workflow.step.embedding_classify_document.embedding_classify_document import (
     EmbeddingClassifyDocumentStep,
 )
@@ -370,6 +373,12 @@ class WorkflowManager:
                 if step == "llm_embedding":
                     self.step_list.append(
                         LLMEmbeddingStep(
+                            self.main_workflow_context,
+                        )
+                    )
+                if step == "llm_embedding_multimodal":
+                    self.step_list.append(
+                        LLMEmbeddingMultimodalStep(
                             self.main_workflow_context,
                         )
                     )
