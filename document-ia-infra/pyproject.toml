@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "document-ia-infra"
-version = "1.0.2"
+version = "1.0.3"
 description = "Code des briques d'infrastructure pour Document IA"
 authors = ["Nicolas Sagon <nicolas.sagon@beta.gouv.fr>"]
 readme = "README.md"

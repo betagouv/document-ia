@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "document-ia-worker"
-version = "1.0.2"
+version = "1.0.3"
 description = "Worker document ia"
 authors = ["Nicolas Sagon <nicolas.sagon@beta.gouv.fr>"]
 readme = "README.md"

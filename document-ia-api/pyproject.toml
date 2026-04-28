@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "document-ia-api"
-version = "1.0.2"
+version = "1.0.3"
 description = "API minimaliste FastAPI avec authentification API_KEY"
 authors = ["Romaric HALDENWANG <romaric.haldenwang@beta.gouv.fr>"]
 readme = "README.md"
