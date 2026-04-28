@@ -126,9 +126,14 @@ class EmbeddingClassifyDocumentStep(BaseStep[LLMClassificationResult]):
             ]
 
         all_matches: list[tuple[str, float]] = []
-        ocr_type = (
-            self.ocr_result.ocr_type if self.ocr_result else None
-        ) or OCRType.TESSERACT
+
+        # Resolve OCR type for database lookup
+        if self.ocr_result is not None:
+            ocr_type = self.ocr_result.ocr_type or OCRType.TESSERACT
+        elif self.llm_embedding_result.isMultiModal:
+            ocr_type = OCRType.JINA
+        else:
+            ocr_type = OCRType.TESSERACT
 
         for index, embedding in enumerate(self.llm_embedding_result.embeddings_by_page):
             if not embedding:
