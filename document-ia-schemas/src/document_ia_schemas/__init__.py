@@ -73,6 +73,8 @@ class SupportedDocumentType(str, Enum):
     BULLETIN_SALAIRE = "bulletin_salaire"
     VISALE = "visale_certificate"
     QUITTANCE_LOYER = "quittance_loyer"
+    FACTURE_ENERGIE = "facture_energie"
+    ATTESTATION_CONTRAT_ENERGIE = "attestation_contrat_energie"
     AUTRE = "autre"
 
     @staticmethod
