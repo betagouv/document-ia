@@ -8,24 +8,6 @@ from document_ia_schemas.base_document_type_schema import FuzzyDate
 from document_ia_schemas.field_metrics import Metric
 from document_ia_schemas.identity import Identity
 
-EMPLOYEE_TITLE_PREFIX_PATTERN = re.compile(
-    r"^\s*(?:(?:m(?:onsieur)?|mme|madame|mlle|docteur|dr|prof(?:esseur)?|pr)\.?\s+)+",
-    flags=re.IGNORECASE,
-)
-
-
-def normalize_employee_identity(value: Any) -> Any:
-    if value is None or not isinstance(value, str):
-        return value
-
-    normalized_value = value.replace(",", " ").strip()
-    normalized_value = EMPLOYEE_TITLE_PREFIX_PATTERN.sub("", normalized_value)
-    normalized_value = re.sub(r"\s+", " ", normalized_value).strip()
-    return normalized_value or None
-
-
-EmployeeIdentity = Annotated[Optional[str], BeforeValidator(normalize_employee_identity)]
-
 
 class BulletinSalaireModel(BaseModel):
     # --- Identité Employeur ---
