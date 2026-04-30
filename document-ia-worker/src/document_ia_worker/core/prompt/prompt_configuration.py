@@ -19,6 +19,8 @@ GENERIC_CLASSIFICATION_MODEL: list[SupportedDocumentType] = [
     SupportedDocumentType.QUITTANCE_LOYER,
     SupportedDocumentType.FACTURE_ENERGIE,
     SupportedDocumentType.ATTESTATION_CONTRAT_ENERGIE,
+    SupportedDocumentType.ATTESTATION_HEBERGEMENT,
+    SupportedDocumentType.TAXE_FONCIERE,
 ]
 
 

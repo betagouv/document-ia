@@ -14,6 +14,20 @@ def test_supported_document_type_from_str_accepts_quittance_loyer():
     )
 
 
+def test_supported_document_type_from_str_accepts_attestation_hebergement():
+    assert (
+        SupportedDocumentType.from_str("attestation_hebergement")
+        == SupportedDocumentType.ATTESTATION_HEBERGEMENT
+    )
+
+
+def test_supported_document_type_from_str_accepts_taxe_fonciere():
+    assert (
+        SupportedDocumentType.from_str("taxe_fonciere")
+        == SupportedDocumentType.TAXE_FONCIERE
+    )
+
+
 def test_supported_document_type_from_str_still_rejects_unknown_value():
     with pytest.raises(ValueError):
         SupportedDocumentType.from_str("inconnu")
