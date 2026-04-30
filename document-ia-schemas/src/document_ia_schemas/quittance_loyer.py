@@ -33,7 +33,10 @@ class LocataireModel(BaseModel):
         description="Nom et prénom du locataire",
         examples=["DUPONT Camille"],
         json_schema_extra={
-            "metrics": Metric.SKIP  # Metric.LEVENSHTEIN_DISTANCE
+            "metrics": [
+                Metric.TOKEN_SET_EQUALITY,
+                Metric.LEVENSHTEIN_DISTANCE,
+            ]
         }
     )
 
@@ -66,80 +69,11 @@ class BailleurModel(BaseModel):
     )
 
 
-class LigneFacturationModel(BaseModel):
-    libelle: Optional[str] = Field(
-        default=None,
-        description="Libelle de ligne de facturation (loyer, charges, TEOM, regularisation, etc.).",
-        examples=["Provision pour charges"],
-        json_schema_extra={"metrics": Metric.LEVENSHTEIN_DISTANCE},
-    )
-    montant: Optional[float] = Field(
-        default=None,
-        description="Montant de la ligne (peut etre negatif pour un avoir).",
-        examples=[50.0],
-        json_schema_extra={"metrics": Metric.COMPARE_NUMBER},
-    )
-
-
-class IndexationIrlModel(BaseModel):
-    ancien_loyer: Optional[float] = Field(
-        default=None,
-        description="Montant du loyer avant reindexation IRL.",
-        examples=[780.0],
-        json_schema_extra={"metrics": Metric.COMPARE_NUMBER},
-    )
-    trimestre_reference_irl: Optional[str] = Field(
-        default=None,
-        description="Trimestre/periode de reference IRL (ex: T4 2024).",
-        examples=["T4 2024"],
-        json_schema_extra={"metrics": Metric.LEVENSHTEIN_DISTANCE},
-    )
-    valeur_indice_ancien: Optional[float] = Field(
-        default=None,
-        description="Valeur IRL de reference precedente.",
-        examples=[138.12],
-        json_schema_extra={"metrics": Metric.COMPARE_NUMBER},
-    )
-    valeur_indice_nouveau: Optional[float] = Field(
-        default=None,
-        description="Nouvelle valeur IRL appliquee.",
-        examples=[140.59],
-        json_schema_extra={"metrics": Metric.COMPARE_NUMBER},
-    )
-
-
-class HlmSpecificsModel(BaseModel):
-    montant_sls: Optional[float] = Field(
-        default=None,
-        description="Montant du supplement de loyer de solidarite (SLS).",
-        examples=[120.0],
-        json_schema_extra={"metrics": Metric.COMPARE_NUMBER},
-    )
-    coefficient_cdpr: Optional[float] = Field(
-        default=None,
-        description="Coefficient de depassement des plafonds de ressources (CDPR).",
-        examples=[0.8],
-        json_schema_extra={"metrics": Metric.COMPARE_NUMBER},
-    )
-    revenu_fiscal_retenu: Optional[float] = Field(
-        default=None,
-        description="Revenu fiscal retenu pour le calcul HLM/SLS.",
-        examples=[42000.0],
-        json_schema_extra={"metrics": Metric.COMPARE_NUMBER},
-    )
-
-
 class QuittanceLoyerModel(BaseModel):
     nature_document: Optional[NatureDocumentQuittance] = Field(
         default=NatureDocumentQuittance.QUITTANCE,
         description="Nature du document immobilier (quittance, recu partiel, avis d'echeance).",
         examples=[NatureDocumentQuittance.QUITTANCE.value],
-        json_schema_extra={"metrics": Metric.EQUALITY},
-    )
-    est_paiement_partiel: Optional[bool] = Field(
-        default=None,
-        description="Indique si le document correspond a un paiement partiel (recu).",
-        examples=[False],
         json_schema_extra={"metrics": Metric.EQUALITY},
     )
     type_parc: Optional[TypeParc] = Field(
@@ -148,7 +82,6 @@ class QuittanceLoyerModel(BaseModel):
         examples=[TypeParc.PRIVE.value],
         json_schema_extra={"metrics": Metric.EQUALITY},
     )
-
     bailleur: Optional[BailleurModel] = Field(
         default=None,
         description="Informations d'identification du bailleur ou mandataire.",
@@ -165,7 +98,6 @@ class QuittanceLoyerModel(BaseModel):
         examples=["12 rue des Lilas 75012 Paris"],
         json_schema_extra={"metrics": Metric.LEVENSHTEIN_DISTANCE},
     )
-
     periode_debut: FuzzyDate = Field(
         default=None,
         description="Date de debut de la periode couverte.",
@@ -190,7 +122,6 @@ class QuittanceLoyerModel(BaseModel):
         examples=["2026-05-05"],
         json_schema_extra={"metrics": Metric.STRING_DATE_EQUALITY},
     )
-
     loyer_de_base: Optional[float] = Field(
         default=None,
         description="Montant du loyer hors charges.",
@@ -202,83 +133,6 @@ class QuittanceLoyerModel(BaseModel):
         description="Montant des provisions sur charges.",
         examples=[70.0],
         json_schema_extra={"metrics": Metric.COMPARE_NUMBER},
-    )
-    tiers_payant_caf: Optional[float] = Field(
-        default=None,
-        description="Montant verse directement par un organisme tiers (CAF/APL).",
-        examples=[120.0],
-        json_schema_extra={"metrics": Metric.COMPARE_NUMBER},
-    )
-    organisme_tiers_payant: Optional[str] = Field(
-        default=None,
-        description="Nom de l'organisme tiers payant (ex: CAF).",
-        examples=["CAF"],
-        json_schema_extra={"metrics": Metric.LEVENSHTEIN_DISTANCE},
-    )
-    regularisation_charges: Optional[float] = Field(
-        default=None,
-        description="Regularisation ponctuelle de charges (positive ou negative).",
-        examples=[-25.0],
-        json_schema_extra={"metrics": Metric.COMPARE_NUMBER},
-    )
-    montant_teom: Optional[float] = Field(
-        default=None,
-        description="Montant de TEOM facture au locataire le cas echeant.",
-        examples=[15.0],
-        json_schema_extra={"metrics": Metric.COMPARE_NUMBER},
-    )
-    prime_assurance_recuperable: Optional[float] = Field(
-        default=None,
-        description="Prime d'assurance recuperable (assurance pour compte du locataire).",
-        examples=[8.0],
-        json_schema_extra={"metrics": Metric.COMPARE_NUMBER},
-    )
-    frais_quittance: Optional[float] = Field(
-        default=None,
-        description="Frais de quittance identifies (devrait etre nul selon la reglementation).",
-        examples=[0.0],
-        json_schema_extra={"metrics": Metric.COMPARE_NUMBER},
-    )
-    montant_total_acquitte: Optional[float] = Field(
-        default=None,
-        description="Montant total acquitte pour la periode.",
-        examples=[800.0],
-        json_schema_extra={"metrics": Metric.COMPARE_NUMBER},
-    )
-
-    lignes_facturation: list[LigneFacturationModel] = Field(
-        default_factory=list,
-        description="Lignes de facturation detaillees presentes sur le document.",
-        json_schema_extra={"metrics": Metric.DEEP_EQUALITY},
-    )
-    indexation_irl: Optional[IndexationIrlModel] = Field(
-        default=None,
-        description="Bloc de donnees d'indexation IRL lorsqu'il est present.",
-        json_schema_extra={"metrics": Metric.DEEP_EQUALITY},
-    )
-    hlm_specifics: Optional[HlmSpecificsModel] = Field(
-        default=None,
-        description="Bloc de donnees specifique au parc social/HLM.",
-        json_schema_extra={"metrics": Metric.DEEP_EQUALITY},
-    )
-
-    reference_mandat: Optional[str] = Field(
-        default=None,
-        description="Reference interne de mandat de gestion.",
-        examples=["MAND-2026-00124"],
-        json_schema_extra={"metrics": Metric.LEVENSHTEIN_DISTANCE},
-    )
-    reference_locataire: Optional[str] = Field(
-        default=None,
-        description="Reference interne locataire/dossier.",
-        examples=["LOC-88712"],
-        json_schema_extra={"metrics": Metric.LEVENSHTEIN_DISTANCE},
-    )
-    methode_paiement: Optional[str] = Field(
-        default=None,
-        description="Mode de paiement identifie (virement, cheque, prelevement).",
-        examples=["virement"],
-        json_schema_extra={"metrics": Metric.LEVENSHTEIN_DISTANCE},
     )
     presence_signature: Optional[bool] = Field(
         default=None,
@@ -301,7 +155,6 @@ class QuittanceLoyerExtractSchema(BaseDocumentTypeSchema[QuittanceLoyerModel]):
     examples: list[QuittanceLoyerModel] = [
         QuittanceLoyerModel(
             nature_document=NatureDocumentQuittance.QUITTANCE,
-            est_paiement_partiel=False,
             type_parc=TypeParc.PRIVE,
             bailleur=BailleurModel(
                 type_bailleur=TypeBailleur.MANDATAIRE,
@@ -316,19 +169,10 @@ class QuittanceLoyerExtractSchema(BaseDocumentTypeSchema[QuittanceLoyerModel]):
             date_emission=date(2026, 5, 5),
             loyer_de_base=850.0,
             provisions_charges=70.0,
-            tiers_payant_caf=120.0,
-            organisme_tiers_payant="CAF",
-            montant_total_acquitte=800.0,
-            presence_signature=True,
-            lignes_facturation=[
-                LigneFacturationModel(libelle="Loyer de base", montant=850.0),
-                LigneFacturationModel(libelle="Provision pour charges", montant=70.0),
-                LigneFacturationModel(libelle="APL tiers payant", montant=-120.0),
-            ],
+            presence_signature=True
         ),
         QuittanceLoyerModel(
             nature_document=NatureDocumentQuittance.QUITTANCE,
-            est_paiement_partiel=False,
             type_parc=TypeParc.SOCIAL,
             bailleur=BailleurModel(type_bailleur=TypeBailleur.PERSONNE_MORALE, nom_raison_sociale="OFFICE HLM"),
             locataires=[LocataireModel(identite="MARTIN Nora")],
@@ -336,18 +180,6 @@ class QuittanceLoyerExtractSchema(BaseDocumentTypeSchema[QuittanceLoyerModel]):
             periode_fin=date(2026, 1, 31),
             loyer_de_base=500.0,
             provisions_charges=90.0,
-            montant_total_acquitte=590.0,
-            hlm_specifics=HlmSpecificsModel(
-                montant_sls=120.0,
-                coefficient_cdpr=0.8,
-                revenu_fiscal_retenu=42000.0,
-            ),
-            indexation_irl=IndexationIrlModel(
-                ancien_loyer=490.0,
-                trimestre_reference_irl="T4 2024",
-                valeur_indice_ancien=138.12,
-                valeur_indice_nouveau=140.59,
-            ),
         ),
     ]
 

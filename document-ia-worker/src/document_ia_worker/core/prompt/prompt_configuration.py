@@ -17,6 +17,8 @@ GENERIC_CLASSIFICATION_MODEL: list[SupportedDocumentType] = [
     SupportedDocumentType.BULLETIN_SALAIRE,
     SupportedDocumentType.VISALE,
     SupportedDocumentType.QUITTANCE_LOYER,
+    SupportedDocumentType.FACTURE_ENERGIE,
+    SupportedDocumentType.ATTESTATION_CONTRAT_ENERGIE,
 ]
 
 
