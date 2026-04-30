@@ -1,30 +1,13 @@
-import re
-from typing import Annotated, Any, Type, Optional
+from datetime import date
+from typing import Type, Optional
 
-from pydantic import BaseModel, Field, BeforeValidator
+from pydantic import BaseModel, Field
 
 from document_ia_schemas import BaseDocumentTypeSchema
 from document_ia_schemas.base_document_type_schema import FuzzyDate
 
 from document_ia_schemas.field_metrics import Metric
-
-EMPLOYEE_TITLE_PREFIX_PATTERN = re.compile(
-    r"^\s*(?:(?:m(?:onsieur)?|mme|madame|mlle|docteur|dr|prof(?:esseur)?|pr)\.?\s+)+",
-    flags=re.IGNORECASE,
-)
-
-
-def normalize_employee_identity(value: Any) -> Any:
-    if value is None or not isinstance(value, str):
-        return value
-
-    normalized_value = value.replace(",", " ").strip()
-    normalized_value = EMPLOYEE_TITLE_PREFIX_PATTERN.sub("", normalized_value)
-    normalized_value = re.sub(r"\s+", " ", normalized_value).strip()
-    return normalized_value or None
-
-
-EmployeeIdentity = Annotated[Optional[str], BeforeValidator(normalize_employee_identity)]
+from document_ia_schemas.identity import Identity
 
 class BulletinSalaireModel(BaseModel):
     # --- Identité Employeur ---
@@ -46,7 +29,7 @@ class BulletinSalaireModel(BaseModel):
     )
 
     # --- Identité Salarié ---
-    identite_salarie: EmployeeIdentity = Field(
+    identite_salarie: Identity = Field(
         default=None,
         description="Nom de famille et Prénoms du salarié. Préférer le nom du salarié tel qu'il apparaît au niveau du destinataire du bulletin de salaire (ex: \"LAFONTAINE Patrice\" plutôt que \"LAFONTAINE Patrice née DUFOUR\").",
         examples=["MARTIN Thomas"],
@@ -133,10 +116,10 @@ class BulletinSalaireExtractSchema(BaseDocumentTypeSchema[BulletinSalaireModel])
             siret="12345678900012",
             identite_salarie="MARTIN Thomas",
             adresse_salarie="10 RUE DE LA PAIX 75000 PARIS",
-            periode_debut="2024-01-01",
-            periode_fin="2024-01-31",
-            date_paiement="2024-02-02",
-            date_debut_contrat="2018-05-15",
+            periode_debut=date(2024, 1, 1),
+            periode_fin=date(2024, 1, 31),
+            date_paiement=date(2024, 2, 2),
+            date_debut_contrat=date(2018, 5, 15),
             net_imposable=2800.00,
             cumul_net_imposable=32500.00,
         ),
@@ -145,10 +128,10 @@ class BulletinSalaireExtractSchema(BaseDocumentTypeSchema[BulletinSalaireModel])
             siret="12345678900012",
             identite_salarie="MARTIN Thomas",
             adresse_salarie="10 RUE DE LA PAIX 75000 PARIS",
-            periode_debut="2024-01-01",
-            periode_fin="2024-01-31",
-            date_paiement="2024-02-02",
-            date_debut_contrat="2018-05-15",
+            periode_debut=date(2024, 1, 1),
+            periode_fin=date(2024, 1, 31),
+            date_paiement=date(2024, 2, 2),
+            date_debut_contrat=date(2018, 5, 15),
             net_imposable=2800.00,
             cumul_net_imposable=32500.00,
         ),

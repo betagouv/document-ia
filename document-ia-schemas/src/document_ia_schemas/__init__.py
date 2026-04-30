@@ -72,6 +72,7 @@ class SupportedDocumentType(str, Enum):
     AVIS_IMPOSITION = "avis_imposition"
     BULLETIN_SALAIRE = "bulletin_salaire"
     VISALE = "visale_certificate"
+    QUITTANCE_LOYER = "quittance_loyer"
     AUTRE = "autre"
 
     @staticmethod
