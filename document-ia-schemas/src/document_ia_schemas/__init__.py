@@ -75,6 +75,8 @@ class SupportedDocumentType(str, Enum):
     QUITTANCE_LOYER = "quittance_loyer"
     FACTURE_ENERGIE = "facture_energie"
     ATTESTATION_CONTRAT_ENERGIE = "attestation_contrat_energie"
+    ATTESTATION_HEBERGEMENT = "attestation_hebergement"
+    TAXE_FONCIERE = "taxe_fonciere"
     AUTRE = "autre"
 
     @staticmethod
