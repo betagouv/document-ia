@@ -1,5 +1,6 @@
 from typing import Type, Optional
-from pydantic import BaseModel, ConfigDict, Field
+
+from pydantic import BaseModel, Field
 
 from document_ia_schemas import BaseDocumentTypeSchema, Metric
 from document_ia_schemas.base_document_type_schema import FuzzyDate
