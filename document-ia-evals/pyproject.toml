@@ -1,6 +1,6 @@
 [project]
 name = "document-ia-evals"
-version = "0.1.0"
+version = "1.0.4"
 description = ""
 authors = [
     {name = "Erwan BOEHM",email = "erwan.boehm@gmail.com"},
