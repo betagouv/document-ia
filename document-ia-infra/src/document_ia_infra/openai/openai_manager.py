@@ -1,5 +1,8 @@
+import json
 import logging
 from typing import Any, Dict, cast, TypeVar
+from pathlib import Path
+import datetime
 
 import tiktoken
 from openai import AsyncOpenAI, AuthenticationError, PermissionDeniedError
@@ -23,6 +26,7 @@ T = TypeVar("T", bound=BaseModel)
 
 class OpenAIManager:
     def __init__(self):
+        self.has_to_dump_requests = openai_settings.OPENAI_DUMP_REQUESTS
         self.client = AsyncOpenAI(
             base_url=openai_settings.OPENAI_BASE_URL,
             api_key=openai_settings.OPENAI_API_KEY.get_secret_value()
@@ -48,6 +52,7 @@ class OpenAIManager:
             response_class=response_class,
             model=model,
             temperature=0,
+            request_type="classification",
         )
 
     async def get_extraction_response(
@@ -70,6 +75,7 @@ class OpenAIManager:
             response_class=inner_class,
             model=model,
             temperature=0,
+            request_type="extraction",
         )
 
         return (
@@ -88,6 +94,7 @@ class OpenAIManager:
         response_class: type[T],
         model: str,
         temperature: float = 0,
+        request_type: str = "classification",
     ) -> tuple[T, int, int]:
         request_tokens = len(self.encoding.encode(system_prompt)) + len(
             self.encoding.encode(user_prompt)
@@ -104,6 +111,11 @@ class OpenAIManager:
             "messages": message,
             "temperature": temperature,
         }
+
+        if self.has_to_dump_requests:
+            self.dump_request(
+                response_class=response_class, data=data, request_type=request_type
+            )
 
         try:
             response: ChatCompletion = cast(
@@ -135,3 +147,72 @@ class OpenAIManager:
                 raise OpenAIAuthentificationError()
             logger.error(f"Error generating response: {e}")
             raise e
+
+    def dump_request(
+        self, response_class: type[T], data: Dict[str, Any], request_type: str
+    ) -> None:
+        json_schema = get_response_format(response_class).model_json_schema()
+
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "structured_response",  # Nom arbitraire requis par l'API
+                "strict": True,  # Souvent True par défaut avec .parse()
+                "schema": json_schema,
+            },
+        }
+
+        payload = {
+            "model": data["model"],
+            "messages": data["messages"],
+            "temperature": data["temperature"],
+            "response_format": response_format,
+        }
+
+        # Resolve project root: walk up from CWD to find a folder containing pyproject.toml.
+        def _resolve_project_root(start: Path) -> Path:
+            for parent in [start, *start.parents]:
+                if (parent / "pyproject.toml").exists():
+                    return parent
+            return start  # fallback to start
+
+        cwd = Path.cwd()
+        project_root = _resolve_project_root(cwd)
+
+        # Hierarchical folder: openai-dumps/YYYY/MM/DD/<type>/<N>/ at project root
+        now = datetime.datetime.now(datetime.UTC)
+        year = f"{now.year:04d}"
+        month = f"{now.month:02d}"
+        day = f"{now.day:02d}"
+        base_dir = project_root / "openai-dumps" / year / month / day / request_type
+        base_dir.mkdir(parents=True, exist_ok=True)
+
+        # Find next incremental request number N
+        existing = [p for p in base_dir.iterdir() if p.is_dir() and p.name.isdigit()]
+        next_n = 1
+        if existing:
+            try:
+                next_n = max(int(p.name) for p in existing) + 1
+            except ValueError:
+                next_n = 1
+        dump_dir = base_dir / str(next_n)
+        dump_dir.mkdir(parents=True, exist_ok=True)
+
+        if openai_settings.OPENAI_API_KEY is None:
+            raise ValueError("OPENAI_API_KEY is not set in openai_settings")
+
+        data_path = dump_dir / "data.json"
+        with open(data_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+
+        curl_command = (
+            f'curl -X POST "{openai_settings.OPENAI_BASE_URL}/chat/completions" '
+            f'-H "Content-Type: application/json" '
+            f'-H "Authorization: Bearer {openai_settings.OPENAI_API_KEY.get_secret_value()}" '
+            f"-d @{data_path}"
+        )
+        curl_path = dump_dir / "curl.sh"
+        with open(curl_path, "w", encoding="utf-8") as f:
+            f.write(curl_command + "\n")
+
+        logger.info(f"OpenAI request dumped to {dump_dir}")
