@@ -25,6 +25,31 @@
     "updated_at": "2025-09-01T10:00:00Z"
   },
   {
+    "id": "document-classification-mistral",
+    "name": "Document classification with Mistral v1 and albert-large",
+    "description": "Analyzes uploaded documents for OCR, barcode extraction, and classification",
+    "version": "1.0.0",
+    "enabled": true,
+    "supported_file_types": [
+      "application/pdf",
+      "image/jpeg",
+      "image/png"
+    ],
+    "steps": [
+      "download_file",
+      "preprocess_file",
+      "extract_barcode_data",
+      "extract_content_mistral_ocr",
+      "llm_classify_document",
+      "save_workflow_result"
+    ],
+    "llm_model": "albert-large",
+    "max_file_size_mb": 25,
+    "processing_timeout_minutes": 5,
+    "created_at": "2025-09-01T10:00:00Z",
+    "updated_at": "2025-09-01T10:00:00Z"
+  },
+  {
     "id": "document-extraction-v1",
     "name": "Document extraction v1",
     "description": "Generic workflow to extract and process document content",

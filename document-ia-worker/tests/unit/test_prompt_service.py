@@ -132,7 +132,8 @@ class TestPromptService:
             EXPECTED_EXTRACTION_PROMPTS_DIR / f"{document_type.value}.txt"
         )
         assert expected_prompt_path.exists(), f"Missing expected prompt fixture for document type: {document_type.value}"
-        expected_prompt_text = expected_prompt_path.read_text(encoding="utf-8")
+        # Normalise les fixtures: certains hooks peuvent ajouter une ligne vide finale.
+        expected_prompt_text = expected_prompt_path.read_text(encoding="utf-8").rstrip("\n")
         # Use the script `regenerate_extraction_prompt_fixtures.py` to update the expected prompt fixtures if intentional changes were made
         assert prompt_text == expected_prompt_text, f"Rendered prompt does not match expected fixture for document type: {document_type.value}"
 
