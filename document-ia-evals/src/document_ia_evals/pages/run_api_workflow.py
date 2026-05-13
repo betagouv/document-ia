@@ -1,5 +1,3 @@
-import json
-
 import streamlit as st
 
 from document_ia_evals.components import (

@@ -14,7 +14,7 @@ body:multipart-form {
   metadata: {"test":"test"} @contentType(String)
   file: @file()
   ~extraction-parameters: {"document-type": "cni"}
-  ~classification-parameters: {}
+  ~classification-parameters: {"document-types": ["cni", "passeport"]}
 }
 
 vars:pre-request {
