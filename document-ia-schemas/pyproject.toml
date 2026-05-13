@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "document-ia-schemas"
-version = "1.0.3"
+version = "1.0.4"
 description = "Projet pour stocker les schémas de documents de Document IA"
 authors = ["Nicolas Sagon <nicolas.sagon@beta.gouv.fr>"]
 readme = "README.md"
