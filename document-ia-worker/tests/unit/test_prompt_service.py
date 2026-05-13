@@ -10,7 +10,7 @@ from document_ia_worker.exception.unsupported_document_type import (
 )
 
 EXPECTED_EXTRACTION_PROMPTS_DIR = (
-    Path(__file__).resolve().parents[1] / "fixtures" / "prompts" / "extraction"
+    Path(__file__).resolve().parents[1] / "snapshots" / "prompts" / "extraction"
 )
 
 
