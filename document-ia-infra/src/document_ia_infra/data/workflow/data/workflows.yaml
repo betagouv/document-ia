@@ -1,0 +1,117 @@
+# 1. DICTIONNAIRE DES PARAMÈTRES (Ancres)
+# ---------------------------------------------------------
+x-definitions:
+
+  param_document_type_single: &doc_type_single
+    type: string
+    description: "Type de document à utiliser pour l'extraction."
+    # On injecte la liste directement dans l'enum
+    enum: !inject SupportedDocumentType
+
+  param_document_types_array: &doc_types_array
+    description: "Type(s) de document à utiliser pour la classification."
+    default: "all"
+    oneOf:
+      - type: string
+        enum: [ "all" ]
+      - type: array
+        items:
+          type: string
+          enum: !inject SupportedDocumentType
+
+  # On définit l'ancre avec "&nom_de_lancre"
+  llm_model: &llm_model
+    type: string
+    description: "Modèle LLM à utiliser pour l'inférence"
+    default: "albert-large"
+    enum: !inject LLMModel
+
+  llm_temperature: &llm_temperature
+    type: float
+    description: "Température à utiliser pour l'inférence (entre 0.0 et 1.0)"
+    default: 0.0
+
+  ocr_model: &ocr_model
+    type: string
+    description: "Modèle OCR à utiliser pour l'extraction de contenu textuel"
+    default: mistral
+    enum: !inject OCRModel
+
+  barcode_type: &barcode_type
+    type: string
+    description: "Type d'extraction de données de code-barres"
+    default: 2ddoc
+    enum: !inject BarcodeExtractionType
+
+workflows:
+- id: document-classification-extraction-v2
+  name: Document Classification and extraction v2 (Configurable)
+  description: Workflow générique avec surcharge des paramètres OCR et LLM.
+  version: 2.0.0
+  enabled: true
+  supported_file_types:
+    - application/pdf
+    - image/jpeg
+    - image/png
+  max_file_size_mb: 25
+  processing_timeout_minutes: 5
+
+  steps:
+    - action: download_file
+
+    - action: preprocess_file
+
+    - action: extract_barcode_data
+      params:
+        barcode_type: *barcode_type
+
+    - action: extract_content_ocr
+      params:
+        model: *ocr_model
+
+    - action: llm_classify_document
+      params:
+        model: *llm_model
+        temperature: *llm_temperature
+        document_types: *doc_types_array
+
+    - action: llm_extract_data
+      params:
+        model: *llm_model
+        temperature: *llm_temperature
+        document_type: *doc_type_single
+
+    - action: save_workflow_result
+
+- id: document-extraction-v2
+  name: Document extraction v2 (Configurable)
+  description: Workflow générique avec surcharge des paramètres OCR et LLM.
+  version: 2.0.0
+  enabled: true
+  supported_file_types:
+    - application/pdf
+    - image/jpeg
+    - image/png
+  max_file_size_mb: 25
+  processing_timeout_minutes: 5
+
+  steps:
+    - action: download_file
+
+    - action: preprocess_file
+
+    - action: extract_barcode_data
+      params:
+        barcode_type: *barcode_type
+
+    - action: extract_content_ocr
+      params:
+        model: *ocr_model
+
+    - action: llm_extract_data
+      params:
+        model: *llm_model
+        temperature: *llm_temperature
+        document_type: *doc_type_single
+
+    - action: save_workflow_result
