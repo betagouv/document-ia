@@ -1,15 +1,15 @@
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.12.11
+    rev: v0.15.13
     hooks:
       - id: ruff
-        args: [document-ia-api, --fix]
+        args: [ document-ia-api, --fix ]
         files: ^(document-ia-api|document-ia-infra|document-ia-worker)/src/.*.py$
       - id: ruff-format
         files: ^(document-ia-api|document-ia-infra|document-ia-worker)/src/.*.py$
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.5.0
+    rev: v6.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
@@ -18,6 +18,12 @@ repos:
         exclude: ^document-ia-api/src/static/
       - id: check-merge-conflict
       - id: debug-statements
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks
+        args: ["--config", ".gitleaks.toml"]
 
   # Hooks locaux pour gérer poetry lock par sous-projet lorsque le pyproject.toml change
   - repo: local
