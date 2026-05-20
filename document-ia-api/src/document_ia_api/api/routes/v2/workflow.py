@@ -1,18 +1,35 @@
 import logging
-
-from fastapi import APIRouter, Depends, HTTPException, status
+import json
+from typing import Any, Optional
 
 from document_ia_api.api.auth import verify_api_key
 from document_ia_api.api.contracts.error.errors import ProblemDetail
-from document_ia_api.api.contracts.workflow_v2 import WorkflowV2ListResponse
+from document_ia_api.api.contracts.workflow_v2 import (
+    WorkflowV2ExecuteResponse,
+    WorkflowV2ListResponse,
+    WorkflowV2OverridePayload,
+)
 from document_ia_api.api.mapper.workflow_v2_mapper import (
     map_workflow_v2_raw_list_to_contract,
 )
 from document_ia_api.api.middleware.rate_limiting_middleware import check_rate_limit
+from document_ia_api.application.services.workflow_v2_service import WorkflowV2Service
 from document_ia_api.schemas.rate_limiting import RateLimitInfo
 from document_ia_infra.data.workflow.repository.workflow_v2_repository import (
     workflow_v2_repository,
 )
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Path,
+    UploadFile,
+    status,
+)
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -134,4 +151,317 @@ async def list_available_workflows(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve available workflows",
+        ) from exc
+
+
+@router.post(
+    "/{workflow_id}/execute",
+    response_model=WorkflowV2ExecuteResponse,
+    summary="Execute Workflow (v2)",
+    description=(
+        "Validate and prepare execution for a v2 workflow. "
+        "This first version validates request payload only (workflow id, file XOR file_url, metadata JSON, and override JSON)."
+    ),
+    responses={
+        200: {
+            "model": WorkflowV2ExecuteResponse,
+            "description": "Workflow override validated successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "data": {
+                            "workflow_id": "document-extraction-v2",
+                            "validated": True,
+                        },
+                        "message": "Workflow override is valid",
+                        "timestamp": "2026-05-19T10:30:00.000Z",
+                    }
+                }
+            },
+        },
+        400: {
+            "model": ProblemDetail,
+            "description": "Bad Request (ProblemDetail) — invalid workflow override",
+        },
+        401: {
+            "model": ProblemDetail,
+            "description": "Unauthorized (ProblemDetail) — invalid API key",
+        },
+        403: {
+            "model": ProblemDetail,
+            "description": "Forbidden (ProblemDetail) — API key not provided",
+        },
+        422: {
+            "model": ProblemDetail,
+            "description": "Validation failed (ProblemDetail) — malformed multipart fields",
+        },
+        429: {
+            "model": ProblemDetail,
+            "description": "Too Many Requests (ProblemDetail) — rate limit exceeded",
+        },
+    },
+    tags=["Workflows v2"],
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "multipart/form-data": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "file": {
+                                "type": "string",
+                                "format": "binary",
+                                "description": "Document file to process (optional if file_url is provided).",
+                            },
+                            "file_url": {
+                                "type": "string",
+                                "format": "uri",
+                                "description": "URL of the document to process (optional if file is provided).",
+                            },
+                            "override": {
+                                "type": "object",
+                                "description": (
+                                    "JSON object keyed by workflow step action. "
+                                    "Each key maps to a list of {param, value} overrides."
+                                ),
+                                "additionalProperties": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "param": {
+                                                "type": "string",
+                                                "description": "Step parameter name to override",
+                                            },
+                                            "value": {
+                                                "description": "Override value (string, number, boolean, list, object)",
+                                            },
+                                        },
+                                        "required": ["param", "value"],
+                                    },
+                                },
+                                "examples": {
+                                    "simple": {
+                                        "summary": "Simple extraction override",
+                                        "value": {
+                                            "llm_extract_data": [
+                                                {
+                                                    "param": "document_type",
+                                                    "value": "passeport",
+                                                }
+                                            ]
+                                        },
+                                    },
+                                    "classification": {
+                                        "summary": "Classification + extraction overrides",
+                                        "value": {
+                                            "llm_classify_document": [
+                                                {
+                                                    "param": "document_types",
+                                                    "value": ["cni", "passeport"],
+                                                }
+                                            ],
+                                            "llm_extract_data": [
+                                                {
+                                                    "param": "model",
+                                                    "value": "albert-small",
+                                                }
+                                            ],
+                                        },
+                                    },
+                                },
+                            },
+                            "metadata": {
+                                "type": "object",
+                                "description": "Optional free-form JSON object passed as execution metadata.",
+                                "additionalProperties": True,
+                                "example": {
+                                    "source": "webhook",
+                                    "priority": "high",
+                                    "tags": ["lease", "urgent"],
+                                },
+                            },
+                        },
+                        "required": [],
+                        "oneOf": [
+                            {"required": ["file"]},
+                            {"required": ["file_url"]},
+                        ],
+                    },
+                    "encoding": {
+                        "override": {
+                            "contentType": "application/json",
+                        },
+                        "metadata": {
+                            "contentType": "application/json",
+                        },
+                    },
+                },
+                "application/x-www-form-urlencoded": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "file_url": {
+                                "type": "string",
+                                "format": "uri",
+                                "description": "URL of the document to process.",
+                            },
+                            "override": {
+                                "type": "object",
+                                "description": (
+                                    "JSON object keyed by workflow step action. "
+                                    "Each key maps to a list of {param, value} overrides."
+                                ),
+                                "additionalProperties": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "param": {
+                                                "type": "string",
+                                                "description": "Step parameter name to override",
+                                            },
+                                            "value": {
+                                                "description": "Override value (string, number, boolean, list, object)",
+                                            },
+                                        },
+                                        "required": ["param", "value"],
+                                    },
+                                },
+                                "examples": {
+                                    "simple": {
+                                        "summary": "Simple extraction override",
+                                        "value": {
+                                            "llm_extract_data": [
+                                                {
+                                                    "param": "document_type",
+                                                    "value": "passeport",
+                                                }
+                                            ]
+                                        },
+                                    },
+                                    "classification": {
+                                        "summary": "Classification + extraction overrides",
+                                        "value": {
+                                            "llm_classify_document": [
+                                                {
+                                                    "param": "document_types",
+                                                    "value": ["cni", "passeport"],
+                                                }
+                                            ],
+                                            "llm_extract_data": [
+                                                {
+                                                    "param": "model",
+                                                    "value": "albert-small",
+                                                }
+                                            ],
+                                        },
+                                    },
+                                },
+                            },
+                            "metadata": {
+                                "type": "object",
+                                "description": "Optional free-form JSON object passed as execution metadata.",
+                                "additionalProperties": True,
+                                "example": {
+                                    "source": "webhook",
+                                    "priority": "high",
+                                },
+                            },
+                        },
+                        "required": [],
+                        "oneOf": [
+                            {"required": ["file_url"]},
+                        ],
+                    },
+                },
+            }
+        }
+    },
+)
+async def execute_workflow_v2(
+    workflow_id: str = Path(..., description="ID of the workflow to execute"),
+    file: Optional[UploadFile] = File(
+        default=None,
+        description="Document file to process (PDF, JPG, PNG, max 25MB)",
+    ),
+    file_url: Optional[str] = Form(
+        default=None, description="URL of the document to process"
+    ),
+    override: str | None = Form(
+        default=None,
+        description=(
+            "JSON object keyed by workflow step action, containing lists of "
+            "{param, value} overrides."
+        ),
+    ),
+    metadata: Optional[str] = Form(
+        default=None,
+        description="JSON string containing metadata object",
+    ),
+    api_key: str = Depends(verify_api_key),
+    rate_limit_info: RateLimitInfo = Depends(check_rate_limit),
+) -> WorkflowV2ExecuteResponse:
+    """Validate v2 workflow execution input (phase 1).
+
+    This endpoint currently validates the workflow existence and override payload only.
+    """
+
+    _ = (api_key, rate_limit_info)
+    workflow_v2_service = WorkflowV2Service()
+
+    if (file is None and file_url is None) or (
+        file is not None and file_url is not None
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Exactly one of 'file' or 'file_url' must be provided.",
+        )
+
+    parsed_metadata: dict[str, Any] | None = None
+    if metadata is not None:
+        try:
+            loaded_metadata = json.loads(metadata)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="'metadata' must be a valid JSON object.",
+            ) from exc
+
+        if not isinstance(loaded_metadata, dict):
+            raise HTTPException(
+                status_code=400,
+                detail="'metadata' must be a JSON object (key/value map).",
+            )
+
+        parsed_metadata = loaded_metadata
+
+    _ = parsed_metadata
+
+    try:
+        parsed_override = (
+            WorkflowV2OverridePayload.model_validate_json(override)
+            if override is not None
+            else WorkflowV2OverridePayload.model_validate({})
+        )
+    except ValidationError as exc:
+        raise RequestValidationError(exc.errors()) from exc
+
+    try:
+        workflow_v2_service.validateWorkflow(
+            workflow_id=workflow_id.strip(), override_payload=parsed_override
+        )
+        return WorkflowV2ExecuteResponse(
+            status="success",
+            data={"workflow_id": workflow_id.strip(), "validated": True},
+            message="Workflow override is valid",
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Failed to validate workflow v2 execute payload: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unexpected error while validating workflow override",
         ) from exc

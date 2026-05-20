@@ -1,6 +1,6 @@
-from typing import List, Union, Literal, Annotated
+from typing import List, Union, Literal, Annotated, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from document_ia_infra.data.workflow.dto.enums import (
     BarcodeExtractionType,
@@ -53,9 +53,11 @@ class LLMExtractParams(BaseModel):
         le=1.0,
         description="Température à utiliser pour l'extraction (entre 0.0 et 1.0)",
     )
-    # Requis, pas de valeur par défaut
-    document_type: SupportedDocumentType = Field(
-        description="Type de document à utiliser pour l'extraction (ex : cni, passeport, etc.)"
+    # Optionnel ici: une validation au niveau WorkflowV2Dto l'impose
+    # quand aucune étape de classification ne précède l'extraction.
+    document_type: Optional[SupportedDocumentType] = Field(
+        default=None,
+        description="Type de document à utiliser pour l'extraction (ex : cni, passeport, etc.)",
     )
 
 
@@ -124,6 +126,27 @@ class WorkflowV2Dto(BaseModel):
     max_file_size_mb: int
     processing_timeout_minutes: int
     steps: List[WorkflowStep]
+
+    @model_validator(mode="after")
+    def validate_extract_step_document_type_dependency(self):
+        for idx, step in enumerate(self.steps):
+            if not isinstance(step, LlmExtractDataStepDto):
+                continue
+
+            if step.params.document_type is not None:
+                continue
+
+            has_prior_classification = any(
+                isinstance(previous_step, LlmClassifyDocumentStepDto)
+                for previous_step in self.steps[:idx]
+            )
+
+            if not has_prior_classification:
+                raise ValueError(
+                    "llm_extract_data.params.document_type is required when no prior llm_classify_document step exists"
+                )
+
+        return self
 
 
 class WorkflowsConfigDto(BaseModel):

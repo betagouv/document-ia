@@ -79,7 +79,6 @@ workflows:
       params:
         model: *llm_model
         temperature: *llm_temperature
-        document_type: *doc_type_single
 
     - action: save_workflow_result
 

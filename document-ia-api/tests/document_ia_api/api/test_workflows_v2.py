@@ -2,6 +2,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
+import json
 
 
 class TestWorkflowsV2:
@@ -128,3 +129,120 @@ class TestWorkflowsV2:
                 },
             },
         ]
+
+    @pytest.mark.asyncio
+    async def test_execute_workflow_v2_validates_override_success(
+        self, client_with_api_key_standard, standard_api_key_value
+    ):
+        override = {
+            "llm_extract_data": [
+                {"param": "document_type", "value": "cni"},
+            ]
+        }
+
+        response = client_with_api_key_standard.post(
+            "/api/v2/workflows/document-extraction-v2/execute",
+            data={
+                "file_url": "https://example.com/document.pdf",
+                "override": json.dumps(override),
+            },
+            headers={"X-API-KEY": standard_api_key_value},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "success"
+        assert body["data"]["validated"] is True
+        assert body["data"]["workflow_id"] == "document-extraction-v2"
+
+    @pytest.mark.asyncio
+    async def test_execute_workflow_v2_invalid_param_returns_400(
+        self, client_with_api_key_standard, standard_api_key_value
+    ):
+        override = {
+            "llm_extract_data": [
+                {"param": "does_not_exist", "value": "x"},
+            ]
+        }
+
+        response = client_with_api_key_standard.post(
+            "/api/v2/workflows/document-extraction-v2/execute",
+            data={
+                "file_url": "https://example.com/document.pdf",
+                "override": json.dumps(override),
+            },
+            headers={"X-API-KEY": standard_api_key_value},
+        )
+
+        assert response.status_code == 400
+        body = response.json()
+        assert body["status"] == 400
+        assert body["errors"]["step"] == "llm_extract_data"
+        assert body["errors"]["param"] == "does_not_exist"
+
+    @pytest.mark.asyncio
+    async def test_execute_workflow_v2_accepts_missing_override_field(
+        self, client_with_api_key_standard, standard_api_key_value
+    ):
+        with patch(
+            "document_ia_api.api.routes.v2.workflow.WorkflowV2Service.validateWorkflow"
+        ) as mock_validate:
+            mock_validate.return_value = True
+
+            response = client_with_api_key_standard.post(
+                "/api/v2/workflows/document-defaults-v2/execute",
+                data={"file_url": "https://example.com/document.pdf"},
+                headers={"X-API-KEY": standard_api_key_value},
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "success"
+        assert body["data"]["validated"] is True
+        assert body["data"]["workflow_id"] == "document-defaults-v2"
+        _, kwargs = mock_validate.call_args
+        assert kwargs["override_payload"].root == {}
+
+    @pytest.mark.asyncio
+    async def test_execute_workflow_v2_returns_400_when_file_and_file_url_missing(
+        self, client_with_api_key_standard, standard_api_key_value
+    ):
+        response = client_with_api_key_standard.post(
+            "/api/v2/workflows/document-extraction-v2/execute",
+            data={"override": json.dumps({})},
+            headers={"X-API-KEY": standard_api_key_value},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["status"] == 400
+
+    @pytest.mark.asyncio
+    async def test_execute_workflow_v2_returns_400_when_file_and_file_url_both_provided(
+        self, client_with_api_key_standard, standard_api_key_value
+    ):
+        response = client_with_api_key_standard.post(
+            "/api/v2/workflows/document-extraction-v2/execute",
+            data={"file_url": "https://example.com/document.pdf", "override": json.dumps({})},
+            files={"file": ("doc.pdf", b"dummy", "application/pdf")},
+            headers={"X-API-KEY": standard_api_key_value},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["status"] == 400
+
+    @pytest.mark.asyncio
+    async def test_execute_workflow_v2_returns_400_when_metadata_not_json_object(
+        self, client_with_api_key_standard, standard_api_key_value
+    ):
+        response = client_with_api_key_standard.post(
+            "/api/v2/workflows/document-extraction-v2/execute",
+            data={
+                "file_url": "https://example.com/document.pdf",
+                "metadata": json.dumps(["not", "an", "object"]),
+                "override": json.dumps({}),
+            },
+            headers={"X-API-KEY": standard_api_key_value},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["status"] == 400

@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 
 ParameterDefaultValue = str | int | float | bool | list[str]
@@ -153,6 +153,46 @@ class WorkflowV2ListResponse(BaseModel):
     message: str = Field(
         description="Human-readable response message.",
         examples=["Available workflows retrieved successfully"],
+    )
+    timestamp: str = Field(
+        default_factory=lambda: datetime.now().isoformat(),
+        description="Response timestamp in ISO format.",
+    )
+
+
+class WorkflowV2StepParamOverride(BaseModel):
+    """One parameter override for a specific workflow step."""
+
+    param: str = Field(
+        description="Parameter name to override in the target step.",
+        examples=["document_type"],
+    )
+    value: Any = Field(
+        description="Override value for the parameter.",
+        examples=["passeport"],
+    )
+
+
+class WorkflowV2OverridePayload(
+    RootModel[dict[str, list[WorkflowV2StepParamOverride]]]
+):
+    """Override payload from multipart field `override`.
+
+    Keys are workflow step action names and values are lists of parameter overrides.
+    """
+
+
+class WorkflowV2ExecuteResponse(BaseModel):
+    """Validation-only response for v2 execute endpoint (phase 1)."""
+
+    status: str = Field(description="Response status.", examples=["success"])
+    data: dict[str, Any] = Field(
+        description="Response payload.",
+        examples=[{"workflow_id": "document-extraction-v2", "validated": True}],
+    )
+    message: str = Field(
+        description="Human-readable response message.",
+        examples=["Workflow override is valid"],
     )
     timestamp: str = Field(
         default_factory=lambda: datetime.now().isoformat(),

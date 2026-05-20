@@ -1,0 +1,39 @@
+meta {
+  name: Execute workflow
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{server}}api/v2/workflows/{{worfklow_id}}/execute
+  body: multipartForm
+  auth: inherit
+}
+
+body:multipart-form {
+  override: '''
+    {
+      "extract_barcode_data" : [
+        {
+          "param" : "barcode_type",
+          "value" : "2ddoc"
+        }
+      ],
+      "extract_content_ocr" : [
+        {
+          "param" : "model",
+          "value" : "tesseract"
+        }
+      ]
+    }
+  '''
+}
+
+vars:pre-request {
+  worfklow_id: document-classification-extraction-v2
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
