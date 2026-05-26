@@ -1,3 +1,4 @@
+from document_ia_worker.workflow.main_workflow_context import StepLLMMetadata
 import json
 from pathlib import Path
 
@@ -6,6 +7,8 @@ import pytest
 from document_ia_infra.data.document.schema.document_classification import DocumentClassification
 from document_ia_schemas import SupportedDocumentType
 from document_ia_schemas.cni import CNIModel
+from document_ia_infra.data.workflow.dto.enums import LLMModel
+from document_ia_infra.data.workflow.dto.workflow_v2_dto import LLMExtractParams
 from document_ia_worker.workflow.step.llm_extract_document.llm_extract_document import (
     LLMExtractDocumentStep,
 )
@@ -48,7 +51,8 @@ class TestLLMExtract:
                     user_prompt: str,
                     response_class,
                     document_type: SupportedDocumentType,
-                    model: str
+                    model: str,
+                    temperature: float = 0,
             ):
                 payload = {
                     "type": "cni",
@@ -140,8 +144,83 @@ class TestLLMExtract:
         result, metadata = await step.execute()
 
         assert metadata.step_name == "LLMExtractDocumentStep"
+        assert isinstance(metadata, StepLLMMetadata)
         assert metadata.request_tokens == 0
         assert metadata.response_tokens == 0
         assert isinstance(result, LLMExtractionResult)
         assert result.data.type == SupportedDocumentType.AUTRE
         assert result.data.properties.model_dump() == {}
+
+    @pytest.mark.asyncio
+    async def test_extract_from_v2_params_uses_model_temperature_and_document_type_override(
+        self, monkeypatch, main_workflow_context
+    ):
+        ocr_result = OcrResult(
+            pages=[
+                OcrResultPage(
+                    page_number=1,
+                    text="Carte nationale d'identite",
+                    has_failed=False,
+                )
+            ]
+        )
+
+        called: dict[str, object] = {}
+
+        class FakePromptService:
+            def get_extraction_prompt(self, document_type: SupportedDocumentType):
+                called["document_type"] = document_type
+                return "system", CNIModel
+
+        class FakeOpenAIManager:
+            async def get_extraction_response(
+                self,
+                *,
+                system_prompt: str,
+                user_prompt: str,
+                response_class,
+                document_type: SupportedDocumentType,
+                model: str,
+                temperature: float,
+            ):
+                called["model"] = model
+                called["temperature"] = temperature
+                return (
+                    response_class.model_validate(
+                        {
+                            "type": "cni",
+                            "properties": {
+                                "numero_document": "123456789012",
+                                "nom": "DUPONT",
+                                "prenom": "JEAN",
+                                "lieu_naissance": "PARIS",
+                                "nationalite": "Française",
+                            },
+                        },
+                        by_name=True,
+                        by_alias=False,
+                    ),
+                    7,
+                    9,
+                )
+
+        params = LLMExtractParams(
+            model=LLMModel.ALBERT_SMALL,
+            temperature=0.33,
+            document_type=SupportedDocumentType.CNI,
+        )
+        step = LLMExtractDocumentStep.from_v2_params(main_workflow_context, params)
+        step.prompt_service = FakePromptService()  # pyrefly: ignore[bad-assignment]
+        step.openai_manager = FakeOpenAIManager()  # pyrefly: ignore[bad-assignment]
+        step.inject_workflow_context({OcrResult.__name__: ocr_result})
+
+        result, metadata = await step.execute()
+
+        assert isinstance(result, LLMExtractionResult)
+        assert result.data.type == SupportedDocumentType.CNI
+        assert isinstance(metadata, StepLLMMetadata)
+        assert metadata.request_tokens == 7
+        assert metadata.response_tokens == 9
+        assert called["model"] == "albert-small"
+        assert called["temperature"] == 0.33
+        assert called["document_type"] == SupportedDocumentType.CNI

@@ -41,13 +41,14 @@ class OpenAIManager:
         user_prompt: str,
         response_class: type[T],
         model: str,
+        temperature: float = 0,
     ) -> tuple[T, int, int]:
         return await self._generate_typed_response(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             response_class=response_class,
             model=model,
-            temperature=0,
+            temperature=temperature,
         )
 
     async def get_extraction_response(
@@ -57,6 +58,7 @@ class OpenAIManager:
         response_class: type[DocumentExtraction[T]],
         document_type: SupportedDocumentType,
         model: str,
+        temperature: float = 0,
     ) -> tuple[T, int, int]:
         inner_class = cast(Any, response_class.model_fields["properties"].annotation)
 
@@ -69,11 +71,12 @@ class OpenAIManager:
             user_prompt=user_prompt,
             response_class=inner_class,
             model=model,
-            temperature=0,
+            temperature=temperature,
         )
 
+        # pyrefly: ignore [bad-return]
         return (
-            DocumentExtraction(  # pyright: ignore [reportReturnType]
+            DocumentExtraction(
                 type=document_type,
                 properties=response,
             ),

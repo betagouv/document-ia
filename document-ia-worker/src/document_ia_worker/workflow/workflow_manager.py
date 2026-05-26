@@ -33,18 +33,6 @@ from document_ia_worker.core.aggregator_log import (
     start_time_var,
     handle_finish_execution,
 )
-from document_ia_worker.core.ocr.deepseek.deepseek_http_ocr_service import (
-    DeepSeekHttpHttpOcrService,
-)
-from document_ia_worker.core.ocr.marker.marker_http_ocr_service import (
-    MarkerHttpHttpOcrService,
-)
-from document_ia_worker.core.ocr.mistral.mistral_http_ocr_service import (
-    MistralHttpOcrService,
-)
-from document_ia_worker.core.ocr.nanonets.nanonets_http_ocr_service import (
-    NanonetsHttpHttpOcrService,
-)
 from document_ia_worker.exception.no_event_attached_to_execution_exception import (
     NoEventAttachedToExecutionException,
 )
@@ -54,36 +42,7 @@ from document_ia_worker.exception.workflow_not_found_exception import (
 from document_ia_worker.exception.workflow_step_exception import WorkflowStepException
 from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
 from document_ia_worker.workflow.step.base_step import BaseStep
-from document_ia_worker.workflow.step.download_file.download_file import (
-    DownloadFileStep,
-)
-from document_ia_worker.workflow.step.extract_barcode_data.extract_barcode_2ddoc_data import (
-    ExtractBarcode2DDocData,
-)
-from document_ia_worker.workflow.step.extract_barcode_data.extract_barcode_data import (
-    ExtractBarcodeData,
-)
-from document_ia_worker.workflow.step.extract_barcode_data.extract_barcode_raw_data import (
-    ExtractBarcodeRawData,
-)
-from document_ia_worker.workflow.step.extract_content_ocr.extract_content_http_ocr import (
-    ExtractContentHttpOcrStep,
-)
-from document_ia_worker.workflow.step.extract_content_ocr.extract_content_ocr import (
-    ExtractContentOcrStep,
-)
-from document_ia_worker.workflow.step.llm_classify_document.llm_classify_document import (
-    LLMClassifyDocumentStep,
-)
-from document_ia_worker.workflow.step.llm_extract_document.llm_extract_document import (
-    LLMExtractDocumentStep,
-)
-from document_ia_worker.workflow.step.preprocess_file.preprocess_file import (
-    PreprocessFileStep,
-)
-from document_ia_worker.workflow.step.save_workflow_result.save_workflow_result import (
-    SaveWorkflowResultStep,
-)
+from document_ia_worker.workflow.step_factory_v1 import prepareStepListsV1
 
 logger = logging.getLogger(__name__)
 
@@ -261,87 +220,22 @@ class WorkflowManager:
             # Ensure a fresh step list per workflow execution
             self.step_list = []
 
-            for step in self.workflow.steps:
-                if step == "download_file":
-                    self.step_list.append(
-                        DownloadFileStep(
-                            self.main_workflow_context,
-                            self.event_data.s3_file_info,
-                            self.event_data.file_url,
-                        )
-                    )
-                if step == "preprocess_file":
-                    self.step_list.append(
-                        PreprocessFileStep(self.main_workflow_context)
-                    )
-                if step == "extract_content_ocr":
-                    self.step_list.append(
-                        ExtractContentOcrStep(self.main_workflow_context)
-                    )
-                if step == "extract_content_marker_ocr":
-                    self.step_list.append(
-                        ExtractContentHttpOcrStep(
-                            self.main_workflow_context, MarkerHttpHttpOcrService()
-                        )
-                    )
-                if step == "extract_content_mistral_ocr":
-                    self.step_list.append(
-                        ExtractContentHttpOcrStep(
-                            self.main_workflow_context, MistralHttpOcrService()
-                        )
-                    )
-                if step == "extract_content_nanonets_ocr":
-                    self.step_list.append(
-                        ExtractContentHttpOcrStep(
-                            self.main_workflow_context, NanonetsHttpHttpOcrService()
-                        )
-                    )
-                if step == "extract_content_deepseek_ocr":
-                    self.step_list.append(
-                        ExtractContentHttpOcrStep(
-                            self.main_workflow_context, DeepSeekHttpHttpOcrService()
-                        )
-                    )
-                if step == "extract_barcode_data":
-                    self.step_list.append(ExtractBarcodeData())
-                if step == "extract_barcode_raw_data":
-                    self.step_list.append(ExtractBarcodeRawData())
-                if step == "extract_barcode_2ddoc_data":
-                    self.step_list.append(ExtractBarcode2DDocData())
-                if step == "llm_classify_document":
-                    self.step_list.append(
-                        LLMClassifyDocumentStep(
-                            self.main_workflow_context,
-                            self.main_workflow_context.classification_parameters.llm_model
-                            if (
-                                self.main_workflow_context.classification_parameters
-                                and self.main_workflow_context.classification_parameters.llm_model
-                                is not None
-                            )
-                            else self.workflow.llm_model,
-                        )
-                    )
-                if step == "llm_extract_data":
-                    self.step_list.append(
-                        LLMExtractDocumentStep(
-                            self.main_workflow_context,
-                            self.main_workflow_context.extraction_parameters.llm_model
-                            if (
-                                self.main_workflow_context.extraction_parameters
-                                and self.main_workflow_context.extraction_parameters.llm_model
-                                is not None
-                            )
-                            else self.workflow.llm_model,
-                        )
-                    )
-                if step == "save_workflow_result":
-                    self.step_list.append(
-                        SaveWorkflowResultStep(
-                            self.main_workflow_context,
-                            self.workflow.id,
-                            session,
-                        )
-                    )
+            # v1 events use the dedicated v1 step factory.
+            if self.event_data.version == 1:
+                self.step_list = prepareStepListsV1(
+                    steps=self.workflow.steps,
+                    workflow=self.workflow,
+                    event_v1=self.event_data,
+                    workflow_context=self.main_workflow_context,
+                    session=session,
+                )
+                return
+            elif self.event_data.version == 2:
+                self.step_list = []
+                return
+            else:
+                raise Exception(f"Unsupported event version: {self.event_data.version}")
+
         except Exception as e:
             raise WorkflowStepException("prepare_executor", e)
 
