@@ -25,45 +25,36 @@ class AttestationContratEnergieModel(BaseModel):
     date_emission: FuzzyDate = Field(
         default=None,
         description="Date d'émission de l'attestation.",
-        examples=["2026-04-01"],
         json_schema_extra={"metrics": Metric.STRING_DATE_EQUALITY},
     )
     nom_fournisseur: Optional[str] = Field(
         default=None,
         description="Nom ou raison sociale du fournisseur de service",
-        examples=["EDF", "ENGIE", "TOTAL ENERGIES"],
         json_schema_extra={"metrics": Metric.LEVENSHTEIN_DISTANCE},
     )
     siret_fournisseur: Optional[str] = Field(
         default=None,
         description="Numéro SIRET du fournisseur de service (14 chiffres)",
-        examples=["12345678900012"],
         json_schema_extra={"metrics": Metric.COMPARE_NUMBER},
     )
     beneficiaires: list[BeneficiaireModel] = Field(
         description="Liste des bénéficiaires du contrat",
         default_factory=list,
-        examples=[
-            [{"identite": "DUPONT Jean"}, {"identite": "DUPONT Marie"}],
-        ],
         json_schema_extra={"metrics": Metric.DEEP_EQUALITY},
     )
     adresse_beneficiaire: Optional[str] = Field(
         default=None,
         description="Adresse postale complète du bénéficiaire (adresse de livraison du service)",
-        examples=["10 RUE DE LA PAIX 75001 PARIS"],
         json_schema_extra={"metrics": Metric.LEVENSHTEIN_DISTANCE},
     )
     numero_contrat: Optional[str] = Field(
         default=None,
         description="Numéro de contrat ou d'abonnement avec le fournisseur",
-        examples=["1234567890"],
         json_schema_extra={"metrics": Metric.COMPARE_NUMBER},
     )
     date_debut_contrat: FuzzyDate = Field(
         default=None,
         description="Date de début du contrat. Si absente, renseigner `null`.",
-        examples=["2026-04-01"],
         json_schema_extra={"metrics": Metric.STRING_DATE_EQUALITY},
     )
 

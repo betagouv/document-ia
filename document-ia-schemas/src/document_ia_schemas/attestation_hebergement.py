@@ -11,8 +11,7 @@ from document_ia_schemas.identity import Identity
 class PersonneAttestationHebergementModel(BaseModel):
     identite: Identity = Field(
         default=None,
-        description="Nom et prenoms de la personne.",
-        examples=["DUPONT Camille"],
+        description="Nom et prenom de la personne.",
         json_schema_extra={
             "metrics": [
                 Metric.TOKEN_SET_EQUALITY,
@@ -23,13 +22,11 @@ class PersonneAttestationHebergementModel(BaseModel):
     date_naissance: FuzzyDate = Field(
         default=None,
         description="Date de naissance de la personne.",
-        examples=["1990-05-12"],
         json_schema_extra={"metrics": Metric.STRING_DATE_EQUALITY},
     )
     lieu_naissance: Optional[str] = Field(
         default=None,
         description="Lieu de naissance de la personne.",
-        examples=["Lyon"],
         json_schema_extra={"metrics": Metric.LEVENSHTEIN_DISTANCE},
     )
 
@@ -48,25 +45,21 @@ class AttestationHebergementModel(BaseModel):
     adresse_complete_hebergement: Optional[str] = Field(
         default=None,
         description="Adresse complete du lieu de residence.",
-        examples=["10 RUE DE LA PAIX 75001 PARIS"],
         json_schema_extra={"metrics": Metric.LEVENSHTEIN_DISTANCE},
     )
     date_redaction: FuzzyDate = Field(
         default=None,
         description="Date de redaction de l'attestation.",
-        examples=["2026-04-30"],
         json_schema_extra={"metrics": Metric.STRING_DATE_EQUALITY},
     )
     lieu_redaction: Optional[str] = Field(
         default=None,
         description="Lieu de redaction de l'attestation.",
-        examples=["Paris"],
         json_schema_extra={"metrics": Metric.LEVENSHTEIN_DISTANCE},
     )
     presence_signature_hebergeur: Optional[bool] = Field(
         default=None,
         description="Indique si la signature de l'hebergeur est detectee.",
-        examples=[True],
         json_schema_extra={"metrics": Metric.EQUALITY},
     )
 
