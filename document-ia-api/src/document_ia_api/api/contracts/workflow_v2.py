@@ -3,6 +3,8 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
+from document_ia_api.schemas.workflow import WorkflowExecutionDataV2
+
 
 ParameterDefaultValue = str | int | float | bool | list[str]
 
@@ -186,10 +188,7 @@ class WorkflowV2ExecuteResponse(BaseModel):
     """Validation-only response for v2 execute endpoint (phase 1)."""
 
     status: str = Field(description="Response status.", examples=["success"])
-    data: dict[str, Any] = Field(
-        description="Response payload.",
-        examples=[{"workflow_id": "document-extraction-v2", "validated": True}],
-    )
+    data: WorkflowExecutionDataV2 = Field(description="Execution payload.")
     message: str = Field(
         description="Human-readable response message.",
         examples=["Workflow override is valid"],

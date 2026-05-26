@@ -6,6 +6,7 @@ from document_ia_infra.core.model.file_info import FileInfo
 from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.schema.event import BaseEvent
 from document_ia_infra.data.workflow.dto.workflow_dto import LLMModel
+from document_ia_infra.data.workflow.dto.workflow_v2_dto import WorkflowV2Dto
 from document_ia_schemas import SupportedDocumentType
 
 
@@ -46,4 +47,8 @@ class WorkflowExecutionStartedEvent(BaseEvent):
     )
     extraction_parameters: ExtractionParameters = Field(
         description="Extraction parameters"
+    )
+    workflow_configuration: Optional[WorkflowV2Dto] = Field(
+        default=None,
+        description="Resolved workflow configuration for v2 execution (YAML + overrides)",
     )

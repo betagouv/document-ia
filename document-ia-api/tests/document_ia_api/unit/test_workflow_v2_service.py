@@ -1,10 +1,16 @@
 from typing import Any
+from uuid import uuid4
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
 
 from document_ia_api.api.contracts.workflow_v2 import WorkflowV2OverridePayload
 from document_ia_api.application.services.workflow_v2_service import WorkflowV2Service
+from document_ia_infra.data.workflow.dto.workflow_v2_dto import (
+    LlmClassifyDocumentStepDto,
+    LlmExtractDataStepDto,
+)
 
 
 @pytest.fixture
@@ -49,6 +55,83 @@ def _workflow_with_rules() -> dict[str, Any]:
             },
         ],
     }
+
+
+def test_resolve_workflow_configuration_merges_defaults_and_overrides(
+    service: WorkflowV2Service,
+):
+    payload = WorkflowV2OverridePayload.model_validate(
+        {
+            "llm_extract_data": [
+                {"param": "document_type", "value": "passeport"},
+            ],
+            "llm_classify_document": [
+                {"param": "document_types", "value": ["cni"]},
+            ],
+        }
+    )
+
+    resolved = service._resolve_workflow_configuration(
+        raw_workflow=_workflow_with_rules(),
+        override_payload=payload,
+    )
+
+    assert resolved.id == "document-extraction-v2"
+    classify = next(
+        s for s in resolved.steps if isinstance(s, LlmClassifyDocumentStepDto)
+    )
+    extract = next(s for s in resolved.steps if isinstance(s, LlmExtractDataStepDto))
+    assert isinstance(classify.params.document_types, list)
+    assert extract.params.document_type is not None
+    assert [document_type.value for document_type in classify.params.document_types] == [
+        "cni"
+    ]
+    assert extract.params.model.value == "albert-large"
+    assert extract.params.document_type.value == "passeport"
+
+
+@pytest.mark.asyncio
+async def test_execute_workflow_emits_started_event_with_workflow_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    db_session = AsyncMock()
+    service = WorkflowV2Service(db_session)
+
+    monkeypatch.setattr(
+        "document_ia_api.application.services.workflow_v2_service.workflow_v2_repository.get_raw_workflow_by_id",
+        lambda _: _workflow_with_rules(),
+    )
+
+    publish_mock = AsyncMock(return_value="1-0")
+    monkeypatch.setattr(service.redis_producer, "publish_message", publish_mock)
+
+    event_store_instance = MagicMock()
+    event_store_instance.emit_workflow_started = AsyncMock()
+    monkeypatch.setattr(
+        "document_ia_api.application.services.workflow_v2_service.EventStoreService",
+        lambda _: event_store_instance,
+    )
+
+    payload = WorkflowV2OverridePayload.model_validate(
+        {"llm_extract_data": [{"param": "document_type", "value": "cni"}]}
+    )
+
+    result = await service.execute_workflow(
+        organization_id=uuid4(),
+        workflow_id="document-extraction-v2",
+        file=None,
+        file_url="https://example.com/document.pdf",
+        metadata_json='{"source":"api"}',
+        override_payload=payload,
+    )
+
+    assert result.workflow_id == "document-extraction-v2"
+    assert result.workflow_configuration.id == "document-extraction-v2"
+
+    _, kwargs = event_store_instance.emit_workflow_started.call_args
+    assert kwargs["workflow_configuration"].id == "document-extraction-v2"
+    assert kwargs["workflow_configuration"].steps
+    assert kwargs["event_version"] == 2
 
 
 def _workflow_with_defaults_only() -> dict[str, Any]:

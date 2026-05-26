@@ -1,21 +1,126 @@
 import logging
+import uuid
+from datetime import datetime
 from typing import Any
 
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile
+from pydantic import ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from document_ia_api.api.contracts.workflow_v2 import WorkflowV2OverridePayload
 from document_ia_api.api.exceptions.entity_not_found_exception import (
     HttpEntityNotFoundException,
 )
+from document_ia_api.core.file_validator import validate_uploaded_file
+from document_ia_api.infra.s3_service import s3_service
+from document_ia_api.schemas.workflow import WorkflowExecutionDataV2
+from document_ia_infra.core.model.file_info import FileInfo
 from document_ia_infra.data.workflow.repository.workflow_v2_repository import (
     workflow_v2_repository,
 )
+from document_ia_infra.data.workflow.dto.workflow_v2_dto import WorkflowV2Dto
+from document_ia_infra.redis.model.workflow_execution_message import (
+    WorkflowExecutionMessage,
+)
+from document_ia_infra.redis.publisher import Publisher
+from document_ia_infra.redis.redis_settings import redis_settings
+from document_ia_infra.service.event_store_service import EventStoreService
 
 logger = logging.getLogger(__name__)
 
 
 class WorkflowV2Service:
     """Service dédié à la validation et à l'exécution des workflows v2."""
+
+    def __init__(self, db_session: AsyncSession | None = None):
+        self.db_session = db_session
+        self.redis_producer = Publisher[WorkflowExecutionMessage](
+            redis_settings.EVENT_STREAM_NAME
+        )
+
+    async def execute_workflow(
+        self,
+        organization_id: uuid.UUID,
+        workflow_id: str,
+        file: UploadFile | None,
+        file_url: str | None,
+        metadata_json: str | None,
+        override_payload: WorkflowV2OverridePayload | None,
+    ) -> WorkflowExecutionDataV2:
+        if self.db_session is None:
+            raise HTTPException(
+                status_code=500,
+                detail="WorkflowV2Service requires a database session for execution.",
+            )
+
+        # We get a raw workflow to get all the rules of the yaml and simplify the typping of all this points
+        raw_workflow = workflow_v2_repository.get_raw_workflow_by_id(workflow_id)
+        if raw_workflow is None:
+            raise HttpEntityNotFoundException(
+                entity_name="workflow", entity_id=workflow_id
+            )
+
+        resolved_workflow = self._resolve_workflow_configuration(
+            raw_workflow=raw_workflow,
+            override_payload=override_payload,
+        )
+
+        metadata = self._parse_metadata(metadata_json)
+        execution_id = str(uuid.uuid4())
+
+        file_info: FileInfo | None = None
+        if file is not None:
+            detected_mime_type = validate_uploaded_file(file)
+            file_content = await self._read_file_content(file)
+            s3_upload_result = await self._upload_file_to_s3(
+                file_content=file_content,
+                filename=file.filename,
+                content_type=detected_mime_type,
+                metadata=metadata,
+            )
+
+            file_info = FileInfo(
+                filename=file.filename or "unknown",
+                s3_key=s3_upload_result["s3_key"],
+                size=len(file_content),
+                content_type=detected_mime_type,
+                uploaded_at=datetime.now().isoformat(),
+                presigned_url=s3_upload_result["presigned_url"],
+            )
+
+        event_store_service = EventStoreService(self.db_session)
+        await event_store_service.emit_workflow_started(
+            workflow_id=workflow_id,
+            execution_id=execution_id,
+            organization_id=organization_id,
+            file_info=file_info,
+            file_url=file_url,
+            metadata=metadata,
+            workflow_configuration=resolved_workflow,
+            event_version=2,
+        )
+
+        publish_id = await self.redis_producer.publish_message(
+            WorkflowExecutionMessage(workflow_execution_id=execution_id)
+        )
+        if not publish_id:
+            logger.warning(
+                "Workflow v2 execution %s: message not published to stream %s",
+                execution_id,
+                self.redis_producer.stream_name,
+            )
+
+        return WorkflowExecutionDataV2(
+            execution_id=execution_id,
+            workflow_id=workflow_id,
+            organization_id=organization_id,
+            status="processing",
+            created_at=datetime.now().isoformat(),
+            file_info=file_info,
+            file_url=file_url,
+            metadata=metadata,
+            workflow_configuration=resolved_workflow,
+        )
 
     def validateWorkflow(
         self,
@@ -107,6 +212,159 @@ class WorkflowV2Service:
                     )
 
         return True
+
+    def _resolve_workflow_configuration(
+        self,
+        *,
+        raw_workflow: dict[str, Any],
+        override_payload: WorkflowV2OverridePayload | None,
+    ) -> WorkflowV2Dto:
+        override_by_step = override_payload.root if override_payload is not None else {}
+
+        resolved_steps: list[dict[str, Any]] = []
+        for step in raw_workflow.get("steps", []):
+            if not isinstance(step, dict):
+                continue
+
+            action = step.get("action")
+            if not isinstance(action, str) or not action:
+                continue
+            params = step.get("params") if isinstance(step.get("params"), dict) else {}
+            override_map = {
+                item.param: item.value for item in override_by_step.get(action, [])
+            }
+
+            resolved_params: dict[str, Any] = {}
+            for param_name, rule in params.items():
+                if param_name in override_map:
+                    resolved_params[param_name] = override_map[param_name]
+                    continue
+
+                if isinstance(rule, dict) and "default" in rule:
+                    resolved_params[param_name] = rule["default"]
+
+            step_payload: dict[str, Any] = {"action": action}
+            if resolved_params:
+                step_payload["params"] = resolved_params
+            resolved_steps.append(step_payload)
+
+        workflow_id = (
+            raw_workflow.get("id") if isinstance(raw_workflow.get("id"), str) else ""
+        )
+        workflow_name = (
+            raw_workflow.get("name")
+            if isinstance(raw_workflow.get("name"), str) and raw_workflow.get("name")
+            else workflow_id
+        )
+        workflow_version = (
+            raw_workflow.get("version")
+            if isinstance(raw_workflow.get("version"), str)
+            and raw_workflow.get("version")
+            else "2"
+        )
+
+        resolved_workflow_payload = {
+            "id": workflow_id,
+            "name": workflow_name,
+            "description": raw_workflow.get("description", ""),
+            "version": workflow_version,
+            "enabled": raw_workflow.get("enabled", True),
+            "supported_file_types": raw_workflow.get("supported_file_types", []),
+            "max_file_size_mb": raw_workflow.get("max_file_size_mb", 0),
+            "processing_timeout_minutes": raw_workflow.get(
+                "processing_timeout_minutes", 0
+            ),
+            "steps": resolved_steps,
+        }
+
+        try:
+            return WorkflowV2Dto.model_validate(resolved_workflow_payload)
+        except ValidationError as exc:
+            logger.error(
+                "Failed to resolve workflow configuration for workflow %s: %s",
+                raw_workflow.get("id"),
+                exc,
+            )
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "workflow_validation_error",
+                    "message": "Resolved workflow configuration is invalid",
+                },
+            ) from exc
+
+    def _parse_metadata(self, metadata_json: str | None) -> dict[str, Any]:
+        if not metadata_json:
+            return {}
+
+        import json
+
+        try:
+            metadata = json.loads(metadata_json)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "invalid_metadata",
+                    "message": f"Invalid JSON format in metadata: {str(exc)}",
+                },
+            ) from exc
+
+        if not isinstance(metadata, dict):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "invalid_metadata",
+                    "message": "Metadata must be a JSON object",
+                },
+            )
+
+        return metadata
+
+    async def _read_file_content(self, file: UploadFile) -> bytes:
+        try:
+            return await file.read()
+        except Exception as exc:
+            logger.error("Error reading file content: %s", exc)
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "file_read_error",
+                    "message": "Failed to read uploaded file",
+                },
+            ) from exc
+
+    async def _upload_file_to_s3(
+        self,
+        *,
+        file_content: bytes,
+        filename: str | None,
+        content_type: str,
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        import json
+
+        try:
+            s3_metadata = {
+                "workflow_metadata": json.dumps(metadata),
+                "upload_source": "workflow_v2_execution",
+            }
+
+            return await s3_service.upload_file(
+                file_data=file_content,
+                filename=filename,
+                content_type=content_type,
+                metadata=s3_metadata,
+            )
+        except Exception as exc:
+            logger.error("S3 upload failed: %s", exc)
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "s3_upload_error",
+                    "message": "Failed to upload file to storage",
+                },
+            ) from exc
 
     def _validate_workflow_param_value(
         self,

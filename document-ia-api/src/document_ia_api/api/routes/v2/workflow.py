@@ -1,8 +1,7 @@
 import logging
-import json
-from typing import Any, Optional
+from typing import Optional
 
-from document_ia_api.api.auth import verify_api_key
+from document_ia_api.api.auth import get_current_organization, verify_api_key
 from document_ia_api.api.contracts.error.errors import ProblemDetail
 from document_ia_api.api.contracts.workflow_v2 import (
     WorkflowV2ExecuteResponse,
@@ -15,6 +14,8 @@ from document_ia_api.api.mapper.workflow_v2_mapper import (
 from document_ia_api.api.middleware.rate_limiting_middleware import check_rate_limit
 from document_ia_api.application.services.workflow_v2_service import WorkflowV2Service
 from document_ia_api.schemas.rate_limiting import RateLimitInfo
+from document_ia_infra.data.database import database_manager
+from document_ia_infra.data.organization.dto.organization_dto import OrganizationDTO
 from document_ia_infra.data.workflow.repository.workflow_v2_repository import (
     workflow_v2_repository,
 )
@@ -30,6 +31,7 @@ from fastapi import (
 )
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -159,22 +161,45 @@ async def list_available_workflows(
     response_model=WorkflowV2ExecuteResponse,
     summary="Execute Workflow (v2)",
     description=(
-        "Validate and prepare execution for a v2 workflow. "
-        "This first version validates request payload only (workflow id, file XOR file_url, metadata JSON, and override JSON)."
+        "Validate inputs and start a v2 workflow execution. "
+        "The endpoint persists a started event containing the resolved workflow configuration "
+        "(YAML defaults + request overrides), then publishes the execution message to Redis."
     ),
     responses={
         200: {
             "model": WorkflowV2ExecuteResponse,
-            "description": "Workflow override validated successfully",
+            "description": "Workflow execution started successfully",
             "content": {
                 "application/json": {
                     "example": {
                         "status": "success",
                         "data": {
+                            "execution_id": "exec_123456789",
                             "workflow_id": "document-extraction-v2",
-                            "validated": True,
+                            "organization_id": "11111111-1111-1111-1111-111111111111",
+                            "status": "processing",
+                            "created_at": "2026-05-19T10:30:00.000Z",
+                            "file_info": None,
+                            "file_url": "https://example.com/document.pdf",
+                            "metadata": {"source": "api"},
+                            "workflow_configuration": {
+                                "id": "document-extraction-v2",
+                                "name": "Document extraction v2 (Configurable)",
+                                "version": "2.0.0",
+                                "steps": [
+                                    {"action": "download_file"},
+                                    {
+                                        "action": "llm_extract_data",
+                                        "params": {
+                                            "model": "albert-large",
+                                            "temperature": 0.0,
+                                            "document_type": "cni",
+                                        },
+                                    },
+                                ],
+                            },
                         },
-                        "message": "Workflow override is valid",
+                        "message": "Workflow execution started successfully",
                         "timestamp": "2026-05-19T10:30:00.000Z",
                     }
                 }
@@ -401,15 +426,14 @@ async def execute_workflow_v2(
         description="JSON string containing metadata object",
     ),
     api_key: str = Depends(verify_api_key),
+    current_org: OrganizationDTO = Depends(get_current_organization),
     rate_limit_info: RateLimitInfo = Depends(check_rate_limit),
+    db_session: AsyncSession = Depends(database_manager.async_get_db),
 ) -> WorkflowV2ExecuteResponse:
-    """Validate v2 workflow execution input (phase 1).
-
-    This endpoint currently validates the workflow existence and override payload only.
-    """
+    """Validate and start v2 workflow execution."""
 
     _ = (api_key, rate_limit_info)
-    workflow_v2_service = WorkflowV2Service()
+    workflow_v2_service = WorkflowV2Service(db_session)
 
     if (file is None and file_url is None) or (
         file is not None and file_url is not None
@@ -418,26 +442,6 @@ async def execute_workflow_v2(
             status_code=400,
             detail="Exactly one of 'file' or 'file_url' must be provided.",
         )
-
-    parsed_metadata: dict[str, Any] | None = None
-    if metadata is not None:
-        try:
-            loaded_metadata = json.loads(metadata)
-        except json.JSONDecodeError as exc:
-            raise HTTPException(
-                status_code=400,
-                detail="'metadata' must be a valid JSON object.",
-            ) from exc
-
-        if not isinstance(loaded_metadata, dict):
-            raise HTTPException(
-                status_code=400,
-                detail="'metadata' must be a JSON object (key/value map).",
-            )
-
-        parsed_metadata = loaded_metadata
-
-    _ = parsed_metadata
 
     try:
         parsed_override = (
@@ -450,12 +454,8 @@ async def execute_workflow_v2(
 
     try:
         workflow_v2_service.validateWorkflow(
-            workflow_id=workflow_id.strip(), override_payload=parsed_override
-        )
-        return WorkflowV2ExecuteResponse(
-            status="success",
-            data={"workflow_id": workflow_id.strip(), "validated": True},
-            message="Workflow override is valid",
+            workflow_id=workflow_id.strip(),
+            override_payload=parsed_override,
         )
     except HTTPException:
         raise
@@ -464,4 +464,30 @@ async def execute_workflow_v2(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unexpected error while validating workflow override",
+        ) from exc
+
+    try:
+        execution_data = await workflow_v2_service.execute_workflow(
+            organization_id=current_org.id,
+            workflow_id=workflow_id.strip(),
+            file=file,
+            file_url=file_url,
+            metadata_json=metadata,
+            override_payload=parsed_override,
+        )
+
+        return WorkflowV2ExecuteResponse(
+            status="success",
+            data=execution_data,
+            message="Workflow execution started successfully",
+        )
+    except HTTPException:
+        await db_session.rollback()
+        raise
+    except Exception as exc:
+        await db_session.rollback()
+        logger.error("Failed to start workflow v2 execution: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unexpected error while starting workflow execution",
         ) from exc

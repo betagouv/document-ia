@@ -140,20 +140,49 @@ class TestWorkflowsV2:
             ]
         }
 
-        response = client_with_api_key_standard.post(
-            "/api/v2/workflows/document-extraction-v2/execute",
-            data={
+        with patch(
+            "document_ia_api.api.routes.v2.workflow.WorkflowV2Service.validateWorkflow"
+        ) as mock_validate, patch(
+            "document_ia_api.api.routes.v2.workflow.WorkflowV2Service.execute_workflow"
+        ) as mock_execute:
+            mock_validate.return_value = True
+            mock_execute.return_value = {
+                "execution_id": "exec_test",
+                "workflow_id": "document-extraction-v2",
+                "organization_id": str(uuid4()),
+                "status": "processing",
+                "created_at": "2026-05-26T10:30:00",
+                "file_info": None,
                 "file_url": "https://example.com/document.pdf",
-                "override": json.dumps(override),
-            },
-            headers={"X-API-KEY": standard_api_key_value},
-        )
+                "metadata": {},
+                "workflow_configuration": {
+                    "id": "document-extraction-v2",
+                    "name": "Document extraction v2 (Configurable)",
+                    "description": "Workflow generique",
+                    "version": "2.0.0",
+                    "enabled": True,
+                    "supported_file_types": ["application/pdf"],
+                    "max_file_size_mb": 25,
+                    "processing_timeout_minutes": 5,
+                    "steps": [{"action": "download_file"}],
+                },
+            }
+
+            response = client_with_api_key_standard.post(
+                "/api/v2/workflows/document-extraction-v2/execute",
+                data={
+                    "file_url": "https://example.com/document.pdf",
+                    "override": json.dumps(override),
+                },
+                headers={"X-API-KEY": standard_api_key_value},
+            )
 
         assert response.status_code == 200
         body = response.json()
         assert body["status"] == "success"
-        assert body["data"]["validated"] is True
+        assert body["data"]["execution_id"] == "exec_test"
         assert body["data"]["workflow_id"] == "document-extraction-v2"
+        mock_validate.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_execute_workflow_v2_invalid_param_returns_400(
@@ -186,8 +215,31 @@ class TestWorkflowsV2:
     ):
         with patch(
             "document_ia_api.api.routes.v2.workflow.WorkflowV2Service.validateWorkflow"
-        ) as mock_validate:
+        ) as mock_validate, patch(
+            "document_ia_api.api.routes.v2.workflow.WorkflowV2Service.execute_workflow"
+        ) as mock_execute:
             mock_validate.return_value = True
+            mock_execute.return_value = {
+                "execution_id": "exec_defaults",
+                "workflow_id": "document-defaults-v2",
+                "organization_id": str(uuid4()),
+                "status": "processing",
+                "created_at": "2026-05-26T10:30:00",
+                "file_info": None,
+                "file_url": "https://example.com/document.pdf",
+                "metadata": {},
+                "workflow_configuration": {
+                    "id": "document-defaults-v2",
+                    "name": "Document defaults v2",
+                    "description": "Workflow defaults",
+                    "version": "2.0.0",
+                    "enabled": True,
+                    "supported_file_types": ["application/pdf"],
+                    "max_file_size_mb": 25,
+                    "processing_timeout_minutes": 5,
+                    "steps": [{"action": "download_file"}],
+                },
+            }
 
             response = client_with_api_key_standard.post(
                 "/api/v2/workflows/document-defaults-v2/execute",
@@ -198,10 +250,11 @@ class TestWorkflowsV2:
         assert response.status_code == 200
         body = response.json()
         assert body["status"] == "success"
-        assert body["data"]["validated"] is True
+        assert body["data"]["execution_id"] == "exec_defaults"
         assert body["data"]["workflow_id"] == "document-defaults-v2"
-        _, kwargs = mock_validate.call_args
+        _, kwargs = mock_execute.call_args
         assert kwargs["override_payload"].root == {}
+        mock_validate.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_execute_workflow_v2_returns_400_when_file_and_file_url_missing(

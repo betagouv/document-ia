@@ -67,7 +67,9 @@ class LLMExtractParams(BaseModel):
 
 
 class BaseWorkflowStepDto(BaseModel):
-    action: str
+    # Base class for shared step behavior; each concrete step defines its own
+    # discriminant `action` literal for Pydantic union dispatch.
+    pass
 
 
 class DownloadFileStepDto(BaseWorkflowStepDto):
