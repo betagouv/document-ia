@@ -1,7 +1,7 @@
 import logging
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from fastapi import HTTPException, UploadFile
 from pydantic import ValidationError
@@ -28,7 +28,12 @@ from document_ia_infra.service.event_store_service import EventStoreService
 
 logger = logging.getLogger(__name__)
 
+RawWorkflow = dict[str, Any]
+RawStep = dict[str, Any]
+RawRule = dict[str, Any]
 
+
+# noinspection PyUnnecessaryCast
 class WorkflowV2Service:
     """Service dédié à la validation et à l'exécution des workflows v2."""
 
@@ -53,12 +58,8 @@ class WorkflowV2Service:
                 detail="WorkflowV2Service requires a database session for execution.",
             )
 
-        # We get a raw workflow to get all the rules of the yaml and simplify the typping of all this points
-        raw_workflow = workflow_v2_repository.get_raw_workflow_by_id(workflow_id)
-        if raw_workflow is None:
-            raise HttpEntityNotFoundException(
-                entity_name="workflow", entity_id=workflow_id
-            )
+        # Raw workflow is needed here because override validation/resolution relies on YAML rules.
+        raw_workflow = self._get_raw_workflow_or_404(workflow_id)
 
         resolved_workflow = self._resolve_workflow_configuration(
             raw_workflow=raw_workflow,
@@ -66,7 +67,7 @@ class WorkflowV2Service:
         )
 
         metadata = self._parse_metadata(metadata_json)
-        execution_id = str(uuid.uuid4())
+        execution_id = uuid.uuid4().__str__()
 
         file_info: FileInfo | None = None
         if file is not None:
@@ -132,17 +133,10 @@ class WorkflowV2Service:
         Returns True on success, otherwise raises HTTPException with step/param details.
         """
 
-        raw_workflow = workflow_v2_repository.get_raw_workflow_by_id(workflow_id)
-        if raw_workflow is None:
-            raise HttpEntityNotFoundException(
-                entity_name="workflow", entity_id=workflow_id
-            )
+        raw_workflow = self._get_raw_workflow_or_404(workflow_id)
 
-        steps = raw_workflow.get("steps", [])
-        workflow_steps_by_action: dict[str, dict[str, Any]] = {}
-        for step in steps:
-            if not isinstance(step, dict):
-                continue
+        workflow_steps_by_action: dict[str, RawStep] = {}
+        for step in self._extract_steps(raw_workflow):
             action = step.get("action")
             if isinstance(action, str) and action:
                 workflow_steps_by_action[action] = step
@@ -162,9 +156,12 @@ class WorkflowV2Service:
                     },
                 )
 
-            step_params = step.get("params") or {}
-            if not isinstance(step_params, dict):
-                step_params = {}
+            step_params_raw = step.get("params")
+            step_params: RawRule = (
+                cast(RawRule, step_params_raw)
+                if isinstance(step_params_raw, dict)
+                else {}
+            )
 
             for param_override in step_overrides:
                 param_name = param_override.param
@@ -188,15 +185,17 @@ class WorkflowV2Service:
 
         # Check required params (no default) are provided by YAML or override.
         for step_name, step in workflow_steps_by_action.items():
-            step_params = step.get("params") or {}
-            if not isinstance(step_params, dict):
+            step_params_raw = step.get("params")
+            if not isinstance(step_params_raw, dict):
                 continue
+            step_params: RawRule = cast(RawRule, step_params_raw)
 
             step_override_names = {
                 item.param for item in override_by_step.get(step_name, [])
             }
 
-            for param_name, rule in step_params.items():
+            for param_name, rule_obj in step_params.items():
+                rule = rule_obj
                 if not isinstance(rule, dict):
                     continue
                 has_default = "default" in rule
@@ -222,14 +221,14 @@ class WorkflowV2Service:
         override_by_step = override_payload.root if override_payload is not None else {}
 
         resolved_steps: list[dict[str, Any]] = []
-        for step in raw_workflow.get("steps", []):
-            if not isinstance(step, dict):
-                continue
-
+        for step in self._extract_steps(raw_workflow):
             action = step.get("action")
             if not isinstance(action, str) or not action:
                 continue
-            params = step.get("params") if isinstance(step.get("params"), dict) else {}
+            params_raw = step.get("params")
+            params: RawRule = (
+                cast(RawRule, params_raw) if isinstance(params_raw, dict) else {}
+            )
             override_map = {
                 item.param: item.value for item in override_by_step.get(action, [])
             }
@@ -293,7 +292,8 @@ class WorkflowV2Service:
                 },
             ) from exc
 
-    def _parse_metadata(self, metadata_json: str | None) -> dict[str, Any]:
+    @staticmethod
+    def _parse_metadata(metadata_json: str | None) -> dict[str, Any]:
         if not metadata_json:
             return {}
 
@@ -319,9 +319,10 @@ class WorkflowV2Service:
                 },
             )
 
-        return metadata
+        return cast(dict[str, Any], metadata)
 
-    async def _read_file_content(self, file: UploadFile) -> bytes:
+    @staticmethod
+    async def _read_file_content(file: UploadFile) -> bytes:
         try:
             return await file.read()
         except Exception as exc:
@@ -334,8 +335,8 @@ class WorkflowV2Service:
                 },
             ) from exc
 
+    @staticmethod
     async def _upload_file_to_s3(
-        self,
         *,
         file_content: bytes,
         filename: str | None,
@@ -376,9 +377,11 @@ class WorkflowV2Service:
     ) -> None:
         if not isinstance(rule, dict):
             return
+        rule_dict: RawRule = cast(RawRule, rule)
 
-        enum_values = rule.get("enum")
-        if isinstance(enum_values, list) and enum_values and value not in enum_values:
+        enum_values_raw = rule_dict.get("enum")
+        enum_values = self._extract_str_list(enum_values_raw)
+        if enum_values and value not in enum_values:
             raise HTTPException(
                 status_code=400,
                 detail={
@@ -390,12 +393,16 @@ class WorkflowV2Service:
                 },
             )
 
-        one_of = rule.get("oneOf")
-        if isinstance(one_of, list) and one_of:
+        one_of_raw = rule_dict.get("oneOf")
+        one_of_variants: list[dict[str, Any]] = []
+        if isinstance(one_of_raw, list):
+            for variant in cast(list[Any], one_of_raw):
+                if isinstance(variant, dict):
+                    one_of_variants.append(cast(dict[str, Any], variant))
+        if one_of_variants:
             if not any(
                 self._matches_one_of_variant(variant=variant, value=value)
-                for variant in one_of
-                if isinstance(variant, dict)
+                for variant in one_of_variants
             ):
                 raise HTTPException(
                     status_code=400,
@@ -408,7 +415,7 @@ class WorkflowV2Service:
                 )
             return
 
-        expected_type = rule.get("type")
+        expected_type = rule_dict.get("type")
         if isinstance(expected_type, str) and not self._matches_simple_type(
             expected_type, value
         ):
@@ -423,9 +430,10 @@ class WorkflowV2Service:
                 },
             )
 
-    def _matches_one_of_variant(self, *, variant: dict, value: Any) -> bool:
+    def _matches_one_of_variant(self, *, variant: dict[str, Any], value: Any) -> bool:
         variant_type = variant.get("type")
-        variant_enum = variant.get("enum")
+        variant_enum_raw = variant.get("enum")
+        variant_enum = self._extract_str_list(variant_enum_raw)
 
         if isinstance(variant_enum, list) and variant_enum and value in variant_enum:
             return True
@@ -433,22 +441,24 @@ class WorkflowV2Service:
         if variant_type == "array":
             if not isinstance(value, list):
                 return False
+            items_raw = variant.get("items")
             items = (
-                variant.get("items") if isinstance(variant.get("items"), dict) else {}
+                cast(dict[str, Any], items_raw) if isinstance(items_raw, dict) else {}
             )
-            items_enum = (
-                items.get("enum") if isinstance(items.get("enum"), list) else None
-            )
+            items_enum_raw = items.get("enum")
+            items_enum = self._extract_str_list(items_enum_raw)
             if items_enum is None:
                 return True
-            return all(item in items_enum for item in value)
+            value_list = cast(list[Any], value)
+            return all(item in items_enum for item in value_list)
 
         if isinstance(variant_type, str):
             return self._matches_simple_type(variant_type, value)
 
         return False
 
-    def _matches_simple_type(self, expected_type: str, value: Any) -> bool:
+    @staticmethod
+    def _matches_simple_type(expected_type: str, value: Any) -> bool:
         if expected_type == "string":
             return isinstance(value, str)
         if expected_type == "integer":
@@ -462,3 +472,33 @@ class WorkflowV2Service:
         if expected_type == "object":
             return isinstance(value, dict)
         return True
+
+    @staticmethod
+    def _extract_steps(raw_workflow: RawWorkflow) -> list[RawStep]:
+        steps_raw = raw_workflow.get("steps")
+        if not isinstance(steps_raw, list):
+            return []
+        steps: list[RawStep] = []
+        for step in cast(list[Any], steps_raw):
+            if isinstance(step, dict):
+                steps.append(cast(RawStep, step))
+        return steps
+
+    @staticmethod
+    def _get_raw_workflow_or_404(workflow_id: str) -> RawWorkflow:
+        raw_workflow = workflow_v2_repository.get_raw_workflow_by_id(workflow_id)
+        if raw_workflow is None:
+            raise HttpEntityNotFoundException(
+                entity_name="workflow", entity_id=workflow_id
+            )
+        return raw_workflow
+
+    @staticmethod
+    def _extract_str_list(raw_value: Any) -> list[str] | None:
+        if not isinstance(raw_value, list):
+            return None
+        raw_list = cast(list[Any], raw_value)
+        values = [item for item in raw_list if isinstance(item, str)]
+        if len(values) != len(raw_list):
+            return None
+        return values

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Dict, get_args, get_origin, Type, Union, Annotated
+from types import GenericAlias
+from typing import Any, Dict, get_args, get_origin, Type, Union, Annotated, cast
 
 from pydantic import BaseModel, Field, create_model
 
@@ -28,14 +29,16 @@ def _normalize_annotation(
     args = list(get_args(tp))
 
     if origin in (list, tuple, set, frozenset):
-        return origin[tuple(_normalize_annotation(a, cache) for a in args)]  # type: ignore[index]
+        normalized_args = tuple(_normalize_annotation(a, cache) for a in args)
+        return GenericAlias(origin, normalized_args)
     if origin in (dict,):
         # Only normalize value type
         if len(args) == 2:
-            return dict[
+            normalized_args = (
                 _normalize_annotation(args[0], cache),
                 _normalize_annotation(args[1], cache),
-            ]  # type: ignore[index]
+            )
+            return GenericAlias(dict, normalized_args)
         return tp
     if origin is Union:
         return Union[tuple(_normalize_annotation(a, cache) for a in args)]  # type: ignore[index]
@@ -86,10 +89,13 @@ def get_response_format(
         fields[name] = (norm_ann, default)
 
     # Build a new model on top of BaseModel (clean, without aliases/extras)
-    NewModel: Type[BaseModel] = create_model(
-        f"{model_cls.__name__}OpenAI",
-        __base__=BaseModel,
-        **fields,  # type: ignore[arg-type]
+    NewModel = cast(
+        Type[BaseModel],
+        create_model(
+            f"{model_cls.__name__}OpenAI",
+            __base__=BaseModel,
+            **fields,  # type: ignore[arg-type]
+        ),
     )
 
     cache[model_cls] = NewModel

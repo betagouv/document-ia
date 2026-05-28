@@ -1,3 +1,5 @@
+from typing import Any
+
 from document_ia_api.api.contracts.workflow_v2 import (
     WorkflowV2RawItem,
     WorkflowV2ResponseItem,
@@ -15,19 +17,16 @@ def _map_parameter_rule(
     - simple type: expose a standard `type`
     - composite type: expose a clean `oneOf`
     """
-    base_kwargs = {
-        "description": rule.description,
-        "default": rule.default,
-    }
-
     if rule.one_of:
         return WorkflowV2StepParameterRuleResponse(
-            **base_kwargs,
+            description=rule.description,
+            default=rule.default,
             oneOf=rule.one_of,
         )
 
     return WorkflowV2StepParameterRuleResponse(
-        **base_kwargs,
+        description=rule.description,
+        default=rule.default,
         type=rule.type,
         enum=rule.enum,
     )
@@ -66,7 +65,7 @@ def map_workflow_v2_raw_to_contract(
 
 
 def map_workflow_v2_raw_list_to_contract(
-    workflows_raw: list[dict],
+    workflows_raw: list[dict[str, Any]],
 ) -> list[WorkflowV2ResponseItem]:
     """Parse raw workflow dicts and map them to typed API contracts."""
     parsed_workflows = [

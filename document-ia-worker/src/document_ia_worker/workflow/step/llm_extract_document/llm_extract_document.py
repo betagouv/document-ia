@@ -149,13 +149,15 @@ class LLMExtractDocumentStep(BaseStep[LLMExtractionResult]):
             logger.info(
                 f"LLM extraction step skipped because classification returned {document_type.value}"
             )
-            return (
-                LLMExtractionResult(
-                    data=DocumentExtraction[EmptyExtractionProperties](
-                        type=document_type,
-                        properties=EmptyExtractionProperties(),
-                    )
+            casted_extraction = cast(
+                DocumentExtraction[BaseModel],
+                DocumentExtraction[EmptyExtractionProperties](
+                    type=document_type,
+                    properties=EmptyExtractionProperties(),
                 ),
+            )
+            return (
+                LLMExtractionResult(data=casted_extraction),
                 StepLLMMetadata(
                     step_name=self.__class__.__name__,
                     request_tokens=0,
@@ -189,7 +191,7 @@ class LLMExtractDocumentStep(BaseStep[LLMExtractionResult]):
         # Build the parameterized GenericModel type at runtime. This is valid at runtime because
         # DocumentExtraction is a pydantic.generics.GenericModel. Static type checkers may warn.
         # Cast to Any/type to silence static analysis complaints about dynamically parameterized generics.
-        # noinspection PyTypeHints
+
         response_class = cast(Any, DocumentExtraction[extract_class])
 
         try:

@@ -55,26 +55,27 @@ class GenericProperty(BaseModel):
                 and field_value
                 and isinstance(field_value[0], BaseModel)
             ):
+                model_items = cast(list[BaseModel], field_value)
                 final_value = [
                     GenericProperty(
                         name="item",
                         value=cls.convert_pydantic_model(item),
                         type="object",
                     )
-                    for item in field_value
-                    if isinstance(item, BaseModel)
+                    for item in model_items
                 ]
             elif isinstance(field_value, dict):
                 nested_dict_props: list[GenericProperty] = []
-                for key, val in field_value.items():  # pyright: ignore [reportUnknownVariableType]
-                    if not isinstance(val, str):
+                dict_value = cast(dict[Any, Any], field_value)
+                for key, val in dict_value.items():
+                    if not isinstance(key, str) or not isinstance(val, str):
                         raise ValueError(
                             f"Erreur de type dans le champ '{field_name}'. "
-                            f"La clé '{cast(str, key)}' a une valeur de type '{type(val).__name__}'. "
+                            f"La clé '{key}' a une valeur de type '{type(val).__name__}'. "
                             "Seuls les dictionnaires de type Dict[str, str] sont supportés."
                         )
                     nested_dict_props.append(
-                        GenericProperty(name=cast(str, key), value=val, type="string")
+                        GenericProperty(name=key, value=val, type="string")
                     )
                 final_value = nested_dict_props
                 ui_type = "object"
