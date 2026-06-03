@@ -38,16 +38,6 @@ Les textes OCR peuvent contenir des erreurs, des imprécisions ou des zones illi
 5. Distingue clairement les informations relatives au document (numéro, dates) de celles relatives à la personne
 6. Renvoie UNIQUEMENT un objet JSON conforme au schéma spécifié, sans texte explicatif ni commentaire
 
-## Informations à extraire
-- **numero_document**: Identifiant unique du permis de conduire (format alphanumérique).
-- **date_delivrance**: Date de délivrance du permis de conduire (format JJ/MM/AAAA). Si absente, renseigner `null`.
-- **date_expiration**: Date limite de validité du permis de conduire (format JJ/MM/AAAA). Si absente, renseigner `null`.
-- **nom**: Nom de famille du titulaire (en majuscules sur le document).
-- **prenom**: Prénom du titulaire (premier prénom).
-- **date_naissance**: Date de naissance du titulaire (format JJ/MM/AAAA). Si absente, renseigner `null`.
-- **lieu_naissance**: Lieu de naissance du titulaire (ville). Si absente, renseigner `null`.
-- **adresse**: Adresse de résidence du titulaire. Si absente, renseigner `null`.
-
 ## Vérification finale avant réponse
 - Vérifie une dernière fois que tu n'as PAS INVENTÉ de données manquantes.
 - Confirme que les champs pour lesquels aucune information n'est disponible sont bien définis comme `null`.

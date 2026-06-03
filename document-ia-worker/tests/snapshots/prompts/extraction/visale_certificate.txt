@@ -33,12 +33,6 @@ Les textes OCR peuvent contenir des erreurs, des imprécisions ou des zones illi
 5. Distingue clairement les informations relatives au document (numéro, dates) de celles relatives à la personne
 6. Renvoie UNIQUEMENT un objet JSON conforme au schéma spécifié, sans texte explicatif ni commentaire
 
-## Informations à extraire
-- **numero_visa**: Numéro unique du visa Visale (commence généralement par la lettre V suivie de chiffres)
-- **date_delivrance**: Date d'attribution ou de délivrance du visa (format JJ/MM/AAAA). Si absente, renseigner `null`.
-- **date_fin_validite**: Date limite jusqu'à laquelle le visa est valable pour la signature du bail (format JJ/MM/AAAA).
-- **beneficiaires**: Liste des candidats locataires (bénéficiaires) mentionnés sur le certificat. Lorsque plusieurs locataires sont couverts par la même garantie VISALE, leurs différentes identités sont déclinées (Prénom 1, Nom 1)
-
 ## Vérification finale avant réponse
 - Vérifie une dernière fois que tu n'as PAS INVENTÉ de données manquantes.
 - Confirme que les champs pour lesquels aucune information n'est disponible sont bien définis comme `null`.

@@ -33,14 +33,6 @@ Les textes OCR peuvent contenir des erreurs, des imprécisions ou des zones illi
 5. Distingue clairement les informations relatives au document (numéro, dates) de celles relatives à la personne
 6. Renvoie UNIQUEMENT un objet JSON conforme au schéma spécifié, sans texte explicatif ni commentaire
 
-## Informations à extraire
-- **hebergeur**: Identite complete de l'hebergeur.
-- **heberge**: Identite complete de la personne hebergee.
-- **adresse_complete_hebergement**: Adresse complete du lieu de residence.
-- **date_redaction**: Date de redaction de l'attestation.
-- **lieu_redaction**: Lieu de redaction de l'attestation.
-- **presence_signature_hebergeur**: Indique si la signature de l'hebergeur est detectee.
-
 ## Vérification finale avant réponse
 - Vérifie une dernière fois que tu n'as PAS INVENTÉ de données manquantes.
 - Confirme que les champs pour lesquels aucune information n'est disponible sont bien définis comme `null`.

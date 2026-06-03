@@ -40,20 +40,6 @@ Les textes OCR peuvent contenir des erreurs, des imprécisions ou des zones illi
 5. Distingue clairement les informations relatives au document (numéro, dates) de celles relatives à la personne
 6. Renvoie UNIQUEMENT un objet JSON conforme au schéma spécifié, sans texte explicatif ni commentaire
 
-## Informations à extraire
-- **nature_document**: Nature du document immobilier (quittance, recu partiel, avis d'echeance).
-- **type_parc**: Type de parc locatif (prive ou social/HLM).
-- **bailleur**: Informations d'identification du bailleur ou mandataire.
-- **locataires**: Liste des locataires mentionnes sur la quittance.
-- **adresse_bien_loue**: Adresse du logement loue.
-- **periode_debut**: Date de debut de la periode couverte.
-- **periode_fin**: Date de fin de la periode couverte.
-- **date_paiement**: Date de reception effective du paiement.
-- **date_emission**: Date d'emission de la quittance.
-- **loyer_de_base**: Montant du loyer hors charges.
-- **provisions_charges**: Montant des provisions sur charges.
-- **presence_signature**: Indique si une signature/cachet de validation est detectee.
-
 ## Vérification finale avant réponse
 - Vérifie une dernière fois que tu n'as PAS INVENTÉ de données manquantes.
 - Confirme que les champs pour lesquels aucune information n'est disponible sont bien définis comme `null`.

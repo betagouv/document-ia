@@ -35,16 +35,6 @@ Les textes OCR peuvent contenir des erreurs, des imprécisions ou des zones illi
 5. Distingue clairement les informations relatives au document (numéro, dates) de celles relatives à la personne
 6. Renvoie UNIQUEMENT un objet JSON conforme au schéma spécifié, sans texte explicatif ni commentaire
 
-## Informations à extraire
-- **annee_imposition**: Annee d'imposition de la taxe fonciere (format AAAA).
-- **date_mise_en_recouvrement**: Date de mise en recouvrement de la taxe fonciere.
-- **proprietaire_identite**: Identite du proprietaire impose.
-- **adresse_bien_impose**: Adresse du bien immobilier concerne par la taxe fonciere.
-- **reference_avis**: Reference unique de l'avis de taxe fonciere.
-- **base_nette_imposition**: Base nette d'imposition en euros.
-- **montant_taxe_fonciere**: Montant de la taxe fonciere hors frais annexes en euros.
-- **montant_total_a_payer**: Montant total a payer de la taxe fonciere en euros.
-
 ## Vérification finale avant réponse
 - Vérifie une dernière fois que tu n'as PAS INVENTÉ de données manquantes.
 - Confirme que les champs pour lesquels aucune information n'est disponible sont bien définis comme `null`.
