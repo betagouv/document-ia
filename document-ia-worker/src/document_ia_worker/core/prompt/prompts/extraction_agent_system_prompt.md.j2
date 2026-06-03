@@ -47,7 +47,9 @@ Voici des exemples de réponses attendues :
 
 {% for example in extraction_examples -%}
 Exemple {{ loop.index }} :
+```
 {{ example | tojson(indent=2) }}
+```
 {% endfor %}
 
 N'ajoute pas de texte avant ou après le JSON final.

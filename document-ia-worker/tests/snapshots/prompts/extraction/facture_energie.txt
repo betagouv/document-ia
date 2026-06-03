@@ -80,6 +80,7 @@ Réponds UNIQUEMENT avec un objet JSON au format suivant :
 Voici des exemples de réponses attendues :
 
 Exemple 1 :
+```
 {
   "date_emission": "2024-01-15",
   "nom_fournisseur": "EDF",
@@ -94,7 +95,9 @@ Exemple 1 :
   "numero_facture": "FAC-2024-001234",
   "montant_ttc": 125.5
 }
+```
 Exemple 2 :
+```
 {
   "date_emission": "2024-02-28",
   "nom_fournisseur": "ENGIE",
@@ -112,6 +115,7 @@ Exemple 2 :
   "numero_facture": "FAC-2024-004892",
   "montant_ttc": 214.9
 }
+```
 
 
 N'ajoute pas de texte avant ou après le JSON final.

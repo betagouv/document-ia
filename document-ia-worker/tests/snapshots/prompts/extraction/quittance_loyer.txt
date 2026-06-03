@@ -88,6 +88,7 @@ Réponds UNIQUEMENT avec un objet JSON au format suivant :
 Voici des exemples de réponses attendues :
 
 Exemple 1 :
+```
 {
   "nature_document": "quittance",
   "type_parc": "prive",
@@ -111,7 +112,9 @@ Exemple 1 :
   "provisions_charges": 70.0,
   "presence_signature": true
 }
+```
 Exemple 2 :
+```
 {
   "nature_document": "quittance",
   "type_parc": "social",
@@ -135,6 +138,7 @@ Exemple 2 :
   "provisions_charges": 90.0,
   "presence_signature": null
 }
+```
 
 
 N'ajoute pas de texte avant ou après le JSON final.

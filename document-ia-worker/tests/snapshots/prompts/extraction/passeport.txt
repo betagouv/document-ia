@@ -75,6 +75,7 @@ Réponds UNIQUEMENT avec un objet JSON au format suivant :
 Voici des exemples de réponses attendues :
 
 Exemple 1 :
+```
 {
   "numero_document": "123456789012",
   "nom": "DUPONT",
@@ -86,6 +87,7 @@ Exemple 1 :
   "date_expiration": "2020-01-01",
   "date_naissance": "1990-01-01"
 }
+```
 
 
 N'ajoute pas de texte avant ou après le JSON final.

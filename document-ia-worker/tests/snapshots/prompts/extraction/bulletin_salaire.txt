@@ -77,6 +77,7 @@ Réponds UNIQUEMENT avec un objet JSON au format suivant :
 Voici des exemples de réponses attendues :
 
 Exemple 1 :
+```
 {
   "nom_employeur": "ACME CORPORATION",
   "siret": "12345678900012",
@@ -89,7 +90,9 @@ Exemple 1 :
   "net_imposable": 2800.0,
   "cumul_net_imposable": 32500.0
 }
+```
 Exemple 2 :
+```
 {
   "nom_employeur": "BOULANGERIE DUPONT",
   "siret": "12345678900012",
@@ -102,7 +105,9 @@ Exemple 2 :
   "net_imposable": 2800.0,
   "cumul_net_imposable": 32500.0
 }
+```
 Exemple 3 :
+```
 {
   "nom_employeur": "Madame DURAND Valérie",
   "siret": "40536786300099",
@@ -115,6 +120,7 @@ Exemple 3 :
   "net_imposable": 1850.5,
   "cumul_net_imposable": 3701.0
 }
+```
 
 
 N'ajoute pas de texte avant ou après le JSON final.

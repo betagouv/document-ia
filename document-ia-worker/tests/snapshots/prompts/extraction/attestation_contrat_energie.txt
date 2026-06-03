@@ -76,6 +76,7 @@ Réponds UNIQUEMENT avec un objet JSON au format suivant :
 Voici des exemples de réponses attendues :
 
 Exemple 1 :
+```
 {
   "date_emission": "2024-01-15",
   "nom_fournisseur": "EDF",
@@ -89,7 +90,9 @@ Exemple 1 :
   "numero_contrat": "ELEC-458796214",
   "date_debut_contrat": "2024-01-01"
 }
+```
 Exemple 2 :
+```
 {
   "date_emission": "2024-02-28",
   "nom_fournisseur": "ENGIE",
@@ -106,6 +109,7 @@ Exemple 2 :
   "numero_contrat": "GAZ-998745120",
   "date_debut_contrat": "2024-01-10"
 }
+```
 
 
 N'ajoute pas de texte avant ou après le JSON final.

@@ -74,6 +74,7 @@ Réponds UNIQUEMENT avec un objet JSON au format suivant :
 Voici des exemples de réponses attendues :
 
 Exemple 1 :
+```
 {
   "numero_document": "1234567890123456789",
   "date_delivrance": "2010-06-15",
@@ -84,6 +85,7 @@ Exemple 1 :
   "lieu_naissance": "PARIS",
   "adresse": "123 Rue de la Paix, 75008 Paris"
 }
+```
 
 
 N'ajoute pas de texte avant ou après le JSON final.

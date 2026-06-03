@@ -65,6 +65,7 @@ Réponds UNIQUEMENT avec un objet JSON au format suivant :
 Voici des exemples de réponses attendues :
 
 Exemple 1 :
+```
 {
   "hebergeur": {
     "identite": "DUPONT Marie",
@@ -81,7 +82,9 @@ Exemple 1 :
   "lieu_redaction": "Paris",
   "presence_signature_hebergeur": true
 }
+```
 Exemple 2 :
+```
 {
   "hebergeur": {
     "identite": "BERNARD Chloe",
@@ -98,6 +101,7 @@ Exemple 2 :
   "lieu_redaction": "Lyon",
   "presence_signature_hebergeur": true
 }
+```
 
 
 N'ajoute pas de texte avant ou après le JSON final.

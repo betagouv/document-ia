@@ -96,6 +96,7 @@ Réponds UNIQUEMENT avec un objet JSON au format suivant :
 Voici des exemples de réponses attendues :
 
 Exemple 1 :
+```
 {
   "annee_revenus": "2023",
   "date_mise_en_recouvrement": "2024-07-31",
@@ -113,7 +114,9 @@ Exemple 1 :
   "impot_revenu_net_avant_corrections": 5500.0,
   "montant_impot": 5000.0
 }
+```
 Exemple 2 :
+```
 {
   "annee_revenus": "2023",
   "date_mise_en_recouvrement": "2024-07-31",
@@ -131,6 +134,7 @@ Exemple 2 :
   "impot_revenu_net_avant_corrections": 5500.0,
   "montant_impot": 5000.0
 }
+```
 
 
 N'ajoute pas de texte avant ou après le JSON final.

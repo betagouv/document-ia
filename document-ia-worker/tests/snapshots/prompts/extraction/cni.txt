@@ -76,6 +76,7 @@ Réponds UNIQUEMENT avec un objet JSON au format suivant :
 Voici des exemples de réponses attendues :
 
 Exemple 1 :
+```
 {
   "numero_document": "123456789012",
   "date_delivrance": "2010-01-01",
@@ -87,6 +88,7 @@ Exemple 1 :
   "nationalite": "FRANÇAISE",
   "bande_mrz": "IDFRADUPONT\u003c\u003cJEAN\u003cROBIN\u003cADRIEN\u003c\u003c\u003c\u003e\u003c\u003e\u003c\u003c\u003c\u003c\u003c\u003e\u003e\u003e123456789012FRA0002152F2809160\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c\u003c00"
 }
+```
 
 
 N'ajoute pas de texte avant ou après le JSON final.
