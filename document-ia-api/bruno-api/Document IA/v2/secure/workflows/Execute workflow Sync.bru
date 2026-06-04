@@ -1,11 +1,11 @@
 meta {
-  name: Execute workflow
+  name: Execute workflow Sync
   type: http
-  seq: 2
+  seq: 3
 }
 
 post {
-  url: {{server}}api/v2/workflows/{{worfklow_id}}/execute
+  url: {{server}}api/v2/workflows/{{worfklow_id}}/execute-sync
   body: multipartForm
   auth: inherit
 }
