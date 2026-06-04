@@ -1,14 +1,21 @@
+import json
 import streamlit as st
 
 from document_ia_evals.utils.api import wait_for_execution
 from document_ia_evals.utils.config import config
 
-def main():
 
+def main():
     title = "🔍 Retrieve results of an execution"
     st.set_page_config(page_title=title, page_icon="🔍")
     st.title(title)
-    st.caption(f"Using API endpoint: {config.DOCUMENT_IA_BASE_URL}")
+
+    # Mask base URL to protect sensitive environments
+    masked_url = config.DOCUMENT_IA_BASE_URL
+    if "localhost" not in masked_url and "127.0.0.1" not in masked_url:
+        masked_url = "https://<DOCUMENT_IA_URL>/"
+
+    st.caption(f"Using API endpoint: {masked_url}")
 
     api_key = config.DOCUMENT_IA_API_KEY
     if not api_key:
@@ -17,14 +24,18 @@ def main():
 
     execution_id = st.text_input("ID de l'exécution à récupérer")
 
-
     if st.button("Récupérer l'exécution"):
         with st.spinner("Traitement de la réponse...", show_time=True):
             execution_details = wait_for_execution(execution_id, api_key)
             if execution_details is None:
                 st.error(f"Aucune exécution trouvée avec l'ID `{execution_id}`.")
                 return
-            st.json(execution_details.model_dump() if execution_details else None)
+            result_dict = execution_details.model_dump() if execution_details else None
+            st.code(
+                json.dumps(result_dict, indent=2, ensure_ascii=False),
+                language="json",
+            )
+
 
 if __name__ == "__main__":
     main()
