@@ -8,6 +8,11 @@ v2 introduces YAML-defined workflows with runtime configuration resolution (defa
 - `POST /api/v2/workflows/{workflow_id}/execute`
 - `POST /api/v2/workflows/{workflow_id}/execute-sync`
 
+## Auth and authorization semantics
+
+- `401 Unauthorized`: missing or invalid `X-API-KEY`.
+- `403 Forbidden`: API key is valid but the resource is not accessible for the authenticated organization.
+
 ## 1) List available workflows
 
 ### Request

@@ -63,7 +63,7 @@ router = APIRouter()
         },
         401: {
             "model": ProblemDetail,
-            "description": "Unauthorized (ProblemDetail)",
+            "description": "Unauthorized (ProblemDetail) — missing or invalid API key",
             "content": {
                 "application/json": {
                     "example": {
@@ -79,7 +79,7 @@ router = APIRouter()
         },
         403: {
             "model": ProblemDetail,
-            "description": "Forbidden (ProblemDetail) — require PlatformAdmin",
+            "description": "Forbidden (ProblemDetail) — authenticated but not PlatformAdmin",
             "content": {
                 "application/json": {
                     "example": {
@@ -160,11 +160,11 @@ async def get_organization_list(
         },
         401: {
             "model": ProblemDetail,
-            "description": "Unauthorized (ProblemDetail)",
+            "description": "Unauthorized (ProblemDetail) — missing or invalid API key",
         },
         403: {
             "model": ProblemDetail,
-            "description": "Forbidden (ProblemDetail)",
+            "description": "Forbidden (ProblemDetail) — authenticated but not PlatformAdmin",
         },
         404: {
             "model": ProblemDetail,
@@ -262,7 +262,7 @@ async def get_organization_details(
         },
         401: {
             "model": ProblemDetail,
-            "description": "Unauthorized (ProblemDetail)",
+            "description": "Unauthorized (ProblemDetail) — missing or invalid API key",
             "content": {
                 "application/json": {
                     "example": {
@@ -278,7 +278,7 @@ async def get_organization_details(
         },
         403: {
             "model": ProblemDetail,
-            "description": "Forbidden (ProblemDetail)",
+            "description": "Forbidden (ProblemDetail) — authenticated but not PlatformAdmin",
             "content": {
                 "application/json": {
                     "example": {
@@ -339,7 +339,7 @@ async def create_organization(
         204: {"description": "Organization deleted"},
         401: {
             "model": ProblemDetail,
-            "description": "Unauthorized (ProblemDetail)",
+            "description": "Unauthorized (ProblemDetail) — missing or invalid API key",
             "content": {
                 "application/json": {
                     "example": {
@@ -355,7 +355,7 @@ async def create_organization(
         },
         403: {
             "model": ProblemDetail,
-            "description": "Forbidden (ProblemDetail)",
+            "description": "Forbidden (ProblemDetail) — authenticated but not PlatformAdmin",
             "content": {
                 "application/json": {
                     "example": {

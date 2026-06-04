@@ -66,7 +66,7 @@ class TestGetOrganizationList:
         """Test 401 when no API key is provided."""
         response = client_without_api_key.get("/api/v1/admin/organizations")
 
-        assert response.status_code == 403
+        assert response.status_code == 401
 
     def test_get_organizations_unauthorized_invalid_api_key(
             self, client_with_api_key_invalid, invalid_api_key_value
@@ -80,7 +80,7 @@ class TestGetOrganizationList:
         assert response.status_code == 401
         data = response.json()
         assert data["status"] == 401
-        assert data["code"] == "http.unauthorized"
+        assert data["code"] == "auth.invalid_api_key"
 
     def test_get_organizations_forbidden_standard_user(
             self, client_with_api_key_standard, standard_api_key_value
@@ -91,9 +91,9 @@ class TestGetOrganizationList:
             headers={"X-API-KEY": standard_api_key_value},
         )
 
-        assert response.status_code == 401
+        assert response.status_code == 403
         data = response.json()
-        assert "admin" in data["detail"].lower() or "unauthorized" in data["detail"].lower()
+        assert "admin" in data["detail"].lower() or "forbidden" in data["detail"].lower()
 
 
 class TestGetOrganizationDetails:
@@ -177,7 +177,7 @@ class TestGetOrganizationDetails:
             f"/api/v1/admin/organizations/{fake_id}"
         )
 
-        assert response.status_code == 403
+        assert response.status_code == 401
 
     def test_get_organization_details_forbidden_standard_user(
             self, client_with_api_key_standard, standard_api_key_value
@@ -189,7 +189,7 @@ class TestGetOrganizationDetails:
             headers={"X-API-KEY": standard_api_key_value},
         )
 
-        assert response.status_code == 401
+        assert response.status_code == 403
 
 
 class TestCreateOrganization:
@@ -398,7 +398,7 @@ class TestCreateOrganization:
             json=payload,
         )
 
-        assert response.status_code == 403
+        assert response.status_code == 401
 
     def test_create_organization_forbidden_standard_user(
             self, client_with_api_key_standard, standard_api_key_value
@@ -415,7 +415,7 @@ class TestCreateOrganization:
             headers={"X-API-KEY": standard_api_key_value},
         )
 
-        assert response.status_code == 401
+        assert response.status_code == 403
 
 
 class TestDeleteOrganization:
@@ -483,7 +483,7 @@ class TestDeleteOrganization:
             f"/api/v1/admin/organizations/{fake_id}"
         )
 
-        assert response.status_code == 403
+        assert response.status_code == 401
 
     def test_delete_organization_forbidden_standard_user(
             self, client_with_api_key_standard, standard_api_key_value
@@ -495,4 +495,4 @@ class TestDeleteOrganization:
             headers={"X-API-KEY": standard_api_key_value},
         )
 
-        assert response.status_code == 401
+        assert response.status_code == 403

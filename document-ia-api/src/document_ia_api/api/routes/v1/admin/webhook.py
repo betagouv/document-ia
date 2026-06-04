@@ -62,8 +62,14 @@ router = APIRouter(
                 }
             },
         },
-        401: {"model": ProblemDetail, "description": "Unauthorized (ProblemDetail)"},
-        403: {"model": ProblemDetail, "description": "Forbidden (ProblemDetail)"},
+        401: {
+            "model": ProblemDetail,
+            "description": "Unauthorized (ProblemDetail) — missing or invalid API key",
+        },
+        403: {
+            "model": ProblemDetail,
+            "description": "Forbidden (ProblemDetail) — authenticated but not PlatformAdmin",
+        },
         404: {
             "model": ProblemDetail,
             "description": "Organization not found (ProblemDetail)",
@@ -138,8 +144,14 @@ async def list_webhooks(
                 }
             },
         },
-        401: {"model": ProblemDetail, "description": "Unauthorized (ProblemDetail)"},
-        403: {"model": ProblemDetail, "description": "Forbidden (ProblemDetail)"},
+        401: {
+            "model": ProblemDetail,
+            "description": "Unauthorized (ProblemDetail) — missing or invalid API key",
+        },
+        403: {
+            "model": ProblemDetail,
+            "description": "Forbidden (ProblemDetail) — authenticated but not PlatformAdmin",
+        },
         404: {
             "model": ProblemDetail,
             "description": "Organization not found (ProblemDetail)",
@@ -180,8 +192,14 @@ async def create_webhook(
     description="Delete a webhook by id (admin only).",
     responses={
         204: {"description": "Webhook deleted"},
-        401: {"model": ProblemDetail, "description": "Unauthorized (ProblemDetail)"},
-        403: {"model": ProblemDetail, "description": "Forbidden (ProblemDetail)"},
+        401: {
+            "model": ProblemDetail,
+            "description": "Unauthorized (ProblemDetail) — missing or invalid API key",
+        },
+        403: {
+            "model": ProblemDetail,
+            "description": "Forbidden (ProblemDetail) — authenticated but not PlatformAdmin",
+        },
         404: {
             "model": ProblemDetail,
             "description": "Webhook not found (ProblemDetail)",

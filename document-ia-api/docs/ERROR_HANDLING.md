@@ -21,8 +21,8 @@ The API standardizes errors using a Problem Details-like format, for example:
 | Code | Typical cases |
 |---|---|
 | `400` | invalid payload, invalid override, invalid `file` / `file_url` combination |
-| `401` | invalid or missing API key (depending on route) |
-| `403` | admin access required (depending on route/error mapping) |
+| `401` | authentication failed (missing API key, invalid API key) |
+| `403` | authenticated but not authorized (admin role required, foreign resource access) |
 | `404` | missing entity (workflow, execution, organization, webhook...) |
 | `408` | `execute-sync` timeout |
 | `422` | schema/request validation errors |

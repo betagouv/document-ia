@@ -153,11 +153,11 @@ async def _start_workflow_v2_execution(
         },
         401: {
             "model": ProblemDetail,
-            "description": "Unauthorized (ProblemDetail) — invalid API key",
+            "description": "Unauthorized (ProblemDetail) — missing or invalid API key",
         },
         403: {
             "model": ProblemDetail,
-            "description": "Forbidden (ProblemDetail) — Api key not provided",
+            "description": "Forbidden (ProblemDetail) — authenticated but not allowed for this resource",
         },
         429: {
             "model": ProblemDetail,
@@ -268,11 +268,11 @@ async def list_available_workflows(
         },
         401: {
             "model": ProblemDetail,
-            "description": "Unauthorized (ProblemDetail) — invalid API key",
+            "description": "Unauthorized (ProblemDetail) — missing or invalid API key",
         },
         403: {
             "model": ProblemDetail,
-            "description": "Forbidden (ProblemDetail) — API key not provided",
+            "description": "Forbidden (ProblemDetail) — authenticated but not allowed for this resource",
         },
         422: {
             "model": ProblemDetail,
@@ -601,11 +601,11 @@ async def execute_workflow_v2(
         },
         401: {
             "model": ProblemDetail,
-            "description": "Unauthorized (ProblemDetail) — invalid API key",
+            "description": "Unauthorized (ProblemDetail) — missing or invalid API key",
         },
         403: {
             "model": ProblemDetail,
-            "description": "Forbidden (ProblemDetail) — API key not provided",
+            "description": "Forbidden (ProblemDetail) — authenticated but not allowed for this resource",
         },
         408: {
             "model": ProblemDetail,

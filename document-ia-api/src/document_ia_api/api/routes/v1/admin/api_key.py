@@ -74,7 +74,7 @@ router = APIRouter()
         },
         401: {
             "model": ProblemDetail,
-            "description": "Unauthorized (ProblemDetail)",
+            "description": "Unauthorized (ProblemDetail) — missing or invalid API key",
             "content": {
                 "application/json": {
                     "example": {
@@ -90,7 +90,7 @@ router = APIRouter()
         },
         403: {
             "model": ProblemDetail,
-            "description": "Forbidden (ProblemDetail)",
+            "description": "Forbidden (ProblemDetail) — authenticated but not PlatformAdmin",
             "content": {
                 "application/json": {
                     "example": {
@@ -215,7 +215,7 @@ async def create_api_key(
         },
         401: {
             "model": ProblemDetail,
-            "description": "Unauthorized (ProblemDetail)",
+            "description": "Unauthorized (ProblemDetail) — missing or invalid API key",
             "content": {
                 "application/json": {
                     "example": {
@@ -231,7 +231,7 @@ async def create_api_key(
         },
         403: {
             "model": ProblemDetail,
-            "description": "Forbidden (ProblemDetail)",
+            "description": "Forbidden (ProblemDetail) — authenticated but not PlatformAdmin",
             "content": {
                 "application/json": {
                     "example": {
@@ -307,7 +307,7 @@ async def update_api_key_status(
         204: {"description": "API key deleted"},
         401: {
             "model": ProblemDetail,
-            "description": "Unauthorized (ProblemDetail)",
+            "description": "Unauthorized (ProblemDetail) — missing or invalid API key",
             "content": {
                 "application/json": {
                     "example": {
@@ -323,7 +323,7 @@ async def update_api_key_status(
         },
         403: {
             "model": ProblemDetail,
-            "description": "Forbidden (ProblemDetail)",
+            "description": "Forbidden (ProblemDetail) — authenticated but not PlatformAdmin",
             "content": {
                 "application/json": {
                     "example": {

@@ -17,7 +17,7 @@ The FastAPI security scheme is defined in `api/auth.py` through `APIKeyHeader(na
 3. Verify linked organization.
 4. Inject organization in `request.state.organization`.
 
-If key is invalid or not linked:
+If key is missing, invalid, or not linked:
 
 - `401 Unauthorized`.
 
@@ -30,7 +30,7 @@ Admin routes require `is_platform_admin`:
 
 Otherwise:
 
-- `401 Unauthorized` (current implementation behavior).
+- `403 Forbidden` (authenticated but not enough privileges).
 
 ## Related endpoints
 

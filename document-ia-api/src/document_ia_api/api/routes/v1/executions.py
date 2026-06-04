@@ -124,6 +124,22 @@ router = APIRouter(prefix="/executions")
                 }
             },
         },
+        403: {
+            "model": ProblemDetail,
+            "description": "Forbidden (ProblemDetail) — execution belongs to another organization",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "type": "about:blank",
+                        "title": "Forbidden",
+                        "status": 403,
+                        "code": "http.forbidden",
+                        "detail": "Forbidden access to execution",
+                        "instance": "/api/v1/executions/{execution_id}",
+                    }
+                }
+            },
+        },
         404: {
             "model": ProblemDetail,
             "description": "Execution not found (ProblemDetail)",
@@ -181,9 +197,7 @@ async def get_execution(
             execution_id
         )
         if last_event.organization_id != organization.id:
-            raise HTTPException(
-                status_code=401, detail="Unauthorized access to execution"
-            )
+            raise HTTPException(status_code=403, detail="Forbidden access to execution")
         event_version_raw = last_event.event.get("version")
         event_version = event_version_raw if isinstance(event_version_raw, int) else 1
 
