@@ -3,6 +3,7 @@ from uuid import uuid4
 
 import pytest
 import json
+from fastapi import HTTPException
 
 
 class TestWorkflowsV2:
@@ -299,3 +300,59 @@ class TestWorkflowsV2:
 
         assert response.status_code == 400
         assert response.json()["status"] == 400
+
+    @pytest.mark.asyncio
+    async def test_execute_workflow_v2_sync_wrapper_success(
+        self, client_with_api_key_standard, standard_api_key_value
+    ):
+        with patch(
+            "document_ia_api.api.routes.v2.workflow._start_workflow_v2_execution"
+        ) as mock_start, patch(
+            "document_ia_api.api.routes.v2.workflow.WorkflowService.wait_for_execution_result"
+        ) as mock_wait:
+            mock_start.return_value = type(
+                "ExecutionData",
+                (),
+                {"execution_id": "exec_sync_v2"},
+            )()
+            mock_wait.return_value = {
+                "id": "exec_sync_v2",
+                "status": "STARTED",
+                "data": {
+                    "created_at": "2026-05-26T10:30:00",
+                    "s3_file_info": None,
+                    "file_url": "https://example.com/document.pdf",
+                },
+            }
+
+            response = client_with_api_key_standard.post(
+                "/api/v2/workflows/document-extraction-v2/execute-sync",
+                data={"file_url": "https://example.com/document.pdf"},
+                headers={"X-API-KEY": standard_api_key_value},
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["id"] == "exec_sync_v2"
+        assert body["status"] == "STARTED"
+        mock_start.assert_called_once()
+        mock_wait.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_execute_workflow_v2_sync_wrapper_propagates_validation_error(
+        self, client_with_api_key_standard, standard_api_key_value
+    ):
+        with patch(
+            "document_ia_api.api.routes.v2.workflow._start_workflow_v2_execution"
+        ) as mock_start:
+            mock_start.side_effect = HTTPException(
+                status_code=400, detail="Exactly one of 'file' or 'file_url' must be provided."
+            )
+
+            response = client_with_api_key_standard.post(
+                "/api/v2/workflows/document-extraction-v2/execute-sync",
+                data={},
+                headers={"X-API-KEY": standard_api_key_value},
+            )
+
+        assert response.status_code == 400
