@@ -24,6 +24,7 @@ class StepLLMMetadata(StepMetadata):
 class MainWorkflowContext(BaseModel):
     execution_id: str
     organization_id: Optional[UUID]
+    event_version: int = Field(default=1)
     start_time: datetime
     classification_parameters: Optional[ClassificationParameters] = Field(default=None)
     extraction_parameters: Optional[ExtractionParameters] = Field(default=None)

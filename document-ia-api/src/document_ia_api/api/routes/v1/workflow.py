@@ -207,13 +207,13 @@ async def execute_workflow(
         default=None,
         description="JSON string matching the `WorkflowClassificationParameterRequest` model",
         alias="classification-parameters",
-        example='{"llm_model": "albert-small"}',
+        examples=['{"llm_model": "albert-small"}'],
     ),
     extraction_parameters: Optional[str] = Form(
         default=None,
         description="JSON string matching the `WorkflowExtractionParameterRequest` model",
         alias="extraction-parameters",
-        example='{"llm_model": "albert-small", "document_type": "passeport"}',
+        examples=['{"llm_model": "albert-small", "document_type": "passeport"}'],
     ),
     metadata: Optional[str] = Form(
         default=None,

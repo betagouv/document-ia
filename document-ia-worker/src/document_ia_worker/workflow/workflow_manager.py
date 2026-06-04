@@ -2,8 +2,6 @@ import logging
 from datetime import datetime, UTC
 from typing import Optional, Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from document_ia_infra.data.database import DatabaseManager
 from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.repository.event import EventRepository
@@ -17,6 +15,9 @@ from document_ia_infra.data.webhook.repository.webhook_repository import (
 )
 from document_ia_infra.data.workflow.dto.workflow_dto import WorkflowDTO
 from document_ia_infra.data.workflow.repository.workflow import workflow_repository
+from document_ia_infra.data.workflow.repository.workflow_v2_repository import (
+    workflow_v2_repository,
+)
 from document_ia_infra.exception.retryable_exception import RetryableException
 from document_ia_infra.redis.model.webhook_message import WebHookMessage
 from document_ia_infra.redis.model.workflow_execution_message import (
@@ -26,6 +27,8 @@ from document_ia_infra.redis.publisher import Publisher
 from document_ia_infra.redis.redis_manager import RedisManager
 from document_ia_infra.redis.redis_settings import redis_settings
 from document_ia_infra.service.event_store_service import EventStoreService
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from document_ia_worker.core.aggregator_log import (
     setup_logging_worker,
     execution_id_var,
@@ -43,6 +46,7 @@ from document_ia_worker.exception.workflow_step_exception import WorkflowStepExc
 from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
 from document_ia_worker.workflow.step.base_step import BaseStep
 from document_ia_worker.workflow.step_factory_v1 import prepareStepListsV1
+from document_ia_worker.workflow.step_factory_v2 import prepareStepListsV2
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +57,7 @@ class WorkflowManager:
     step_list: list[BaseStep[Any]]
     workflow_context: dict[str, Any]
     main_workflow_context: Optional[MainWorkflowContext]
-    workflow: Optional[WorkflowDTO]
+    workflow: Optional[WorkflowDTO]  # Deprecated: used only for workflow v1.
 
     def __init__(
         self,
@@ -80,6 +84,7 @@ class WorkflowManager:
         self._agg_token_buf = agg_buffer_var.set([])
         self._agg_token_started_at = start_time_var.set(datetime.now(UTC))
 
+        # noinspection PyTypeChecker
         self._webhook_producer: Publisher[WebHookMessage] = Publisher(
             redis_settings.WEBHOOK_STREAM_NAME, RedisManager()
         )
@@ -136,16 +141,41 @@ class WorkflowManager:
                     else:
                         raise e
                 finally:
+                    workflow_id_for_logs = (
+                        self.workflow.id
+                        if self.workflow is not None
+                        else (
+                            self.event_data.workflow_id
+                            if self.event_data is not None
+                            else "unknown"
+                        )
+                    )
+                    workflow_steps_for_logs = (
+                        self.workflow.steps
+                        if self.workflow is not None
+                        else (
+                            [
+                                step.action
+                                for step in self.event_data.workflow_configuration.steps
+                            ]
+                            if (
+                                self.event_data is not None
+                                and self.event_data.workflow_configuration is not None
+                            )
+                            else []
+                        )
+                    )
                     # Persist DB changes
                     await session.commit()
                     if need_to_notify_webhook:
                         await self._notify_webhook_execution_finished(session)
                     handle_finish_execution(
                         logger,
-                        self.workflow.id if self.workflow else "unknown",
+                        self.main_workflow_context.organization_id,
+                        workflow_id_for_logs,
                         is_success,
                         self.retry_count,
-                        self.workflow.steps if self.workflow else [],
+                        workflow_steps_for_logs,
                         self._agg_token_exec,
                         self._agg_token_buf,
                         self._agg_token_started_at,
@@ -178,30 +208,45 @@ class WorkflowManager:
                 )
 
             self.event_dto = event_dto
-            self.workflow = await workflow_repository.get_workflow_by_id(
-                event_dto.workflow_id
+
+            event_version_raw = event_dto.event.get("version")
+            event_version = (
+                event_version_raw if isinstance(event_version_raw, int) else 1
             )
+
+            workflow_v1: Optional[WorkflowDTO] = None
+            workflow_v2 = None
+            if event_version == 1:
+                workflow_v1 = await workflow_repository.get_workflow_by_id(
+                    event_dto.workflow_id
+                )
+            elif event_version == 2:
+                workflow_v2 = workflow_v2_repository.get_raw_workflow_by_id(
+                    event_dto.workflow_id
+                )
+
+            if workflow_v1 is None and workflow_v2 is None:
+                logger.error(f"Workflow {event_dto.workflow_id} not found")
+                raise WorkflowNotFoundException(self.message.workflow_execution_id)
+
+            self.workflow = workflow_v1
 
             if self.main_workflow_context is not None:
                 self.main_workflow_context.organization_id = event_dto.organization_id
 
-                if self.event_dto.event["classification_parameters"] is not None:
+                classification_raw = self.event_dto.event.get(
+                    "classification_parameters"
+                )
+                if isinstance(classification_raw, dict):
                     self.main_workflow_context.classification_parameters = (
-                        ClassificationParameters(
-                            **self.event_dto.event["classification_parameters"]
-                        )
+                        ClassificationParameters.model_validate(classification_raw)
                     )
 
-                if self.event_dto.event["extraction_parameters"] is not None:
+                extraction_raw = self.event_dto.event.get("extraction_parameters")
+                if isinstance(extraction_raw, dict):
                     self.main_workflow_context.extraction_parameters = (
-                        ExtractionParameters(
-                            **self.event_dto.event["extraction_parameters"]
-                        )
+                        ExtractionParameters.model_validate(extraction_raw)
                     )
-
-            if self.workflow is None:
-                logger.error(f"Workflow {event_dto.workflow_id} not found")
-                raise WorkflowNotFoundException(self.message.workflow_execution_id)
 
         except Exception as e:
             # We catch all exceptions here to wrap them in a WorkflowStepException
@@ -210,18 +255,22 @@ class WorkflowManager:
     def _prepare_executor(self, session: AsyncSession):
         try:
             if (
-                self.workflow is None
-                or self.event_dto is None
+                self.event_dto is None
                 or self.event_data is None
                 or self.main_workflow_context is None
             ):
                 raise Exception("Workflow or event not prepared")
+
+            self.main_workflow_context.event_version = self.event_data.version
 
             # Ensure a fresh step list per workflow execution
             self.step_list = []
 
             # v1 events use the dedicated v1 step factory.
             if self.event_data.version == 1:
+                if self.workflow is None:
+                    raise Exception("Workflow v1 not prepared")
+
                 self.step_list = prepareStepListsV1(
                     steps=self.workflow.steps,
                     workflow=self.workflow,
@@ -231,7 +280,11 @@ class WorkflowManager:
                 )
                 return
             elif self.event_data.version == 2:
-                self.step_list = []
+                self.step_list = prepareStepListsV2(
+                    event_v2=self.event_data,
+                    workflow_context=self.main_workflow_context,
+                    session=session,
+                )
                 return
             else:
                 raise Exception(f"Unsupported event version: {self.event_data.version}")
@@ -241,8 +294,8 @@ class WorkflowManager:
 
     def _parse_start_event(self):
         try:
-            if self.workflow is None or self.event_dto is None:
-                raise Exception("Workflow or event not prepared")
+            if self.event_dto is None:
+                raise Exception("Event not prepared")
             try:
                 return WorkflowExecutionStartedEvent(**self.event_dto.event)
             except Exception as e:
@@ -326,8 +379,8 @@ class WorkflowManager:
                 await step.cleanup(is_last_cleanup)
 
     async def _save_failure_event(self, db: AsyncSession, exception: Exception):
-        if self.workflow is None or self.event_dto is None:
-            raise Exception("Workflow or event not prepared")
+        if self.event_dto is None:
+            raise Exception("Event not prepared")
 
         error_message: Optional[str] = None
         failed_step: Optional[str] = None
@@ -359,8 +412,14 @@ class WorkflowManager:
         # Étape échouée
         final_failed_step = failed_step if failed_step is not None else "unknown"
 
+        workflow_id = (
+            self.workflow.id
+            if self.workflow is not None
+            else self.event_dto.workflow_id
+        )
+
         await EventStoreService(db).emit_workflow_failed(
-            workflow_id=self.workflow.id,
+            workflow_id=workflow_id,
             execution_id=self.event_dto.execution_id,
             organization_id=self.event_dto.organization_id,
             error_type=error_type,

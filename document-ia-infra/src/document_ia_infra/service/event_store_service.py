@@ -243,6 +243,7 @@ class EventStoreService:
         output_summary: Dict[str, Any],
         steps_completed: int,
         workflow_metadata: Optional[list[Any]] = None,
+        event_version: int = 1,
     ) -> WorkflowExecutionCompletedEvent:
         """Create a WorkflowExecutionCompletedEvent."""
         return WorkflowExecutionCompletedEvent(
@@ -251,7 +252,7 @@ class EventStoreService:
             organization_id=organization_id,
             execution_id=execution_id,
             created_at=datetime.now(UTC),
-            version=1,  # Will be updated when stored
+            version=event_version,
             final_result=final_result,
             total_processing_time_ms=total_processing_time_ms,
             output_summary=output_summary,
@@ -345,6 +346,7 @@ class EventStoreService:
         output_summary: Dict[str, Any],
         steps_completed: int,
         workflow_metadata: Optional[list[Any]] = None,
+        event_version: int = 1,
     ) -> EventStoreRecord:
         """Emit and store a workflow completed event."""
         event = self.create_workflow_completed_event(
@@ -356,6 +358,7 @@ class EventStoreService:
             output_summary=output_summary,
             steps_completed=steps_completed,
             workflow_metadata=workflow_metadata,
+            event_version=event_version,
         )
         return await self.store_event(event)
 

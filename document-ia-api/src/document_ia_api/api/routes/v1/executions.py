@@ -22,6 +22,9 @@ from document_ia_api.application.services.execution_service import ExecutionServ
 from document_ia_infra.data.database import database_manager
 from document_ia_infra.data.organization.dto.organization_dto import OrganizationDTO
 from document_ia_infra.data.workflow.repository.workflow import workflow_repository
+from document_ia_infra.data.workflow.repository.workflow_v2_repository import (
+    workflow_v2_repository,
+)
 from document_ia_infra.exception.entity_not_found_exception import (
     EntityNotFoundException,
 )
@@ -181,8 +184,22 @@ async def get_execution(
             raise HTTPException(
                 status_code=401, detail="Unauthorized access to execution"
             )
-        workflow = await workflow_repository.get_workflow_by_id(last_event.workflow_id)
-        if workflow is None:
+        event_version_raw = last_event.event.get("version")
+        event_version = event_version_raw if isinstance(event_version_raw, int) else 1
+
+        workflow_exists = False
+        if event_version == 2:
+            workflow_exists = (
+                workflow_v2_repository.get_raw_workflow_by_id(last_event.workflow_id)
+                is not None
+            )
+        else:
+            workflow_exists = (
+                await workflow_repository.get_workflow_by_id(last_event.workflow_id)
+                is not None
+            )
+
+        if not workflow_exists:
             raise EntityNotFoundException("Workflow", last_event.workflow_id)
 
         return execution_service.get_event_model(
