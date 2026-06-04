@@ -105,7 +105,7 @@ def test_prepare_executor_uses_v1_factory_for_event_v1():
     mock_factory.assert_called_once()
 
 
-def test_prepare_executor_uses_legacy_path_for_non_v1_events():
+def test_prepare_executor_uses_v2_factory_for_event_v2():
     manager = _build_manager()
     manager.workflow = _build_workflow(["download_file"])
     manager.event_dto = MagicMock()
@@ -116,15 +116,15 @@ def test_prepare_executor_uses_legacy_path_for_non_v1_events():
     with patch(
         "document_ia_worker.workflow.workflow_manager.prepareStepListsV1"
     ) as mock_factory, patch(
-        "document_ia_worker.workflow.workflow_manager.DownloadFileStep",
-        return_value="legacy_download",
-    ) as mock_download:
+        "document_ia_worker.workflow.workflow_manager.prepareStepListsV2",
+        return_value=["from_v2_factory"],
+    ) as mock_v2_factory:
         manager._prepare_executor(session)
 
     mock_factory.assert_not_called()
-    mock_download.assert_called_once_with(
-        manager.main_workflow_context,
-        manager.event_data.s3_file_info,
-        manager.event_data.file_url,
+    mock_v2_factory.assert_called_once_with(
+        event_v2=manager.event_data,
+        workflow_context=manager.main_workflow_context,
+        session=session,
     )
-    assert manager.step_list == ["legacy_download"]
+    assert manager.step_list == ["from_v2_factory"]

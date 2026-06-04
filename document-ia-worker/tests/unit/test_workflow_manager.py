@@ -81,10 +81,10 @@ class TestWorkflowManager:
             # Handle finish execution
             mock_dependencies["handle_finish"].assert_called_once()
             args, _ = mock_dependencies["handle_finish"].call_args
-            assert args[2] is True  # is_success
-            assert args[8] is None  # err_type
-            assert args[9] is None  # err_message
-            assert args[10] is None  # failed_step
+            assert args[3] is True  # is_success
+            assert args[9] is None  # err_type
+            assert args[10] is None  # err_message
+            assert args[11] is None  # failed_step
 
             # DB dispose
             mock_db_manager.return_value.dispose_async.assert_called_once()
@@ -113,9 +113,9 @@ class TestWorkflowManager:
             # Should handle finish execution with success=False
             mock_dependencies["handle_finish"].assert_called_once()
             args, _ = mock_dependencies["handle_finish"].call_args
-            assert args[2] is False  # is_success
-            assert args[8] == "TypeError"  # err_type
-            assert args[9] == "Generic Error"  # err_message
+            assert args[3] is False  # is_success
+            assert args[9] == "TypeError"  # err_type
+            assert args[10] == "Generic Error"  # err_message
 
             # DB should still be committed and disposed
             mock_session = mock_db_manager.return_value.local_session.return_value.__aenter__.return_value
@@ -148,9 +148,9 @@ class TestWorkflowManager:
             # Handle finish log
             mock_dependencies["handle_finish"].assert_called_once()
             args, _ = mock_dependencies["handle_finish"].call_args
-            assert args[2] is False
-            assert args[8] == "ValueError"
-            assert args[10] == "step_x"  # failed_step
+            assert args[3] is False
+            assert args[9] == "ValueError"
+            assert args[11] == "step_x"  # failed_step
 
     @pytest.mark.asyncio
     async def test_start_workflow_step_exception_retryable_not_last_retry(self, mock_workflow_message, mock_db_manager,
@@ -175,8 +175,8 @@ class TestWorkflowManager:
             # Handle finish log
             mock_dependencies["handle_finish"].assert_called_once()
             args, _ = mock_dependencies["handle_finish"].call_args
-            assert args[2] is False
-            assert args[8] == "RetryableException"
+            assert args[3] is False
+            assert args[9] == "RetryableException"
 
     @pytest.mark.asyncio
     async def test_start_workflow_step_exception_retryable_is_last_retry(self, mock_workflow_message, mock_db_manager,
