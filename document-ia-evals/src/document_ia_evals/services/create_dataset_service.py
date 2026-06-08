@@ -494,6 +494,9 @@ def process_files_parallel_v2(
     for file in files:
         file_queue.put(file)
 
+    if on_progress:
+        on_progress(0, len(files))
+
     # Start worker threads
     for _ in range(min(n_workers, len(files))):
         t = threading.Thread(

@@ -4,7 +4,10 @@ from document_ia_evals.utils.api import get_workflows
 
 
 def render_workflow_configurator(
-    api_key: str, key_suffix: str = ""
+    api_key: str,
+    key_suffix: str = "",
+    default_workflow_id: str | None = None,
+    default_document_type: str | None = None,
 ) -> Tuple[Dict[str, Any] | None, Dict[str, Any]]:
     """
     Renders the workflow configuration component.
@@ -13,6 +16,8 @@ def render_workflow_configurator(
     Args:
         api_key (str): The API key for Document IA API
         key_suffix (str): Suffix to append to widget keys to avoid collisions
+        default_workflow_id (str): Optional workflow ID to pre-select
+        default_document_type (str): Optional document type to pre-select in parameters
 
     Returns:
         Tuple of (selected_workflow_dict, override_dict)
@@ -34,12 +39,53 @@ def render_workflow_configurator(
         st.warning("No workflows available.")
         return None, {}
 
+    widget_key = f"workflow_selector{key_suffix}"
+    tracker_key = f"last_default_workflow_id{key_suffix}"
+
+    # Find the matching workflow dictionary
+    matching_workflow = None
+    if default_workflow_id:
+        for w in workflows:
+            if w.get("id") == default_workflow_id:
+                matching_workflow = w
+                break
+
+    # If the default workflow changed, force update the selectbox state
+    if default_workflow_id != st.session_state.get(tracker_key):
+        st.session_state[tracker_key] = default_workflow_id
+        if matching_workflow:
+            st.session_state[widget_key] = matching_workflow
+
+    # If the default document type suggestion changed, force update the parameter selectbox states
+    tracker_doc_key = f"last_default_doc_type{key_suffix}"
+    if default_document_type != st.session_state.get(tracker_doc_key):
+        st.session_state[tracker_doc_key] = default_document_type
+        # Scan steps of the currently selected (or matching) workflow and set session state
+        selected_workflow_state = st.session_state.get(
+            widget_key, matching_workflow or (workflows[0] if workflows else None)
+        )
+        if selected_workflow_state:
+            for step in selected_workflow_state.get("steps", []):
+                step_action = step.get("action")
+                params_schema = step.get("params", {})
+                for param_name, param_schema in params_schema.items():
+                    if (
+                        param_name in ["document_type", "document-type"]
+                        and default_document_type
+                    ):
+                        param_key = f"{step_action}_{param_name}{key_suffix}"
+                        if "enum" in param_schema:
+                            if default_document_type in param_schema["enum"]:
+                                st.session_state[param_key] = default_document_type
+                        else:
+                            st.session_state[param_key] = default_document_type
+
     # Dropdown with the list of available workflow names
     selected_workflow = st.selectbox(
         "Sélectionnez un workflow",
         options=workflows,
         format_func=lambda w: w.get("name", w.get("id")),
-        key=f"workflow_selector{key_suffix}",
+        key=widget_key,
     )
 
     if not selected_workflow:

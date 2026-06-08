@@ -41,6 +41,9 @@ def main():
             st.Page("pages/create_dataset_v2.py", title="📝 Create Ground Truth V2"),
             st.Page("pages/create_predictions.py", title="🔄 Create New Predictions"),
             st.Page(
+                "pages/create_predictions_v2.py", title="🔄 Create New Predictions V2"
+            ),
+            st.Page(
                 "pages/evaluate_metrics.py", title="🎯 Evaluate Predictions Metrics"
             ),
             st.Page("pages/list_experiments.py", title="📚 List Previous Evaluations"),

@@ -14,6 +14,25 @@ from document_ia_schemas import SupportedDocumentType, resolve_extract_schema
 load_dotenv()
 
 
+def extract_project_metadata(description: str | None) -> dict[str, Any] | None:
+    """Extract structured metadata from a project description HTML comment block."""
+    if not description:
+        return None
+
+    start_tag = "<!--LS_METADATA_START-->"
+    end_tag = "<!--LS_METADATA_END-->"
+
+    if start_tag in description and end_tag in description:
+        try:
+            start_idx = description.find(start_tag) + len(start_tag)
+            end_idx = description.find(end_tag)
+            metadata_json = description[start_idx:end_idx].strip()
+            return json.loads(metadata_json)
+        except Exception:
+            pass
+    return None
+
+
 def get_label_studio_client() -> LabelStudio:
     if config.ALLOW_INSECURE_REQUESTS is True:
         import requests
@@ -342,7 +361,10 @@ def generate_label_config(
 
 
 def create_label_studio_project(
-    dataset_name: str, doc_type: SupportedDocumentType, s3_prefix: str
+    dataset_name: str,
+    doc_type: SupportedDocumentType,
+    s3_prefix: str,
+    workflow_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Create a Label Studio project with S3 storage integration.
@@ -351,6 +373,7 @@ def create_label_studio_project(
         dataset_name: Name for the dataset/project
         doc_type: Type of document being processed
         s3_prefix: S3 prefix where files are stored
+        workflow_id: Optional workflow ID used to create the dataset
 
     Returns:
         Dictionary with project information including:
@@ -380,10 +403,25 @@ def create_label_studio_project(
     # Initialize Label Studio client
     ls = get_label_studio_client_legacy()
 
+    # Generate metadata comment block
+    metadata = {
+        "dataset_type": "extraction",
+        "document_type": doc_type.value,
+        "workflow_id": workflow_id,
+    }
+    metadata_comment = (
+        f"\n\n<!--LS_METADATA_START-->{json.dumps(metadata)}<!--LS_METADATA_END-->"
+    )
+    description = (
+        f"Dataset: {dataset_name}\n\n"
+        + "\n".join(schema.description)
+        + metadata_comment
+    )
+
     # Create project
     project = ls.create_project(  # type: ignore
         title=f"{dataset_name} - {schema.name}",
-        description=f"Dataset: {dataset_name}\n\n" + "\n".join(schema.description),
+        description=description,
         label_config=label_config,
     )
 
@@ -424,7 +462,9 @@ def create_label_studio_project(
 
 
 def create_label_studio_classification_project(
-    dataset_name: str, s3_prefix: str
+    dataset_name: str,
+    s3_prefix: str,
+    workflow_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Create a Label Studio classification project (single document_type field)
@@ -433,6 +473,7 @@ def create_label_studio_classification_project(
     Args:
         dataset_name: Name for the dataset/project
         s3_prefix: S3 prefix where files are stored
+        workflow_id: Optional workflow ID used to create the dataset
 
     Returns:
         Dictionary with project information
@@ -475,10 +516,21 @@ def create_label_studio_classification_project(
     # Initialize Label Studio client
     ls = get_label_studio_client_legacy()
 
+    # Generate metadata comment block
+    metadata = {
+        "dataset_type": "classification",
+        "document_type": None,
+        "workflow_id": workflow_id,
+    }
+    metadata_comment = (
+        f"\n\n<!--LS_METADATA_START-->{json.dumps(metadata)}<!--LS_METADATA_END-->"
+    )
+    description = f"Dataset de classification : {dataset_name}" + metadata_comment
+
     # Create project
     project = ls.create_project(  # type: ignore
         title=f"{dataset_name} - Classification",
-        description=f"Dataset de classification : {dataset_name}",
+        description=description,
         label_config=label_config,
     )
 

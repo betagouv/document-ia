@@ -15,6 +15,7 @@ from document_ia_evals.utils.label_studio import (
 
 class ClientType(Enum):
     """Label Studio client type."""
+
     SDK = "sdk"  # LabelStudio (modern SDK)
     LEGACY = "legacy"  # Client (legacy)
 
@@ -22,9 +23,11 @@ class ClientType(Enum):
 @dataclass
 class ProjectSelection:
     """Result of project selection."""
+
     project_id: int
     project_title: str
     task_count: int | None = None
+    project_description: str | None = None
 
 
 def _get_projects_sdk(client: Any) -> list[dict[str, Any]]:
@@ -59,7 +62,7 @@ def _get_projects_legacy(client: Any) -> list[dict[str, Any]]:
 
 def _get_task_count_sdk(client: Any, project_id: int) -> int:
     """Get task count using SDK client."""
-    tasks = [task for task in client.tasks.list(project=project_id, fields='all')]
+    tasks = [task for task in client.tasks.list(project=project_id, fields="all")]
     return len(tasks)
 
 
@@ -74,10 +77,10 @@ def render_project_selector(
 ) -> ProjectSelection | None:
     """
     Render Label Studio project selection component.
-    
+
     This is a smart component that fetches projects from Label Studio
     and handles all display logic. Supports both SDK and legacy clients.
-    
+
     Args:
         client_type: Type of Label Studio client to use (SDK or LEGACY)
         label: Label for the selectbox
@@ -86,7 +89,7 @@ def render_project_selector(
         show_link: Whether to show a link to the project
         required: If False, allows no selection (shows placeholder)
         placeholder: Placeholder text when no selection (only when required=False)
-    
+
     Returns:
         ProjectSelection with selected project info, or None if error/no projects/no selection
     """
@@ -98,34 +101,34 @@ def render_project_selector(
         else:
             client = get_label_studio_client_legacy()
             projects = _get_projects_legacy(client)
-        
+
         if not projects:
             st.warning("⚠️ No Label Studio projects found")
             return None
-        
+
         # Project selector
         project_options = {p["id"]: p["title"] for p in projects}
-        
+
         selectbox_kwargs: dict[str, Any] = {
             "label": label,
             "options": list(project_options.keys()),
             "format_func": lambda x: project_options[x],
         }
-        
+
         if required:
             selectbox_kwargs["index"] = 0
         else:
             selectbox_kwargs["index"] = None
             selectbox_kwargs["placeholder"] = placeholder or "Select a project..."
-        
+
         selected_project_id: int | None = st.selectbox(**selectbox_kwargs)
-        
+
         if selected_project_id is None:
             return None
-        
+
         # Get selected project details
         selected_project = next(p for p in projects if p["id"] == selected_project_id)
-        
+
         # Get task count
         task_count = None
         if show_task_count:
@@ -133,7 +136,7 @@ def render_project_selector(
                 task_count = _get_task_count_sdk(client, selected_project_id)
             else:
                 task_count = selected_project.get("task_number")
-        
+
         # Display project details
         if show_details:
             with st.expander("Détails du projet"):
@@ -143,18 +146,19 @@ def render_project_selector(
                     st.write(f"**Number of tasks:** {task_count}")
                 if selected_project.get("created_at"):
                     st.write(f"**Created:** {selected_project['created_at']}")
-        
+
         # Show link if requested
         if show_link:
             project_url = get_project_url(selected_project_id)
             st.markdown(f"🔗 [View in Label Studio]({project_url})")
-        
+
         return ProjectSelection(
             project_id=selected_project_id,
             project_title=selected_project["title"],
             task_count=task_count,
+            project_description=selected_project.get("description"),
         )
-    
+
     except Exception as e:
         st.error(f"❌ Failed to fetch Label Studio projects: {e}")
         return None
@@ -163,14 +167,13 @@ def render_project_selector(
 def get_client(client_type: ClientType) -> Any:
     """
     Get the Label Studio client based on client type.
-    
+
     Args:
         client_type: Type of client to get
-    
+
     Returns:
         Label Studio client instance
     """
     if client_type == ClientType.SDK:
         return get_label_studio_client()
     return get_label_studio_client_legacy()
-

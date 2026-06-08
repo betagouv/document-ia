@@ -229,10 +229,13 @@ def handle_dataset_creation_v2(
     st.info(f"📤 Étape 1/2: Traitement de {len(folder)} fichiers et upload vers S3...")
 
     with st.spinner("Processing files and uploading to S3...", show_time=True):
-        pbar = st.progress(0, text="Executing workflows and uploading...")
+        pbar = st.progress(0, text="Avancement : 0 / ... fichiers")
 
         def update_progress(current: int, total: int) -> None:
-            pbar.progress(current / total)
+            pbar.progress(
+                current / total if total > 0 else 0.0,
+                text=f"Avancement : {current} / {total} fichiers",
+            )
 
         upload_results = process_files_parallel_v2(
             files=folder,
@@ -261,6 +264,7 @@ def handle_dataset_creation_v2(
                 project_info = create_label_studio_classification_project(
                     dataset_name=dataset_name,
                     s3_prefix=s3_prefix,
+                    workflow_id=workflow_id,
                 )
                 render_label_studio_result(project_info)
             except Exception as e:
@@ -278,6 +282,7 @@ def handle_dataset_creation_v2(
                         dataset_name=dataset_name,
                         doc_type=selected_doc_type,
                         s3_prefix=s3_prefix,
+                        workflow_id=workflow_id,
                     )
                     render_label_studio_result(project_info)
                 except Exception as e:
