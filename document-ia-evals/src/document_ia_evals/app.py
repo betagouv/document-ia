@@ -38,6 +38,7 @@ def main():
         ],
         "Pipeline Evaluation": [
             st.Page("pages/create_dataset.py", title="📝 Create Ground Truth"),
+            st.Page("pages/create_dataset_v2.py", title="📝 Create Ground Truth V2"),
             st.Page("pages/create_predictions.py", title="🔄 Create New Predictions"),
             st.Page(
                 "pages/evaluate_metrics.py", title="🎯 Evaluate Predictions Metrics"
