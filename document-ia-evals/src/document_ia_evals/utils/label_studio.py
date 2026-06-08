@@ -452,6 +452,14 @@ def create_label_studio_project(
     # Sync storage to export tasks
     project.sync_export_storage("s3", target_storage["id"])  # type: ignore
 
+    # Clear Streamlit cache to reflect the new project instantly
+    try:
+        import streamlit as st
+
+        st.cache_data.clear()
+    except Exception:
+        pass
+
     return {
         "project_id": project.id,  # type: ignore
         "project_title": project.params.get("title"),  # type: ignore
@@ -560,6 +568,14 @@ def create_label_studio_classification_project(
     project.sync_import_storage("s3", source_storage["id"])  # type: ignore
     # Sync storage to export tasks
     project.sync_export_storage("s3", target_storage["id"])  # type: ignore
+
+    # Clear Streamlit cache to reflect the new project instantly
+    try:
+        import streamlit as st
+
+        st.cache_data.clear()
+    except Exception:
+        pass
 
     return {
         "project_id": project.id,  # type: ignore

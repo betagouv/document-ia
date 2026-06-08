@@ -16,6 +16,7 @@ from document_ia_evals.utils.config import config
 from document_ia_evals.utils.label_studio import (
     create_label_studio_project,
     create_label_studio_classification_project,
+    get_label_studio_client_legacy,
 )
 from document_ia_schemas import SupportedDocumentType
 
@@ -203,8 +204,10 @@ def handle_dataset_creation_v2(
     override: dict[str, Any] | None = None,
     dataset_type: str = "extraction",
     create_ls_project: bool = True,
+    existing_project_id: int | None = None,
+    s3_storage_id: int | None = None,
 ) -> None:
-    """Handle the dataset creation process using V2 API.
+    """Handle the dataset creation or append process using V2 API.
 
     Args:
         dataset_name: Name for the dataset
@@ -216,8 +219,11 @@ def handle_dataset_creation_v2(
         api_key: API key for authentication
         override: Workflow parameter overrides
         dataset_type: Type of dataset ("extraction" or "classification")
+        create_ls_project: Whether to create a new Label Studio project
+        existing_project_id: Optional ID of an existing Label Studio project to sync instead of creating a new one
+        s3_storage_id: Optional ID of the existing project's S3 import storage
     """
-    if not dataset_name:
+    if not existing_project_id and not dataset_name:
         st.warning("⚠️ Veuillez entrer un nom pour le dataset.")
         return
 
@@ -254,33 +260,48 @@ def handle_dataset_creation_v2(
 
     success_count, _ = get_upload_statistics(upload_results)
 
-    # Step 2: Create Label Studio project
-    if success_count > 0 and create_ls_project:
-        if dataset_type == "classification":
-            st.info(
-                "📊 Étape 2/2: Création du projet de classification Label Studio..."
-            )
+    # Step 2: Create or Sync Label Studio project
+    if success_count > 0:
+        if existing_project_id is not None:
+            st.info("📊 Étape 2/2: Synchronisation de l'import storage Label Studio...")
             try:
-                project_info = create_label_studio_classification_project(
-                    dataset_name=dataset_name,
-                    s3_prefix=s3_prefix,
-                    workflow_id=workflow_id,
-                )
-                render_label_studio_result(project_info)
+                ls = get_label_studio_client_legacy()
+                project = ls.get_project(existing_project_id)
+                storage_to_sync_id = s3_storage_id
+
+                if storage_to_sync_id is None:
+                    # Find s3 import storage automatically
+                    import_storages = project.get_import_storages()
+                    for storage in import_storages:
+                        if storage.get("type") == "s3":
+                            storage_to_sync_id = storage["id"]
+                            break
+
+                if storage_to_sync_id is not None:
+                    project.sync_import_storage("s3", storage_to_sync_id)
+                    st.success(
+                        f"✅ Projet Label Studio (storage ID: {storage_to_sync_id}) synchronisé avec succès !"
+                    )
+                else:
+                    st.error(
+                        "❌ Impossible de trouver un import storage S3 dans ce projet pour la synchronisation."
+                    )
+
+                label_studio_url = config.LABEL_STUDIO_URL
+                project_url = f"{label_studio_url}/projects/{existing_project_id}"
+                st.markdown(f"🔗 [Ouvrir le projet dans Label Studio]({project_url})")
             except Exception as e:
-                st.error(f"❌ Erreur lors de la création du projet Label Studio: {e}")
-        else:
-            if selected_doc_type is None:
-                st.warning(
-                    "⚠️ Aucun type de document n'a été sélectionné : "
-                    "la création du projet Label Studio est ignorée."
+                st.error(
+                    f"❌ Erreur lors de la synchronisation de l'import storage: {e}"
                 )
-            else:
-                st.info("📊 Étape 2/2: Création du projet Label Studio...")
+        elif create_ls_project:
+            if dataset_type == "classification":
+                st.info(
+                    "📊 Étape 2/2: Création du projet de classification Label Studio..."
+                )
                 try:
-                    project_info = create_label_studio_project(
+                    project_info = create_label_studio_classification_project(
                         dataset_name=dataset_name,
-                        doc_type=selected_doc_type,
                         s3_prefix=s3_prefix,
                         workflow_id=workflow_id,
                     )
@@ -289,6 +310,26 @@ def handle_dataset_creation_v2(
                     st.error(
                         f"❌ Erreur lors de la création du projet Label Studio: {e}"
                     )
+            else:
+                if selected_doc_type is None:
+                    st.warning(
+                        "⚠️ Aucun type de document n'a été sélectionné : "
+                        "la création du projet Label Studio est ignorée."
+                    )
+                else:
+                    st.info("📊 Étape 2/2: Création du projet Label Studio...")
+                    try:
+                        project_info = create_label_studio_project(
+                            dataset_name=dataset_name,
+                            doc_type=selected_doc_type,
+                            s3_prefix=s3_prefix,
+                            workflow_id=workflow_id,
+                        )
+                        render_label_studio_result(project_info)
+                    except Exception as e:
+                        st.error(
+                            f"❌ Erreur lors de la création du projet Label Studio: {e}"
+                        )
 
     # Show detailed results
     with st.expander("Détails des résultats"):
@@ -308,11 +349,11 @@ def main() -> None:
 
     st.markdown(
         """
-    Cette page vous permet de créer un jeu de données pré-annoté avec Label Studio (API V2) :
-    1. Configuration et personnalisation du workflow à exécuter
-    2. Upload de fichiers et exécution parallèle des workflows avec vos surcharges de paramètres
-    3. Upload des annotations de référence vers S3 au format Label Studio
-    4. Création automatique du projet Label Studio pré-annoté
+    Cette page vous permet de créer un nouveau jeu de données pré-annoté avec Label Studio (API V2) ou d'ajouter des documents à un projet existant :
+    1. Choisissez le mode d'utilisation (création ou ajout).
+    2. Configurez le workflow à exécuter et vos surcharges de paramètres.
+    3. Upload des nouveaux fichiers et exécution parallèle des workflows.
+    4. Import automatique dans Label Studio (création d'un projet ou synchronisation de l'existant).
     """
     )
 
@@ -323,6 +364,123 @@ def main() -> None:
     api_key = config.DOCUMENT_IA_API_KEY
     assert api_key is not None
 
+    # Import selector component
+    from document_ia_evals.components.project_selector import (
+        ClientType,
+        render_project_selector,
+    )
+    from document_ia_evals.utils.label_studio import (
+        extract_project_metadata,
+        get_label_studio_client_legacy,
+    )
+
+    # 1. Mode Selection
+    mode = st.radio(
+        "Mode d'utilisation",
+        options=[
+            "Créer un nouveau dataset",
+            "Ajouter des documents à un dataset existant",
+        ],
+        horizontal=True,
+        help="Sélectionnez 'Créer un nouveau dataset' pour générer un nouveau projet Label Studio. Sélectionnez 'Ajouter des documents' pour ajouter des données à un projet existant sans modifier sa configuration.",
+    )
+
+    # Configuration variables
+    suggested_workflow_id = None
+    suggested_doc_type = None
+    selected_doc_type = None
+    dataset_type = "extraction"
+    s3_prefix = ""
+    s3_storage_id = None
+    project_selection = None
+
+    # 2. Project Selection for append mode
+    if mode == "Ajouter des documents à un dataset existant":
+        project_selection = render_project_selector(
+            client_type=ClientType.LEGACY,
+            label="Sélectionnez le dataset existant",
+            show_details=True,
+            show_task_count=True,
+        )
+
+        if project_selection:
+            # Extract metadata
+            metadata = extract_project_metadata(project_selection.project_description)
+            if metadata:
+                dataset_type = metadata.get("dataset_type", "extraction")
+                suggested_doc_type = metadata.get("document_type")
+                suggested_workflow_id = metadata.get("workflow_id")
+
+                # Resolve document type enum member
+                if suggested_doc_type:
+                    for opt in SupportedDocumentType:
+                        if opt.value == suggested_doc_type:
+                            selected_doc_type = opt
+                            break
+
+                st.info(
+                    f"ℹ️ Configuration détectée sur le projet existant :\n"
+                    f"- **Type de Dataset** : `{dataset_type.title()}`\n"
+                    f"- **Type de Document** : `{selected_doc_type.name.replace('_', ' ').title() if selected_doc_type else 'N/A'}`\n"
+                    f"- **ID du Workflow original** : `{suggested_workflow_id or 'N/A'}`"
+                )
+            else:
+                st.warning(
+                    "⚠️ Aucune métadonnée trouvée sur ce projet. Veuillez configurer manuellement le type de dataset et de document."
+                )
+
+                dataset_type = st.selectbox(
+                    "Type de Dataset",
+                    options=["Extraction", "Classification"],
+                    key="dataset_type_append_manual",
+                ).lower()
+
+                if dataset_type == "extraction":
+                    selected_doc_type = st.selectbox(
+                        "Type de document",
+                        options=list(SupportedDocumentType),
+                        format_func=lambda x: x.name.replace("_", " ").title(),
+                        key="doc_type_append_manual",
+                    )
+                    suggested_doc_type = selected_doc_type.value
+
+            # Retrieve S3 prefix and storage ID from the import storage settings
+            try:
+                ls = get_label_studio_client_legacy()
+                project = ls.get_project(project_selection.project_id)
+                import_storages = project.get_import_storages()
+                for storage in import_storages:
+                    if storage.get("type") == "s3" and storage.get("prefix"):
+                        s3_storage_id = storage.get("id")
+                        raw_prefix = storage.get("prefix")
+                        if raw_prefix.endswith("/tasks"):
+                            s3_prefix = raw_prefix[:-6]
+                        else:
+                            s3_prefix = raw_prefix
+                        break
+            except Exception as e:
+                st.error(
+                    f"Erreur lors de la récupération de la configuration S3 du projet : {e}"
+                )
+
+            if not s3_prefix:
+                # Fallback prefix computation
+                project_title_clean = project_selection.project_title.split(" - ")[
+                    0
+                ].strip()
+                if dataset_type == "classification":
+                    s3_prefix = f"{project_title_clean}/classification"
+                else:
+                    s3_prefix = f"{project_title_clean}/{suggested_doc_type or 'raw'}"
+                st.warning(
+                    f"⚠️ Import storage S3 non trouvé. Préfixe S3 de repli généré : `{s3_prefix}`"
+                )
+            else:
+                st.success(f"📂 Préfixe S3 détecté pour ce projet : `{s3_prefix}`")
+        else:
+            st.warning("⚠️ Veuillez sélectionner un dataset existant.")
+            return
+
     # Organize interface into Tabs
     tab_files, tab_workflow = st.tabs(
         ["📁 Dataset & Fichiers", "⚙️ Configuration du Workflow"]
@@ -331,7 +489,10 @@ def main() -> None:
     # Render workflow configurator in tab 2
     with tab_workflow:
         selected_workflow, override = render_workflow_configurator(
-            api_key, key_suffix="_dataset_v2"
+            api_key,
+            key_suffix="_dataset_v2",
+            default_workflow_id=suggested_workflow_id,
+            default_document_type=suggested_doc_type,
         )
 
     # Render files uploader and execution button in tab 1
@@ -348,74 +509,113 @@ def main() -> None:
             f"Workflow actif : **{selected_workflow.get('name', selected_workflow.get('id'))}**"
         )
 
-        # Select Dataset Type
-        dataset_type = st.selectbox(
-            "Type de Dataset",
-            options=["Extraction", "Classification"],
-            help="Sélectionnez 'Classification' si vous souhaitez uniquement étiqueter le type global de document. Sélectionnez 'Extraction' pour extraire des champs de données spécifiques.",
-        ).lower()
+        if mode == "Créer un nouveau dataset":
+            # Select Dataset Type
+            dataset_type = st.selectbox(
+                "Type de Dataset",
+                options=["Extraction", "Classification"],
+                help="Sélectionnez 'Classification' si vous souhaitez uniquement étiqueter le type global de document. Sélectionnez 'Extraction' pour extraire des champs de données spécifiques.",
+            ).lower()
 
-        # Checkbox to trigger Label Studio project creation
-        create_ls_project = st.checkbox(
-            "Créer un projet Label Studio",
-            value=True,
-            help="Cochez cette case pour créer automatiquement un projet d'annotation pré-annoté dans Label Studio.",
-        )
-
-        selected_doc_type = None
-        if dataset_type == "extraction":
-            # Detect document type from workflow configuration
-            inferred_doc_type = detect_document_type(selected_workflow, override)
-
-            # Prepare options list
-            options = list(SupportedDocumentType)
-
-            # Find default index
-            default_index = 0
-            if inferred_doc_type in options:
-                default_index = options.index(inferred_doc_type)
-                st.success(
-                    f"ℹ️ Type de document détecté automatiquement : **{inferred_doc_type.name.replace('_', ' ').title()}**"
-                )
-            else:
-                st.info(
-                    "ℹ️ Aucun type de document détecté automatiquement. Veuillez le sélectionner ci-dessous."
-                )
-
-            selected_doc_type = st.selectbox(
-                "Type de document",
-                options=options,
-                index=default_index,
-                format_func=lambda x: x.name.replace("_", " ").title(),
-                help="Sélectionnez le type de document pour configurer l'interface Label Studio.",
+            # Checkbox to trigger Label Studio project creation
+            create_ls_project = st.checkbox(
+                "Créer un projet Label Studio",
+                value=True,
+                help="Cochez cette case pour créer automatiquement un projet d'annotation pré-annoté dans Label Studio.",
             )
 
-        # Dataset form
-        dataset_name, s3_prefix = render_dataset_form(
-            selected_doc_type,
-            dataset_type,
-        )
+            selected_doc_type = None
+            if dataset_type == "extraction":
+                # Detect document type from workflow configuration
+                inferred_doc_type = detect_document_type(selected_workflow, override)
 
-        # File uploader
-        folder = render_file_uploader()
+                # Prepare options list
+                options = list(SupportedDocumentType)
 
-        # Worker configuration
-        n_workers = render_worker_config()
+                # Find default index
+                default_index = 0
+                if inferred_doc_type in options:
+                    default_index = options.index(inferred_doc_type)
+                    st.success(
+                        f"ℹ️ Type de document détecté automatiquement : **{inferred_doc_type.name.replace('_', ' ').title()}**"
+                    )
+                else:
+                    st.info(
+                        "ℹ️ Aucun type de document détecté automatiquement. Veuillez le sélectionner ci-dessous."
+                    )
 
-        # Create dataset button
-        if st.button("Lancer la création de dataset", type="primary"):
-            handle_dataset_creation_v2(
-                dataset_name=dataset_name,
-                folder=folder,
-                workflow_id=selected_workflow["id"],
-                selected_doc_type=selected_doc_type,
-                s3_prefix=s3_prefix,
-                n_workers=n_workers,
-                api_key=api_key,
-                override=override if override else None,
-                dataset_type=dataset_type,
-                create_ls_project=create_ls_project,
+                selected_doc_type = st.selectbox(
+                    "Type de document",
+                    options=options,
+                    index=default_index,
+                    format_func=lambda x: x.name.replace("_", " ").title(),
+                    help="Sélectionnez le type de document pour configurer l'interface Label Studio.",
+                )
+
+            # Dataset form
+            dataset_name, s3_prefix = render_dataset_form(
+                selected_doc_type,
+                dataset_type,
             )
+
+            # File uploader
+            folder = render_file_uploader()
+
+            # Worker configuration
+            n_workers = render_worker_config()
+
+            # Create dataset button
+            if st.button("Lancer la création de dataset", type="primary"):
+                handle_dataset_creation_v2(
+                    dataset_name=dataset_name,
+                    folder=folder,
+                    workflow_id=selected_workflow["id"],
+                    selected_doc_type=selected_doc_type,
+                    s3_prefix=s3_prefix,
+                    n_workers=n_workers,
+                    api_key=api_key,
+                    override=override if override else None,
+                    dataset_type=dataset_type,
+                    create_ls_project=create_ls_project,
+                )
+        else:
+            # Append mode: Configuration is locked, just show details
+            st.markdown("### 📋 Configuration de l'Ajout")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown(f"**Dataset cible :** `{project_selection.project_title}`")
+                st.markdown(f"**Type de Dataset :** `{dataset_type.title()}`")
+            with col2:
+                doc_type_display = (
+                    selected_doc_type.name.replace("_", " ").title()
+                    if selected_doc_type
+                    else "N/A"
+                )
+                st.markdown(f"**Type de Document :** `{doc_type_display}`")
+                st.markdown(f"**Préfixe S3 de destination :** `{s3_prefix}`")
+
+            # File uploader
+            folder = render_file_uploader()
+
+            # Worker configuration
+            n_workers = render_worker_config()
+
+            # Append button
+            if st.button("Lancer l'ajout de documents au dataset", type="primary"):
+                handle_dataset_creation_v2(
+                    dataset_name=project_selection.project_title,
+                    folder=folder,
+                    workflow_id=selected_workflow["id"],
+                    selected_doc_type=selected_doc_type,
+                    s3_prefix=s3_prefix,
+                    n_workers=n_workers,
+                    api_key=api_key,
+                    override=override if override else None,
+                    dataset_type=dataset_type,
+                    create_ls_project=False,
+                    existing_project_id=project_selection.project_id,
+                    s3_storage_id=s3_storage_id,
+                )
 
 
 if __name__ == "__main__":

@@ -66,6 +66,24 @@ def _get_task_count_sdk(client: Any, project_id: int) -> int:
     return len(tasks)
 
 
+@st.cache_data(ttl=600)
+def _get_projects_sdk_cached() -> list[dict[str, Any]]:
+    client = get_label_studio_client()
+    return _get_projects_sdk(client)
+
+
+@st.cache_data(ttl=600)
+def _get_projects_legacy_cached() -> list[dict[str, Any]]:
+    client = get_label_studio_client_legacy()
+    return _get_projects_legacy(client)
+
+
+@st.cache_data(ttl=300)
+def _get_task_count_sdk_cached(project_id: int) -> int:
+    client = get_label_studio_client()
+    return _get_task_count_sdk(client, project_id)
+
+
 def render_project_selector(
     client_type: ClientType = ClientType.SDK,
     label: str = "Sélectionnez un projet Label Studio",
@@ -94,13 +112,11 @@ def render_project_selector(
         ProjectSelection with selected project info, or None if error/no projects/no selection
     """
     try:
-        # Get appropriate client
+        # Get appropriate cached project list
         if client_type == ClientType.SDK:
-            client = get_label_studio_client()
-            projects = _get_projects_sdk(client)
+            projects = _get_projects_sdk_cached()
         else:
-            client = get_label_studio_client_legacy()
-            projects = _get_projects_legacy(client)
+            projects = _get_projects_legacy_cached()
 
         if not projects:
             st.warning("⚠️ No Label Studio projects found")
@@ -121,7 +137,17 @@ def render_project_selector(
             selectbox_kwargs["index"] = None
             selectbox_kwargs["placeholder"] = placeholder or "Select a project..."
 
-        selected_project_id: int | None = st.selectbox(**selectbox_kwargs)
+        # Render Selectbox and Refresh button side-by-side using columns
+        col_select, col_refresh = st.columns([8, 1])
+        with col_select:
+            selected_project_id: int | None = st.selectbox(**selectbox_kwargs)
+        with col_refresh:
+            st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+            if st.button(
+                "🔄", help="Actualiser la liste", key=f"refresh_projects_{label}"
+            ):
+                st.cache_data.clear()
+                st.rerun()
 
         if selected_project_id is None:
             return None
@@ -133,7 +159,7 @@ def render_project_selector(
         task_count = None
         if show_task_count:
             if client_type == ClientType.SDK:
-                task_count = _get_task_count_sdk(client, selected_project_id)
+                task_count = _get_task_count_sdk_cached(selected_project_id)
             else:
                 task_count = selected_project.get("task_number")
 
