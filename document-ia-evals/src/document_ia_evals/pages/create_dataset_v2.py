@@ -21,6 +21,14 @@ from document_ia_evals.utils.label_studio import (
 from document_ia_schemas import SupportedDocumentType
 
 
+def update_workflow_doc_type(key_to_update: str, selectbox_key: str):
+    """Callback to update workflow configuration state from a selectbox selection."""
+    if selectbox_key in st.session_state:
+        val = st.session_state[selectbox_key]
+        if val:
+            st.session_state[key_to_update] = val.value
+
+
 def render_configuration_warnings() -> bool:
     """Check and display warnings for missing configuration.
 
@@ -394,6 +402,17 @@ def main() -> None:
     s3_storage_id = None
     project_selection = None
 
+    # Pre-select default workflow IDs for creation mode
+    if mode == "Créer un nouveau dataset":
+        dataset_type = st.session_state.get(
+            "dataset_type_creation_v2", "extraction"
+        ).lower()
+        suggested_workflow_id = (
+            config.DEFAULT_CLASSIFICATION_WORKFLOW_ID
+            if dataset_type == "classification"
+            else config.DEFAULT_EXTRACTION_WORKFLOW_ID
+        )
+
     # 2. Project Selection for append mode
     if mode == "Ajouter des documents à un dataset existant":
         project_selection = render_project_selector(
@@ -418,6 +437,12 @@ def main() -> None:
                             selected_doc_type = opt
                             break
 
+                # Save metadata selection to workflow configuration state
+                if selected_doc_type:
+                    st.session_state["llm_extract_data_document_type_dataset_v2"] = (
+                        selected_doc_type.value
+                    )
+
                 st.info(
                     f"ℹ️ Configuration détectée sur le projet existant :\n"
                     f"- **Type de Dataset** : `{dataset_type.title()}`\n"
@@ -435,12 +460,24 @@ def main() -> None:
                     key="dataset_type_append_manual",
                 ).lower()
 
+                # Set default workflow ID based on manual dataset type choice
+                suggested_workflow_id = (
+                    config.DEFAULT_CLASSIFICATION_WORKFLOW_ID
+                    if dataset_type == "classification"
+                    else config.DEFAULT_EXTRACTION_WORKFLOW_ID
+                )
+
                 if dataset_type == "extraction":
                     selected_doc_type = st.selectbox(
                         "Type de document",
                         options=list(SupportedDocumentType),
                         format_func=lambda x: x.name.replace("_", " ").title(),
                         key="doc_type_append_manual",
+                        on_change=update_workflow_doc_type,
+                        args=(
+                            "llm_extract_data_document_type_dataset_v2",
+                            "doc_type_append_manual",
+                        ),
                     )
                     suggested_doc_type = selected_doc_type.value
 
@@ -514,6 +551,7 @@ def main() -> None:
             dataset_type = st.selectbox(
                 "Type de Dataset",
                 options=["Extraction", "Classification"],
+                key="dataset_type_creation_v2",
                 help="Sélectionnez 'Classification' si vous souhaitez uniquement étiqueter le type global de document. Sélectionnez 'Extraction' pour extraire des champs de données spécifiques.",
             ).lower()
 
@@ -544,12 +582,27 @@ def main() -> None:
                         "ℹ️ Aucun type de document détecté automatiquement. Veuillez le sélectionner ci-dessous."
                     )
 
+                # Track changes in inferred document type to update selectbox value dynamically
+                tracker_inferred_key = "last_inferred_doc_type_creation"
+                if inferred_doc_type != st.session_state.get(tracker_inferred_key):
+                    st.session_state[tracker_inferred_key] = inferred_doc_type
+                    if inferred_doc_type in options:
+                        st.session_state["doc_type_creation_selectbox_v2"] = (
+                            inferred_doc_type
+                        )
+
                 selected_doc_type = st.selectbox(
                     "Type de document",
                     options=options,
                     index=default_index,
                     format_func=lambda x: x.name.replace("_", " ").title(),
                     help="Sélectionnez le type de document pour configurer l'interface Label Studio.",
+                    key="doc_type_creation_selectbox_v2",
+                    on_change=update_workflow_doc_type,
+                    args=(
+                        "llm_extract_data_document_type_dataset_v2",
+                        "doc_type_creation_selectbox_v2",
+                    ),
                 )
 
             # Dataset form

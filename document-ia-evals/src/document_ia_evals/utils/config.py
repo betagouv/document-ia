@@ -63,6 +63,12 @@ class Config(BaseSettings):
 
     ALLOW_INSECURE_REQUESTS: bool = Field(default=False)
 
+    # Default Workflow IDs for Ground Truth V2
+    DEFAULT_EXTRACTION_WORKFLOW_ID: str = Field(default="document-extraction-v2")
+    DEFAULT_CLASSIFICATION_WORKFLOW_ID: str = Field(
+        default="document-classification-v2"
+    )
+
     def ensure_directories(self):
         """Ensure necessary directories exist."""
         self.DATA_DIR.mkdir(exist_ok=True)
