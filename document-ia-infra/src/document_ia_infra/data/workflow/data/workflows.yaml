@@ -114,3 +114,49 @@ workflows:
         document_type: *doc_type_single
 
     - action: save_workflow_result
+
+- id: document-barcode-extraction-v2
+  name: Workflow d'extraction de 2DDoc, qrcode etc ...
+  description: Workflow personnalisable pour extraires les infos de 2ddoc, qrcode et barcode dans un fichier
+  version: 2.0.0
+  enabled: true
+  supported_file_types:
+    - application/pdf
+    - image/jpeg
+    - image/png
+  max_file_size_mb: 25
+  processing_timeout_minutes: 5
+  steps:
+    - action: download_file
+    - action: preprocess_file
+    - action: extract_barcode_data
+      params:
+        barcode_type: *barcode_type
+    - action: save_workflow_result
+
+- id: document-classification-v2
+  name: Workflow de classification
+  description: Workflow générique de classification des documents
+  version: 2.0.0
+  enabled: true
+  supported_file_types:
+    - application/pdf
+    - image/jpeg
+    - image/png
+  max_file_size_mb: 25
+  processing_timeout_minutes: 5
+  steps:
+    - action: download_file
+    - action: preprocess_file
+    - action: extract_barcode_data
+      params:
+        barcode_type: *barcode_type
+    - action: extract_content_ocr
+      params:
+        model: *ocr_model
+    - action: llm_classify_document
+      params:
+        model: *llm_model
+        temperature: *llm_temperature
+        document_types: *doc_types_array
+    - action: save_workflow_result
