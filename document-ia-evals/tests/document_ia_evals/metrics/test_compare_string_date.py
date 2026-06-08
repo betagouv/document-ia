@@ -453,7 +453,10 @@ class TestNormalizeStringDate:
     @pytest.mark.parametrize(
         "input_value,expected",
         [
-            (1012024, None),  # Integer missing leading zero - becomes "1012024" (7 digits)
+            (
+                1012024,
+                None,
+            ),  # Integer missing leading zero - becomes "1012024" (7 digits)
             (1012024.0, None),  # Float - becomes "1012024.0"
         ],
         ids=["integer_no_leading_zero", "float"],
@@ -709,6 +712,7 @@ class TestCompareStringDate:
         result = compare_string_date(expected, predicted)
         assert result == 1.0
 
+
 class TestMetricFunctionsMapping:
     """Test that STRING_DATE_EQUALITY is properly mapped in METRIC_FUNCTIONS."""
 
@@ -775,4 +779,3 @@ class TestRealWorldScenarios:
             assert result == 1.0
         else:
             assert result == 0.0
-
