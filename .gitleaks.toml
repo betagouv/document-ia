@@ -1,0 +1,45 @@
+# .gitleaks.toml
+title = "Configuration Gitleaks du projet"
+
+# On indique à Gitleaks de conserver toutes ses excellentes règles par défaut !
+[extend]
+useDefault = true
+
+# ---------------------------------------------------------
+# 1. LISTE BLANCHE (Ce qu'on veut que Gitleaks ignore)
+# ---------------------------------------------------------
+[allowlist]
+description = "Exclusions globales pour éviter les faux positifs"
+paths = [
+    # Environnements virtuels Python et dépendances
+    '''^\.venv/.*$''',
+    '''^node_modules/.*$''',
+
+    # Dossiers de build (ex: Rust)
+    '''^target/.*$''',
+
+    # Fichiers de lock (génèrent énormément de faux positifs avec leurs hash)
+    '''poetry\.lock$''',
+    '''Cargo\.lock$''',
+    '''package-lock\.json$''',
+
+    # Fichiers de tests ou documents mockés (pour les tests d'OCR par exemple)
+    '''^tests/.*mock.*$''',
+    '''^.*\.pdf$'''
+]
+
+# Ignorer des faux positifs récurrents directement dans le code
+regexes = [
+    '''gitleaks:allow''',
+    '''example_token_for_tests'''
+]
+
+# ---------------------------------------------------------
+# 2. RÈGLES PERSONNALISÉES (Ce qu'on veut ajouter)
+# ---------------------------------------------------------
+
+[[rules]]
+id = "document-ia-token"
+description = "Détection des tokens d'environnement DocumentIA (dia_...)"
+# On cherche 'dia_' suivi de lettres, chiffres et underscores (entre 40 et 100 caractères pour éviter les faux positifs courts)
+regex = '''dia_[a-zA-Z0-9_]{40,100}'''
