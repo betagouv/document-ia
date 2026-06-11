@@ -68,37 +68,37 @@ def prepareStepListsV1(
                     event_v1.file_url,
                 )
             )
-        if step == "preprocess_file":
+        elif step == "preprocess_file":
             step_list.append(PreprocessFileStep(workflow_context))
-        if step == "extract_content_ocr":
+        elif step == "extract_content_ocr":
             step_list.append(ExtractContentOcrStep(workflow_context))
-        if step == "extract_content_marker_ocr":
+        elif step == "extract_content_marker_ocr":
             step_list.append(
                 ExtractContentHttpOcrStep(workflow_context, MarkerHttpHttpOcrService())
             )
-        if step == "extract_content_mistral_ocr":
+        elif step == "extract_content_mistral_ocr":
             step_list.append(
                 ExtractContentHttpOcrStep(workflow_context, MistralHttpOcrService())
             )
-        if step == "extract_content_nanonets_ocr":
+        elif step == "extract_content_nanonets_ocr":
             step_list.append(
                 ExtractContentHttpOcrStep(
                     workflow_context, NanonetsHttpHttpOcrService()
                 )
             )
-        if step == "extract_content_deepseek_ocr":
+        elif step == "extract_content_deepseek_ocr":
             step_list.append(
                 ExtractContentHttpOcrStep(
                     workflow_context, DeepSeekHttpHttpOcrService()
                 )
             )
-        if step == "extract_barcode_data":
+        elif step == "extract_barcode_data":
             step_list.append(ExtractBarcodeData())
-        if step == "extract_barcode_raw_data":
+        elif step == "extract_barcode_raw_data":
             step_list.append(ExtractBarcodeRawData())
-        if step == "extract_barcode_2ddoc_data":
+        elif step == "extract_barcode_2ddoc_data":
             step_list.append(ExtractBarcode2DDocData())
-        if step == "llm_classify_document":
+        elif step == "llm_classify_document":
             step_list.append(
                 LLMClassifyDocumentStep(
                     workflow_context,
@@ -111,7 +111,7 @@ def prepareStepListsV1(
                     else workflow.llm_model,
                 )
             )
-        if step == "llm_extract_data":
+        elif step == "llm_extract_data":
             step_list.append(
                 LLMExtractDocumentStep(
                     workflow_context,
@@ -123,7 +123,7 @@ def prepareStepListsV1(
                     else workflow.llm_model,
                 )
             )
-        if step == "save_workflow_result":
+        elif step == "save_workflow_result":
             step_list.append(
                 SaveWorkflowResultStep(
                     workflow_context,
@@ -131,5 +131,7 @@ def prepareStepListsV1(
                     session,
                 )
             )
+        else:
+            raise Exception(f"Unsupported step: {step}")
 
     return step_list

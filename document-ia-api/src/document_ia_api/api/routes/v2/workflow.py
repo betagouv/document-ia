@@ -2,22 +2,6 @@ import logging
 from typing import Optional
 from uuid import UUID
 
-from document_ia_api.api.auth import get_current_organization, verify_api_key
-from document_ia_api.api.contracts.error.errors import ProblemDetail
-from document_ia_api.api.contracts.execution.response import ExecutionResponse
-from document_ia_api.api.contracts.workflow_v2 import (
-    WorkflowV2ExecuteResponse,
-    WorkflowV2ListResponse,
-    WorkflowV2OverridePayload,
-)
-from document_ia_api.api.mapper.workflow_v2_mapper import (
-    map_workflow_v2_raw_list_to_contract,
-)
-from document_ia_api.api.middleware.rate_limiting_middleware import check_rate_limit
-from document_ia_api.application.services.workflow_service import WorkflowService
-from document_ia_api.application.services.workflow_v2_service import WorkflowV2Service
-from document_ia_api.schemas.workflow import WorkflowExecutionDataV2
-from document_ia_api.schemas.rate_limiting import RateLimitInfo
 from document_ia_infra.data.database import database_manager
 from document_ia_infra.data.organization.dto.organization_dto import OrganizationDTO
 from document_ia_infra.data.workflow.repository.workflow_v2_repository import (
@@ -36,6 +20,22 @@ from fastapi import (
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from document_ia_api.api.auth import get_current_organization, verify_api_key
+from document_ia_api.api.contracts.error.errors import ProblemDetail
+from document_ia_api.api.contracts.execution.response import ExecutionResponse
+from document_ia_api.api.contracts.workflow_v2 import (
+    WorkflowV2ExecuteResponse,
+    WorkflowV2ListResponse,
+    WorkflowV2OverridePayload,
+)
+from document_ia_api.api.mapper.workflow_v2_mapper import (
+    map_workflow_v2_raw_list_to_contract,
+)
+from document_ia_api.api.middleware.rate_limiting_middleware import check_rate_limit
+from document_ia_api.application.services.workflow_service import WorkflowService
+from document_ia_api.application.services.workflow_v2_service import WorkflowV2Service
+from document_ia_api.schemas.workflow import WorkflowExecutionDataV2
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +97,7 @@ async def _start_workflow_v2_execution(
 
 @router.get(
     "/",
+    dependencies=[Depends(verify_api_key)],
     response_model=WorkflowV2ListResponse,
     response_model_exclude_none=True,
     summary="List Available Workflows (v2)",
@@ -170,10 +171,7 @@ async def _start_workflow_v2_execution(
     },
     tags=["Workflows v2"],
 )
-async def list_available_workflows(
-    api_key: str = Depends(verify_api_key),
-    rate_limit_info: RateLimitInfo = Depends(check_rate_limit),
-) -> WorkflowV2ListResponse:
+async def list_available_workflows() -> WorkflowV2ListResponse:
     """Return all available workflow v2 definitions.
 
     **Authentication Required**: This endpoint requires a valid API key in `X-API-KEY`.
@@ -183,11 +181,6 @@ async def list_available_workflows(
     The returned payload is intentionally close to the YAML configuration so clients can
     dynamically render available workflows and their configurable parameters.
     """
-
-    _ = (
-        api_key,
-        rate_limit_info,
-    )  # Explicitly keep dependencies as used for linting clarity.
 
     try:
         workflows_raw = workflow_v2_repository.get_raw_workflows()
@@ -215,6 +208,7 @@ async def list_available_workflows(
 
 @router.post(
     "/{workflow_id}/execute",
+    dependencies=[Depends(verify_api_key), Depends(check_rate_limit)],
     response_model=WorkflowV2ExecuteResponse,
     summary="Execute Workflow (v2)",
     description=(
@@ -482,14 +476,11 @@ async def execute_workflow_v2(
         default=None,
         description="JSON string containing metadata object",
     ),
-    api_key: str = Depends(verify_api_key),
     current_org: OrganizationDTO = Depends(get_current_organization),
-    rate_limit_info: RateLimitInfo = Depends(check_rate_limit),
     db_session: AsyncSession = Depends(database_manager.async_get_db),
 ) -> WorkflowV2ExecuteResponse:
     """Validate and start v2 workflow execution."""
 
-    _ = (api_key, rate_limit_info)
     workflow_v2_service = WorkflowV2Service(db_session)
 
     try:
@@ -525,6 +516,7 @@ async def execute_workflow_v2(
 
 @router.post(
     "/{workflow_id}/execute-sync",
+    dependencies=[Depends(verify_api_key), Depends(check_rate_limit)],
     response_model=ExecutionResponse,
     summary="Execute Workflow Synchronously (v2)",
     description=(
@@ -816,12 +808,9 @@ async def execute_workflow_v2_sync(
         default=None,
         description="JSON string containing metadata object",
     ),
-    api_key: str = Depends(verify_api_key),
     current_org: OrganizationDTO = Depends(get_current_organization),
-    rate_limit_info: RateLimitInfo = Depends(check_rate_limit),
     db_session: AsyncSession = Depends(database_manager.async_get_db),
 ) -> ExecutionResponse:
-    _ = (api_key, rate_limit_info)
     workflow_v2_service = WorkflowV2Service(db_session)
     workflow_service = WorkflowService(db_session)
 

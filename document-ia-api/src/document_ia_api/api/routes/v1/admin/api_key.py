@@ -1,6 +1,7 @@
 import logging
 from uuid import UUID
 
+from document_ia_infra.data.database import database_manager
 from fastapi import APIRouter, Depends, Path, status, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,7 +16,6 @@ from document_ia_api.api.exceptions.entity_not_found_exception import (
     HttpEntityNotFoundException,
 )
 from document_ia_api.application.services.api_key.api_key_service import ApiKeyService
-from document_ia_infra.data.database import database_manager
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,7 @@ router = APIRouter()
 
 @router.post(
     "/organizations/{organization_id}/api-keys",
+    dependencies=[Depends(is_platform_admin)],
     response_model=APIKeyCreatedResult,
     status_code=status.HTTP_201_CREATED,
     summary="Create API key",
@@ -139,7 +140,6 @@ router = APIRouter()
 )
 async def create_api_key(
     organization_id: UUID = Path(..., description="Organization ID"),
-    _=Depends(is_platform_admin),
     db_session: AsyncSession = Depends(database_manager.async_get_db),
 ) -> APIKeyCreatedResult:
     try:
@@ -156,6 +156,7 @@ async def create_api_key(
 
 @router.put(
     "/organizations/{organization_id}/api-keys/{api_key_id}/status",
+    dependencies=[Depends(is_platform_admin)],
     response_model=APIKeyResult,
     summary="Update API key status",
     description=(
@@ -282,7 +283,6 @@ async def update_api_key_status(
     organization_id: UUID = Path(..., description="Organization ID"),
     api_key_id: UUID = Path(..., description="API key ID"),
     payload: UpdateAPIKeyStatusRequest = Body(...),
-    _=Depends(is_platform_admin),
     db_session: AsyncSession = Depends(database_manager.async_get_db),
 ) -> APIKeyResult:
     try:
@@ -299,6 +299,7 @@ async def update_api_key_status(
 
 @router.delete(
     "/organizations/{organization_id}/api-keys/{api_key_id}",
+    dependencies=[Depends(is_platform_admin)],
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete API key",
     description="Delete an API key by ID (admin only).",
@@ -373,7 +374,6 @@ async def update_api_key_status(
 async def delete_api_key(
     organization_id: UUID = Path(..., description="Organization ID"),
     api_key_id: UUID = Path(..., description="API key ID"),
-    _=Depends(is_platform_admin),
     db_session: AsyncSession = Depends(database_manager.async_get_db),
 ) -> None:
     try:

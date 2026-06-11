@@ -1,6 +1,7 @@
 import logging
 from uuid import UUID
 
+from document_ia_infra.data.database import database_manager
 from fastapi import APIRouter, Depends, status, Path, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +18,6 @@ from document_ia_api.api.exceptions.entity_not_found_exception import (
 from document_ia_api.application.services.organization.organization_service import (
     OrganizationService,
 )
-from document_ia_infra.data.database import database_manager
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,7 @@ router = APIRouter()
 
 @router.get(
     "/organizations",
+    dependencies=[Depends(is_platform_admin)],
     response_model=list[OrganizationResult],
     summary="List organizations",
     description="Get a list of all organizations (admin only).",
@@ -111,7 +112,6 @@ router = APIRouter()
     },
 )
 async def get_organization_list(
-    _=Depends(is_platform_admin),
     db_session: AsyncSession = Depends(database_manager.async_get_db),
 ) -> list[OrganizationResult]:
     """
@@ -129,6 +129,7 @@ async def get_organization_list(
 
 @router.get(
     "/organizations/{organization_id}",
+    dependencies=[Depends(is_platform_admin)],
     response_model=OrganizationDetailsResult,
     summary="Get organization details",
     description="Get organization details and attached API keys (admin only).",
@@ -190,7 +191,6 @@ async def get_organization_list(
 )
 async def get_organization_details(
     organization_id: UUID = Path(..., description="Organization id (UUID)"),
-    _=Depends(is_platform_admin),
     db_session: AsyncSession = Depends(database_manager.async_get_db),
 ) -> OrganizationDetailsResult:
     logger.info(f"Getting details of organization {organization_id}")
@@ -207,6 +207,7 @@ async def get_organization_details(
 
 @router.post(
     "/organizations",
+    dependencies=[Depends(is_platform_admin)],
     response_model=OrganizationResult,
     status_code=status.HTTP_201_CREATED,
     summary="Create organization",
@@ -311,7 +312,6 @@ async def get_organization_details(
 )
 async def create_organization(
     payload: CreateOrganizationRequest = Body(..., description="Organization payload"),
-    _=Depends(is_platform_admin),
     db_session: AsyncSession = Depends(database_manager.async_get_db),
 ) -> OrganizationResult:
     try:
@@ -328,6 +328,7 @@ async def create_organization(
 
 @router.delete(
     "/organizations/{organization_id}",
+    dependencies=[Depends(is_platform_admin)],
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete organization",
     description=(
@@ -404,7 +405,6 @@ async def create_organization(
 )
 async def delete_organization(
     organization_id: UUID = Path(..., description="Organization id (UUID)"),
-    _=Depends(is_platform_admin),
     db_session: AsyncSession = Depends(database_manager.async_get_db),
 ) -> None:
     try:

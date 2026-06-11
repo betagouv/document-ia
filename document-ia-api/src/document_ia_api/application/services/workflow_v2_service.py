@@ -471,7 +471,7 @@ class WorkflowV2Service:
             return isinstance(value, list)
         if expected_type == "object":
             return isinstance(value, dict)
-        return True
+        return False
 
     @staticmethod
     def _extract_steps(raw_workflow: RawWorkflow) -> list[RawStep]:

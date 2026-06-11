@@ -109,6 +109,8 @@ def prepareStepListsV2(
                         workflow_context, event_v2.workflow_id, session
                     )
                 )
+            case _:
+                raise Exception(f"Unsupported step: {typed_step.action}")
     return step_list
 
 

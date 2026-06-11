@@ -12,7 +12,7 @@ post {
 
 body:multipart-form {
   metadata: {"test":"test"} @contentType(String)
-  file: @file(/Users/nsagon/Projects/files/Avis_d_impot_2025_sur_les_revenus_2024.pdf)
+  file: @file()
   ~extraction-parameters: {"document-type": "cni"}
   ~classification-parameters: {"document-types": ["cni", "passeport"]}
 }
