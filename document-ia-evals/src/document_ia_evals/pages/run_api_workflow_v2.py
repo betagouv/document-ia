@@ -1,4 +1,5 @@
 import json
+import pathlib
 import streamlit as st
 
 from document_ia_evals.utils.api import (
@@ -7,6 +8,12 @@ from document_ia_evals.utils.api import (
     wait_for_execution,
 )
 from document_ia_evals.utils.config import config
+
+
+def load_snippet(filename: str) -> str:
+    path = pathlib.Path(__file__).parent.parent / "assets" / "snippets" / filename
+    return path.read_text(encoding="utf-8")
+
 
 
 def main():
@@ -265,21 +272,38 @@ def main():
     tab_curl, tab_ts, tab_java = st.tabs(["cURL", "TypeScript", "Java (OkHttp)"])
 
     with tab_curl:
+        curl_template = load_snippet("example.sh")
         curl_file = (
             '-F "file=@/chemin/vers/votre/fichier.pdf"'
             if input_method == "Téléverser un fichier local"
             else f'-F "file_url={doc_url}"'
         )
-        curl_override = f"  -F 'override={override_json_str}' \\\n" if override else ""
-        curl_metadata = f"  -F 'metadata={metadata_json_str}' \\\n" if metadata else ""
 
-        curl_code = f"""curl -X POST "{full_url}" \\
-  -H "X-API-KEY: {api_key_str}" \\
-  {curl_file} \\
-{curl_override}{curl_metadata}  -H "Accept: application/json\""""
+        if override:
+            curl_template = curl_template.replace(
+                "OVERRIDE_CODE_PLACEHOLDER",
+                f"-F 'override={override_json_str}'"
+            )
+        else:
+            curl_template = curl_template.replace("  OVERRIDE_CODE_PLACEHOLDER \\\n", "")
+
+        if metadata:
+            curl_template = curl_template.replace(
+                "METADATA_CODE_PLACEHOLDER",
+                f"-F 'metadata={metadata_json_str}'"
+            )
+        else:
+            curl_template = curl_template.replace("  METADATA_CODE_PLACEHOLDER \\\n", "")
+
+        curl_code = (
+            curl_template.replace("URL_PLACEHOLDER", full_url)
+            .replace("API_KEY_PLACEHOLDER", api_key_str)
+            .replace("FILE_CODE_PLACEHOLDER", curl_file)
+        )
         st.code(curl_code, language="bash")
 
     with tab_ts:
+        ts_template = load_snippet("example.ts")
         if input_method == "Téléverser un fichier local":
             ts_file_code = """// Import Node.js filesystem module
 import fs from 'fs';
@@ -288,90 +312,59 @@ formData.append('file', fileStream as any);"""
         else:
             ts_file_code = f"formData.append('file_url', '{doc_url}');"
 
-        ts_override_code = (
-            f"formData.append('override', JSON.stringify({override_json_str}));"
-            if override
-            else ""
+        if override:
+            ts_template = ts_template.replace(
+                "OVERRIDE_CODE_PLACEHOLDER",
+                f"formData.append('override', JSON.stringify({override_json_str}));"
+            )
+        else:
+            ts_template = ts_template.replace("OVERRIDE_CODE_PLACEHOLDER\n", "")
+
+        if metadata:
+            ts_template = ts_template.replace(
+                "METADATA_CODE_PLACEHOLDER",
+                f"formData.append('metadata', JSON.stringify({metadata_json_str}));"
+            )
+        else:
+            ts_template = ts_template.replace("METADATA_CODE_PLACEHOLDER\n", "")
+
+        ts_code = (
+            ts_template.replace("URL_PLACEHOLDER", full_url)
+            .replace("API_KEY_PLACEHOLDER", api_key_str)
+            .replace("FILE_CODE_PLACEHOLDER", ts_file_code)
         )
-        ts_metadata_code = (
-            f"formData.append('metadata', JSON.stringify({metadata_json_str}));"
-            if metadata
-            else ""
-        )
-
-        ts_code = f"""import fetch from 'node-fetch'; // si < Node.js 18
-
-const url = "{full_url}";
-const apiKey = "{api_key_str}";
-
-const formData = new FormData();
-{ts_file_code}
-{ts_override_code}
-{ts_metadata_code}
-
-const response = await fetch(url, {{
-  method: 'POST',
-  headers: {{
-    'X-API-KEY': apiKey,
-  }},
-  body: formData
-}});
-
-const data = await response.json();
-console.log(data);"""
         st.code(ts_code, language="typescript")
 
     with tab_java:
+        java_template = load_snippet("example.java")
         if input_method == "Téléverser un fichier local":
-            java_file_code = """        File file = new File("/chemin/vers/votre/fichier.pdf");
+            java_file_code = """File file = new File("/chemin/vers/votre/fichier.pdf");
         bodyBuilder.addFormDataPart("file", file.getName(),
             RequestBody.create(file, MediaType.parse("application/pdf")));"""
         else:
-            java_file_code = (
-                f'        bodyBuilder.addFormDataPart("file_url", "{doc_url}");'
+            java_file_code = f'bodyBuilder.addFormDataPart("file_url", "{doc_url}");'
+
+        if override:
+            java_template = java_template.replace(
+                "OVERRIDE_CODE_PLACEHOLDER",
+                f'bodyBuilder.addFormDataPart("override", "{override_escaped_java}");'
             )
+        else:
+            java_template = java_template.replace("        OVERRIDE_CODE_PLACEHOLDER\n", "")
 
-        java_override_code = (
-            f'        bodyBuilder.addFormDataPart("override", "{override_escaped_java}");'
-            if override
-            else ""
+        if metadata:
+            java_template = java_template.replace(
+                "METADATA_CODE_PLACEHOLDER",
+                f'bodyBuilder.addFormDataPart("metadata", "{metadata_escaped_java}");'
+            )
+        else:
+            java_template = java_template.replace("        METADATA_CODE_PLACEHOLDER\n", "")
+
+        java_code = (
+            java_template.replace("URL_PLACEHOLDER", full_url)
+            .replace("API_KEY_PLACEHOLDER", api_key_str)
+            .replace("FILE_CODE_PLACEHOLDER", java_file_code)
         )
-        java_metadata_code = (
-            f'        bodyBuilder.addFormDataPart("metadata", "{metadata_escaped_java}");'
-            if metadata
-            else ""
-        )
-
-        java_code = f"""import okhttp3.*;
-import java.io.File;
-import java.io.IOException;
-
-public class DocumentIaClient {{
-    public static void main(String[] args) throws IOException {{
-        OkHttpClient client = new OkHttpClient().newBuilder().build();
-
-        MultipartBody.Builder bodyBuilder = new MultipartBody.Builder()
-            .setType(MultipartBody.FORM);
-
-{java_file_code}
-{java_override_code}
-{java_metadata_code}
-
-        RequestBody body = bodyBuilder.build();
-
-        Request request = new Request.Builder()
-            .url("{full_url}")
-            .post(body)
-            .addHeader("X-API-KEY", "{api_key_str}")
-            .addHeader("Accept", "application/json")
-            .build();
-
-        try (Response response = client.newCall(request).execute()) {{
-            if (!response.isSuccessful()) throw new IOException("Unexpected code " + response);
-            System.out.println(response.body().string());
-        }}
-    }}
-}}"""
         st.code(java_code, language="java")
 
     # Execution Action Button

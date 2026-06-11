@@ -11,11 +11,9 @@ def main():
     st.title(title)
 
     # Mask base URL to protect sensitive environments
-    masked_url = config.DOCUMENT_IA_BASE_URL
-    if "localhost" not in masked_url and "127.0.0.1" not in masked_url:
-        masked_url = "https://<DOCUMENT_IA_URL>/"
+    api_endpoint = config.DOCUMENT_IA_BASE_URL
 
-    st.caption(f"Using API endpoint: {masked_url}")
+    st.caption(f"Using API endpoint: {api_endpoint}")
 
     api_key = config.DOCUMENT_IA_API_KEY
     if not api_key:

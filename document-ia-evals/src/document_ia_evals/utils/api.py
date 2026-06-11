@@ -20,7 +20,7 @@ def execute_workflow(
     extraction_parameters: dict[str, Any] | None = None,
     classification_parameters: dict[str, Any] | None = None,
 ) -> WorkflowExecuteResponse:
-    """ "Execute a workflow on the Document IA API.
+    """Execute a workflow on the Document IA API.
 
     Args:
         workflow_name (str): The name of the workflow to execute.
@@ -55,7 +55,6 @@ def execute_workflow(
         headers=headers,
         timeout=120,
     )
-    print("RESPONSE", response.json())
     return WorkflowExecuteResponse.model_validate(response.json())
 
 
