@@ -50,6 +50,7 @@ router = APIRouter()
                             "connected": True,
                             "is_healthy": True,
                             "errors": [],
+                            "nb_execution_to_process": 0,
                         },
                         "database": {
                             "connected": True,
@@ -85,6 +86,7 @@ router = APIRouter()
                                 "connected": False,
                                 "is_healthy": False,
                                 "errors": ["Redis connection failed"],
+                                "nb_execution_to_process": None,
                             },
                             "database": {
                                 "connected": False,
@@ -132,7 +134,7 @@ async def health_check(
     - `healthy`: All systems operational (HTTP 200)
     - `unhealthy`: Critical dependencies are unavailable (HTTP 503)
     """
-    logger.debug("Health check requested", extra={"endpoint": "health_check"})
+    logger.info("Health check requested", extra={"endpoint": "health_check"})
 
     try:
         # Perform S3 connectivity check

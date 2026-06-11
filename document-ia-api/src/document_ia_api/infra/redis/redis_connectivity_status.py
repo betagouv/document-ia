@@ -9,9 +9,20 @@ class RedisConnectivityStatus:
     port: int
     db: int
     errors: list[str]
+    nb_execution_to_process: int | None = None
+    lag: int | None = None
+    pending: int | None = None
 
     @classmethod
     def default(cls, host: str, port: int, db: int) -> "RedisConnectivityStatus":
         return cls(
-            connected=False, is_healthy=False, host=host, port=port, db=db, errors=[]
+            connected=False,
+            is_healthy=False,
+            host=host,
+            port=port,
+            db=db,
+            errors=[],
+            nb_execution_to_process=None,
+            lag=None,
+            pending=None,
         )

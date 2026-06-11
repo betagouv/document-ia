@@ -59,6 +59,9 @@ class TestHealthCheck:
             assert data["redis"]["connected"] is True
             assert data["redis"]["is_healthy"] is True
             assert data["redis"]["errors"] == []
+            assert data["redis"]["nb_execution_to_process"] == 10
+            assert data["redis"]["lag"] == 8
+            assert data["redis"]["pending"] == 2
 
     @pytest.mark.asyncio
     async def test_health_check_unhealthy_s3(self, client_without_api_key):
@@ -228,6 +231,9 @@ class TestHealthCheck:
             host="localhost",
             port=6379,
             errors=[],
+            nb_execution_to_process=10,
+            lag=8,
+            pending=2,
         )
 
     @staticmethod

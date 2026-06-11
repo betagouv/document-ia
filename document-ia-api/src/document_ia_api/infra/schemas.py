@@ -45,6 +45,18 @@ class RedisHealthStatus(BaseModel):
     errors: list[str] = Field(
         default_factory=list, description="List of Redis connectivity errors"
     )
+    nb_execution_to_process: int | None = Field(
+        default=None,
+        description="Number of waiting messages in the queue to be processed",
+    )
+    lag: int | None = Field(
+        default=None,
+        description="Number of waiting messages in the queue (never delivered)",
+    )
+    pending: int | None = Field(
+        default=None,
+        description="Number of messages currently pending (read but not yet ACKed)",
+    )
 
     @staticmethod
     def from_redis_connectivity_status(
@@ -54,6 +66,9 @@ class RedisHealthStatus(BaseModel):
             connected=redis_connectivity_status.connected,
             is_healthy=redis_connectivity_status.is_healthy,
             errors=redis_connectivity_status.errors,
+            nb_execution_to_process=redis_connectivity_status.nb_execution_to_process,
+            lag=redis_connectivity_status.lag,
+            pending=redis_connectivity_status.pending,
         )
 
 
