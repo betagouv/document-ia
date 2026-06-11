@@ -37,17 +37,6 @@ Les textes OCR peuvent contenir des erreurs, des imprécisions ou des zones illi
 5. Distingue clairement les informations relatives au document (numéro, dates) de celles relatives à la personne
 6. Renvoie UNIQUEMENT un objet JSON conforme au schéma spécifié, sans texte explicatif ni commentaire
 
-## Informations à extraire
-- **numero_document**: Identifiant unique / Numéro du passeport (format alphanumérique)
-- **nom**: Nom de famille du titulaire (en majuscules sur le document)
-- **prenom**: Prénom du titulaire (premier prénom)
-- **lieu_naissance**: Lieu de naissance du titulaire (ville)
-- **nationalite**: Nationalité du titulaire
-- **bande_mrz**: Bande MRZ du passeport
-- **date_delivrance**: Date d'émission du passeport (format JJ/MM/AAAA). Si absente, renseigner `null`.
-- **date_expiration**: Date limite de validité du passeport (format JJ/MM/AAAA). Si absente, renseigner `null`.
-- **date_naissance**: Date de naissance du titulaire (format JJ/MM/AAAA). Si absente, renseigner `null`.
-
 ## Vérification finale avant réponse
 - Vérifie une dernière fois que tu n'as PAS INVENTÉ de données manquantes.
 - Confirme que les champs pour lesquels aucune information n'est disponible sont bien définis comme `null`.
@@ -75,6 +64,7 @@ Réponds UNIQUEMENT avec un objet JSON au format suivant :
 Voici des exemples de réponses attendues :
 
 Exemple 1 :
+```
 {
   "numero_document": "123456789012",
   "nom": "DUPONT",
@@ -86,6 +76,7 @@ Exemple 1 :
   "date_expiration": "2020-01-01",
   "date_naissance": "1990-01-01"
 }
+```
 
 
 N'ajoute pas de texte avant ou après le JSON final.

@@ -38,15 +38,6 @@ Les textes OCR peuvent contenir des erreurs, des imprécisions ou des zones illi
 5. Distingue clairement les informations relatives au document (numéro, dates) de celles relatives à la personne
 6. Renvoie UNIQUEMENT un objet JSON conforme au schéma spécifié, sans texte explicatif ni commentaire
 
-## Informations à extraire
-- **date_emission**: Date d'émission de l'attestation.
-- **nom_fournisseur**: Nom ou raison sociale du fournisseur de service
-- **siret_fournisseur**: Numéro SIRET du fournisseur de service (14 chiffres)
-- **beneficiaires**: Liste des bénéficiaires du contrat
-- **adresse_beneficiaire**: Adresse postale complète du bénéficiaire (adresse de livraison du service)
-- **numero_contrat**: Numéro de contrat ou d'abonnement avec le fournisseur
-- **date_debut_contrat**: Date de début du contrat. Si absente, renseigner `null`.
-
 ## Vérification finale avant réponse
 - Vérifie une dernière fois que tu n'as PAS INVENTÉ de données manquantes.
 - Confirme que les champs pour lesquels aucune information n'est disponible sont bien définis comme `null`.
@@ -76,6 +67,7 @@ Réponds UNIQUEMENT avec un objet JSON au format suivant :
 Voici des exemples de réponses attendues :
 
 Exemple 1 :
+```
 {
   "date_emission": "2024-01-15",
   "nom_fournisseur": "EDF",
@@ -89,7 +81,9 @@ Exemple 1 :
   "numero_contrat": "ELEC-458796214",
   "date_debut_contrat": "2024-01-01"
 }
+```
 Exemple 2 :
+```
 {
   "date_emission": "2024-02-28",
   "nom_fournisseur": "ENGIE",
@@ -106,6 +100,7 @@ Exemple 2 :
   "numero_contrat": "GAZ-998745120",
   "date_debut_contrat": "2024-01-10"
 }
+```
 
 
 N'ajoute pas de texte avant ou après le JSON final.

@@ -26,9 +26,6 @@ Les textes OCR peuvent contenir des erreurs, des imprécisions ou des zones illi
 5. Distingue clairement les informations relatives au document (numéro, dates) de celles relatives à la personne
 6. Renvoie UNIQUEMENT un objet JSON conforme au schéma spécifié, sans texte explicatif ni commentaire
 
-## Informations à extraire
-{{ document_json_properties_with_description | dict_to_bullets }}
-
 ## Vérification finale avant réponse
 - Vérifie une dernière fois que tu n'as PAS INVENTÉ de données manquantes.
 - Confirme que les champs pour lesquels aucune information n'est disponible sont bien définis comme `null`.
@@ -47,7 +44,9 @@ Voici des exemples de réponses attendues :
 
 {% for example in extraction_examples -%}
 Exemple {{ loop.index }} :
+```
 {{ example | tojson(indent=2) }}
+```
 {% endfor %}
 
 N'ajoute pas de texte avant ou après le JSON final.
