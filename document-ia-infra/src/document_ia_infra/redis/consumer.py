@@ -5,6 +5,7 @@ Classe Consumer commune pour les consumers Redis Stream
 import asyncio  # remplacement de threading+sleep
 import functools
 import logging
+import gc
 from asyncio import Task
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -306,11 +307,37 @@ class Consumer(Generic[T]):
             )
         finally:
             try:
+                # 1. Déclencher la garbage collection pour appeler les destructeurs __del__ des objets non fermés
+                # (comme les clients HTTPX/OpenAI créés dans ce thread) et enregistrer leurs tâches de fermeture.
+                gc.collect()
+
+                # 2. Récupérer toutes les tâches restantes (y compris les aclose() créés par la GC)
+                # et les laisser s'exécuter jusqu'à la fin avant de fermer la boucle.
+                pending_tasks = asyncio.all_tasks(loop)
+                if pending_tasks:
+                    try:
+                        loop.run_until_complete(
+                            asyncio.wait_for(
+                                asyncio.gather(*pending_tasks, return_exceptions=True),
+                                timeout=5.0,
+                            )
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "Timeout waiting for pending tasks to finish during thread loop shutdown"
+                        )
+                    except Exception as shutdown_err:
+                        logger.error(
+                            f"Error executing pending tasks during thread loop shutdown: {shutdown_err}"
+                        )
+
+                # 3. Arrêter les générateurs asynchrones
                 loop.run_until_complete(loop.shutdown_asyncgens())
-            except Exception:
-                logger.error("Error shutting down async generators in thread loop")
+            except Exception as e:
+                logger.error(f"Error during thread loop cleanup: {e}")
                 pass
-            loop.close()
+            finally:
+                loop.close()
 
     async def _ensure_consumer_group(self, redis_connection: Redis):
         try:
