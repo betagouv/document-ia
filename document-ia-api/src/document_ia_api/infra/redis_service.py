@@ -159,15 +159,15 @@ class RedisService:
             # Check number of messages to process in the queue
             try:
                 lag, pending = await self.check_event_stream_lag()
-                connectivity_status.lag = lag
-                connectivity_status.pending = pending
-                # Keep backward compatibility for nb_execution_to_process:
-                if lag is not None and pending is not None:
-                    connectivity_status.nb_execution_to_process = lag + pending
-                elif lag is not None:
-                    connectivity_status.nb_execution_to_process = lag
+                connectivity_status.nb_execution_undelivered = lag
+                connectivity_status.nb_execution_being_processed = pending
+
+                if lag is not None or pending is not None:
+                    connectivity_status.nb_execution_to_process = (lag or 0) + (
+                        pending or 0
+                    )
                 else:
-                    connectivity_status.nb_execution_to_process = pending
+                    connectivity_status.nb_execution_to_process = None
             except Exception as lag_err:
                 logger.error(
                     f"Failed to check event stream lag during connectivity check: {lag_err}"

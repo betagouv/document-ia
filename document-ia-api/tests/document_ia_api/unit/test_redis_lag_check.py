@@ -104,8 +104,8 @@ async def test_check_connectivity_populates_nb_execution_to_process():
         status = await redis_service.check_connectivity()
         assert status.connected is True
         assert status.is_healthy is True
-        assert status.lag == 42
-        assert status.pending == 8
+        assert status.nb_execution_undelivered == 42
+        assert status.nb_execution_being_processed == 8
         assert status.nb_execution_to_process == 50
 
 
@@ -118,6 +118,6 @@ async def test_check_connectivity_redis_unavailable():
         status = await redis_service.check_connectivity()
         assert status.connected is False
         assert status.is_healthy is False
-        assert status.lag is None
-        assert status.pending is None
+        assert status.nb_execution_undelivered is None
+        assert status.nb_execution_being_processed is None
         assert status.nb_execution_to_process is None

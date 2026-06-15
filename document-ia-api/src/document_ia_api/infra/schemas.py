@@ -49,11 +49,11 @@ class RedisHealthStatus(BaseModel):
         default=None,
         description="Number of waiting messages in the queue to be processed",
     )
-    lag: int | None = Field(
+    nb_execution_undelivered: int | None = Field(
         default=None,
         description="Number of waiting messages in the queue (never delivered)",
     )
-    pending: int | None = Field(
+    nb_execution_being_processed: int | None = Field(
         default=None,
         description="Number of messages currently pending (read but not yet ACKed)",
     )
@@ -67,8 +67,8 @@ class RedisHealthStatus(BaseModel):
             is_healthy=redis_connectivity_status.is_healthy,
             errors=redis_connectivity_status.errors,
             nb_execution_to_process=redis_connectivity_status.nb_execution_to_process,
-            lag=redis_connectivity_status.lag,
-            pending=redis_connectivity_status.pending,
+            nb_execution_undelivered=redis_connectivity_status.nb_execution_undelivered,
+            nb_execution_being_processed=redis_connectivity_status.nb_execution_being_processed,
         )
 
 
