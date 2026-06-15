@@ -156,6 +156,23 @@ class RedisService:
             connectivity_status.is_healthy = True
             logger.info("Redis connection established successfully")
 
+            # Check number of messages to process in the queue
+            try:
+                lag, pending = await self.check_event_stream_lag()
+                connectivity_status.nb_execution_undelivered = lag
+                connectivity_status.nb_execution_being_processed = pending
+
+                if lag is not None or pending is not None:
+                    connectivity_status.nb_execution_to_process = (lag or 0) + (
+                        pending or 0
+                    )
+                else:
+                    connectivity_status.nb_execution_to_process = None
+            except Exception as lag_err:
+                logger.error(
+                    f"Failed to check event stream lag during connectivity check: {lag_err}"
+                )
+
         except (ConnectionError, TimeoutError) as e:
             error_msg = f"Redis connection failed: {e}"
             connectivity_status.errors.append(error_msg)
@@ -169,6 +186,51 @@ class RedisService:
             return connectivity_status
 
         return connectivity_status
+
+    async def check_event_stream_lag(self) -> Tuple[int | None, int | None]:
+        """
+        Check the number of waiting messages in the event stream (lag)
+        and pending messages (read but not yet ACKed) for the group.
+        """
+        connection = await redis_manager.get_connection()
+        if connection is None:
+            logger.error("Redis connection unavailable for stream lag check")
+            return None, None
+
+        stream_name = redis_settings.EVENT_STREAM_NAME
+        group_name = redis_settings.EVENT_CONSUMER_GROUP
+
+        try:
+            # Get information about consumer groups
+            groups = await connection.xinfo_groups(stream_name)
+            for group in groups:
+                if group.get("name") == group_name:
+                    lag = group.get("lag")
+                    pending = group.get("pending")
+
+                    lag_val = int(lag) if lag is not None else None
+                    pending_val = int(pending) if pending is not None else None
+                    return lag_val, pending_val
+
+            # If the group was not found, fallback to total stream length as lag, pending=0.
+            xlen = await connection.xlen(stream_name)
+            return xlen, 0
+
+        except Exception as e:
+            err_msg = str(e).lower()
+            if "no such key" in err_msg:
+                # The stream doesn't exist yet
+                return 0, 0
+            elif "no such group" in err_msg:
+                # The group does not exist yet
+                try:
+                    xlen = await connection.xlen(stream_name)
+                    return xlen, 0
+                except Exception:
+                    return 0, 0
+            else:
+                logger.error(f"Error checking Redis stream groups: {e}")
+                return None, None
 
     async def close(self):
         """Close Redis connection."""

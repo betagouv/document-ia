@@ -17,7 +17,9 @@ class RedisSettings(BaseDocumentIaSettings):
     WEBHOOK_STREAM_NAME: str = Field(default="webhook_stream")
     WEBHOOK_CONSUMER_GROUP: str = Field(default="webhook_consumer")
     EVENT_STREAM_EXPIRATION: int = Field(default=300)
-    EVENT_STREAM_MAXLEN: int = Field(default=1000)
+    EVENT_STREAM_MAXLEN: int = Field(
+        default=100000
+    )  # In production we have 16k messages for a Day.
     EVENT_CONSUMER_GROUP: str = Field(default="workflow_execution_consumer")
 
     def get_redis_url(self) -> str:

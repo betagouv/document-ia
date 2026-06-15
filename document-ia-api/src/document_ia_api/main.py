@@ -73,6 +73,7 @@ async def lifespan(app: FastAPI):
     finally:
         # Shutdown
         logger.info("Shutting down Document IA API...")
+
         try:
             wc = getattr(app.state, "webhook_consumer", None)  # type: ignore[attr-defined]
             if wc is not None:
