@@ -8,7 +8,7 @@ from document_ia_worker.exception.unsupported_document_type import (
 
 
 def main() -> None:
-    output_dir = Path(__file__).resolve().parent / "prompts" / "extraction"
+    output_dir = Path(__file__).resolve().parent.parent / "snapshots" / "prompts" / "extraction"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     prompt_service = PromptService()

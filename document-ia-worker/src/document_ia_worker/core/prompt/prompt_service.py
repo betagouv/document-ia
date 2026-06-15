@@ -115,14 +115,9 @@ class PromptService:
                 for example in schema_instance.examples
             ]
 
-            document_json_properties_with_description: Dict[str, str] = {
-                key: value.get("description") for key, value in properties.items()
-            }
-
             prompt_text = prompt_template.render(
                 document_name=schema_instance.name,
                 document_description=schema_instance.description,
-                document_json_properties_with_description=document_json_properties_with_description,
                 extraction_response_format=extraction_response_format,
                 extraction_examples=extraction_examples,
                 nested_fields_info=nested_fields_info,

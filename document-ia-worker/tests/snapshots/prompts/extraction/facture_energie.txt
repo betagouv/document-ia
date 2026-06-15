@@ -40,16 +40,6 @@ Les textes OCR peuvent contenir des erreurs, des imprécisions ou des zones illi
 5. Distingue clairement les informations relatives au document (numéro, dates) de celles relatives à la personne
 6. Renvoie UNIQUEMENT un objet JSON conforme au schéma spécifié, sans texte explicatif ni commentaire
 
-## Informations à extraire
-- **date_emission**: Date d'émission de la facture
-- **nom_fournisseur**: Nom ou raison sociale du fournisseur de service
-- **siret_fournisseur**: Numéro SIRET du fournisseur de service (14 chiffres)
-- **beneficiaires**: Liste des bénéficiaires du service
-- **adresse_beneficiaire**: Adresse postale complète du bénéficiaire (adresse de livraison du service)
-- **numero_contrat**: Numéro de contrat ou d'abonnement avec le fournisseur
-- **numero_facture**: Numéro unique de la facture
-- **montant_ttc**: Montant total toutes taxes comprises (TTC) en euros
-
 ## Vérification finale avant réponse
 - Vérifie une dernière fois que tu n'as PAS INVENTÉ de données manquantes.
 - Confirme que les champs pour lesquels aucune information n'est disponible sont bien définis comme `null`.
@@ -80,6 +70,7 @@ Réponds UNIQUEMENT avec un objet JSON au format suivant :
 Voici des exemples de réponses attendues :
 
 Exemple 1 :
+```
 {
   "date_emission": "2024-01-15",
   "nom_fournisseur": "EDF",
@@ -94,7 +85,9 @@ Exemple 1 :
   "numero_facture": "FAC-2024-001234",
   "montant_ttc": 125.5
 }
+```
 Exemple 2 :
+```
 {
   "date_emission": "2024-02-28",
   "nom_fournisseur": "ENGIE",
@@ -112,6 +105,7 @@ Exemple 2 :
   "numero_facture": "FAC-2024-004892",
   "montant_ttc": 214.9
 }
+```
 
 
 N'ajoute pas de texte avant ou après le JSON final.

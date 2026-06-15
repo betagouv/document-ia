@@ -46,23 +46,6 @@ Les textes OCR peuvent contenir des erreurs, des imprécisions ou des zones illi
 5. Distingue clairement les informations relatives au document (numéro, dates) de celles relatives à la personne
 6. Renvoie UNIQUEMENT un objet JSON conforme au schéma spécifié, sans texte explicatif ni commentaire
 
-## Informations à extraire
-- **annee_revenus**: Année fiscale concernée par la déclaration de revenus (format AAAA)
-- **date_mise_en_recouvrement**: Date de mise en recouvrement de l'impôt (format JJ/MM/AAAA). Si absente, renseigner `null`.
-- **declarant_1_identite**: Nom et prénom du premier déclarant tel qu'il apparait au niveau du destinataire
-- **declarant_1_nom_naissance**: Nom de naissance du premier déclarant, il peut être différent du nom et prénom du déclarant 1
-- **declarant_1_numero_fiscal**: Numéro fiscal personnel du premier déclarant (13 chiffres)
-- **declarant_2_identite**: Nom et prénom du deuxième déclarant tel qu'il apparait au niveau du destinataire
-- **declarant_2_nom_naissance**: Nom de naissance du deuxième déclarant, il peut être différent du nom et prénom du déclarant 2
-- **declarant_2_numero_fiscal**: Numéro fiscal personnel du deuxième déclarant (13 chiffres)
-- **reference_avis**: Référence unique de l'avis d'imposition (format numérique, généralement 13 ou 14 chiffres). Information présente juste après la mention "référence de l'avis".
-- **nombre_parts**: Nombre de parts fiscales du foyer (peut être décimal)
-- **revenu_fiscal_reference**: Revenu fiscal de référence (RFR) du foyer en euros
-- **revenu_brut_global**: Revenu brut global du foyer en euros.
-- **revenu_imposable**: Revenu net imposable du foyer en euros.
-- **impot_revenu_net_avant_corrections**: Montant de l'impôt sur le revenu net avant corrections en euros.
-- **montant_impot**: Montant total de l'impôt à payer ou remboursement en euros (peut être négatif).
-
 ## Vérification finale avant réponse
 - Vérifie une dernière fois que tu n'as PAS INVENTÉ de données manquantes.
 - Confirme que les champs pour lesquels aucune information n'est disponible sont bien définis comme `null`.
@@ -96,6 +79,7 @@ Réponds UNIQUEMENT avec un objet JSON au format suivant :
 Voici des exemples de réponses attendues :
 
 Exemple 1 :
+```
 {
   "annee_revenus": "2023",
   "date_mise_en_recouvrement": "2024-07-31",
@@ -113,7 +97,9 @@ Exemple 1 :
   "impot_revenu_net_avant_corrections": 5500.0,
   "montant_impot": 5000.0
 }
+```
 Exemple 2 :
+```
 {
   "annee_revenus": "2023",
   "date_mise_en_recouvrement": "2024-07-31",
@@ -131,6 +117,7 @@ Exemple 2 :
   "impot_revenu_net_avant_corrections": 5500.0,
   "montant_impot": 5000.0
 }
+```
 
 
 N'ajoute pas de texte avant ou après le JSON final.
