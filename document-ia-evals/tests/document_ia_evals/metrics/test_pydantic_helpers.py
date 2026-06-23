@@ -30,20 +30,27 @@ def test_get_field_metrics_supports_all_requested_input_formats() -> None:
         Metric.EQUALITY,
     ]
     assert get_field_metrics(fields["metric_enum"]) == [Metric.STRING_DATE_EQUALITY]
-    assert get_field_metrics(fields["metric_list_enum"]) == [Metric.SKIP, Metric.EQUALITY]
+    assert get_field_metrics(fields["metric_list_enum"]) == [
+        Metric.SKIP,
+        Metric.EQUALITY,
+    ]
 
 
 def test_get_field_metrics_defaults_to_equality_when_invalid_or_missing() -> None:
     fields = _MetricsModel.model_fields
 
-    assert get_field_metrics(fields["metric_mixed_invalid"]) == [Metric.LEVENSHTEIN_DISTANCE]
+    assert get_field_metrics(fields["metric_mixed_invalid"]) == [
+        Metric.LEVENSHTEIN_DISTANCE
+    ]
     assert get_field_metrics(fields["metric_invalid_only"]) == [Metric.EQUALITY]
     assert get_field_metrics(fields["metric_missing"]) == [Metric.EQUALITY]
 
 
 def test_compare_pydantic_models_reads_metrics_as_list() -> None:
     class _ComparisonModel(BaseModel):
-        name: str = Field(json_schema_extra={"metrics": ["levenshtein_distance", "equality"]})
+        name: str = Field(
+            json_schema_extra={"metrics": ["levenshtein_distance", "equality"]}
+        )
 
     prediction = _ComparisonModel(name="aneme")
     ground_truth = _ComparisonModel(name="aname")

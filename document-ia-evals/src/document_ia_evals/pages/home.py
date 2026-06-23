@@ -8,7 +8,7 @@ from document_ia_evals.utils.config import config
 st.set_page_config(
     page_title=f"Home | {config.APP_TITLE}",
     page_icon="📊",
-    layout=config.LAYOUT  # pyright: ignore [reportArgumentType]
+    layout=config.LAYOUT,  # pyright: ignore [reportArgumentType]
 )
 
 
@@ -37,7 +37,8 @@ def main():
 
     if config.ALLOW_INSECURE_REQUESTS is True:
         st.info(
-            f"⚠️ ALLOW_INSECURE_REQUESTS is {config.ALLOW_INSECURE_REQUESTS}. It is used to bypass ssl certificate verification when using LabelStudio behind a VPN.")
+            f"⚠️ ALLOW_INSECURE_REQUESTS is {config.ALLOW_INSECURE_REQUESTS}. It is used to bypass ssl certificate verification when using LabelStudio behind a VPN."
+        )
 
 
 if __name__ == "__main__":

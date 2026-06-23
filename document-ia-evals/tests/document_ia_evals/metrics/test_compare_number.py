@@ -265,7 +265,7 @@ class TestNormalizeNumber:
             ("0.0", 0.0),
             ("0,0", 0.0),
             ("-0", 0.0),
-            ("-0.0", 0.0)
+            ("-0.0", 0.0),
         ],
         ids=[
             "zero",
@@ -274,7 +274,7 @@ class TestNormalizeNumber:
             "zero_with_dot",
             "zero_with_comma",
             "negative_zero",
-            "negative_zero_decimal"
+            "negative_zero_decimal",
         ],
     )
     def test_edge_cases(self, input_value: str, expected: float):
@@ -308,7 +308,7 @@ class TestNormalizeNumber:
 
     def test_comma_thousands_becomes_invalid(self):
         """Test that comma as thousands separator creates multiple dots (invalid).
-        
+
         Note: The normalize_number function converts all commas to dots,
         so "1,000,000" becomes "1.000.000" which has multiple dots and is invalid.
         To handle this format, the function would need to be updated.
@@ -699,13 +699,10 @@ class TestRealWorldScenarios:
             "reference_number",
         ],
     )
-    def test_payslip_scenarios(
-        self, expected: str, predicted: str, should_match: bool
-    ):
+    def test_payslip_scenarios(self, expected: str, predicted: str, should_match: bool):
         """Test scenarios from payslip (bulletin de salaire) processing."""
         result = compare_number(expected, predicted)
         if should_match:
             assert result == 1.0
         else:
             assert result == 0.0
-

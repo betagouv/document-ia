@@ -30,17 +30,33 @@ def main():
             st.Page("pages/home.py", title="🏠 Home"),
         ],
         "API Playground": [
-            st.Page("pages/run_api_workflow.py", title="📄 Execute Workflow"),
+            st.Page(
+                "pages/run_api_workflow.py", title="📄 Execute Workflow (Deprecated)"
+            ),
             st.Page("pages/run_api_workflow_v2.py", title="📄 Execute Workflow V2"),
             st.Page(
                 "pages/retrieve_api_execution.py", title="🔍 Retrieve Past Execution"
             ),
         ],
         "Pipeline Evaluation": [
-            st.Page("pages/create_dataset.py", title="📝 Create Ground Truth"),
-            st.Page("pages/create_predictions.py", title="🔄 Create New Predictions"),
             st.Page(
-                "pages/evaluate_metrics.py", title="🎯 Evaluate Predictions Metrics"
+                "pages/create_dataset.py", title="📝 Create Ground Truth (Deprecated)"
+            ),
+            st.Page("pages/create_dataset_v2.py", title="📝 Create Ground Truth V2"),
+            st.Page(
+                "pages/create_predictions.py",
+                title="🔄 Create New Predictions (Deprecated)",
+            ),
+            st.Page(
+                "pages/create_predictions_v2.py", title="🔄 Create New Predictions V2"
+            ),
+            st.Page(
+                "pages/evaluate_metrics.py",
+                title="🎯 Evaluate Predictions Metrics (Deprecated)",
+            ),
+            st.Page(
+                "pages/evaluate_metrics_v2.py",
+                title="🎯 Evaluate Predictions Metrics V2",
             ),
             st.Page("pages/list_experiments.py", title="📚 List Previous Evaluations"),
         ],
