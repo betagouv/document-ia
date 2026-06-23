@@ -9,6 +9,8 @@ from document_ia_infra.exception.openai_authentification_error import (
 )
 from document_ia_infra.exception.retryable_exception import RetryableException
 from document_ia_infra.openai.openai_manager import OpenAIManager
+from document_ia_infra.data.workflow.dto.workflow_v2_dto import LLMClassifyParams
+from document_ia_schemas import SupportedDocumentType
 from document_ia_worker.core.prompt.prompt_configuration import (
     GENERIC_CLASSIFICATION_MODEL,
 )
@@ -30,13 +32,39 @@ logger = logging.getLogger(__name__)
 class LLMClassifyDocumentStep(BaseStep[LLMClassificationResult]):
     ocr_result: Optional[OcrResult] = None
 
-    def __init__(self, main_workflow_context: MainWorkflowContext, model: str):
+    def __init__(
+        self,
+        main_workflow_context: MainWorkflowContext,
+        model: str,
+        temperature: float = 0.0,
+        document_types_override: Optional[list[SupportedDocumentType]] = None,
+    ):
         self.execution_id = main_workflow_context.execution_id
         self.model = model
+        self.temperature = temperature
+        self.document_types_override = document_types_override
         self.openai_manager = OpenAIManager()
         self.prompt_service = PromptService()
         self.extraction_parameters = main_workflow_context.extraction_parameters
         self.classification_parameters = main_workflow_context.classification_parameters
+
+    @classmethod
+    def from_v2_params(
+        cls,
+        main_workflow_context: MainWorkflowContext,
+        params: LLMClassifyParams,
+    ) -> "LLMClassifyDocumentStep":
+        document_types_override: Optional[list[SupportedDocumentType]] = None
+        if params.document_types != "all":
+            document_types_override = list(params.document_types)
+
+        model = params.model.value
+        return cls(
+            main_workflow_context=main_workflow_context,
+            model=model,
+            temperature=params.temperature,
+            document_types_override=document_types_override,
+        )
 
     def get_context_result_key(self) -> str:
         return LLMClassificationResult.__name__
@@ -76,13 +104,20 @@ class LLMClassifyDocumentStep(BaseStep[LLMClassificationResult]):
                 ),
             )
 
+        # v2 overrides have priority; fallback keeps v1 behavior.
         document_type_list = (
-            self.classification_parameters.document_types
-            if self.classification_parameters
-            and self.classification_parameters.document_types
-            else GENERIC_CLASSIFICATION_MODEL
+            self.document_types_override
+            if self.document_types_override is not None
+            else (
+                self.classification_parameters.document_types
+                if self.classification_parameters
+                and self.classification_parameters.document_types
+                else GENERIC_CLASSIFICATION_MODEL
+            )
         )
-        system_prompt = self.prompt_service.get_classification_prompt(document_type_list)
+        system_prompt = self.prompt_service.get_classification_prompt(
+            document_type_list
+        )
         user_prompt = ""
         for page in self.ocr_result.pages:
             user_prompt += f"{page.text}\n\n"
@@ -97,6 +132,7 @@ class LLMClassifyDocumentStep(BaseStep[LLMClassificationResult]):
                 user_prompt=user_prompt,
                 response_class=DocumentClassification,
                 model=self.model,
+                temperature=self.temperature,
             )
         except OpenAIAuthentificationError as e:
             raise RetryableException(e.message)

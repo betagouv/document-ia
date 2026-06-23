@@ -1,0 +1,34 @@
+meta {
+  name: Execute workflow
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{server}}api/v2/workflows/{{worfklow_id}}/execute
+  body: multipartForm
+  auth: inherit
+}
+
+body:multipart-form {
+  override: '''
+    {
+      "extract_content_ocr" : [
+        {
+          "param" : "model",
+          "value" : "tesseract"
+        }
+      ]
+    }
+  '''
+  file: @file(/Users/nsagon/Projects/files/Avis_d_impot_2025_sur_les_revenus_2024.pdf)
+}
+
+vars:pre-request {
+  worfklow_id: document-classification-extraction-v2
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

@@ -27,6 +27,7 @@ router = APIRouter(prefix="/workflows")
 
 @router.post(
     "/{workflow_id}/execute",
+    dependencies=[Depends(verify_api_key), Depends(check_rate_limit)],
     response_model=WorkflowExecuteResponse,
     summary="Execute Workflow",
     description="Execute a document processing workflow with file upload and metadata",
@@ -207,21 +208,19 @@ async def execute_workflow(
         default=None,
         description="JSON string matching the `WorkflowClassificationParameterRequest` model",
         alias="classification-parameters",
-        example='{"llm_model": "albert-small"}',
+        examples=['{"llm_model": "albert-small"}'],
     ),
     extraction_parameters: Optional[str] = Form(
         default=None,
         description="JSON string matching the `WorkflowExtractionParameterRequest` model",
         alias="extraction-parameters",
-        example='{"llm_model": "albert-small", "document_type": "passeport"}',
+        examples=['{"llm_model": "albert-small", "document_type": "passeport"}'],
     ),
     metadata: Optional[str] = Form(
         default=None,
         description="JSON string containing metadata object",
     ),
-    api_key: str = Depends(verify_api_key),
     current_org: OrganizationDTO = Depends(get_current_organization),
-    rate_limit_info: RateLimitInfo = Depends(check_rate_limit),
     db_session: AsyncSession = Depends(database_manager.async_get_db),
 ) -> WorkflowExecuteResponse:
     """
