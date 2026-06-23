@@ -214,6 +214,22 @@ class TestEventStoreService:
         assert event.total_processing_time_ms == 5000
         assert event.output_summary == {"steps": 3, "success": True}
         assert event.steps_completed == 3
+        assert event.version == 1
+
+    def test_create_workflow_completed_event_with_version_2(self, event_store_service):
+        event = event_store_service.create_workflow_completed_event(
+            workflow_id="test_workflow_001",
+            organization_id=uuid4(),
+            execution_id="test_execution_001",
+            final_result=CompletedEventResult(),
+            total_processing_time_ms=5000,
+            output_summary={"steps": 3, "success": True},
+            steps_completed=3,
+            event_version=2,
+        )
+
+        assert isinstance(event, WorkflowExecutionCompletedEvent)
+        assert event.version == 2
 
     def test_create_workflow_failed_event(self, event_store_service):
         """Test creating workflow failed event."""

@@ -7,6 +7,7 @@ from document_ia_api.api.middleware.rate_limiting_middleware import check_rate_l
 from document_ia_api.schemas.rate_limiting import RateLimitInfo
 from document_ia_api.api.config import settings
 from document_ia_api.api.routes.v1 import router as v1_router
+from document_ia_api.api.routes.v2 import router as v2_router
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 # Add v1 router
 router.include_router(v1_router)
+router.include_router(v2_router)
 
 
 @router.get(

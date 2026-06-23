@@ -1,15 +1,8 @@
-from enum import Enum
 from typing import List
 
 from pydantic import BaseModel
 
-
-class LLMModel(str, Enum):
-    ALBERT_LARGE = "albert-large"
-    ALBERT_SMALL = "albert-small"
-    OPEN_WEIGHT_LARGE = "openweight-large"
-    OPEN_WEIGHT_SMALL = "openweight-small"
-    MISTRAL_MEDIUM = "mistral-medium-2508"
+from document_ia_infra.data.workflow.dto.enums import LLMModel
 
 
 class WorkflowDTO(BaseModel):

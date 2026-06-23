@@ -48,7 +48,7 @@ class TestSaveWorkflowResult:
         captured: dict[str, object] = {}
 
         async def fake_emit(*, workflow_id: str, execution_id: str, organization_id: UUID, final_result, total_processing_time_ms: int,
-                            output_summary: dict, steps_completed: int, workflow_metadata):
+                            output_summary: dict, steps_completed: int, workflow_metadata, event_version: int):
             captured.update({
                 "workflow_id": workflow_id,
                 "organization_id": organization_id,
@@ -58,6 +58,7 @@ class TestSaveWorkflowResult:
                 "output_summary": output_summary,
                 "steps_completed": steps_completed,
                 "workflow_metadata": workflow_metadata,
+                "event_version": event_version,
             })
             return SimpleNamespace(id="evt-42")
 
@@ -84,6 +85,7 @@ class TestSaveWorkflowResult:
         assert captured["output_summary"] == {}
         assert captured["steps_completed"] == 4  # number_of_step_executed + 1
         assert captured["workflow_metadata"] == []
+        assert captured["event_version"] == 1
 
     @pytest.mark.asyncio
     async def test_save_workflow_extraction_result_persists_event_with_expected_payload(self):
@@ -110,8 +112,8 @@ class TestSaveWorkflowResult:
         captured = {}
 
         async def fake_emit(*, workflow_id: str, execution_id: str, organization_id: UUID, final_result, total_processing_time_ms: int,
-                            output_summary: dict, steps_completed: int, workflow_metadata):
-            captured.update({"final_result": final_result, "workflow_metadata": workflow_metadata})
+                            output_summary: dict, steps_completed: int, workflow_metadata, event_version: int):
+            captured.update({"final_result": final_result, "workflow_metadata": workflow_metadata, "event_version": event_version})
             return SimpleNamespace(id="evt-99")
 
         step.event_service = SimpleNamespace(emit_workflow_completed=AsyncMock(side_effect=fake_emit))
@@ -127,6 +129,7 @@ class TestSaveWorkflowResult:
         assert final_result.extraction == extraction_payload
         assert final_result.classification is None
         assert captured["workflow_metadata"] == []
+        assert captured["event_version"] == 1
 
     @pytest.mark.asyncio
     async def test_save_workflow_includes_workflow_metadata(self):
@@ -148,8 +151,8 @@ class TestSaveWorkflowResult:
         captured = {}
 
         async def fake_emit(*, workflow_id: str, execution_id: str, organization_id: UUID, final_result, total_processing_time_ms: int,
-                            output_summary: dict, steps_completed: int, workflow_metadata):
-            captured.update({"workflow_metadata": workflow_metadata})
+                            output_summary: dict, steps_completed: int, workflow_metadata, event_version: int):
+            captured.update({"workflow_metadata": workflow_metadata, "event_version": event_version})
             return SimpleNamespace(id="evt-meta")
 
         step.event_service = SimpleNamespace(emit_workflow_completed=AsyncMock(side_effect=fake_emit))
@@ -161,3 +164,36 @@ class TestSaveWorkflowResult:
 
         # Assert the workflow_metadata passed through unchanged
         assert captured["workflow_metadata"] == steps_md
+        assert captured["event_version"] == 1
+
+    @pytest.mark.asyncio
+    async def test_save_workflow_uses_v2_event_version(self):
+        start_time = datetime.now(timezone.utc) - timedelta(seconds=1)
+        ctx = MainWorkflowContext(
+            execution_id="exec-v2",
+            start_time=start_time,
+            steps_metadata=[],
+            number_of_step_executed=0,
+            organization_id=uuid4(),
+            event_version=2,
+        )
+        fake_session = MagicMock()
+        step = SaveWorkflowResultStep(
+            main_workflow_context=ctx,
+            workflow_id="wf-v2",
+            database_session=fake_session,
+        )
+
+        captured = {}
+
+        async def fake_emit(*, workflow_id: str, execution_id: str, organization_id: UUID, final_result, total_processing_time_ms: int,
+                            output_summary: dict, steps_completed: int, workflow_metadata, event_version: int):
+            captured.update({"event_version": event_version})
+            return SimpleNamespace(id="evt-v2")
+
+        step.event_service = SimpleNamespace(emit_workflow_completed=AsyncMock(side_effect=fake_emit))
+        step.inject_workflow_context({})
+
+        await step.execute()
+
+        assert captured["event_version"] == 2
