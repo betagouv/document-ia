@@ -2,10 +2,6 @@ import logging
 from typing import Any, Dict, cast, TypeVar
 
 import tiktoken
-from openai import AsyncOpenAI, AuthenticationError, PermissionDeniedError
-from openai.types.chat import ChatCompletion
-from pydantic import BaseModel
-
 from document_ia_infra.data.document.schema.document_extraction import (
     DocumentExtraction,
 )
@@ -14,6 +10,10 @@ from document_ia_infra.exception.openai_authentification_error import (
 )
 from document_ia_infra.openai.openai_settings import openai_settings
 from document_ia_infra.openai.response_format import get_response_format
+from openai import AsyncOpenAI, AuthenticationError, PermissionDeniedError
+from openai.types.chat import ChatCompletion
+from pydantic import BaseModel
+
 from document_ia_schemas import SupportedDocumentType
 
 logger = logging.getLogger(__name__)
@@ -41,13 +41,14 @@ class OpenAIManager:
         user_prompt: str,
         response_class: type[T],
         model: str,
+        temperature: float = 0,
     ) -> tuple[T, int, int]:
         return await self._generate_typed_response(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             response_class=response_class,
             model=model,
-            temperature=0,
+            temperature=temperature,
         )
 
     async def get_extraction_response(
@@ -57,6 +58,7 @@ class OpenAIManager:
         response_class: type[DocumentExtraction[T]],
         document_type: SupportedDocumentType,
         model: str,
+        temperature: float = 0,
     ) -> tuple[T, int, int]:
         inner_class = cast(Any, response_class.model_fields["properties"].annotation)
 
@@ -69,7 +71,7 @@ class OpenAIManager:
             user_prompt=user_prompt,
             response_class=inner_class,
             model=model,
-            temperature=0,
+            temperature=temperature,
         )
 
         return (

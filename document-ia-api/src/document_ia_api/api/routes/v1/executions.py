@@ -1,5 +1,15 @@
 import logging
 
+from document_ia_infra.data.database import database_manager
+from document_ia_infra.data.organization.dto.organization_dto import OrganizationDTO
+from document_ia_infra.data.workflow.repository.workflow import workflow_repository
+from document_ia_infra.data.workflow.repository.workflow_v2_repository import (
+    workflow_v2_repository,
+)
+from document_ia_infra.exception.entity_not_found_exception import (
+    EntityNotFoundException,
+)
+from document_ia_infra.service.event_store_service import EventStoreService
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,13 +29,6 @@ from document_ia_api.api.exceptions.entity_not_found_exception import (
     HttpEntityNotFoundException,
 )
 from document_ia_api.application.services.execution_service import ExecutionService
-from document_ia_infra.data.database import database_manager
-from document_ia_infra.data.organization.dto.organization_dto import OrganizationDTO
-from document_ia_infra.data.workflow.repository.workflow import workflow_repository
-from document_ia_infra.exception.entity_not_found_exception import (
-    EntityNotFoundException,
-)
-from document_ia_infra.service.event_store_service import EventStoreService
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +37,7 @@ router = APIRouter(prefix="/executions")
 
 @router.get(
     "/{execution_id}",
+    dependencies=[Depends(verify_api_key)],
     summary="Get Execution details",
     description="Retrieve execution details by execution ID. Response is discriminated by 'status' (STARTED | SUCCESS | FAILED).",
     response_model=ExecutionResponse,
@@ -121,6 +125,22 @@ router = APIRouter(prefix="/executions")
                 }
             },
         },
+        403: {
+            "model": ProblemDetail,
+            "description": "Forbidden (ProblemDetail) — execution belongs to another organization",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "type": "about:blank",
+                        "title": "Forbidden",
+                        "status": 403,
+                        "code": "http.forbidden",
+                        "detail": "Forbidden access to execution",
+                        "instance": "/api/v1/executions/{execution_id}",
+                    }
+                }
+            },
+        },
         404: {
             "model": ProblemDetail,
             "description": "Execution not found (ProblemDetail)",
@@ -161,7 +181,6 @@ router = APIRouter(prefix="/executions")
 )
 async def get_execution(
     execution_id: str,
-    api_key: str = Depends(verify_api_key),
     organization: OrganizationDTO = Depends(get_current_organization),
     db_session: AsyncSession = Depends(database_manager.async_get_db),
     is_debug_mode: bool = Query(False),
@@ -178,11 +197,25 @@ async def get_execution(
             execution_id
         )
         if last_event.organization_id != organization.id:
-            raise HTTPException(
-                status_code=401, detail="Unauthorized access to execution"
+            raise HTTPException(status_code=403, detail="Forbidden access to execution")
+        event_version_raw = last_event.event.get("version")
+        event_version = event_version_raw if isinstance(event_version_raw, int) else 1
+
+        workflow_exists = False
+        if event_version == 2:
+            workflow_exists = (
+                workflow_v2_repository.get_raw_workflow_by_id(last_event.workflow_id)
+                is not None
             )
-        workflow = await workflow_repository.get_workflow_by_id(last_event.workflow_id)
-        if workflow is None:
+        elif event_version == 1:
+            workflow_exists = (
+                await workflow_repository.get_workflow_by_id(last_event.workflow_id)
+                is not None
+            )
+        else:
+            raise ValueError(f"Unsupported event version: {event_version}")
+
+        if not workflow_exists:
             raise EntityNotFoundException("Workflow", last_event.workflow_id)
 
         return execution_service.get_event_model(

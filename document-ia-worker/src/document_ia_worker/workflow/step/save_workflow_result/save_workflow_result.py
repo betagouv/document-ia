@@ -89,6 +89,7 @@ class SaveWorkflowResultStep(BaseStep[None]):
                 output_summary={},
                 steps_completed=self.main_workflow_context.number_of_step_executed + 1,
                 workflow_metadata=self.main_workflow_context.steps_metadata,
+                event_version=self.main_workflow_context.event_version,
             )
             return None, None
         except Exception as e:

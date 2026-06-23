@@ -230,7 +230,7 @@ class WorkflowService:
 
             if event_dto.organization_id != organization_id:
                 raise HTTPException(
-                    status_code=401, detail="Unauthorized access to execution"
+                    status_code=403, detail="Forbidden access to execution"
                 )
 
             last_model = execution_service.get_event_model(

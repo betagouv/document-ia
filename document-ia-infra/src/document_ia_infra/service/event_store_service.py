@@ -36,6 +36,7 @@ from document_ia_infra.data.event.schema.workflow.workflow_execution_started_eve
 from document_ia_infra.data.event.schema.workflow.workflow_execution_step_completed_event import (
     WorkflowExecutionStepCompletedEvent,
 )
+from document_ia_infra.data.workflow.dto.workflow_v2_dto import WorkflowV2Dto
 from document_ia_infra.exception.entity_not_found_exception import (
     EntityNotFoundException,
 )
@@ -189,6 +190,8 @@ class EventStoreService:
         file_url: Optional[str] = None,
         classification_parameters: Optional[ClassificationParameters] = None,
         extraction_parameters: Optional[ExtractionParameters] = None,
+        workflow_configuration: Optional[WorkflowV2Dto] = None,
+        event_version: int = 1,
     ) -> WorkflowExecutionStartedEvent:
         """Create a WorkflowExecutionStartedEvent."""
         return WorkflowExecutionStartedEvent(
@@ -196,13 +199,14 @@ class EventStoreService:
             execution_id=execution_id,
             organization_id=organization_id,
             created_at=datetime.now(),
-            version=1,  # Will be updated when stored
+            version=event_version,
             s3_file_info=file_info,
             file_url=file_url,
             metadata=metadata,
             classification_parameters=classification_parameters
             or ClassificationParameters(),
             extraction_parameters=extraction_parameters or ExtractionParameters(),
+            workflow_configuration=workflow_configuration,
         )
 
     def create_step_completed_event(
@@ -239,6 +243,7 @@ class EventStoreService:
         output_summary: Dict[str, Any],
         steps_completed: int,
         workflow_metadata: Optional[list[Any]] = None,
+        event_version: int = 1,
     ) -> WorkflowExecutionCompletedEvent:
         """Create a WorkflowExecutionCompletedEvent."""
         return WorkflowExecutionCompletedEvent(
@@ -247,7 +252,7 @@ class EventStoreService:
             organization_id=organization_id,
             execution_id=execution_id,
             created_at=datetime.now(UTC),
-            version=1,  # Will be updated when stored
+            version=event_version,
             final_result=final_result,
             total_processing_time_ms=total_processing_time_ms,
             output_summary=output_summary,
@@ -291,6 +296,8 @@ class EventStoreService:
         file_url: Optional[str] = None,
         classification_parameters: Optional[ClassificationParameters] = None,
         extraction_parameters: Optional[ExtractionParameters] = None,
+        workflow_configuration: Optional[WorkflowV2Dto] = None,
+        event_version: int = 1,
     ) -> EventStoreRecord:
         """Emit and store a workflow started event."""
         event = self.create_workflow_started_event(
@@ -302,6 +309,8 @@ class EventStoreService:
             metadata=metadata,
             classification_parameters=classification_parameters,
             extraction_parameters=extraction_parameters,
+            workflow_configuration=workflow_configuration,
+            event_version=event_version,
         )
         return await self.store_event(event)
 
@@ -337,6 +346,7 @@ class EventStoreService:
         output_summary: Dict[str, Any],
         steps_completed: int,
         workflow_metadata: Optional[list[Any]] = None,
+        event_version: int = 1,
     ) -> EventStoreRecord:
         """Emit and store a workflow completed event."""
         event = self.create_workflow_completed_event(
@@ -348,6 +358,7 @@ class EventStoreService:
             output_summary=output_summary,
             steps_completed=steps_completed,
             workflow_metadata=workflow_metadata,
+            event_version=event_version,
         )
         return await self.store_event(event)
 

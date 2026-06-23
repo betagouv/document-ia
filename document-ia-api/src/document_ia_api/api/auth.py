@@ -4,32 +4,38 @@ from fastapi import Depends, Request, Security, HTTPException, Header
 from fastapi.security import APIKeyHeader
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from document_ia_api.api.exceptions.auth_exception import (
+    InvalidApiKeyException,
+    MissingApiKeyException,
+)
 from document_ia_api.application.services.api_key.api_key_service import ApiKeyService
 from document_ia_infra.data.api_key.dto.api_key_dto import ApiKeyDTO
 from document_ia_infra.data.database import database_manager
 from document_ia_infra.data.organization.dto.organization_dto import OrganizationDTO
 from document_ia_infra.data.organization.enum.platform_role import PlatformRole
 
-# Security scheme for API Key authentication
-security = APIKeyHeader(name="X-API-KEY")
+# Security scheme for API Key authentication.
+# auto_error=False lets us emit explicit missing/invalid key errors in verify_api_key.
+security = APIKeyHeader(name="X-API-KEY", auto_error=False)
 
 
 async def verify_api_key(
     request: Request,
-    api_key: str = Security(security),
+    api_key: Optional[str] = Security(security),
     db_session: AsyncSession = Depends(database_manager.async_get_db),
 ):
+    if not api_key:
+        raise MissingApiKeyException()
+
     apikey_service = ApiKeyService(db_session)
 
     api_key_dto = await apikey_service.get_from_presented_key(api_key)
 
     if not api_key_dto:
-        raise HTTPException(status_code=401, detail="Invalid API key")
+        raise InvalidApiKeyException()
 
     if not api_key_dto.organization:
-        raise HTTPException(
-            status_code=401, detail="API key has no associated organization"
-        )
+        raise InvalidApiKeyException("API key has no associated organization")
 
     request.state.organization = api_key_dto.organization
 
@@ -57,6 +63,6 @@ def is_platform_admin(
 ) -> None:
     if organization.platform_role != PlatformRole.PLATFORM_ADMIN:
         raise HTTPException(
-            status_code=401, detail="Unauthorized access: Platform admin required"
+            status_code=403, detail="Forbidden access: Platform admin required"
         )
     return None

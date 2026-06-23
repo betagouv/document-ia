@@ -58,7 +58,7 @@ class TestListWebhooks:
         resp = client_without_api_key.get(
             f"/api/v1/admin/organizations/{organization_id}/webhooks"
         )
-        assert resp.status_code == 403
+        assert resp.status_code == 401
 
 
 class TestCreateWebhook:
