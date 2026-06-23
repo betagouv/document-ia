@@ -17,7 +17,7 @@ from document_ia_evals.services.administration_service import (
     delete_api_key,
     get_webhook_details,
     delete_webhook,
-    create_webhook
+    create_webhook,
 )
 
 __all__ = [
@@ -34,5 +34,5 @@ __all__ = [
     "delete_api_key",
     "get_webhook_details",
     "delete_webhook",
-    "create_webhook"
+    "create_webhook",
 ]

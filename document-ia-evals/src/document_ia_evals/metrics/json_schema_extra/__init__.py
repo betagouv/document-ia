@@ -5,7 +5,7 @@ from .models import JsonSchemaExtraObservation
 from .renderer import render_results
 
 __all__ = [
-    'json_schema_extra_metric',
-    'JsonSchemaExtraObservation',
-    'render_results',
+    "json_schema_extra_metric",
+    "JsonSchemaExtraObservation",
+    "render_results",
 ]

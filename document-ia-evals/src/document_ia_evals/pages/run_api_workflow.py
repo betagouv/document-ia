@@ -9,18 +9,24 @@ from document_ia_evals.utils.config import config
 
 
 def main():
-    title = "🧾 Execute a workflow on document"
+    title = "🧾 Execute a workflow on document (Deprecated)"
     st.set_page_config(page_title=title, page_icon="🧾")
     st.title(title)
     st.caption(f"Using API endpoint: {config.DOCUMENT_IA_BASE_URL}")
 
-    st.markdown("Cette page vous permet de tester rapidement un workflow Document IA sur un document.")
-    
+    st.warning(
+        "⚠️ Cette page est obsolète. Veuillez utiliser la page **Execute Workflow V2** à la place."
+    )
+
+    st.markdown(
+        "Cette page vous permet de tester rapidement un workflow Document IA sur un document."
+    )
+
     # Workflow selection using component
     workflow_selection = render_workflow_selector()
     if workflow_selection is None:
         return
-    
+
     # Document type selector (optional, for all workflows)
     selected_doc_type = render_document_type_selector()
 
@@ -43,7 +49,7 @@ def main():
         extraction_parameters = None
         if selected_doc_type:
             extraction_parameters = {"document-type": selected_doc_type.value}
-        
+
         # Show request parameters
         with st.expander("📋 Paramètres de la requête", expanded=False):
             request_params = {
@@ -52,7 +58,9 @@ def main():
             }
             st.json(request_params)
 
-        with st.spinner("Envoie de la requête, en attente de la réponse de l'API...", show_time=True):
+        with st.spinner(
+            "Envoie de la requête, en attente de la réponse de l'API...", show_time=True
+        ):
             workflow_execute_response = execute_workflow(
                 workflow_selection.workflow_id,
                 uploaded_file,
@@ -69,6 +77,7 @@ def main():
                 st.error(f"Aucune exécution trouvée avec l'ID `{execution_id}`.")
                 return
             st.json(execution_details.model_dump() if execution_details else None)
+
 
 if __name__ == "__main__":
     main()

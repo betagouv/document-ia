@@ -15,8 +15,7 @@ from .models import JsonSchemaExtraObservation
 
 
 def compare_pydantic_models(
-    prediction: BaseModel,
-    ground_truth: BaseModel
+    prediction: BaseModel, ground_truth: BaseModel
 ) -> Tuple[Dict[str, Dict[str, float]], Dict[str, Dict[str, Any]]]:
     """Compare two Pydantic model instances field by field using specified metrics."""
     if type(prediction) is not type(ground_truth):
@@ -24,12 +23,12 @@ def compare_pydantic_models(
             f"Models must be of the same type. "
             f"Got {type(prediction).__name__} and {type(ground_truth).__name__}"
         )
-    
+
     field_scores: Dict[str, Dict[str, float]] = {}
     field_details: Dict[str, Dict[str, Any]] = {}
 
     model_fields = type(ground_truth).model_fields
-    
+
     for field_name, field_info in model_fields.items():
         try:
             expected_value = getattr(ground_truth, field_name, None)
@@ -40,7 +39,7 @@ def compare_pydantic_models(
             predicted_value = getattr(prediction, field_name, None)
         except AttributeError:
             predicted_value = None
-        
+
         metric_types = get_field_metrics(field_info)
         metric_values = [metric.value for metric in metric_types]
         scores_by_metric: Dict[str, float] = {}
@@ -54,7 +53,9 @@ def compare_pydantic_models(
 
             if metric_type == Metric.LEVENSHTEIN_DISTANCE:
                 expected_str = str(expected_value) if expected_value is not None else ""
-                predicted_str = str(predicted_value) if predicted_value is not None else ""
+                predicted_str = (
+                    str(predicted_value) if predicted_value is not None else ""
+                )
                 distances_by_metric[metric_key] = levenshtein_distance(
                     expected_str, predicted_str
                 )
@@ -68,7 +69,7 @@ def compare_pydantic_models(
         }
         if distances_by_metric:
             field_details[field_name]["distances"] = distances_by_metric
-    
+
     return field_scores, field_details
 
 
@@ -82,12 +83,12 @@ def json_schema_extra_metric(
     prediction: dict[str, Any],
     ground_truth: dict[str, Any],
     document_type: str,
-    **kwargs: Any
+    **kwargs: Any,
 ) -> Tuple[float, str, Any]:
     """Compare predicted Pydantic model with ground truth using field-specific metrics."""
     try:
         from document_ia_schemas import SupportedDocumentType, resolve_extract_schema
-        
+
         assert isinstance(document_type, str), "document_type must be a string"
 
         try:
@@ -104,23 +105,26 @@ def json_schema_extra_metric(
                 skipped_fields=0,
             )
             return 0.0, obs.model_dump_json(indent=2), prediction
-        
+
         model_prediction = model_class.model_construct(**prediction, strict=False)
         model_ground_truth = model_class.model_construct(**ground_truth, strict=False)
         # model_prediction = model_class.model_validate(prediction, strict=False)
         # model_ground_truth = model_class.model_validate(ground_truth, strict=False)
-        
-    
-        field_scores, field_details = compare_pydantic_models(model_prediction, model_ground_truth)
-        
+
+        field_scores, field_details = compare_pydantic_models(
+            model_prediction, model_ground_truth
+        )
+
         all_scores = [
             score
             for scores_by_metric in field_scores.values()
             for score in scores_by_metric.values()
         ]
         evaluated_scores = [score for score in all_scores if score != -1.0]
-        overall_score = sum(evaluated_scores) / len(evaluated_scores) if evaluated_scores else 0.0
-        
+        overall_score = (
+            sum(evaluated_scores) / len(evaluated_scores) if evaluated_scores else 0.0
+        )
+
         obs = JsonSchemaExtraObservation(
             score=overall_score,
             document_type=document_type,
@@ -130,9 +134,9 @@ def json_schema_extra_metric(
             evaluated_fields=len(evaluated_scores),
             skipped_fields=len(all_scores) - len(evaluated_scores),
         )
-        
+
         return overall_score, obs.model_dump_json(indent=2), prediction
-        
+
     except Exception as e:
         obs = JsonSchemaExtraObservation(
             score=0.0,

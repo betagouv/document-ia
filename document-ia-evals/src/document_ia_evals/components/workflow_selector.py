@@ -11,6 +11,7 @@ from document_ia_infra.data.workflow.repository.workflow import workflow_reposit
 @dataclass
 class WorkflowSelection:
     """Result of workflow selection."""
+
     workflow_id: str
     workflow: object  # Workflow model from repository
 
@@ -21,14 +22,14 @@ def render_workflow_selector(
 ) -> WorkflowSelection | None:
     """
     Render workflow selection component with optional details.
-    
+
     This is a smart component that fetches workflows from the repository
     and handles all display logic.
-    
+
     Args:
         label: Label for the selectbox
         show_details: Whether to show workflow details in an expander
-    
+
     Returns:
         WorkflowSelection with selected workflow info, or None if no workflows found
     """
@@ -49,19 +50,18 @@ def render_workflow_selector(
 
     # Get selected workflow
     selected_workflow = next(w for w in workflows_list if w.id == selected_workflow_id)
-    
+
     # Display workflow details
     if show_details:
         with st.expander("Détails du workflow"):
             st.write(f"**Description:** {selected_workflow.description}")
             st.write(f"**Steps:** {', '.join(selected_workflow.steps)}")
             st.write(f"**Model:** {selected_workflow.llm_model}")
-            st.write(f"**Supported file types:** {', '.join(selected_workflow.supported_file_types)}")
-    
+            st.write(
+                f"**Supported file types:** {', '.join(selected_workflow.supported_file_types)}"
+            )
+
     return WorkflowSelection(
         workflow_id=selected_workflow_id,
         workflow=selected_workflow,
     )
-
-
-
