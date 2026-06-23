@@ -247,7 +247,7 @@ class TestExecutions:
 
     def test_get_execution_missing_api_key(self, client_without_api_key, execution_id):
         response = client_without_api_key.get(f"/api/v1/executions/{execution_id}")
-        assert response.status_code == 403
+        assert response.status_code == 401
 
     def test_get_execution_invalid_api_key(
             self, client_with_api_key_invalid, invalid_api_key_value, execution_id
@@ -258,7 +258,7 @@ class TestExecutions:
         )
         assert response.status_code == 401
 
-    def test_get_execution_unauthorized_when_event_belongs_to_other_org(
+    def test_get_execution_forbidden_when_event_belongs_to_other_org(
             self, client_with_api_key_standard, standard_api_key_value, execution_id, org_id
     ):
         other_org_id = uuid4()  # Organisation différente de celle authentifiée
@@ -277,4 +277,4 @@ class TestExecutions:
                 headers={"X-API-KEY": standard_api_key_value},
             )
 
-        assert response.status_code == 401
+        assert response.status_code == 403

@@ -13,6 +13,7 @@ from document_ia_infra.exception.openai_authentification_error import (
 )
 from document_ia_infra.exception.retryable_exception import RetryableException
 from document_ia_infra.openai.openai_manager import OpenAIManager
+from document_ia_infra.data.workflow.dto.workflow_v2_dto import LLMExtractParams
 from document_ia_worker.core.prompt.prompt_configuration import SupportedDocumentType
 from document_ia_worker.core.prompt.prompt_service import PromptService
 from document_ia_worker.workflow.main_workflow_context import (
@@ -39,12 +40,33 @@ class LLMExtractDocumentStep(BaseStep[LLMExtractionResult]):
     ocr_result: Optional[OcrResult] = None
     llm_classification_result: Optional[LLMClassificationResult] = None
 
-    def __init__(self, main_workflow_context: MainWorkflowContext, model: str):
+    def __init__(
+        self,
+        main_workflow_context: MainWorkflowContext,
+        model: str,
+        temperature: float = 0.0,
+        document_type_override: Optional[SupportedDocumentType] = None,
+    ):
         self.execution_id = main_workflow_context.execution_id
         self.model = model
+        self.temperature = temperature
+        self.document_type_override = document_type_override
         self.openai_manager = OpenAIManager()
         self.prompt_service = PromptService()
         self.extraction_parameters = main_workflow_context.extraction_parameters
+
+    @classmethod
+    def from_v2_params(
+        cls,
+        main_workflow_context: MainWorkflowContext,
+        params: LLMExtractParams,
+    ) -> "LLMExtractDocumentStep":
+        return cls(
+            main_workflow_context=main_workflow_context,
+            model=params.model.value,
+            temperature=params.temperature,
+            document_type_override=params.document_type,
+        )
 
     def get_context_result_key(self) -> str:
         return LLMExtractionResult.__name__
@@ -57,9 +79,13 @@ class LLMExtractDocumentStep(BaseStep[LLMExtractionResult]):
             )
         if self.ocr_result is None:
             raise ValueError("OcrResultData not injected in context")
+        has_document_type_override = self.document_type_override is not None
         if self.llm_classification_result is None and (
-            self.extraction_parameters is None
-            or self.extraction_parameters.document_type is None
+            not has_document_type_override
+            and (
+                self.extraction_parameters is None
+                or self.extraction_parameters.document_type is None
+            )
         ):
             raise ValueError(
                 "LLMClassificationResult not injected in context or extraction parameters missing"
@@ -103,13 +129,13 @@ class LLMExtractDocumentStep(BaseStep[LLMExtractionResult]):
     async def _execute_internal(self) -> tuple[LLMExtractionResult, StepMetadata]:
         assert self.ocr_result is not None
 
-        document_type: Optional[SupportedDocumentType] = None
+        document_type: Optional[SupportedDocumentType] = self.document_type_override
 
-        if self.llm_classification_result is not None:
+        if document_type is None and self.llm_classification_result is not None:
             document_type = SupportedDocumentType.from_str(
                 self.llm_classification_result.data.document_type
             )
-        else:
+        elif document_type is None:
             if (
                 self.extraction_parameters is not None
                 and self.extraction_parameters.document_type is not None
@@ -123,13 +149,15 @@ class LLMExtractDocumentStep(BaseStep[LLMExtractionResult]):
             logger.info(
                 f"LLM extraction step skipped because classification returned {document_type.value}"
             )
-            return (
-                LLMExtractionResult(
-                    data=DocumentExtraction[EmptyExtractionProperties](
-                        type=document_type,
-                        properties=EmptyExtractionProperties(),
-                    )
+            casted_extraction = cast(
+                DocumentExtraction[BaseModel],
+                DocumentExtraction[EmptyExtractionProperties](
+                    type=document_type,
+                    properties=EmptyExtractionProperties(),
                 ),
+            )
+            return (
+                LLMExtractionResult(data=casted_extraction),
                 StepLLMMetadata(
                     step_name=self.__class__.__name__,
                     request_tokens=0,
@@ -163,7 +191,7 @@ class LLMExtractDocumentStep(BaseStep[LLMExtractionResult]):
         # Build the parameterized GenericModel type at runtime. This is valid at runtime because
         # DocumentExtraction is a pydantic.generics.GenericModel. Static type checkers may warn.
         # Cast to Any/type to silence static analysis complaints about dynamically parameterized generics.
-        # noinspection PyTypeHints
+
         response_class = cast(Any, DocumentExtraction[extract_class])
 
         try:
@@ -177,6 +205,7 @@ class LLMExtractDocumentStep(BaseStep[LLMExtractionResult]):
                 response_class=response_class,
                 document_type=document_type,
                 model=self.model,
+                temperature=self.temperature,
             )
         except OpenAIAuthentificationError as e:
             raise RetryableException(e.message)

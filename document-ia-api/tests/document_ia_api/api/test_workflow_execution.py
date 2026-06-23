@@ -89,7 +89,7 @@ class TestWorkflowExecution:
             data={"metadata": json.dumps(valid_metadata)},
         )
 
-        assert response.status_code == 403
+        assert response.status_code == 401
 
     def test_execute_workflow_invalid_api_key(
             self, client_with_api_key_invalid, invalid_api_key_value, valid_metadata, mock_pdf_file

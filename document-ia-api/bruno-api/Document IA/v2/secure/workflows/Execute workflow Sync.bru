@@ -1,0 +1,34 @@
+meta {
+  name: Execute workflow Sync
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{server}}api/v2/workflows/{{worfklow_id}}/execute-sync
+  body: multipartForm
+  auth: inherit
+}
+
+body:multipart-form {
+  override: '''
+    {
+      "extract_content_ocr" : [
+        {
+          "param" : "model",
+          "value" : "tesseract"
+        }
+      ]
+    }
+  '''
+  file: @file()
+}
+
+vars:pre-request {
+  worfklow_id: document-classification-extraction-v2
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
