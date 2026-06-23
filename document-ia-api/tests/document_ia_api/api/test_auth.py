@@ -11,6 +11,10 @@ from document_ia_api.api.auth import (
     get_current_organization,
     is_platform_admin,
 )
+from document_ia_api.api.exceptions.auth_exception import (
+    InvalidApiKeyException,
+    MissingApiKeyException,
+)
 from document_ia_infra.data.api_key.dto.api_key_dto import ApiKeyDTO
 from document_ia_infra.data.api_key.enum.api_key_status import ApiKeyStatus
 from document_ia_infra.data.organization.dto.organization_dto import OrganizationDTO
@@ -114,8 +118,22 @@ async def test_verify_api_key_invalid_key_raises_401(make_service):
 
     with pytest.raises(HTTPException) as exc:
         await verify_api_key(request, api_key="bad-key", db_session=object())
+    assert isinstance(exc.value, InvalidApiKeyException)
     assert exc.value.status_code == 401
     assert exc.value.detail == "Invalid API key"
+    assert exc.value.headers == {"WWW-Authenticate": "APIKey"}
+
+
+@pytest.mark.asyncio
+async def test_verify_api_key_missing_key_raises_401(make_service):
+    request = Request(scope={"type": "http"})
+
+    with pytest.raises(HTTPException) as exc:
+        await verify_api_key(request, api_key=None, db_session=object())
+    assert isinstance(exc.value, MissingApiKeyException)
+    assert exc.value.status_code == 401
+    assert exc.value.detail == "Missing API key"
+    assert exc.value.headers == {"WWW-Authenticate": "APIKey"}
 
 
 @pytest.mark.asyncio
@@ -125,8 +143,10 @@ async def test_verify_api_key_without_organization_raises_401(make_service, api_
 
     with pytest.raises(HTTPException) as exc:
         await verify_api_key(request, api_key="presented-key", db_session=object())
+    assert isinstance(exc.value, InvalidApiKeyException)
     assert exc.value.status_code == 401
     assert exc.value.detail == "API key has no associated organization"
+    assert exc.value.headers == {"WWW-Authenticate": "APIKey"}
 
 
 def test_get_api_key_returns_header_value():
@@ -160,5 +180,5 @@ async def test_is_platform_admin_denies_non_admin(org_standard):
     dummy_api_key = object()
     with pytest.raises(HTTPException) as exc:
         is_platform_admin(dummy_api_key, org_standard)
-    assert exc.value.status_code == 401
-    assert exc.value.detail == "Unauthorized access: Platform admin required"
+    assert exc.value.status_code == 403
+    assert exc.value.detail == "Forbidden access: Platform admin required"

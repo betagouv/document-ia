@@ -1,6 +1,7 @@
 import logging
 from uuid import UUID
 
+from document_ia_infra.data.database import database_manager
 from fastapi import APIRouter, Depends, status, Path, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,7 +15,6 @@ from document_ia_api.api.exceptions.entity_not_found_exception import (
     HttpEntityNotFoundException,
 )
 from document_ia_api.application.services.webhook.webhook_service import WebHookService
-from document_ia_infra.data.database import database_manager
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,7 @@ router = APIRouter(
 
 @router.get(
     "/organizations/{organization_id}/webhooks",
+    dependencies=[Depends(is_platform_admin)],
     response_model=list[WebHookResult],
     summary="List webhooks for an organization",
     description=(
@@ -62,8 +63,14 @@ router = APIRouter(
                 }
             },
         },
-        401: {"model": ProblemDetail, "description": "Unauthorized (ProblemDetail)"},
-        403: {"model": ProblemDetail, "description": "Forbidden (ProblemDetail)"},
+        401: {
+            "model": ProblemDetail,
+            "description": "Unauthorized (ProblemDetail) — missing or invalid API key",
+        },
+        403: {
+            "model": ProblemDetail,
+            "description": "Forbidden (ProblemDetail) — authenticated but not PlatformAdmin",
+        },
         404: {
             "model": ProblemDetail,
             "description": "Organization not found (ProblemDetail)",
@@ -88,7 +95,6 @@ router = APIRouter(
 )
 async def list_webhooks(
     organization_id: UUID = Path(..., description="Organization id (UUID)"),
-    _=Depends(is_platform_admin),
     db_session: AsyncSession = Depends(database_manager.async_get_db),
 ) -> list[WebHookResult]:
     logger.info(f"Listing webhooks for organization {organization_id}")
@@ -102,6 +108,7 @@ async def list_webhooks(
 
 @router.post(
     "/organizations/{organization_id}/webhooks",
+    dependencies=[Depends(is_platform_admin)],
     response_model=WebHookResult,
     status_code=status.HTTP_201_CREATED,
     summary="Create webhook for an organization",
@@ -138,8 +145,14 @@ async def list_webhooks(
                 }
             },
         },
-        401: {"model": ProblemDetail, "description": "Unauthorized (ProblemDetail)"},
-        403: {"model": ProblemDetail, "description": "Forbidden (ProblemDetail)"},
+        401: {
+            "model": ProblemDetail,
+            "description": "Unauthorized (ProblemDetail) — missing or invalid API key",
+        },
+        403: {
+            "model": ProblemDetail,
+            "description": "Forbidden (ProblemDetail) — authenticated but not PlatformAdmin",
+        },
         404: {
             "model": ProblemDetail,
             "description": "Organization not found (ProblemDetail)",
@@ -157,7 +170,6 @@ async def list_webhooks(
 async def create_webhook(
     organization_id: UUID = Path(..., description="Organization id (UUID)"),
     payload: CreateWebHookRequest = Body(..., description="Webhook payload"),
-    _=Depends(is_platform_admin),
     db_session: AsyncSession = Depends(database_manager.async_get_db),
 ) -> WebHookResult:
     logger.info(f"Creating webhook for organization {organization_id}")
@@ -175,13 +187,20 @@ async def create_webhook(
 
 @router.delete(
     "/organizations/{organization_id}/webhooks/{webhook_id}",
+    dependencies=[Depends(is_platform_admin)],
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete webhook",
     description="Delete a webhook by id (admin only).",
     responses={
         204: {"description": "Webhook deleted"},
-        401: {"model": ProblemDetail, "description": "Unauthorized (ProblemDetail)"},
-        403: {"model": ProblemDetail, "description": "Forbidden (ProblemDetail)"},
+        401: {
+            "model": ProblemDetail,
+            "description": "Unauthorized (ProblemDetail) — missing or invalid API key",
+        },
+        403: {
+            "model": ProblemDetail,
+            "description": "Forbidden (ProblemDetail) — authenticated but not PlatformAdmin",
+        },
         404: {
             "model": ProblemDetail,
             "description": "Webhook not found (ProblemDetail)",
@@ -207,7 +226,6 @@ async def create_webhook(
 async def delete_webhook(
     organization_id: UUID = Path(..., description="Organization id (UUID)"),
     webhook_id: UUID = Path(..., description="Webhook id (UUID)"),
-    _=Depends(is_platform_admin),
     db_session: AsyncSession = Depends(database_manager.async_get_db),
 ) -> None:
     logger.info(f"Deleting webhook {webhook_id} for organization {organization_id}")

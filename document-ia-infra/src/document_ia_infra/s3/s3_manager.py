@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, cast
 
 import boto3
 from botocore.exceptions import ClientError
@@ -73,6 +73,16 @@ class S3Manager:
             logger.error(f"Unexpected error during file deletion: {e}")
             return False
 
+    @staticmethod
+    def _client_error_code(error: ClientError) -> str | None:
+        response = cast(dict[str, Any], error.response)
+        error_info = response.get("Error")
+        if not isinstance(error_info, dict):
+            return None
+        error_info_map = cast(dict[str, Any], error_info)
+        code = error_info_map.get("Code")
+        return code if isinstance(code, str) else None
+
     def download_file(self, s3_key: str, output_path: str):
         try:
             self.s3_client.download_file(
@@ -99,7 +109,7 @@ class S3Manager:
             }
 
         except ClientError as e:
-            if e.response.get("Error", {}).get("Code", {}) == "404":
+            if self._client_error_code(e) == "404":
                 return None
             logger.error(f"Failed to get file info for {s3_key}: {e}")
             return None
@@ -118,7 +128,7 @@ class S3Manager:
             self.s3_client.head_bucket(Bucket=self.bucket_name)
             return True
         except ClientError as e:
-            error_code = e.response.get("Error", {}).get("Code", {})
+            error_code = self._client_error_code(e)
             if error_code == "404":
                 logger.warning(f"S3 bucket '{self.bucket_name}' does not exist")
                 return False
@@ -142,7 +152,7 @@ class S3Manager:
                     list_bucket_names.append(bucket["Name"])
             return list_bucket_names
         except ClientError as e:
-            if e.response.get("Error", {}).get("Code", {}) == "404":
+            if self._client_error_code(e) == "404":
                 return list()
             logger.error(f"Failed to list buckets: {e}")
             return list()

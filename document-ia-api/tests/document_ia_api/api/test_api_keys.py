@@ -118,25 +118,25 @@ class TestCreateAPIKey:
         assert data["code"] == "validation.failed"
 
     def test_create_api_key_unauthorized(self, client_without_api_key):
-        """Test 403 when no API key is provided."""
+        """Test 401 when no API key is provided."""
         org_id = uuid4()
         response = client_without_api_key.post(
             f"/api/v1/admin/organizations/{org_id}/api-keys"
         )
 
-        assert response.status_code == 403
+        assert response.status_code == 401
 
     def test_create_api_key_forbidden_standard_user(
         self, client_with_api_key_standard, standard_api_key_value
     ):
-        """Test 401 when standard user tries to create API key."""
+        """Test 403 when standard user tries to create API key."""
         org_id = uuid4()
         response = client_with_api_key_standard.post(
             f"/api/v1/admin/organizations/{org_id}/api-keys",
             headers={"X-API-KEY": standard_api_key_value},
         )
 
-        assert response.status_code == 401
+        assert response.status_code == 403
 
 
 class TestUpdateAPIKeyStatus:
@@ -369,7 +369,7 @@ class TestUpdateAPIKeyStatus:
         assert data["code"] == "validation.failed"
 
     def test_update_api_key_status_unauthorized(self, client_without_api_key):
-        """Test 403 when no API key is provided."""
+        """Test 401 when no API key is provided."""
         org_id = uuid4()
         api_key_id = uuid4()
 
@@ -379,12 +379,12 @@ class TestUpdateAPIKeyStatus:
             json=payload,
         )
 
-        assert response.status_code == 403
+        assert response.status_code == 401
 
     def test_update_api_key_status_forbidden_standard_user(
         self, client_with_api_key_standard, standard_api_key_value
     ):
-        """Test 401 when standard user tries to update API key status."""
+        """Test 403 when standard user tries to update API key status."""
         org_id = uuid4()
         api_key_id = uuid4()
 
@@ -395,7 +395,7 @@ class TestUpdateAPIKeyStatus:
             headers={"X-API-KEY": standard_api_key_value},
         )
 
-        assert response.status_code == 401
+        assert response.status_code == 403
 
 
 class TestDeleteAPIKey:
@@ -473,7 +473,7 @@ class TestDeleteAPIKey:
         assert data["code"] == "validation.failed"
 
     def test_delete_api_key_unauthorized(self, client_without_api_key):
-        """Test 403 when no API key is provided."""
+        """Test 401 when no API key is provided."""
         org_id = uuid4()
         api_key_id = uuid4()
 
@@ -481,12 +481,12 @@ class TestDeleteAPIKey:
             f"/api/v1/admin/organizations/{org_id}/api-keys/{api_key_id}"
         )
 
-        assert response.status_code == 403
+        assert response.status_code == 401
 
     def test_delete_api_key_forbidden_standard_user(
         self, client_with_api_key_standard, standard_api_key_value
     ):
-        """Test 401 when standard user tries to delete API key."""
+        """Test 403 when standard user tries to delete API key."""
         org_id = uuid4()
         api_key_id = uuid4()
 
@@ -495,4 +495,4 @@ class TestDeleteAPIKey:
             headers={"X-API-KEY": standard_api_key_value},
         )
 
-        assert response.status_code == 401
+        assert response.status_code == 403
