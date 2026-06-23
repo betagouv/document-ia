@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 class JsonSchemaExtraObservation(BaseModel):
     """Data model for json_schema_extra metric observations."""
-    
+
     score: float
     document_type: Optional[str] = None
     model_type: Optional[str] = None

@@ -1,4 +1,4 @@
-"""Evaluate Predictions Metrics page - select project, metric and run evaluation."""
+"""Evaluate Predictions Metrics V2 page - select project, metric and run evaluation with automatic metadata extraction."""
 
 import pandas as pd
 import streamlit as st
@@ -19,17 +19,21 @@ from document_ia_evals.services.metric_evaluation_service import (
 )
 from document_ia_evals.utils.config import config
 from document_ia_evals.utils.experiment_renderer import render_experiment_results
-from document_ia_evals.utils.label_studio import get_project_url
+from document_ia_evals.utils.label_studio import (
+    get_project_url,
+    extract_project_metadata,
+)
+from document_ia_schemas import SupportedDocumentType
 
 # Page configuration
 st.set_page_config(
-    page_title="Evaluate Predictions Metrics", page_icon="🎯", layout=config.LAYOUT
+    page_title="Evaluate Predictions Metrics V2", page_icon="🎯", layout=config.LAYOUT
 )
 
 
 def render_metric_selection() -> tuple[str | None, str | None]:
     """
-    Render metric selection UI.
+    Render metric selection UI with automatic pre-selection support.
 
     Returns:
         Tuple of (selected metric name, selected document type or None)
@@ -40,24 +44,20 @@ def render_metric_selection() -> tuple[str | None, str | None]:
         st.warning("No metrics found. Please add metrics to the 'metrics' folder.")
         return None, None
 
-    # Create metric selection dropdown
-    metric_options = {
-        f"{info['name']}: {info['description']}": info["name"]
-        for name, info in metrics.items()
-    }
+    metric_options = list(metrics.keys())
 
-    selected_metric_label = st.selectbox(
+    selected_metric_name = st.selectbox(
         "Choose a metric:",
-        options=list(metric_options.keys()),
+        options=metric_options,
+        format_func=lambda x: f"{metrics[x]['name']}: {metrics[x]['description']}",
+        key="metric_name_v2",
         index=None,
         placeholder="Select a metric...",
     )
 
     selected_document_type = None
 
-    if selected_metric_label:
-        selected_metric_name = metric_options[selected_metric_label]
-
+    if selected_metric_name:
         # Show metric details
         metric_info = metrics[selected_metric_name]
 
@@ -77,8 +77,11 @@ def render_metric_selection() -> tuple[str | None, str | None]:
                 label="Select Document Type:",
                 help_text="This is required for the json_schema_extra metric to know which schema to use",
                 optional=False,
+                key="doc_type_selectbox_v2",
             )
-            selected_document_type = selected_doc_type.value
+            selected_document_type = (
+                selected_doc_type.value if selected_doc_type else None
+            )
 
         return selected_metric_name, selected_document_type
 
@@ -137,9 +140,9 @@ def render_results(results: dict, metric_name: str) -> None:
 
 
 def main():
-    """Main evaluation page."""
+    """Main evaluation page (V2)."""
 
-    st.title("🎯 Evaluate Predictions Metrics")
+    st.title("🎯 Evaluate Predictions Metrics V2")
     st.caption(
         f"Using: API endpoint: {config.DOCUMENT_IA_BASE_URL}, "
         f"S3 endpoint: {config.S3_ENDPOINT}/{config.S3_BUCKET_NAME}, "
@@ -148,9 +151,9 @@ def main():
 
     st.markdown("""
     Cette page vous permet d'évaluer les métriques de prédiction sur un projet Label Studio :
-    1. Sélection du projet Label Studio
-    2. Sélection de la métrique
-    3. Exécution de l'évaluation et visualisation des résultats
+    1. **Sélection du projet** (les métadonnées du projet pré-sélectionnent automatiquement le type de document et la métrique appropriée).
+    2. **Ajustement de la configuration** si nécessaire.
+    3. **Exécution de l'évaluation** et visualisation des résultats détaillés.
     """)
 
     # Initialize database connection
@@ -164,12 +167,12 @@ def main():
                 st.session_state.db_initialized = False
 
     # Initialize session state
-    if "evaluation_results" not in st.session_state:
-        st.session_state.evaluation_results = None
-    if "saved_experiment_id" not in st.session_state:
-        st.session_state.saved_experiment_id = None
+    if "evaluation_results_v2" not in st.session_state:
+        st.session_state.evaluation_results_v2 = None
+    if "saved_experiment_id_v2" not in st.session_state:
+        st.session_state.saved_experiment_id_v2 = None
 
-    # Step 1: Select Project using component
+    # Step 1: Select Project using component (Legacy client to run evaluations)
     project_selection = render_project_selector(
         client_type=ClientType.LEGACY,
         label="Choose a project:",
@@ -181,7 +184,58 @@ def main():
 
     selected_project_id = project_selection.project_id if project_selection else None
 
-    # Step 2: Select Metric
+    # Extract metadata and perform pre-selection
+    metadata = None
+    project_changed = False
+
+    if project_selection:
+        if st.session_state.get("last_selected_project_id_v2") != selected_project_id:
+            st.session_state["last_selected_project_id_v2"] = selected_project_id
+            project_changed = True
+
+            # Clear previous results when project changes
+            st.session_state.evaluation_results_v2 = None
+            st.session_state.saved_experiment_id_v2 = None
+
+        metadata = extract_project_metadata(project_selection.project_description)
+    else:
+        st.session_state["last_selected_project_id_v2"] = None
+
+    # Apply auto-selection from metadata if project changed
+    if project_changed and metadata:
+        metrics = metric_registry.list_metrics()
+
+        # 1. Pre-select metric
+        suggested_metric = None
+        dataset_type = metadata.get("dataset_type")
+        if dataset_type == "classification":
+            suggested_metric = "classification_accuracy"
+        elif dataset_type == "extraction":
+            suggested_metric = "json_schema_extra"
+
+        if suggested_metric in metrics:
+            st.session_state["metric_name_v2"] = suggested_metric
+            st.toast(
+                f"💡 Métrique '{suggested_metric}' pré-sélectionnée à partir des métadonnées du projet.",
+                icon="ℹ️",
+            )
+
+        # 2. Pre-select document type (for extraction datasets)
+        suggested_doc_type = metadata.get("document_type")
+        if suggested_doc_type:
+            matching_member = None
+            for opt in SupportedDocumentType:
+                if opt.value == suggested_doc_type:
+                    matching_member = opt
+                    break
+            if matching_member:
+                st.session_state["doc_type_selectbox_v2"] = matching_member
+                st.toast(
+                    f"💡 Type de document '{matching_member.name.replace('_', ' ').title()}' pré-sélectionné.",
+                    icon="ℹ️",
+                )
+
+    # Step 2: Select Metric (with auto-selected value bound to key)
     selected_metric, selected_document_type = render_metric_selection()
 
     # Check if metric requires document_type
@@ -210,9 +264,12 @@ def main():
             st.markdown(
                 f"**Project ID:** {selected_project_id} - 🔗 [View in Label Studio]({project_url})"
             )
-            st.markdown(f"**Metric:** {selected_metric}")
+            st.markdown(f"**Metric:** `{selected_metric}`")
             if selected_document_type:
-                st.markdown(f"**Document Type:** {selected_document_type}")
+                st.markdown(f"**Document Type:** `{selected_document_type}`")
+            if metadata:
+                st.markdown("**Project Metadata (Inferred):**")
+                st.json(metadata)
 
         # Action buttons
         col1, col2, col3 = st.columns([1, 1, 2])
@@ -224,8 +281,8 @@ def main():
 
         with col2:
             save_enabled = (
-                st.session_state.evaluation_results is not None
-                and st.session_state.saved_experiment_id is None
+                st.session_state.evaluation_results_v2 is not None
+                and st.session_state.saved_experiment_id_v2 is None
                 and st.session_state.get("db_initialized", False)
             )
             save_button = st.button(
@@ -236,9 +293,9 @@ def main():
             )
 
         with col3:
-            if st.session_state.saved_experiment_id:
+            if st.session_state.saved_experiment_id_v2:
                 st.success(
-                    f"✅ Saved: {str(st.session_state.saved_experiment_id)[:8]}..."
+                    f"✅ Saved: {str(st.session_state.saved_experiment_id_v2)[:8]}..."
                 )
 
         # Get the legacy client for evaluation
@@ -266,8 +323,8 @@ def main():
                         on_progress=on_progress,
                     )
 
-                    st.session_state.evaluation_results = results_to_dict(results)
-                    st.session_state.saved_experiment_id = None
+                    st.session_state.evaluation_results_v2 = results_to_dict(results)
+                    st.session_state.saved_experiment_id_v2 = None
 
                 # Clear progress indicators
                 progress_bar.empty()
@@ -284,14 +341,14 @@ def main():
             if st.session_state.get("db_initialized"):
                 try:
                     with st.spinner("Saving to database..."):
-                        results = st.session_state.evaluation_results
+                        results = st.session_state.evaluation_results_v2
                         experiment_id = save_experiment(
                             project_id=results["project_id"],
                             metric_name=results["metric_name"],
                             observations_data=results["observations"],
                             total_tasks=results["total_tasks"],
                         )
-                        st.session_state.saved_experiment_id = experiment_id
+                        st.session_state.saved_experiment_id_v2 = experiment_id
                         st.success(
                             f"✅ Experiment saved! ID: {str(experiment_id)[:8]}..."
                         )
@@ -303,8 +360,8 @@ def main():
                 st.error("Database not initialized. Check connection.")
 
         # Display results if available
-        if st.session_state.evaluation_results:
-            results = st.session_state.evaluation_results
+        if st.session_state.evaluation_results_v2:
+            results = st.session_state.evaluation_results_v2
 
             st.divider()
             st.header("📊 Results")
@@ -328,7 +385,7 @@ def main():
             # Link to experiment history
             if (
                 st.session_state.get("db_initialized")
-                and st.session_state.saved_experiment_id
+                and st.session_state.saved_experiment_id_v2
             ):
                 st.divider()
                 if st.button("📚 View Experiment History"):
