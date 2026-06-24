@@ -20,6 +20,16 @@ class TaxeFonciereModel(BaseModel):
         description="Date de mise en recouvrement de la taxe fonciere.",
         json_schema_extra={"metrics": Metric.STRING_DATE_EQUALITY},
     )
+    identite_destinataire: list[Identity] = Field(
+        default=list(),
+        description="Identités des personnes physiques destinataires de l'avis figurant au-dessus de l'adresse sur la page 1.",
+        json_schema_extra={
+            "metrics": [
+                Metric.TOKEN_SET_EQUALITY,
+                Metric.LEVENSHTEIN_DISTANCE,
+            ]
+        },
+    )
     identites_proprietaires: list[Identity] = Field(
         default=list(),
         description="Identités des propriétaires imposés. Aller chercher les noms des personnes dans le tableau de la page 2 nommé DÉBITEUR(S) LÉGAL(AUX)",
@@ -61,7 +71,8 @@ class TaxeFonciereExtractSchema(BaseDocumentTypeSchema[TaxeFonciereModel]):
         TaxeFonciereModel(
             annee_imposition="2025",
             date_mise_en_recouvrement=date(2025, 8, 31),
-            identites_proprietaires=["DUPONT Camille", "DUPONT Marie"],
+            identite_destinataire=["DUPONT Camille", "DUPONT Marie"],
+            identites_proprietaires=["DUPONT Camille", "MARTIN Marie"],
             adresse_bien_impose="10 RUE DE LA PAIX 75001 PARIS",
             reference_avis="1234567890123",
             montant_taxe_fonciere=1185.0,
@@ -69,6 +80,7 @@ class TaxeFonciereExtractSchema(BaseDocumentTypeSchema[TaxeFonciereModel]):
         TaxeFonciereModel(
             annee_imposition="2025",
             date_mise_en_recouvrement=date(2025, 9, 15),
+            identite_destinataire=["MARTIN Nora", "DUPONT Alex"],
             identites_proprietaires=["MARTIN Nora", "DUPONT Alex"],
             adresse_bien_impose="22 AVENUE VICTOR HUGO 69003 LYON",
             reference_avis="12 34 5678912 34",
