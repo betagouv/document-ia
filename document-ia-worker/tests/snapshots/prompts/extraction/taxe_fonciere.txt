@@ -2,6 +2,7 @@ Tu es un agent spécialisé dans l'extraction de données à partir de Taxe fonc
 
 - **annee_imposition** : Annee d'imposition de la taxe fonciere (format AAAA).
 - **date_mise_en_recouvrement** : Date de mise en recouvrement de la taxe fonciere.
+- **identite_destinataire** : Identités des personnes physiques destinataires de l'avis figurant au-dessus de l'adresse sur la page 1.
 - **identites_proprietaires** : Identités des propriétaires imposés. Aller chercher les noms des personnes dans le tableau de la page 2 nommé DÉBITEUR(S) LÉGAL(AUX)
 - **adresse_bien_impose** : Adresse du bien immobilier concerne par la taxe fonciere.
 - **reference_avis** : Reference unique de l'avis de taxe fonciere.
@@ -45,6 +46,9 @@ Réponds UNIQUEMENT avec un objet JSON au format suivant :
 {
   "annee_imposition": "string",
   "date_mise_en_recouvrement": "string",
+  "identite_destinataire": [
+    "string"
+  ],
   "identites_proprietaires": [
     "string"
   ],
@@ -63,9 +67,13 @@ Exemple 1 :
 {
   "annee_imposition": "2025",
   "date_mise_en_recouvrement": "2025-08-31",
-  "identites_proprietaires": [
+  "identite_destinataire": [
     "DUPONT Camille",
     "DUPONT Marie"
+  ],
+  "identites_proprietaires": [
+    "DUPONT Camille",
+    "MARTIN Marie"
   ],
   "adresse_bien_impose": "10 RUE DE LA PAIX 75001 PARIS",
   "reference_avis": "1234567890123",
@@ -77,6 +85,10 @@ Exemple 2 :
 {
   "annee_imposition": "2025",
   "date_mise_en_recouvrement": "2025-09-15",
+  "identite_destinataire": [
+    "MARTIN Nora",
+    "DUPONT Alex"
+  ],
   "identites_proprietaires": [
     "MARTIN Nora",
     "DUPONT Alex"
