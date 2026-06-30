@@ -123,6 +123,11 @@ poetry run ruff format --check .
 poetry run pytest -v
 ```
 
+### Impact sur les snapshots de prompts du worker
+
+Les prompts d'extraction sont rendus à partir de ces schémas et figés dans des **snapshots** côté worker (`document-ia-worker/tests/snapshots/prompts/extraction/<type>.txt`). Toute modification d'un schéma (nouveau champ, renommage, description ou exemple modifié) change le prompt rendu et fait échouer le test de snapshot correspondant.
+
+Voir la section « Tests & Prompt Snapshots » du `README.md` du worker pour le détail.
 
 ## 🤝 Contribution
 
