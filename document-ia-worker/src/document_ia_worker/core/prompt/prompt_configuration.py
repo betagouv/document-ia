@@ -23,7 +23,6 @@ GENERIC_CLASSIFICATION_MODEL: list[SupportedDocumentType] = [
     SupportedDocumentType.ATTESTATION_CONTRAT_ENERGIE,
     SupportedDocumentType.ATTESTATION_HEBERGEMENT,
     SupportedDocumentType.TAXE_FONCIERE,
-    SupportedDocumentType.DEVIS_PAC,
 ]
 
 

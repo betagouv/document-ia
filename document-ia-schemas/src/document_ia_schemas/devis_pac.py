@@ -2,7 +2,7 @@ from datetime import date
 from typing import Optional, Type
 
 from document_ia_schemas.base_document_type_schema import FuzzyDate
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from document_ia_schemas import BaseDocumentTypeSchema
 from document_ia_schemas.field_metrics import Metric
@@ -24,8 +24,8 @@ class AccessoireModel(BaseModel):
     )
 
 
-class PrixWithExplanation(BaseModel):
-    explanation: Optional[str] = Field(
+class PrixAvecExplication(BaseModel):
+    explication: Optional[str] = Field(
         default=None,
         description=(
             "Explication justifiant le raisonnement. "
@@ -38,18 +38,10 @@ class PrixWithExplanation(BaseModel):
         default=None,
         description=(
             "Prix HT en euros. null si aucun montant n'est explicitement chiffré dans "
-            "le devis (dans ce cas, renseigner obligatoirement explanation)."
+            "le devis (dans ce cas, renseigner obligatoirement explication)."
         ),
         json_schema_extra={"metrics": Metric.COMPARE_NUMBER},
     )
-
-    @model_validator(mode="after")
-    def _require_explanation_when_price_is_null(self) -> "PrixWithExplanation":
-        if self.prix_ht is None and not (self.explanation and self.explanation.strip()):
-            raise ValueError(
-                "explanation est obligatoire lorsque prix_ht est null."
-            )
-        return self
 
 
 class DevisPacModel(BaseModel):
@@ -105,7 +97,7 @@ class DevisPacModel(BaseModel):
         ),
         json_schema_extra={"metrics": Metric.LEVENSHTEIN_DISTANCE},
     )
-    prix_pac_ht: PrixWithExplanation = Field(
+    prix_pac_ht: PrixAvecExplication = Field(
         description=(
             "Prix de la PAC principale (unité extérieure + intérieure) hors accessoires "
             "séparés, hors main-d'œuvre, hors aides. Montant HT en euros. "
@@ -122,27 +114,27 @@ class DevisPacModel(BaseModel):
             "Ne pas inclure la PAC principale ni la main-d'œuvre."
         ),
     )
-    prix_pose_ht: PrixWithExplanation = Field(
+    prix_pose_ht: PrixAvecExplication = Field(
         description=(
             "Prix HT en euros de la main-d'œuvre (ex. pose, installation, raccordement, "
             "forfait pose ou forfait main-d'œuvre)."
         ),
     )
-    prix_mise_en_service_ht: PrixWithExplanation = Field(
+    prix_mise_en_service_ht: PrixAvecExplication = Field(
         description=(
             "Prix HT en euros correspondant aux montants explicitement chiffrés liés à la "
             "« mise en service », « mise en route », « paramétrage », « réglages » ou "
             "« mise en main ». Si inclus dans un forfait main-d'oeuvre, laisser vide."
         ),
     )
-    prix_changement_emetteur_ht: PrixWithExplanation = Field(
+    prix_changement_emetteur_ht: PrixAvecExplication = Field(
         description=(
             "Prix HT en euros correspondant aux montants explicitement chiffrés liés au "
             "remplacement de radiateurs, plancher chauffant ou autres émetteurs de "
             "chaleur."
         ),
     )
-    prix_depose_chaudiere_ht: PrixWithExplanation = Field(
+    prix_depose_chaudiere_ht: PrixAvecExplication = Field(
         description=(
             "Prix HT en euros de la dépose, l'enlèvement ou l'évacuation de l'ancienne "
             "chaudière. Si inclus dans un forfait, laisser vide."
@@ -170,30 +162,30 @@ class DevisPacExtractSchema(BaseDocumentTypeSchema[DevisPacModel]):
             modele="Altherma 3H HT",
             puissance="8 kW A7/W35",
             alimentation_electrique="mono",
-            prix_pac_ht=PrixWithExplanation(
+            prix_pac_ht=PrixAvecExplication(
                 prix_ht=8500,
-                explanation="Prix de l'unité extérieure et intérieure indiqué sur le devis.",
+                explication="Prix de l'unité extérieure et intérieure indiqué sur le devis.",
             ),
             accessoires=[
                 AccessoireModel(intitule="Régulation connectée", prix_ht=450.0),
                 AccessoireModel(intitule="Pot à boue", prix_ht=120.0),
                 AccessoireModel(intitule="Liaisons frigorifiques", prix_ht=630.0),
             ],
-            prix_pose_ht=PrixWithExplanation(
+            prix_pose_ht=PrixAvecExplication(
                 prix_ht=2500,
-                explanation="Ligne « forfait pose » du devis.",
+                explication="Ligne « forfait pose » du devis.",
             ),
-            prix_mise_en_service_ht=PrixWithExplanation(
+            prix_mise_en_service_ht=PrixAvecExplication(
                 prix_ht=350,
-                explanation="Ligne « mise en service » chiffrée séparément.",
+                explication="Ligne « mise en service » chiffrée séparément.",
             ),
-            prix_changement_emetteur_ht=PrixWithExplanation(
+            prix_changement_emetteur_ht=PrixAvecExplication(
                 prix_ht=1800,
-                explanation="Remplacement de radiateurs chiffré sur le devis.",
+                explication="Remplacement de radiateurs chiffré sur le devis.",
             ),
-            prix_depose_chaudiere_ht=PrixWithExplanation(
+            prix_depose_chaudiere_ht=PrixAvecExplication(
                 prix_ht=450,
-                explanation="Dépose de l'ancienne chaudière chiffrée séparément.",
+                explication="Dépose de l'ancienne chaudière chiffrée séparément.",
             ),
         ),
         DevisPacModel(
@@ -204,30 +196,30 @@ class DevisPacExtractSchema(BaseDocumentTypeSchema[DevisPacModel]):
             modele="Aroshift 5",
             puissance="11 kW A7/W35",
             alimentation_electrique="triphasé",
-            prix_pac_ht=PrixWithExplanation(
+            prix_pac_ht=PrixAvecExplication(
                 prix_ht=9200,
-                explanation="Prix matériel de la PAC indiqué sur le devis.",
+                explication="Prix matériel de la PAC indiqué sur le devis.",
             ),
             accessoires=[
                 AccessoireModel(intitule="Thermostat d'ambiance", prix_ht=200.0),
                 AccessoireModel(intitule="Supports antivibratiles", prix_ht=150.0),
                 AccessoireModel(intitule="Protections électriques", prix_ht=600.0),
             ],
-            prix_pose_ht=PrixWithExplanation(
+            prix_pose_ht=PrixAvecExplication(
                 prix_ht=2800,
-                explanation="Le prix de la pose est inclus dans le forfait main-d'oeuvre du devis.",
+                explication="Le prix de la pose est inclus dans le forfait main-d'oeuvre du devis.",
             ),
-            prix_mise_en_service_ht=PrixWithExplanation(
+            prix_mise_en_service_ht=PrixAvecExplication(
                 prix_ht=None,
-                explanation="Compris dans le forfait main-d'oeuvre.",
+                explication="Compris dans le forfait main-d'oeuvre.",
             ),
-            prix_changement_emetteur_ht=PrixWithExplanation(
+            prix_changement_emetteur_ht=PrixAvecExplication(
                 prix_ht=None,
-                explanation="Compris dans le forfait main-d'oeuvre.",
+                explication="Compris dans le forfait main-d'oeuvre.",
             ),
-            prix_depose_chaudiere_ht=PrixWithExplanation(
+            prix_depose_chaudiere_ht=PrixAvecExplication(
                 prix_ht=500,
-                explanation="Dépose de l'ancienne chaudière chiffrée séparément.",
+                explication="Dépose de l'ancienne chaudière chiffrée séparément.",
             ),
         ),
     ]

@@ -8,23 +8,23 @@ Tu es un agent spécialisé dans l'extraction de données à partir de Devis PAC
 - **puissance** : Puissance thermique nominale de la PAC en kW, avec les conditions si précisées (ex. : 8 kW A7/W35).
 - **alimentation_electrique** : Alimentation électrique de la PAC : écrire « mono » si monophasé / 230V, « triphasé » si triphasé / 400V. Sinon : Non renseigné.
 - **prix_pac_ht (Objet)** : Prix de la PAC principale (unité extérieure + intérieure) hors accessoires séparés, hors main-d'œuvre, hors aides. Montant HT en euros. Si le devis présente un forfait global sans détail matériel, y inscrire le forfait global.
-    - **explanation** : Explication justifiant le raisonnement. OBLIGATOIRE lorsque prix_ht est null : préciser pourquoi aucun prix n'a pu être identifié (ex. : prix inclus dans un forfait global, prestation non mentionnée dans le devis).
-    - **prix_ht** : Prix HT en euros. null si aucun montant n'est explicitement chiffré dans le devis (dans ce cas, renseigner obligatoirement explanation).
+    - **explication** : Explication justifiant le raisonnement. OBLIGATOIRE lorsque prix_ht est null : préciser pourquoi aucun prix n'a pu être identifié (ex. : prix inclus dans un forfait global, prestation non mentionnée dans le devis).
+    - **prix_ht** : Prix HT en euros. null si aucun montant n'est explicitement chiffré dans le devis (dans ce cas, renseigner obligatoirement explication).
 - **accessoires (Liste)** : Liste des accessoires chiffrés (régulation, thermostat, filtre, pot à boue, soupape, raccords, liaisons frigorifiques, supports, protections électriques, etc.), chacun avec son intitulé et son prix HT. Ne pas inclure la PAC principale ni la main-d'œuvre.
     - **intitule** : Intitulé de l'accessoire (ex. : régulation, thermostat, filtre, pot à boue, soupape, raccords, liaisons frigorifiques, supports, protections électriques).
     - **prix_ht** : Prix HT en euros de l'accessoire.
 - **prix_pose_ht (Objet)** : Prix HT en euros de la main-d'œuvre (ex. pose, installation, raccordement, forfait pose ou forfait main-d'œuvre).
-    - **explanation** : Explication justifiant le raisonnement. OBLIGATOIRE lorsque prix_ht est null : préciser pourquoi aucun prix n'a pu être identifié (ex. : prix inclus dans un forfait global, prestation non mentionnée dans le devis).
-    - **prix_ht** : Prix HT en euros. null si aucun montant n'est explicitement chiffré dans le devis (dans ce cas, renseigner obligatoirement explanation).
+    - **explication** : Explication justifiant le raisonnement. OBLIGATOIRE lorsque prix_ht est null : préciser pourquoi aucun prix n'a pu être identifié (ex. : prix inclus dans un forfait global, prestation non mentionnée dans le devis).
+    - **prix_ht** : Prix HT en euros. null si aucun montant n'est explicitement chiffré dans le devis (dans ce cas, renseigner obligatoirement explication).
 - **prix_mise_en_service_ht (Objet)** : Prix HT en euros correspondant aux montants explicitement chiffrés liés à la « mise en service », « mise en route », « paramétrage », « réglages » ou « mise en main ». Si inclus dans un forfait main-d'oeuvre, laisser vide.
-    - **explanation** : Explication justifiant le raisonnement. OBLIGATOIRE lorsque prix_ht est null : préciser pourquoi aucun prix n'a pu être identifié (ex. : prix inclus dans un forfait global, prestation non mentionnée dans le devis).
-    - **prix_ht** : Prix HT en euros. null si aucun montant n'est explicitement chiffré dans le devis (dans ce cas, renseigner obligatoirement explanation).
+    - **explication** : Explication justifiant le raisonnement. OBLIGATOIRE lorsque prix_ht est null : préciser pourquoi aucun prix n'a pu être identifié (ex. : prix inclus dans un forfait global, prestation non mentionnée dans le devis).
+    - **prix_ht** : Prix HT en euros. null si aucun montant n'est explicitement chiffré dans le devis (dans ce cas, renseigner obligatoirement explication).
 - **prix_changement_emetteur_ht (Objet)** : Prix HT en euros correspondant aux montants explicitement chiffrés liés au remplacement de radiateurs, plancher chauffant ou autres émetteurs de chaleur.
-    - **explanation** : Explication justifiant le raisonnement. OBLIGATOIRE lorsque prix_ht est null : préciser pourquoi aucun prix n'a pu être identifié (ex. : prix inclus dans un forfait global, prestation non mentionnée dans le devis).
-    - **prix_ht** : Prix HT en euros. null si aucun montant n'est explicitement chiffré dans le devis (dans ce cas, renseigner obligatoirement explanation).
+    - **explication** : Explication justifiant le raisonnement. OBLIGATOIRE lorsque prix_ht est null : préciser pourquoi aucun prix n'a pu être identifié (ex. : prix inclus dans un forfait global, prestation non mentionnée dans le devis).
+    - **prix_ht** : Prix HT en euros. null si aucun montant n'est explicitement chiffré dans le devis (dans ce cas, renseigner obligatoirement explication).
 - **prix_depose_chaudiere_ht (Objet)** : Prix HT en euros de la dépose, l'enlèvement ou l'évacuation de l'ancienne chaudière. Si inclus dans un forfait, laisser vide.
-    - **explanation** : Explication justifiant le raisonnement. OBLIGATOIRE lorsque prix_ht est null : préciser pourquoi aucun prix n'a pu être identifié (ex. : prix inclus dans un forfait global, prestation non mentionnée dans le devis).
-    - **prix_ht** : Prix HT en euros. null si aucun montant n'est explicitement chiffré dans le devis (dans ce cas, renseigner obligatoirement explanation).
+    - **explication** : Explication justifiant le raisonnement. OBLIGATOIRE lorsque prix_ht est null : préciser pourquoi aucun prix n'a pu être identifié (ex. : prix inclus dans un forfait global, prestation non mentionnée dans le devis).
+    - **prix_ht** : Prix HT en euros. null si aucun montant n'est explicitement chiffré dans le devis (dans ce cas, renseigner obligatoirement explication).
 
 
 ## Contexte spécifique au document de type Devis PAC
@@ -71,7 +71,7 @@ Réponds UNIQUEMENT avec un objet JSON au format suivant :
   "puissance": "string",
   "alimentation_electrique": "string",
   "prix_pac_ht": {
-    "explanation": "string",
+    "explication": "string",
     "prix_ht": "string"
   },
   "accessoires": [
@@ -81,19 +81,19 @@ Réponds UNIQUEMENT avec un objet JSON au format suivant :
     }
   ],
   "prix_pose_ht": {
-    "explanation": "string",
+    "explication": "string",
     "prix_ht": "string"
   },
   "prix_mise_en_service_ht": {
-    "explanation": "string",
+    "explication": "string",
     "prix_ht": "string"
   },
   "prix_changement_emetteur_ht": {
-    "explanation": "string",
+    "explication": "string",
     "prix_ht": "string"
   },
   "prix_depose_chaudiere_ht": {
-    "explanation": "string",
+    "explication": "string",
     "prix_ht": "string"
   }
 }
@@ -114,7 +114,7 @@ Exemple 1 :
   "puissance": "8 kW A7/W35",
   "alimentation_electrique": "mono",
   "prix_pac_ht": {
-    "explanation": "Prix de l\u0027unité extérieure et intérieure indiqué sur le devis.",
+    "explication": "Prix de l\u0027unité extérieure et intérieure indiqué sur le devis.",
     "prix_ht": 8500.0
   },
   "accessoires": [
@@ -132,19 +132,19 @@ Exemple 1 :
     }
   ],
   "prix_pose_ht": {
-    "explanation": "Ligne « forfait pose » du devis.",
+    "explication": "Ligne « forfait pose » du devis.",
     "prix_ht": 2500.0
   },
   "prix_mise_en_service_ht": {
-    "explanation": "Ligne « mise en service » chiffrée séparément.",
+    "explication": "Ligne « mise en service » chiffrée séparément.",
     "prix_ht": 350.0
   },
   "prix_changement_emetteur_ht": {
-    "explanation": "Remplacement de radiateurs chiffré sur le devis.",
+    "explication": "Remplacement de radiateurs chiffré sur le devis.",
     "prix_ht": 1800.0
   },
   "prix_depose_chaudiere_ht": {
-    "explanation": "Dépose de l\u0027ancienne chaudière chiffrée séparément.",
+    "explication": "Dépose de l\u0027ancienne chaudière chiffrée séparément.",
     "prix_ht": 450.0
   }
 }
@@ -160,7 +160,7 @@ Exemple 2 :
   "puissance": "11 kW A7/W35",
   "alimentation_electrique": "triphasé",
   "prix_pac_ht": {
-    "explanation": "Prix matériel de la PAC indiqué sur le devis.",
+    "explication": "Prix matériel de la PAC indiqué sur le devis.",
     "prix_ht": 9200.0
   },
   "accessoires": [
@@ -178,19 +178,19 @@ Exemple 2 :
     }
   ],
   "prix_pose_ht": {
-    "explanation": "Le prix de la pose est inclus dans le forfait main-d\u0027oeuvre du devis.",
+    "explication": "Le prix de la pose est inclus dans le forfait main-d\u0027oeuvre du devis.",
     "prix_ht": 2800.0
   },
   "prix_mise_en_service_ht": {
-    "explanation": "Compris dans le forfait main-d\u0027oeuvre.",
+    "explication": "Compris dans le forfait main-d\u0027oeuvre.",
     "prix_ht": null
   },
   "prix_changement_emetteur_ht": {
-    "explanation": "Compris dans le forfait main-d\u0027oeuvre.",
+    "explication": "Compris dans le forfait main-d\u0027oeuvre.",
     "prix_ht": null
   },
   "prix_depose_chaudiere_ht": {
-    "explanation": "Dépose de l\u0027ancienne chaudière chiffrée séparément.",
+    "explication": "Dépose de l\u0027ancienne chaudière chiffrée séparément.",
     "prix_ht": 500.0
   }
 }
