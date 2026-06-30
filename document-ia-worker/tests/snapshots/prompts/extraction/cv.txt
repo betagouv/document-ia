@@ -60,6 +60,42 @@ Réponds UNIQUEMENT avec un objet JSON au format suivant :
 
 Voici des exemples de réponses attendues :
 
+Exemple 1 :
+```
+{
+  "experiences": [
+    {
+      "title": "Chargée / chargé de la rénovation urbaine",
+      "company": "Direction Départementale des Territoires",
+      "sector": "Logement",
+      "description": "Propose les options stratégiques que l\u0027état fait valoir dans le champ de la rénovation urbaine.\nMobilise les acteurs locaux, négocie, suit et évalue leurs engagements."
+    }
+  ],
+  "skills": [
+    "Promouvoir une action, une démarche",
+    "Connaisance de la Politique sociale du logement",
+    "Faire preuve d\u0027initiative"
+  ]
+}
+```
+Exemple 2 :
+```
+{
+  "experiences": [
+    {
+      "title": "Secrétaire médical",
+      "company": "CHU Angers",
+      "sector": "Santé",
+      "description": "Accueillir et renseigner les patients, planifier les activités (agenda des consultations, admissions, convocations, etc.)\nGérer, saisir et classer les informations relatives au dossier patient"
+    }
+  ],
+  "skills": [
+    "Connaissance du vocabulaire médical",
+    "Elaborer, adapter et optimiser le planning de travail, de rendez-vous, des visites",
+    "Utiliser les outils bureautiques et les logiciels métiers"
+  ]
+}
+```
 
 
 N'ajoute pas de texte avant ou après le JSON final.

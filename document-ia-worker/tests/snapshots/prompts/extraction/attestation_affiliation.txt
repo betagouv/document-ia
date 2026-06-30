@@ -67,6 +67,38 @@ Réponds UNIQUEMENT avec un objet JSON au format suivant :
 
 Voici des exemples de réponses attendues :
 
+Exemple 1 :
+```
+{
+  "nom_structure": "Association Sportive de Paris",
+  "adresse_siege_structure": "123 Rue de la République, 75001 Paris",
+  "numero_siret_structure": "12345678901234",
+  "nom_organisme": "Fédération Française de Sport",
+  "adresse_siege_organisme": "456 Avenue des Sports, 75012 Paris",
+  "nom_president_organisme": "MARTIN Jean",
+  "telephone_organisme": "01 23 45 67 89",
+  "email_organisme": "contact@federation-sport.fr",
+  "date_emission": "2024-03-15",
+  "date_debut_validite": "2024-01-01",
+  "date_fin_validite": "2024-12-31"
+}
+```
+Exemple 2 :
+```
+{
+  "nom_structure": "Club Athlétique de Lyon",
+  "adresse_siege_structure": "22 Avenue Victor Hugo, 69003 Lyon",
+  "numero_siret_structure": "98765432109876",
+  "nom_organisme": "Ligue Rhône-Alpes de Football",
+  "adresse_siege_organisme": "10 Rue de la Part-Dieu, 69003 Lyon",
+  "nom_president_organisme": null,
+  "telephone_organisme": null,
+  "email_organisme": "contact@ligue-rhone-alpes.fr",
+  "date_emission": "2024-06-01",
+  "date_debut_validite": "2024-06-01",
+  "date_fin_validite": null
+}
+```
 
 
 N'ajoute pas de texte avant ou après le JSON final.
