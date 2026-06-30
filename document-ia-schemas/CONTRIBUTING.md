@@ -31,6 +31,7 @@ Pour ajouter le support d’un nouveau type (ex: « carte_grise », « justifica
      - `type` (identifiant technique, ex: "carte_grise"),
      - `name` (nom lisible, ex: "Carte grise"),
      - `description` (liste d’indices textuels pour décrire le document),
+     - `examples` (liste des examples fourni au llm)
      - `document_model` (référence vers le modèle Pydantic).
 
 3) Ouvrir une Pull Request (PR) sur ce dépôt avec votre nouveau fichier. L’équipe Document‑IA s’occupera de :
@@ -49,30 +50,27 @@ from typing import Optional, Type
 from pydantic import BaseModel, Field
 
 from document_ia_schemas import BaseDocumentTypeSchema
+from document_ia_schemas.base_document_type_schema import FuzzyDate
 
 
 class CarteGriseModel(BaseModel):
     numero_immatriculation: str = Field(
         description="Numéro d'immatriculation du véhicule (format AA-123-AA)",
         alias="Numéro d'immatriculation",
-        examples=["AB-123-CD"],
     )
     nom_titulaire: str = Field(
         description="Nom du titulaire du certificat d'immatriculation",
         alias="Nom du titulaire",
-        examples=["DUPONT"],
     )
     adresse_titulaire: Optional[str] = Field(
         default=None,
         description="Adresse du titulaire. Si absente, renseigner `null`.",
         alias="Adresse du titulaire",
-        examples=["10 Rue Exemple, 75001 Paris"],
     )
-    date_premiere_mise_en_circulation: Optional[str] = Field(
+    date_premiere_mise_en_circulation: FuzzyDate = Field(
         default=None,
         description="Date de 1ère mise en circulation (JJ/MM/AAAA). Si absente, `null`.",
         alias="Date de première mise en circulation",
-        examples=["01/06/2018"],
     )
 
 
@@ -83,8 +81,21 @@ class CarteGriseExtractSchema(BaseDocumentTypeSchema[CarteGriseModel]):
         "Certificat d'immatriculation du véhicule",
         'Peut contenir la mention "République Française"',
         "Contient l'immatriculation, le titulaire, l'adresse, des dates clés",
-    ]
-
+    ],
+    examples: list[CarteGriseModel] = [
+        CarteGriseModel(
+            numero_immatriculation="AB-123-CD",
+            nom_titulaire="DUPONT",
+            adresse_titulaire="123 Rue du Test, 75000 Paris",
+            date_premiere_mise_en_circulation=date(2023, 1, 12)
+        ),
+        CarteGriseModel(
+            numero_immatriculation="ZX-121-TF",
+            nom_titulaire="MARTIN",
+            adresse_titulaire="Rue de la paie, 69001 Lyon",
+            date_premiere_mise_en_circulation=date(2025, 5, 20)
+        ),
+    ],
     document_model: Type[CarteGriseModel] = CarteGriseModel
 ```
 
@@ -98,9 +109,11 @@ class CarteGriseExtractSchema(BaseDocumentTypeSchema[CarteGriseModel]):
 1) Créer le fichier du type dans `src/document_ia_schemas/`.
 2) Définir le modèle Pydantic avec des descriptions en français, alias explicites et exemples.
 3) Définir la classe `*ExtractSchema` avec `type`, `name`, `description` et `document_model`.
-4) Optionnel: mettre à jour la table des types dans le `README.md` (section « Types de documents inclus »).
-5) Lancer les vérifications locales (ruff/pytest) — voir section suivante.
-6) Ouvrir une PR claire et concise.
+4) Ajouter dans `src/document_ia_schemas/__init__.py` le type dans la liste des types inclus.
+5) Il faut régénérer les snapshot de prompt avec le script `src_document_ia_schemas/tests/fixtures/generate_prompt_snapshots.py`
+6) Optionnel: mettre à jour la table des types dans le `README.md` (section « Types de documents inclus »).
+7) Lancer les vérifications locales (ruff/pytest) — voir section suivante.
+8) Ouvrir une PR claire et concise.
 
 
 ## 🧪 Tests locaux et qualité
