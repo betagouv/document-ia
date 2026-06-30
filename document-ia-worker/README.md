@@ -119,6 +119,35 @@ cd document-ia-worker
 poetry run python src/document_ia_worker/main.py
 ```
 
+---
+
+## Tests & Prompt Snapshots
+
+The extraction prompts produced by `PromptService` are covered by **snapshot tests**. For each supported document type, the rendered extraction prompt is stored as a reference file and compared against the freshly rendered prompt during the test run.
+
+Key paths:
+- `tests/snapshots/prompts/extraction/<document_type>.txt` — reference prompts (one file per document type, e.g. `devis_pac.txt`).
+- `tests/unit/test_prompt_service.py` — the test that re-renders each prompt and asserts it matches the snapshot.
+- `tests/fixtures/regenerate_extraction_prompt_fixtures.py` — the script that (re)generates every snapshot.
+
+Run the snapshot tests:
+```bash
+cd document-ia-worker
+poetry run pytest tests/unit/test_prompt_service.py -q
+```
+
+### Regenerating snapshots
+
+When a schema in `document-ia-schemas` changes (new field, renamed field, edited description or example), the rendered prompt changes too and the snapshot test will fail until the reference files are regenerated:
+
+```bash
+cd document-ia-worker
+poetry run python tests/fixtures/regenerate_extraction_prompt_fixtures.py
+```
+
+This rewrites **all** snapshots under `tests/snapshots/prompts/extraction/`. Review the `git diff` and commit only the intended changes.
+
+---
 
 ## Environment Variables
 
