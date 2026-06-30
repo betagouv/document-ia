@@ -9,44 +9,44 @@ from document_ia_schemas.base_document_type_schema import FuzzyDate
 from document_ia_schemas.field_metrics import Metric
 
 class PermisConduireModel(BaseModel):
-    numero_document: str = Field(
+    numero_document: Optional[str] = Field(
+        default=None,
         description="Identifiant unique du permis de conduire (format alphanumérique).",
-        examples=["1234567890123456789"],
         json_schema_extra={
             "metrics": Metric.COMPARE_NUMBER
         }
     )
     date_delivrance: FuzzyDate = Field(
+        default=None,
         description="Date de délivrance du permis de conduire (format JJ/MM/AAAA). Si absente, renseigner `null`.",
-        examples=["2010-06-15"],
         json_schema_extra={
             "metrics": Metric.STRING_DATE_EQUALITY
         }
     )
     date_expiration: FuzzyDate = Field(
+        default=None,
         description="Date limite de validité du permis de conduire (format JJ/MM/AAAA). Si absente, renseigner `null`.",
-        examples=["2030-06-15"],
         json_schema_extra={
             "metrics": Metric.STRING_DATE_EQUALITY
         }
     )
-    nom: str = Field(
+    nom: Optional[str] = Field(
+        default=None,
         description="Nom de famille du titulaire (en majuscules sur le document).",
-        examples=["DUPONT"],
         json_schema_extra={
             "metrics": Metric.LEVENSHTEIN_DISTANCE
         }
     )
-    prenom: str = Field(
+    prenom: Optional[str] = Field(
+        default=None,
         description="Prénom du titulaire (premier prénom).",
-        examples=["JEAN"],
         json_schema_extra={
             "metrics": Metric.LEVENSHTEIN_DISTANCE
         }
     )
     date_naissance: FuzzyDate = Field(
+        default=None,
         description="Date de naissance du titulaire (format JJ/MM/AAAA). Si absente, renseigner `null`.",
-        examples=["1990-01-01"],
         json_schema_extra={
             "metrics": Metric.STRING_DATE_EQUALITY
         }
@@ -54,7 +54,6 @@ class PermisConduireModel(BaseModel):
     lieu_naissance: Optional[str] = Field(
         default=None,
         description="Lieu de naissance du titulaire (ville). Si absente, renseigner `null`.",
-        examples=["PARIS"],
         json_schema_extra={
             "metrics": Metric.LEVENSHTEIN_DISTANCE
         }
@@ -62,7 +61,6 @@ class PermisConduireModel(BaseModel):
     adresse: Optional[str] = Field(
         default=None,
         description="Adresse de résidence du titulaire. Si absente, renseigner `null`.",
-        examples=["123 Rue de la Paix, 75008 Paris"],
         json_schema_extra={
             "metrics": Metric.LEVENSHTEIN_DISTANCE
         }

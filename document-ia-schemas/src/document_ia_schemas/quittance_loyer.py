@@ -31,7 +31,6 @@ class LocataireModel(BaseModel):
     identite: Identity = Field(
         default=None,
         description="Nom et prénom du locataire",
-        examples=["DUPONT Camille"],
         json_schema_extra={
             "metrics": [
                 Metric.TOKEN_SET_EQUALITY,
@@ -45,26 +44,22 @@ class BailleurModel(BaseModel):
     type_bailleur: Optional[TypeBailleur] = Field(
         default=None,
         description="Type de bailleur: particulier, personne morale ou mandataire.",
-        examples=[TypeBailleur.MANDATAIRE.value],
         json_schema_extra={"metrics": Metric.EQUALITY},
     )
     nom_raison_sociale: Optional[str] = Field(
         default=None,
         description="Nom du bailleur (personne physique) ou raison sociale.",
-        examples=["CABINET GESTION HABITAT"],
         json_schema_extra={"metrics": Metric.LEVENSHTEIN_DISTANCE},
     )
     siren_bailleur: Optional[str] = Field(
         default=None,
         description="SIREN du bailleur (9 chiffres) si le bailleur est immatricule.",
-        examples=["123456789"],
         pattern=r"^\d{9}$",
         json_schema_extra={"metrics": Metric.COMPARE_NUMBER},
     )
     numero_carte_professionnelle: Optional[str] = Field(
         default=None,
         description="Numero de carte professionnelle (souvent prefixe par CPI) pour un mandataire.",
-        examples=["CPI75012022000000001"],
         json_schema_extra={"metrics": Metric.LEVENSHTEIN_DISTANCE},
     )
 
@@ -73,13 +68,11 @@ class QuittanceLoyerModel(BaseModel):
     nature_document: Optional[NatureDocumentQuittance] = Field(
         default=NatureDocumentQuittance.QUITTANCE,
         description="Nature du document immobilier (quittance, recu partiel, avis d'echeance).",
-        examples=[NatureDocumentQuittance.QUITTANCE.value],
         json_schema_extra={"metrics": Metric.EQUALITY},
     )
     type_parc: Optional[TypeParc] = Field(
         default=None,
         description="Type de parc locatif (prive ou social/HLM).",
-        examples=[TypeParc.PRIVE.value],
         json_schema_extra={"metrics": Metric.EQUALITY},
     )
     bailleur: Optional[BailleurModel] = Field(
@@ -95,49 +88,41 @@ class QuittanceLoyerModel(BaseModel):
     adresse_bien_loue: Optional[str] = Field(
         default=None,
         description="Adresse du logement loue.",
-        examples=["12 rue des Lilas 75012 Paris"],
         json_schema_extra={"metrics": Metric.LEVENSHTEIN_DISTANCE},
     )
     periode_debut: FuzzyDate = Field(
         default=None,
         description="Date de debut de la periode couverte.",
-        examples=["2026-04-01"],
         json_schema_extra={"metrics": Metric.STRING_DATE_EQUALITY},
     )
     periode_fin: FuzzyDate = Field(
         default=None,
         description="Date de fin de la periode couverte.",
-        examples=["2026-04-30"],
         json_schema_extra={"metrics": Metric.STRING_DATE_EQUALITY},
     )
     date_paiement: FuzzyDate = Field(
         default=None,
         description="Date de reception effective du paiement.",
-        examples=["2026-05-05"],
         json_schema_extra={"metrics": Metric.STRING_DATE_EQUALITY},
     )
     date_emission: FuzzyDate = Field(
         default=None,
         description="Date d'emission de la quittance.",
-        examples=["2026-05-05"],
         json_schema_extra={"metrics": Metric.STRING_DATE_EQUALITY},
     )
     loyer_de_base: Optional[float] = Field(
         default=None,
         description="Montant du loyer hors charges.",
-        examples=[850.0],
         json_schema_extra={"metrics": Metric.COMPARE_NUMBER},
     )
     provisions_charges: Optional[float] = Field(
         default=None,
         description="Montant des provisions sur charges.",
-        examples=[70.0],
         json_schema_extra={"metrics": Metric.COMPARE_NUMBER},
     )
     presence_signature: Optional[bool] = Field(
         default=None,
         description="Indique si une signature/cachet de validation est detectee.",
-        examples=[True],
         json_schema_extra={"metrics": Metric.EQUALITY},
     )
 

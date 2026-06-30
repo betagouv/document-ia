@@ -1,4 +1,5 @@
-from typing import Type
+from datetime import date
+from typing import Optional, Type
 
 from pydantic import BaseModel, Field
 
@@ -8,46 +9,44 @@ from document_ia_schemas.field_metrics import Metric
 
 
 class PasseportModel(BaseModel):
-    numero_document: str = Field(
+    numero_document: Optional[str] = Field(
+        default=None,
         description="Identifiant unique / Numéro du passeport (format alphanumérique)",
-        examples=["123456789012"],
         json_schema_extra={
             "metrics": Metric.COMPARE_NUMBER
         }
     )
-    nom: str = Field(
+    nom: Optional[str] = Field(
+        default=None,
         description="Nom de famille du titulaire (en majuscules sur le document)",
-        examples=["DUPONT"],
         json_schema_extra={
             "metrics": Metric.LEVENSHTEIN_DISTANCE
         }
     )
-    prenom: str = Field(
+    prenom: Optional[str] = Field(
+        default=None,
         description="Prénom du titulaire (premier prénom)",
-        examples=["JEAN"],
         json_schema_extra={
             "metrics": Metric.LEVENSHTEIN_DISTANCE
         }
     )
-    lieu_naissance: str = Field(
+    lieu_naissance: Optional[str] = Field(
+        default=None,
         description="Lieu de naissance du titulaire (ville)",
-        examples=["PARIS 15e"],
         json_schema_extra={
             "metrics": Metric.LEVENSHTEIN_DISTANCE
         }
     )
-    nationalite: str = Field(
+    nationalite: Optional[str] = Field(
+        default=None,
         description="Nationalité du titulaire",
-        examples=["Française"],
         json_schema_extra={
             "metrics": Metric.LEVENSHTEIN_DISTANCE
         }
     )
-    bande_mrz: str = Field(
+    bande_mrz: Optional[str] = Field(
+        default=None,
         description="Bande MRZ du passeport",
-        examples=[
-            "P<FRADUPONT<<JEAN<ROBIN<ADRIEN<<<><><<<<<>>>123456789012FRA0002152F2809160<<<<<<<<<<<<<<00"
-        ],
         json_schema_extra={
             "metrics": Metric.LEVENSHTEIN_DISTANCE
         }
@@ -55,7 +54,6 @@ class PasseportModel(BaseModel):
     date_delivrance: FuzzyDate = Field(
         default=None,
         description="Date d'émission du passeport (format JJ/MM/AAAA). Si absente, renseigner `null`.",
-        examples=["2010-01-01"],
         json_schema_extra={
             "metrics": Metric.STRING_DATE_EQUALITY
         }
@@ -63,7 +61,6 @@ class PasseportModel(BaseModel):
     date_expiration: FuzzyDate = Field(
         default=None,
         description="Date limite de validité du passeport (format JJ/MM/AAAA). Si absente, renseigner `null`.",
-        examples=["2020-01-01"],
         json_schema_extra={
             "metrics": Metric.STRING_DATE_EQUALITY
         }
@@ -71,7 +68,6 @@ class PasseportModel(BaseModel):
     date_naissance: FuzzyDate = Field(
         default=None,
         description="Date de naissance du titulaire (format JJ/MM/AAAA). Si absente, renseigner `null`.",
-        examples=["1990-01-01"],
         json_schema_extra={
             "metrics": Metric.STRING_DATE_EQUALITY
         }
@@ -100,9 +96,9 @@ class PasseportExtractSchema(BaseDocumentTypeSchema[PasseportModel]):
                 "P<FRADUPONT<<JEAN<ROBIN<ADRIEN<<<><><<<<<>>>123456789012FRA"
                 "0002152F2809160<<<<<<<<<<<<<<00"
             ),
-            date_delivrance="2010-01-01",
-            date_expiration="2020-01-01",
-            date_naissance="1990-01-01",
+            date_delivrance=date(2010, 1, 1),
+            date_expiration=date(2020, 1, 1),
+            date_naissance=date(1990, 1, 1),
         )
     ]
     document_model: Type[PasseportModel] = PasseportModel

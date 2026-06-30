@@ -79,6 +79,7 @@ class SupportedDocumentType(str, Enum):
     VISALE = "visale_certificate"
     ATTESTATION_HEBERGEMENT = "attestation_hebergement"
     TAXE_FONCIERE = "taxe_fonciere"
+    DEVIS_PAC = "devis_pac"
     CARTE_GRISE = "carte_grise"
     AUTRE = "autre"
 
