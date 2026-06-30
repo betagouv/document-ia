@@ -11,7 +11,6 @@ class BeneficiaireModel(BaseModel):
     identite: Identity = Field(
         default=None,
         description="Nom et prénom du bénéficiaire",
-        examples=["MARTIN Sophie"],
         json_schema_extra={
             "metrics": [
                 Metric.TOKEN_SET_EQUALITY,
