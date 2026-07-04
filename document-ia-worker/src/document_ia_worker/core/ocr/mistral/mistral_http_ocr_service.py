@@ -90,6 +90,6 @@ class MistralHttpOcrService(BaseHttpOCRService[MistralOcrSettings]):
         return self.config.MISTRAL_OCR_API_KEY.get_secret_value()
 
     def get_base_url(self) -> str:
-        if self.config.MISTRAL_ORC_BASE_URL is None:
+        if self.config.MISTRAL_OCR_BASE_URL is None:
             raise HTTPOCRMissConfigurationException("Mistral")
-        return self.config.MISTRAL_ORC_BASE_URL
+        return self.config.MISTRAL_OCR_BASE_URL
