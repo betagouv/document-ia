@@ -1,217 +1,266 @@
-# Document IA Backend
+# Document IA
 
-This project will include a FastAPI backend (Readme: document-ia-api/README.md)
-This project will also include a worker service to process messages from Redis queue
+[![Python](https://img.shields.io/badge/python-3.13-blue)](https://www.python.org/downloads/)
+[![Poetry](https://img.shields.io/badge/package%20manager-poetry-blue)](https://python-poetry.org/)
+[![FastAPI](https://img.shields.io/badge/api-FastAPI-009688)](https://fastapi.tiangolo.com/)
+[![Docker Compose](https://img.shields.io/badge/local-Docker%20Compose-2496ED)](https://docs.docker.com/compose/)
+[![License](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 
-## Project Structure
+Document IA is a backend stack for running document-processing workflows: files are uploaded through a FastAPI API, stored in S3-compatible storage, queued through Redis Streams, processed by an asynchronous worker, and tracked in a PostgreSQL Event Store.
 
-```
-document-ia-api/
-├── src/
-├── tests/                          # Unit and integration tests
-├── pyproject.toml                  # Poetry configuration
-└── poetry.lock                     # Dependency lock file
-document-ia-worker/
-├── src/
-├── tests/                          # Unit and integration tests
-├── pyproject.toml                  # Poetry configuration
-└── poetry.lock                     # Dependency lock file
-docker-compose.yml                 # Docker Compose file for local development
-.env
-```
+The repository is organized as a Python monorepo with separate packages for the API, worker, shared infrastructure code, document schemas, and evaluation tools.
 
-### Using Docker Compose
+## Quickstart
 
-1. **Start the services**
+Prerequisites:
+
+- Python 3.13
+- Poetry 2.x
+- Docker Compose
+
+Create your local environment file:
 
 ```bash
-# Start PostgreSQL and Redis in detached mode
-docker-compose up -d
+cp env.example .env
 ```
 
-2. **Stop the services**
+Start the local infrastructure services:
 
 ```bash
-# Stop and remove containers
-docker-compose down
+docker compose up -d
 ```
 
-3. **View service logs**
+This starts PostgreSQL, Redis, MinIO, MockServer, and the MinIO bucket initialization service.
+
+Run the API in one terminal:
 
 ```bash
-# View all service logs
-docker-compose logs
-
-# View specific service logs
-docker-compose logs postgres
-docker-compose logs redis
-docker-compose logs minio
-
-# Follow logs in real-time
-docker-compose logs -f
+cd document-ia-api
+poetry install
+poetry run python src/document_ia_api/main.py
 ```
 
-4. **Check service status**
+Run the worker in another terminal:
 
 ```bash
-# List running containers
-docker-compose ps
-
-# Check service health
-docker-compose exec postgres pg_isready
-docker-compose exec redis redis-cli ping
-docker-compose exec minio mc admin info local
+cd document-ia-worker
+poetry install
+poetry run python src/document_ia_worker/main.py
 ```
 
-### Environment Variables
-
-The `docker-compose.yml` file uses environment variables from your `.env` file. Make sure your `.env` file includes the
-following variables (see `env.example` for reference):
+Optional: run the evaluation app in a third terminal:
 
 ```bash
-# PostgreSQL Configuration
-POSTGRES_DB=document_ia
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=your-secure-postgres-password
-POSTGRES_PORT=5432
-
-# Redis Configuration
-REDIS_PORT=6379
-
-# MinIO Configuration (S3 compatible)
-MINIO_ROOT_USER=minioadmin
-MINIO_ROOT_PASSWORD=minioadmin
-MINIO_API_PORT=9000
-MINIO_CONSOLE_PORT=9001
+cd document-ia-evals
+poetry install
+poetry run streamlit run src/document_ia_evals/app.py
 ```
 
-These variables are used by Docker Compose to configure the PostgreSQL, Redis, and MinIO services. The application will
-connect to these services using the same configuration.
+Useful local URLs:
 
-### MinIO Access
+- API Swagger UI: `http://localhost:8000/docs`
+- API ReDoc: `http://localhost:8000/redoc`
+- MinIO console: `http://localhost:9001`
+- Streamlit evals: `http://localhost:8501`
 
-MinIO provides S3-compatible object storage with a web-based management console:
+## Index
 
-- **API Endpoint**: `http://localhost:9000` (or the port specified in `MINIO_API_PORT`)
-- **Web Console**: `http://localhost:9001` (or the port specified in `MINIO_CONSOLE_PORT`)
+- [How it works](#how-it-works)
+- [Repository map](#repository-map)
+- [Documentation map](#documentation-map)
+- [Local infrastructure](#local-infrastructure)
+- [Common tasks](#common-tasks)
+- [Development](#development)
+- [Testing and quality](#testing-and-quality)
 
-#### Initialize MinIO Bucket
+## How It Works
 
-Before using the application, you need to create the default S3 bucket. Use the provided initialization script:
+The default execution path is:
+
+1. A client calls the API to start a workflow execution.
+2. The API validates the request, stores the uploaded file in S3/MinIO, records the initial event in PostgreSQL, and publishes a message to Redis.
+3. The worker consumes the Redis message.
+4. The worker resolves the workflow definition and executes its steps, such as download, preprocessing, OCR, LLM extraction, and result persistence.
+5. Execution state and failures are published to the Event Store.
+6. API clients can inspect workflow state and results through the API.
+
+At a high level:
+
+```text
+Client
+  -> FastAPI API
+  -> S3/MinIO file storage
+  -> Redis Stream
+  -> Worker workflow steps
+  -> PostgreSQL Event Store
+```
+
+## Repository Map
+
+| Path | Role | Documentation |
+|---|---|---|
+| `document-ia-api` | FastAPI application, authentication, workflow endpoints, migrations | [document-ia-api/README.md](./document-ia-api/README.md) |
+| `document-ia-worker` | Asynchronous workflow execution, Redis consumer, retries, DLQ, scheduled tasks | [document-ia-worker/README.md](./document-ia-worker/README.md) |
+| `document-ia-schemas` | Pydantic document schemas used for extraction prompts and validation | [document-ia-schemas/README.md](./document-ia-schemas/README.md) |
+| `document-ia-infra` | Shared infrastructure code used by API and worker | [document-ia-infra/README.md](./document-ia-infra/README.md) |
+| `document-ia-evals` | Streamlit application for evaluating Document IA outputs | [document-ia-evals/README.md](./document-ia-evals/README.md) |
+| `docker-compose.yml` | Local PostgreSQL, Redis, MinIO, MockServer, and S3 bucket setup | [docker-compose.yml](./docker-compose.yml) |
+| `env.example` | Reference environment variables for local development | [env.example](./env.example) |
+
+## Documentation Map
+
+Start here depending on what you need:
+
+| Need | Read |
+|---|---|
+| API setup, environment variables, run commands | [document-ia-api/README.md](./document-ia-api/README.md) |
+| API architecture, routes, auth, error handling, workflow docs | [document-ia-api/docs/API_SUMMARY.md](./document-ia-api/docs/API_SUMMARY.md) |
+| Database migration workflow | [document-ia-api/alembic/README.md](./document-ia-api/alembic/README.md) |
+| Bruno API collection | [document-ia-api/bruno-api/README.md](./document-ia-api/bruno-api/README.md) |
+| API test organization | [document-ia-api/tests/README.md](./document-ia-api/tests/README.md) |
+| Worker execution flow, retries, DLQ, scheduler | [document-ia-worker/README.md](./document-ia-worker/README.md) |
+| Document schema package and supported document types | [document-ia-schemas/README.md](./document-ia-schemas/README.md) |
+| Evaluation app | [document-ia-evals/README.md](./document-ia-evals/README.md) |
+| Evaluation metrics | [document-ia-evals/METRICS.md](./document-ia-evals/METRICS.md) |
+
+## Local Infrastructure
+
+Start services:
 
 ```bash
-# Run the MinIO bucket initialization script
-python scripts/init-s3-bucket.py
+docker compose up -d
 ```
 
-This script will:
-
-- Connect to your MinIO instance
-- Create the default bucket (`document-ia`) if it doesn't exist
-- Verify the bucket is accessible
-
-**Note**: Make sure your MinIO service is running (`docker-compose up -d`) before running this script.
-
-#### Accessing MinIO Console
-
-1. Start the services: `docker-compose up -d`
-2. Open your browser and navigate to `http://localhost:9001`
-3. Login with the default credentials (or those specified in your `.env` file)
-4. Create buckets and manage your S3-compatible storage
-
-#### Using MinIO with S3 SDK
-
-MinIO is fully compatible with AWS S3 SDKs. Configure your application to use MinIO instead of AWS S3:
-
-```python
-# Example configuration for MinIO
-S3_ENDPOINT_URL = "http://localhost:9000"
-S3_ACCESS_KEY = "minioadmin"
-S3_SECRET_KEY = "minioadmin"
-S3_REGION = "us-east-1"  # MinIO default region
-```
-
-## Development Guidelines
-
-### Code Quality & Pre-commit Hooks
-
-This project uses pre-commit hooks to ensure code quality. The setup includes:
-
-- **Ruff**: Fast Python linter and formatter
-- **Pre-commit hooks**: Automated checks before commits
-
-#### Setup Pre-commit Hooks
-
-1. **Install dependencies** (if not already done):
+Check status:
 
 ```bash
+docker compose ps
+docker compose exec postgres pg_isready
+docker compose exec redis redis-cli ping
+```
+
+View logs:
+
+```bash
+docker compose logs
+docker compose logs -f
+docker compose logs postgres
+docker compose logs redis
+docker compose logs minio
+```
+
+Stop services:
+
+```bash
+docker compose down
+```
+
+MinIO provides local S3-compatible storage:
+
+- API endpoint: `http://localhost:9000`
+- Console: `http://localhost:9001`
+- Default bucket: configured through `S3_BUCKET_NAME`
+
+The `init-s3-bucket` Docker Compose service creates the configured bucket after MinIO becomes healthy. If you need to run only this initialization step again:
+
+```bash
+docker compose up init-s3-bucket
+```
+
+## Common Tasks
+
+Run the API:
+
+```bash
+cd document-ia-api
+poetry run python src/document_ia_api/main.py
+```
+
+Run the API with Uvicorn reload:
+
+```bash
+cd document-ia-api
+poetry run uvicorn src.document_ia_api.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Run the worker:
+
+```bash
+cd document-ia-worker
+poetry run python src/document_ia_worker/main.py
+```
+
+Run the evaluation app:
+
+```bash
+cd document-ia-evals
+poetry run streamlit run src/document_ia_evals/app.py
+```
+
+Open the Bruno collection:
+
+```bash
+cd document-ia-api/bruno-api
+bruno run workflows/execute.bru
+```
+
+Regenerate worker prompt snapshots after schema changes:
+
+```bash
+cd document-ia-worker
+poetry run python tests/fixtures/regenerate_extraction_prompt_fixtures.py
+```
+
+## Development
+
+Each subproject owns its Python environment and dependency lock file. Install dependencies from the package you are working on:
+
+```bash
+cd document-ia-api
 poetry install
 ```
 
-2. **Install pre-commit hooks**:
-
 ```bash
-# Manual installation
-pre-commit install
+cd document-ia-worker
+poetry install
 ```
 
-3. **To make changes on the api without having to bump the version code**
 ```bash
-# This will create a symlink to the infra package
+cd document-ia-schemas
+poetry install
+```
+
+When developing against shared local packages, install them in editable mode from the consuming package:
+
+```bash
 poetry run pip install -e ../document-ia-infra
+poetry run pip install -e ../document-ia-schemas
 ```
 
-#### Code Quality Standards
+## Testing and Quality
 
-- Python 3.11+ features
-- PEP 8 style guidelines (enforced by ruff)
-- Type hints for all function parameters and return values
-- Comprehensive error handling with custom exceptions
-- Structured logging with data sanitization
+Run tests from the relevant package:
 
-### Testing
+```bash
+cd document-ia-api
+poetry run pytest
+poetry run ruff check src tests
+poetry run pyright
+```
 
-- Unit tests for all business logic
-- Integration tests for external dependencies
-- Async test support
-- Mock external services in tests
-- Test idempotency behavior
+```bash
+cd document-ia-worker
+poetry run pytest
+poetry run ruff check src tests
+```
 
-### Security
-
-- Proper authentication and authorization
-- Input sanitization
-- Rate limiting
-- HTTPS in production
-- File upload validation
-
-## Deployment
-
-The project is configured for production deployment on Heroku with:
-
-- Procfile for process management
-- Heroku Postgres and Redis add-ons
-- Environment variable configuration
-- Proper logging for Heroku
-
-## Performance & Monitoring
-
-- Connection pooling for all external services
-- Caching strategies with Redis
-- Performance metrics logging
-- Health checks implementation
-- Structured logging for easy analysis
-
-## Contributing
-
-1. Follow Clean Architecture principles
-2. Use async/await for all I/O operations
-3. Implement proper error handling
-4. Write comprehensive tests
-5. Use type hints
-6. Sanitize data before logging
-7. Make operations idempotent
+```bash
+cd document-ia-schemas
+poetry run pytest
+poetry run ruff check .
+poetry run ruff format --check .
+```
 
 ## License
 
-[License information here]
+MIT. See [LICENSE](./LICENSE).
