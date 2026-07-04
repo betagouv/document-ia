@@ -76,7 +76,7 @@ class MistralHttpOcrService(BaseHttpOCRService[MistralOcrSettings]):
         returned_content = ""
 
         for page in mistral_result.pages:
-            page_markdown = page.markdown
+            page_markdown = page.markdown.replace("&lt;", "<").replace("&gt;", ">")
             for table in page.tables:
                 placeholder = f"[{table.id}]({table.id})"
                 page_markdown = page_markdown.replace(placeholder, table.content)
