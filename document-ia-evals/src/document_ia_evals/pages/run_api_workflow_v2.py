@@ -270,7 +270,7 @@ formData.append('file', fileStream as any);"""
                     return
                 st.subheader("Résultat final")
                 result_dict = (
-                    execution_details.model_dump() if execution_details else None
+                    execution_details.model_dump(mode="json") if execution_details else None
                 )
                 st.code(
                     json.dumps(result_dict, indent=2, ensure_ascii=False),

@@ -28,7 +28,7 @@ def main():
             if execution_details is None:
                 st.error(f"Aucune exécution trouvée avec l'ID `{execution_id}`.")
                 return
-            result_dict = execution_details.model_dump() if execution_details else None
+            result_dict = execution_details.model_dump(mode="json") if execution_details else None
             st.code(
                 json.dumps(result_dict, indent=2, ensure_ascii=False),
                 language="json",

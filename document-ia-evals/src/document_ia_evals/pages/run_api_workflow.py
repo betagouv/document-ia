@@ -76,7 +76,7 @@ def main():
             if execution_details is None:
                 st.error(f"Aucune exécution trouvée avec l'ID `{execution_id}`.")
                 return
-            st.json(execution_details.model_dump() if execution_details else None)
+            st.json(execution_details.model_dump(mode="json") if execution_details else None)
 
 
 if __name__ == "__main__":
