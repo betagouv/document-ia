@@ -69,6 +69,11 @@ def run_loop() -> None:
                 time.sleep(settings.CHECK_INTERVAL)
                 continue
 
+            # Log de statut régulier pour le dashboard Kibana
+            logger.info(
+                "Autoscaler status - Workers actuels : %d | Lag : %d", current_w, lag
+            )
+
             now = time.time()
 
             # 3. Évaluation de la charge par le contrôleur
