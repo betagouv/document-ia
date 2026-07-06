@@ -36,10 +36,10 @@ def run_loop() -> None:
     scalingo_service = ScalingoService(
         api_token=api_token,
         app_name=app_name,
-        api_url=settings.SCALINGO_API_URL,
-        auth_url=settings.SCALINGO_AUTH_URL,
+        api_url=str(settings.SCALINGO_API_URL),
+        auth_url=str(settings.SCALINGO_AUTH_URL),
     )
-    health_service = AppHealthService(health_url=health_url)
+    health_service = AppHealthService(health_url=str(health_url))
 
     scaler = QueueAutoScaler(
         min_workers=settings.MIN_WORKERS,
@@ -93,7 +93,9 @@ def run_loop() -> None:
                 )
 
         except Exception as e:
-            logger.error("Erreur inattendue dans la boucle principale : %s", e, exc_info=True)
+            logger.error(
+                "Erreur inattendue dans la boucle principale : %s", e, exc_info=True
+            )
 
         time.sleep(settings.CHECK_INTERVAL)
 

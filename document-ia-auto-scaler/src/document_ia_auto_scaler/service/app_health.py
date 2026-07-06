@@ -37,7 +37,9 @@ class AppHealthService:
                 if lag is not None:
                     return 0
                 else:
-                    logger.warning("La clé 'nb_execution_undelivered' est absente du health check.")
+                    logger.warning(
+                        "La clé 'nb_execution_undelivered' est absente du health check."
+                    )
                     return 0
         except urllib.error.HTTPError as e:
             # En cas de 503 Service Unavailable, l'API renvoie des détails d'erreur.

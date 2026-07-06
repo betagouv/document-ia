@@ -4,7 +4,8 @@ import logging
 import time
 import urllib.error
 import urllib.request
-from typing import Any
+from typing import Any, cast
+from urllib.parse import urlparse, urlunparse
 
 from pydantic import SecretStr
 
@@ -18,16 +19,16 @@ class ScalingoService:
     """
 
     def __init__(
-            self,
-            api_token: SecretStr,
-            app_name: str,
-            api_url: str,
-            auth_url: str,
+        self,
+        api_token: SecretStr,
+        app_name: str,
+        api_url: str,
+        auth_url: str,
     ):
         self.api_token = api_token
         self.app_name = app_name
-        self.api_url = api_url.rstrip("/")
-        self.auth_url = auth_url.rstrip("/")
+        self.api_url = api_url
+        self.auth_url = auth_url
 
         # État interne d'authentification
         self._cached_token: str | None = None
@@ -52,8 +53,13 @@ class ScalingoService:
             auth_bytes = auth_str.encode("utf-8")
             auth_b64 = base64.b64encode(auth_bytes).decode("utf-8")
 
+            parsed_auth = urlparse(self.auth_url)
+            auth_endpoint = urlunparse(
+                parsed_auth._replace(path="/v1/tokens/exchange")
+            ).__str__()
+
             req = urllib.request.Request(
-                f"{self.auth_url}/v1/tokens/exchange",
+                auth_endpoint,
                 method="POST",
                 headers={
                     "Authorization": f"Basic {auth_b64}",
@@ -79,7 +85,7 @@ class ScalingoService:
             raise
 
     def _send_request(
-            self, url_path: str, method: str = "GET", payload: dict[str, Any] | None = None
+        self, url_path: str, method: str = "GET", payload: dict[str, Any] | None = None
     ) -> dict[str, Any] | None:
         """
         Méthode générique interne d'envoi de requêtes authentifiées à l'API Scalingo.
@@ -87,7 +93,8 @@ class ScalingoService:
         """
         try:
             bearer_token = self._get_bearer_token()
-            url = f"{self.api_url}{url_path}"
+            parsed_api = urlparse(self.api_url)
+            url = urlunparse(parsed_api._replace(path=url_path)).__str__()
 
             headers = {
                 "Authorization": f"Bearer {bearer_token}",
@@ -112,7 +119,8 @@ class ScalingoService:
                     return {}
                 res_json: Any = json.loads(body)
                 if isinstance(res_json, dict):
-                    return res_json
+                    res_dict = cast(dict[str, Any], res_json)
+                    return res_dict
                 return {"data": res_json}
 
         except urllib.error.HTTPError as e:
@@ -145,15 +153,18 @@ class ScalingoService:
 
         containers = result.get("containers", [])
         if not isinstance(containers, list):
-            logger.error("Format inattendu de la réponse Scalingo (containers n'est pas une liste).")
+            logger.error(
+                "Format inattendu de la réponse Scalingo (containers n'est pas une liste)."
+            )
             return None
 
-        containers_list = containers
+        containers_list = cast(list[Any], containers)
         workers: list[dict[str, Any]] = []
         for c in containers_list:
             if isinstance(c, dict):
-                if c.get("type") == "worker":
-                    workers.append(c)
+                c_dict = cast(dict[str, Any], c)
+                if c_dict.get("type") == "worker":
+                    workers.append(c_dict)
         return len(workers)
 
     def scale_workers(self, new_amount: int) -> bool:
