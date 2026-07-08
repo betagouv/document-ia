@@ -40,6 +40,8 @@ class ReplicateAnalytics(BaseScheduledJob):
         try:
             await self._replicate_organizations(source_manager, dest_manager)
             await self._replicate_events(source_manager, dest_manager)
+        except Exception as e:
+            logger.error(f"Error while replicating data: {e}")
         finally:
             await dest_manager.dispose_async()
             await source_manager.dispose_async()
