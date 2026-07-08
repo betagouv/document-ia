@@ -95,6 +95,14 @@ class OrganizationRepository:
         # Re-fetch updated entity
         return await self.get_by_id(org_id)
 
+    async def upsert(self, entity: OrganizationEntity) -> None:
+        """Insert or update an organization by primary key (idempotent).
+
+        Used by the analytics replication to fully replicate the organization
+        table into the destination database without deleting existing rows.
+        """
+        await self.session.merge(entity)
+
     async def delete(self, org_id: UUID) -> bool:
         result = await self.session.execute(
             delete(OrganizationEntity)

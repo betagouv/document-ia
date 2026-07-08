@@ -11,6 +11,7 @@ from typing import List, Optional, Dict, Any
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -285,6 +286,28 @@ class EventRepository:
 
         return list(events)
 
+    @staticmethod
+    def anonymize_payload(event_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Clear sensitive fields from an event payload in place.
+
+        Rules by event type:
+            - WorkflowExecutionStarted: clear ``file_info`` and ``metadata``.
+            - WorkflowExecutionStepCompleted: clear ``final_result``.
+
+        Args:
+            event_type: The event type string.
+            payload: The event payload dict (mutated in place).
+
+        Returns:
+            The mutated payload dict.
+        """
+        if event_type == EventType.WORKFLOW_EXECUTION_STARTED.value:
+            payload["file_info"] = {}  # Clear file info
+            payload["metadata"] = {}  # Clear metadata
+        elif event_type == EventType.WORKFLOW_EXECUTION_STEP_COMPLETED.value:
+            payload["final_result"] = {}  # Clear final result
+        return payload
+
     async def anonymize_event(self, event: EventEntity) -> None:
         """
         Anonymize an event.
@@ -293,16 +316,77 @@ class EventRepository:
             event: EventEntity to anonymize
         """
 
-        if event.event_type == EventType.WORKFLOW_EXECUTION_STARTED.value:
-            event.event["file_info"] = {}  # Clear file info
-            event.event["metadata"] = {}  # Clear metadata
-
-        elif event.event_type == EventType.WORKFLOW_EXECUTION_STEP_COMPLETED.value:
-            event.event["final_result"] = {}  # Clear final result
+        self.anonymize_payload(event.event_type, event.event)
 
         event.anonymization_status = AnonymizationStatus.DONE.value
         self.session.add(event)
         await self.session.flush()
+        await self.session.commit()
+
+    async def get_replication_cursor(self) -> Optional[datetime]:
+        """Return the latest ``created_at`` replicated on the destination.
+
+        Used as the resume cursor for the analytics incremental replication.
+        Returns None when the table is empty.
+        """
+        query = (
+            select(EventEntity.created_at)
+            .order_by(EventEntity.created_at.desc())
+            .limit(1)
+        )
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none()
+
+    async def get_events_created_after(
+        self,
+        after: Optional[datetime],
+        limit: int,
+    ) -> List[EventEntity]:
+        """Fetch a page of events with ``created_at >= after``.
+
+        The bound is inclusive: the caller resumes from the ``created_at`` of the
+        last replicated event, so the few events sharing that exact timestamp are
+        re-read. They are skipped at insert time via ``ON CONFLICT (id) DO
+        NOTHING``, which keeps the replication both complete and idempotent.
+
+        Args:
+            after: Resume from this timestamp (inclusive), or None for all events.
+            limit: Maximum number of events to return.
+
+        Returns:
+            Events ordered by ``created_at`` ascending.
+        """
+        query = select(EventEntity)
+        if after is not None:
+            query = query.where(EventEntity.created_at >= after)
+        query = query.order_by(EventEntity.created_at.asc()).limit(limit)
+
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
+
+    async def bulk_insert_events(self, events: List[EventEntity]) -> None:
+        """Bulk insert replicated events, skipping ids that already exist.
+
+        Uses PostgreSQL ``INSERT ... ON CONFLICT (id) DO NOTHING`` so the
+        replication is idempotent and re-runnable without per-row lookups.
+
+        Args:
+            events: List of EventEntity objects (must include the source ``id``
+                and ``created_at`` to preserve identity and ordering).
+        """
+        if not events:
+            return
+        
+        column_names = [column.name for column in EventEntity.__table__.columns]
+        values = [{name: getattr(event, name) for name in column_names} for event in events]
+        # pg_insert (and on_conflict_do_nothing) expects a list of dictionaries
+        # not a list of EventEntity objects...
+        stmt = (
+            pg_insert(EventEntity)
+            .values(values)
+            .on_conflict_do_nothing(index_elements=["id"])
+        )
+        await self.session.execute(stmt)
         await self.session.commit()
 
     async def save_failed_anonymization(self, event: EventEntity) -> None:

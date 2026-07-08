@@ -73,6 +73,13 @@ poetry run alembic upgrade head
 poetry run alembic downgrade -1
 ```
 
+Analytics note:
+- On startup, the API runs both:
+  - `auto_migrate()` for the main database,
+  - `auto_migrate_analytics()` for the analytics database when `ANALYTICS_*` is configured.
+- If `ANALYTICS_*` is missing, analytics migration is skipped (explicit log message).
+- Operationally, in PaaS environments, ensure the API starts at least once with valid `ANALYTICS_*` before enabling the worker replication schedule.
+
 ## Quality and tests
 
 ```bash

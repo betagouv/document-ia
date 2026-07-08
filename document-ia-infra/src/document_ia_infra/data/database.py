@@ -9,6 +9,10 @@ from sqlalchemy.ext.asyncio.session import AsyncSession
 from sqlalchemy.orm import DeclarativeBase, sessionmaker, Session
 from sqlalchemy.pool import NullPool
 
+from document_ia_infra.data.data_settings import (
+    DatabaseSettings,
+    analytics_database_settings,
+)
 from document_ia_infra.data.data_settings import database_settings as settings
 
 logger = logging.getLogger(__name__)
@@ -22,23 +26,25 @@ class DatabaseManager:
     def __init__(
         self,
         *,
+        db_settings: DatabaseSettings = settings,
         pool_size: int = settings.DB_POOL_SIZE,
         max_overflow: int = settings.DB_MAX_OVERFLOW,
         pool_timeout: int = settings.DB_POOL_TIMEOUT,
         pool_recycle: int = settings.DB_POOL_RECYCLE,
         pool_pre_ping: bool = settings.DB_POOL_PRE_PING,
     ):
+        self.db_settings = db_settings
         self.engine_kwargs: Dict[str, Any] = {
             "echo": False,
             "future": True,
         }
 
-        self.ssl_context = settings.get_ssl_context()
+        self.ssl_context = db_settings.get_ssl_context()
         if self.ssl_context:
             self.engine_kwargs["connect_args"] = {"ssl": self.ssl_context}
 
         self.async_engine = create_async_engine(
-            settings.get_database_url(async_connection=True),
+            db_settings.get_database_url(async_connection=True),
             pool_size=pool_size,
             max_overflow=max_overflow,
             pool_timeout=pool_timeout,
@@ -68,7 +74,8 @@ class DatabaseManager:
         # NullPool to avoid holding connections in sync contexts
         sync_engine_kwargs["poolclass"] = NullPool
         self._sync_engine = create_engine(
-            settings.get_database_url(async_connection=False), **sync_engine_kwargs
+            self.db_settings.get_database_url(async_connection=False),
+            **sync_engine_kwargs,
         )
         self._sync_session_factory = sessionmaker(
             bind=self._sync_engine,
@@ -109,3 +116,15 @@ class DatabaseManager:
 
 
 database_manager = DatabaseManager()
+
+# Instantiated lazily (not at import time) because it requires the ANALYTICS_* environment variables.
+_analytics_database_manager: Optional[DatabaseManager] = None
+
+def get_analytics_database_manager() -> DatabaseManager:
+    """Return the shared analytics DatabaseManager, building it on first use."""
+    global _analytics_database_manager
+    if _analytics_database_manager is None:
+        _analytics_database_manager = DatabaseManager(
+            db_settings=analytics_database_settings
+        )
+    return _analytics_database_manager

@@ -95,5 +95,47 @@ class DatabaseSettings(BaseDocumentIaSettings):
 
         return None
 
+    def is_configured(self) -> bool:
+        """Whether enough settings are present to build a database URL."""
+        if self.POSTGRESQL_URL:
+            return True
+        return all(
+            [
+                self.POSTGRES_HOST is not None,
+                self.POSTGRES_DB is not None,
+                self.POSTGRES_USER is not None,
+                self.POSTGRES_PASSWORD is not None,
+            ]
+        )
+
+
+class AnalyticsDatabaseSettings(DatabaseSettings):
+    """Connection settings for the analytics destination database.
+
+    Reuses DatabaseSettings' URL/SSL logic but reads dedicated ANALYTICS_* env
+    vars so the analytics database is fully independent from the main one.
+    """
+
+    POSTGRESQL_URL: str | None = Field(
+        default=None, validation_alias="ANALYTICS_POSTGRESQL_URL"
+    )
+    POSTGRES_DB: str | None = Field(
+        default=None, validation_alias="ANALYTICS_POSTGRES_DB"
+    )
+    POSTGRES_HOST: str | None = Field(
+        default=None, validation_alias="ANALYTICS_POSTGRES_HOST"
+    )
+    POSTGRES_PORT: int = Field(default=5432, validation_alias="ANALYTICS_POSTGRES_PORT")
+    POSTGRES_SSL_MODE: str | None = Field(
+        default=None, validation_alias="ANALYTICS_POSTGRES_SSL_MODE"
+    )
+    POSTGRES_USER: str | None = Field(
+        default=None, validation_alias="ANALYTICS_POSTGRES_USER"
+    )
+    POSTGRES_PASSWORD: SecretStr | None = Field(
+        default=None, validation_alias="ANALYTICS_POSTGRES_PASSWORD"
+    )
+
 
 database_settings = DatabaseSettings()
+analytics_database_settings = AnalyticsDatabaseSettings()

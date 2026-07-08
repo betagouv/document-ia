@@ -52,6 +52,7 @@ async def lifespan(app: FastAPI):
 
     # Run database migrations
     await migration_service.auto_migrate()
+    await migration_service.auto_migrate_analytics()
 
     webhook_consumer = SimpleStreamConsumer[WebHookMessage](
         stream_name=redis_settings.WEBHOOK_STREAM_NAME,
