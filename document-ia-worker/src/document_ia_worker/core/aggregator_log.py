@@ -6,6 +6,7 @@ from contextvars import ContextVar, Token
 from datetime import datetime, timezone, UTC
 from logging import Filter, LogRecord, Handler
 from typing import Any, Dict, List, Optional
+from uuid import UUID
 
 from document_ia_worker.workflow.main_workflow_context import StepMetadata
 
@@ -78,6 +79,7 @@ def write_worker_aggregated_entry(entry: Dict[str, Any], tags: dict[str, Any]) -
 
 def handle_finish_execution(
     logger: logging.Logger,
+    organization_id: Optional[UUID],
     workflow_id: str,
     is_success: bool,
     retry_count: int,
@@ -108,6 +110,7 @@ def handle_finish_execution(
             "workflow_id": workflow_id,
             "status": is_success and "succeeded" or "failed",
             "retry_count": retry_count,
+            "organization_id": organization_id.__str__(),
             "steps": workflow_steps,
             "started_at": start_time.isoformat() + "Z",
             "finished_at": finished_at.isoformat() + "Z",
@@ -129,6 +132,7 @@ def handle_finish_execution(
         tags = {
             "workflow_id": workflow_id,
             "status": entry["status"],
+            "organization_id": organization_id.__str__(),
             "retry_count": entry["retry_count"],
         }
         write_worker_aggregated_entry(entry, tags)

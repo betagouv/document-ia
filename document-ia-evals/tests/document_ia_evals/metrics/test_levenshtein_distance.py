@@ -1,7 +1,7 @@
 """
 Comprehensive unit tests for LEVENSHTEIN_DISTANCE metric.
 
-This module tests the levenshtein_distance, levenshtein_similarity, 
+This module tests the levenshtein_distance, levenshtein_similarity,
 and compare_levenshtein functions that implement string comparison
 using the Levenshtein (edit) distance algorithm.
 
@@ -712,9 +712,7 @@ class TestCompareLevenshtein:
             "all_different",
         ],
     )
-    def test_string_comparison(
-        self, expected: str, predicted: str, similarity: float
-    ):
+    def test_string_comparison(self, expected: str, predicted: str, similarity: float):
         """Test string comparison using Levenshtein."""
         result = compare_levenshtein(expected, predicted)
         assert result == similarity
@@ -770,9 +768,7 @@ class TestCompareLevenshtein:
             "martin_typo",
         ],
     )
-    def test_name_comparison(
-        self, expected: str, predicted: str, similarity: float
-    ):
+    def test_name_comparison(self, expected: str, predicted: str, similarity: float):
         """Test name comparison with typical variations."""
         result = compare_levenshtein(expected, predicted)
         assert abs(result - similarity) < 0.01
@@ -794,9 +790,7 @@ class TestCompareLevenshtein:
             "address_typo",
         ],
     )
-    def test_address_comparison(
-        self, expected: str, predicted: str, similarity: float
-    ):
+    def test_address_comparison(self, expected: str, predicted: str, similarity: float):
         """Test address comparison scenarios."""
         result = compare_levenshtein(expected, predicted)
         assert abs(result - similarity) < 0.01
@@ -921,7 +915,9 @@ class TestEdgeCases:
     def test_combined_normalization(self):
         """Test combined case, whitespace, and punctuation normalization."""
         assert levenshtein_distance("JEAN-PIERRE O'CONNOR", "jean pierre oconnor") == 0
-        assert levenshtein_similarity("Hello.World_Test-Case", "helloworldtestcase") == 1.0
+        assert (
+            levenshtein_similarity("Hello.World_Test-Case", "helloworldtestcase") == 1.0
+        )
 
     def test_only_french_accent_differences(self):
         """Test strings that only differ in French accents."""

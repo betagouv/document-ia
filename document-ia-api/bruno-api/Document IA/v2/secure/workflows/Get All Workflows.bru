@@ -1,0 +1,16 @@
+meta {
+  name: Get All Workflows
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{server}}api/v2/workflows
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

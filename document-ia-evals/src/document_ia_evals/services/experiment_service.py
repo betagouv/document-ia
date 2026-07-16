@@ -11,11 +11,11 @@ from document_ia_evals.database.models import Experiment, Observation
 
 
 def save_experiment(
-        project_id: int,
-        metric_name: str,
-        observations_data: List[Dict[str, Any]],
-        total_tasks: int = 0,
-        notes: Optional[str] = None
+    project_id: int,
+    metric_name: str,
+    observations_data: List[Dict[str, Any]],
+    total_tasks: int = 0,
+    notes: Optional[str] = None,
 ) -> UUID:
     """
     Save experiment results to database (PRIVACY-SAFE).
@@ -42,12 +42,20 @@ def save_experiment(
     """
     with get_session() as session:
         # Calculate statistics
-        scores = [obs.get('score', 0.0) for obs in observations_data if obs.get('score') is not None]
+        scores = [
+            obs.get("score", 0.0)
+            for obs in observations_data
+            if obs.get("score") is not None
+        ]
         average_score = sum(scores) / len(scores) if scores else None
 
         # Count unique tasks that were processed (not total observations)
         # Multiple model_versions can create multiple observations per task
-        unique_task_ids = set(obs.get('task_id') for obs in observations_data if obs.get('task_id') is not None)
+        unique_task_ids = set(
+            obs.get("task_id")
+            for obs in observations_data
+            if obs.get("task_id") is not None
+        )
         processed_count = len(unique_task_ids)
 
         # Use provided total_tasks, or fall back to unique task count
@@ -58,8 +66,8 @@ def save_experiment(
         processing_times_by_model = {}
 
         for obs in observations_data:
-            model_version = obs.get('model_version', 'Unknown')
-            processing_time = obs.get('processing_time_ms')
+            model_version = obs.get("model_version", "Unknown")
+            processing_time = obs.get("processing_time_ms")
 
             if processing_time is not None:
                 if model_version not in processing_times_by_model:
@@ -71,8 +79,8 @@ def save_experiment(
             if times:
                 mean_time = sum(times) / len(times)
                 model_version_stats[model_version] = {
-                    'mean_processing_time_ms': mean_time,
-                    'sample_count': len(times)
+                    "mean_processing_time_ms": mean_time,
+                    "sample_count": len(times),
                 }
 
         # Create experiment
@@ -82,9 +90,9 @@ def save_experiment(
             total_tasks=actual_total_tasks,
             processed_count=processed_count,
             average_score=average_score,
-            status='completed',
+            status="completed",
             notes=notes,
-            model_version_stats=model_version_stats if model_version_stats else None
+            model_version_stats=model_version_stats if model_version_stats else None,
         )
 
         session.add(experiment)
@@ -93,7 +101,7 @@ def save_experiment(
         # Create observations (PRIVACY-SAFE: only scores and IDs)
         for obs_data in observations_data:
             # Parse observation JSON to extract only what we need
-            observation_json = obs_data.get('observation', '{}')
+            observation_json = obs_data.get("observation", "{}")
             try:
                 if isinstance(observation_json, str):
                     parsed_obs = json.loads(observation_json)
@@ -104,43 +112,43 @@ def save_experiment(
 
             # Extract privacy-safe data (scores, metadata, no raw data like expected/predicted values)
             metric_results = {
-                'score': obs_data.get('score', 0.0),
-                'field_scores': parsed_obs.get('field_scores', {}),
+                "score": obs_data.get("score", 0.0),
+                "field_scores": parsed_obs.get("field_scores", {}),
             }
 
             # Include optional metadata fields if present
-            if 'document_type' in parsed_obs:
-                metric_results['document_type'] = parsed_obs['document_type']
-            if 'model_type' in parsed_obs:
-                metric_results['model_type'] = parsed_obs['model_type']
-            if 'evaluated_fields' in parsed_obs:
-                metric_results['evaluated_fields'] = parsed_obs['evaluated_fields']
-            if 'skipped_fields' in parsed_obs:
-                metric_results['skipped_fields'] = parsed_obs['skipped_fields']
+            if "document_type" in parsed_obs:
+                metric_results["document_type"] = parsed_obs["document_type"]
+            if "model_type" in parsed_obs:
+                metric_results["model_type"] = parsed_obs["model_type"]
+            if "evaluated_fields" in parsed_obs:
+                metric_results["evaluated_fields"] = parsed_obs["evaluated_fields"]
+            if "skipped_fields" in parsed_obs:
+                metric_results["skipped_fields"] = parsed_obs["skipped_fields"]
 
             # Include field_details but strip raw data (expected/predicted values) for privacy
-            if 'field_details' in parsed_obs:
+            if "field_details" in parsed_obs:
                 sanitized_field_details = {}
-                for field_name, details in parsed_obs['field_details'].items():
+                for field_name, details in parsed_obs["field_details"].items():
                     sanitized_field_details[field_name] = {
-                        'metrics': details.get('metrics', []),
-                        'scores': details.get('scores', {}),
-                        'distances': details.get('distances', {}),
+                        "metrics": details.get("metrics", []),
+                        "scores": details.get("scores", {}),
+                        "distances": details.get("distances", {}),
                     }
-                metric_results['field_details'] = sanitized_field_details
+                metric_results["field_details"] = sanitized_field_details
 
             # Include error if present
-            if 'error' in parsed_obs:
-                metric_results['error'] = parsed_obs['error']
+            if "error" in parsed_obs:
+                metric_results["error"] = parsed_obs["error"]
 
             observation = Observation(
                 experiment_id=experiment.id,
-                task_id=obs_data.get('task_id', 0),
-                prediction_id=obs_data.get('prediction_id', 0),
-                model_version=obs_data.get('model_version', 'Unknown'),
-                score=obs_data.get('score', 0.0),
-                processing_time_ms=obs_data.get('processing_time_ms'),
-                metric_results=metric_results
+                task_id=obs_data.get("task_id", 0),
+                prediction_id=obs_data.get("prediction_id", 0),
+                model_version=obs_data.get("model_version", "Unknown"),
+                score=obs_data.get("score", 0.0),
+                processing_time_ms=obs_data.get("processing_time_ms"),
+                metric_results=metric_results,
             )
 
             session.add(observation)
@@ -172,35 +180,37 @@ def load_experiment(experiment_id: UUID) -> Optional[Dict[str, Any]]:
         for obs in experiment.observations:
             # Reconstruct observation JSON for rendering
             observation_data = {
-                'task_id': obs.task_id,
-                'prediction_id': obs.prediction_id,
-                'model_version': obs.model_version or 'Unknown',
-                'score': obs.score,
-                'processing_time_ms': obs.processing_time_ms,
-                'observation': json.dumps(obs.metric_results) if obs.metric_results else '{}'
+                "task_id": obs.task_id,
+                "prediction_id": obs.prediction_id,
+                "model_version": obs.model_version or "Unknown",
+                "score": obs.score,
+                "processing_time_ms": obs.processing_time_ms,
+                "observation": json.dumps(obs.metric_results)
+                if obs.metric_results
+                else "{}",
             }
             observations.append(observation_data)
 
         return {
-            'experiment_id': str(experiment.id),
-            'project_id': experiment.label_studio_project_id,
-            'metric_name': experiment.metric_name,
-            'created_at': experiment.created_at.isoformat(),
-            'total_tasks': experiment.total_tasks,
-            'processed_count': experiment.processed_count,
-            'skipped_count': experiment.skipped_count,
-            'average_score': experiment.average_score,
-            'status': experiment.status,
-            'notes': experiment.notes,
-            'observations': observations
+            "experiment_id": str(experiment.id),
+            "project_id": experiment.label_studio_project_id,
+            "metric_name": experiment.metric_name,
+            "created_at": experiment.created_at.isoformat(),
+            "total_tasks": experiment.total_tasks,
+            "processed_count": experiment.processed_count,
+            "skipped_count": experiment.skipped_count,
+            "average_score": experiment.average_score,
+            "status": experiment.status,
+            "notes": experiment.notes,
+            "observations": observations,
         }
 
 
 def list_experiments(
-        project_id: Optional[int] = None,
-        metric_name: Optional[str] = None,
-        limit: int = 50,
-        offset: int = 0
+    project_id: Optional[int] = None,
+    metric_name: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
 ) -> List[Dict[str, Any]]:
     """
     List experiments with optional filters.
@@ -233,18 +243,18 @@ def list_experiments(
 
         return [
             {
-                'id': str(exp.id),
-                'project_id': exp.label_studio_project_id,
-                'metric_name': exp.metric_name,
-                'created_at': exp.created_at.isoformat(),
-                'total_tasks': exp.total_tasks,
-                'processed_count': exp.processed_count,
-                'skipped_count': exp.skipped_count,
-                'average_score': exp.average_score,
-                'success_rate': exp.success_rate,
-                'status': exp.status,
-                'notes': exp.notes,
-                'observation_count': len(exp.observations)
+                "id": str(exp.id),
+                "project_id": exp.label_studio_project_id,
+                "metric_name": exp.metric_name,
+                "created_at": exp.created_at.isoformat(),
+                "total_tasks": exp.total_tasks,
+                "processed_count": exp.processed_count,
+                "skipped_count": exp.skipped_count,
+                "average_score": exp.average_score,
+                "success_rate": exp.success_rate,
+                "status": exp.status,
+                "notes": exp.notes,
+                "observation_count": len(exp.observations),
             }
             for exp in experiments
         ]

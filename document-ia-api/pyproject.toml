@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "document-ia-api"
-version = "1.0.6"
+version = "1.0.7"
 description = "API minimaliste FastAPI avec authentification API_KEY"
 authors = ["Romaric HALDENWANG <romaric.haldenwang@beta.gouv.fr>"]
 readme = "README.md"
@@ -10,7 +10,8 @@ packages = [
 
 [tool.poetry.dependencies]
 python = "^3.13"
-fastapi = "^0.104.0"
+fastapi = "0.136.3"
+starlette = "1.0.1"
 python-dotenv = "^1.0.0"
 pydantic-settings = "^2.1.0"
 sqlalchemy = "^2.0.43"

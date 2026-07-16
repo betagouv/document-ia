@@ -261,7 +261,9 @@ def _load_replay_payload(execution_id: str) -> ReplayPayload | None:
     if not replay_path.exists():
         return None
     try:
-        return ReplayPayload.model_validate_json(replay_path.read_text(encoding="utf-8"))
+        return ReplayPayload.model_validate_json(
+            replay_path.read_text(encoding="utf-8")
+        )
     except (ValidationError, ValueError):
         return None
 
@@ -378,8 +380,7 @@ def _render_latest_inference_section(
 
     if not entries:
         st.info(
-            "Aucune inférence persistée pour ce dataset. "
-            "Lancez d'abord une exécution."
+            "Aucune inférence persistée pour ce dataset. Lancez d'abord une exécution."
         )
         return
 
@@ -434,7 +435,9 @@ def _render_latest_inference_section(
             task_id=selected.get("task_id"),
             execution_id=selected.get("execution_id"),
         )
-    current_system_prompt = prompts_by_doc_type.get(document_type, replay_payload.system_prompt)
+    current_system_prompt = prompts_by_doc_type.get(
+        document_type, replay_payload.system_prompt
+    )
 
     st.write("**System Prompt**")
     system_prompt_tabs = st.tabs(["Editer", "Preview"])
@@ -469,8 +472,12 @@ def _render_latest_inference_section(
         st.warning("Modèle introuvable dans le replay.")
         return
 
-    prediction_button = st.button(f"Faire la prédiction avec le LLM {model}", type="primary")
-    use_edited_system_prompt = st.checkbox("Utiliser le system prompt édité", value=True)
+    prediction_button = st.button(
+        f"Faire la prédiction avec le LLM {model}", type="primary"
+    )
+    use_edited_system_prompt = st.checkbox(
+        "Utiliser le system prompt édité", value=True
+    )
     col1, col2 = st.columns(2)
 
     with col1:
@@ -482,10 +489,9 @@ def _render_latest_inference_section(
 
     with col2:
         if prediction_button:
-            response_format = (
-                _build_response_format_from_document_type(replay_payload.document_type)
-                or {"type": "json_object"}
-            )
+            response_format = _build_response_format_from_document_type(
+                replay_payload.document_type
+            ) or {"type": "json_object"}
 
             with st.spinner("Appel LLM en cours...", show_time=True):
                 openai_base_url = os.environ["OPENAI_BASE_URL"]
@@ -495,7 +501,9 @@ def _render_latest_inference_section(
                         base_url=openai_base_url,
                         api_key=openai_api_key,
                         model=model,
-                        system_prompt=edited_system_prompt if use_edited_system_prompt else replay_payload.system_prompt,
+                        system_prompt=edited_system_prompt
+                        if use_edited_system_prompt
+                        else replay_payload.system_prompt,
                         user_prompt=replay_payload.user_prompt,
                         response_format=response_format,
                     )
@@ -565,7 +573,9 @@ def main() -> None:
 
     tasks: list[LseTask] = [
         task
-        for task in ls_client.tasks.list(project=project_selection.project_id, fields="all")
+        for task in ls_client.tasks.list(
+            project=project_selection.project_id, fields="all"
+        )
     ]
     tasks_by_id = {task.id: task for task in tasks}
     state = _load_persisted_state()

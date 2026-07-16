@@ -10,6 +10,10 @@ from starlette.responses import Response
 
 from document_ia_api.api.config import settings
 from document_ia_api.api.contracts.error.errors import ProblemDetail, AppError
+from document_ia_api.api.exceptions.auth_exception import (
+    InvalidApiKeyException,
+    MissingApiKeyException,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +58,7 @@ def _problem_response(
     code: Optional[str] = None,
     type_: str = f"{settings.BASE_URL}/redoc",
     errors: Optional[dict[str, Any]] = None,
+    headers: Optional[dict[str, str]] = None,
 ) -> JSONResponse:
     trace_id = getattr(request.state, "request_id", None)
     body = ProblemDetail(
@@ -66,7 +71,7 @@ def _problem_response(
         trace_id=trace_id,
         errors=errors,
     ).model_dump(exclude_none=True)
-    return JSONResponse(status_code=status, content=body)
+    return JSONResponse(status_code=status, content=body, headers=headers)
 
 
 def setup_exception_handlers(app: FastAPI) -> None:
@@ -94,6 +99,36 @@ def setup_exception_handlers(app: FastAPI) -> None:
             code="validation.failed",
         )
 
+    @app.exception_handler(MissingApiKeyException)
+    async def missing_api_key_error_handler(  # pyright: ignore [reportUnusedFunction]
+        request: Request, exc: MissingApiKeyException
+    ):
+        detail, errors = _split_http_detail(exc.detail)
+        return _problem_response(
+            request,
+            status=exc.status_code,
+            title=_status_phrase(exc.status_code),
+            detail=detail,
+            code="auth.missing_api_key",
+            errors=errors,
+            headers=cast(Optional[dict[str, str]], exc.headers),
+        )
+
+    @app.exception_handler(InvalidApiKeyException)
+    async def invalid_api_key_error_handler(  # pyright: ignore [reportUnusedFunction]
+        request: Request, exc: InvalidApiKeyException
+    ):
+        detail, errors = _split_http_detail(exc.detail)
+        return _problem_response(
+            request,
+            status=exc.status_code,
+            title=_status_phrase(exc.status_code),
+            detail=detail,
+            code="auth.invalid_api_key",
+            errors=errors,
+            headers=cast(Optional[dict[str, str]], exc.headers),
+        )
+
     @app.exception_handler(StarletteHTTPException)
     async def starlette_http_error_handler(  # pyright: ignore [reportUnusedFunction]
         request: Request, exc: StarletteHTTPException
@@ -109,6 +144,7 @@ def setup_exception_handlers(app: FastAPI) -> None:
             detail=detail,
             code=HTTP_CODE_MAP.get(exc.status_code, "http.error"),
             errors=errors,
+            headers=cast(Optional[dict[str, str]], exc.headers),
         )
 
     @app.exception_handler(Exception)

@@ -2,20 +2,27 @@ from urllib.parse import urljoin
 
 import requests
 
-from document_ia_api.api.contracts.api_key.api_key import UpdateAPIKeyStatusRequest, APIKeyResult, APIKeyCreatedResult
+from document_ia_api.api.contracts.api_key.api_key import (
+    UpdateAPIKeyStatusRequest,
+    APIKeyResult,
+    APIKeyCreatedResult,
+)
 from document_ia_api.api.contracts.organization.organization import (
     OrganizationResult,
     CreateOrganizationRequest,
     OrganizationDetailsResult,
 )
-from document_ia_api.api.contracts.webhook.webhook import WebHookResult, CreateWebHookRequest
+from document_ia_api.api.contracts.webhook.webhook import (
+    WebHookResult,
+    CreateWebHookRequest,
+)
 from document_ia_evals.utils.config import config
 
 # --- DYNAMIC CONFIGURATION ---
 # On stocke la configuration active ici. Par défaut, c'est celle du fichier config.
 _active_config = {
     "base_url": config.DOCUMENT_IA_BASE_URL,
-    "api_key": config.DOCUMENT_IA_API_KEY
+    "api_key": config.DOCUMENT_IA_API_KEY,
 }
 
 
@@ -44,6 +51,7 @@ def _get_url(path: str):
 
 
 # --- API METHODS ---
+
 
 def list_organization() -> list[OrganizationResult]:
     """List all organizations."""
@@ -89,8 +97,12 @@ def delete_organization(organization_id: str) -> None:
     requests.delete(url, headers=_get_headers()).raise_for_status()
 
 
-def update_api_key_status(organization_id: str, api_key_id: str, request: UpdateAPIKeyStatusRequest) -> APIKeyResult:
-    url = _get_url(f"/api/v1/admin/organizations/{organization_id}/api-keys/{api_key_id}/status")
+def update_api_key_status(
+    organization_id: str, api_key_id: str, request: UpdateAPIKeyStatusRequest
+) -> APIKeyResult:
+    url = _get_url(
+        f"/api/v1/admin/organizations/{organization_id}/api-keys/{api_key_id}/status"
+    )
 
     response = requests.put(
         url,
@@ -112,7 +124,9 @@ def create_api_key(organization_id: str) -> APIKeyCreatedResult:
 
 
 def delete_api_key(organization_id: str, api_key_id: str) -> None:
-    url = _get_url(f"/api/v1/admin/organizations/{organization_id}/api-keys/{api_key_id}")
+    url = _get_url(
+        f"/api/v1/admin/organizations/{organization_id}/api-keys/{api_key_id}"
+    )
     requests.delete(url, headers=_get_headers()).raise_for_status()
 
 
@@ -134,11 +148,15 @@ def get_webhook_details(organization_id: str) -> list[WebHookResult]:
 
 
 def delete_webhook(organization_id: str, webhook_id: str) -> None:
-    url = _get_url(f"/api/v1/admin/organizations/{organization_id}/webhooks/{webhook_id}")
+    url = _get_url(
+        f"/api/v1/admin/organizations/{organization_id}/webhooks/{webhook_id}"
+    )
     requests.delete(url, headers=_get_headers()).raise_for_status()
 
 
-def create_webhook(organization_id: str, request: CreateWebHookRequest) -> WebHookResult:
+def create_webhook(
+    organization_id: str, request: CreateWebHookRequest
+) -> WebHookResult:
     url = _get_url(f"/api/v1/admin/organizations/{organization_id}/webhooks")
 
     response = requests.post(

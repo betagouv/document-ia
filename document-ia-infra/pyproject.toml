@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "document-ia-infra"
-version = "1.0.6"
+version = "1.0.7"
 description = "Code des briques d'infrastructure pour Document IA"
 authors = ["Nicolas Sagon <nicolas.sagon@beta.gouv.fr>"]
 readme = "README.md"
@@ -23,6 +23,8 @@ python-logging-loki = "^0.3.1"
 document-ia-schemas = { path = "../document-ia-schemas", develop = false }
 cryptography = "^43.0.0"
 psycopg2-binary = "^2.9.10"
+pyyaml = "^6.0"
+
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.12.11"

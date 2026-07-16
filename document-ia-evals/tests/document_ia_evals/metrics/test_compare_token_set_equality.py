@@ -20,7 +20,9 @@ class TestCompareTokenSetEquality:
             ("nom prenom", "nom prenom"),
         ],
     )
-    def test_returns_one_for_same_tokens_in_any_order(self, expected: str, predicted: str):
+    def test_returns_one_for_same_tokens_in_any_order(
+        self, expected: str, predicted: str
+    ):
         assert compare_token_set_equality(expected, predicted) == 1.0
 
     @pytest.mark.parametrize(

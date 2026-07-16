@@ -119,6 +119,35 @@ cd document-ia-worker
 poetry run python src/document_ia_worker/main.py
 ```
 
+---
+
+## Tests & Prompt Snapshots
+
+The extraction prompts produced by `PromptService` are covered by **snapshot tests**. For each supported document type, the rendered extraction prompt is stored as a reference file and compared against the freshly rendered prompt during the test run.
+
+Key paths:
+- `tests/snapshots/prompts/extraction/<document_type>.txt` — reference prompts (one file per document type, e.g. `devis_pac.txt`).
+- `tests/unit/test_prompt_service.py` — the test that re-renders each prompt and asserts it matches the snapshot.
+- `tests/fixtures/regenerate_extraction_prompt_fixtures.py` — the script that (re)generates every snapshot.
+
+Run the snapshot tests:
+```bash
+cd document-ia-worker
+poetry run pytest tests/unit/test_prompt_service.py -q
+```
+
+### Regenerating snapshots
+
+When a schema in `document-ia-schemas` changes (new field, renamed field, edited description or example), the rendered prompt changes too and the snapshot test will fail until the reference files are regenerated:
+
+```bash
+cd document-ia-worker
+poetry run python tests/fixtures/regenerate_extraction_prompt_fixtures.py
+```
+
+This rewrites **all** snapshots under `tests/snapshots/prompts/extraction/`. Review the `git diff` and commit only the intended changes.
+
+---
 
 ## Environment Variables
 
@@ -180,43 +209,78 @@ The worker also ships with a lightweight task scheduler used to run recurring jo
 
 ### Task definition: `cron.json`
 
-Scheduled tasks are declared in the `cron.json` file at the root of the worker project. Each entry typically specifies:
+Scheduled tasks are declared in the `cron.json` file at the root of the worker project. The runtime format is a `jobs` array where each entry specifies:
 
-- the **task name** (`task_name`),
-- the **schedule** (cron-like expression or interval, depending on your implementation),
-- optional **parameters** or flags (for example, `enabled`).
+- the **cron expression + command** in `command` (for example `0 5 * * * python -u ...`),
+- the scheduler **size hint** in `size`.
 
-Example (illustrative only):
+Current jobs:
 
 ```json
-[
-  {
-    "task_name": "anonymize_events",
-    "schedule": "0 * * * *",
-    "enabled": true
-  }
-]
+{
+  "jobs": [
+    {
+      "command": "0 3 * * * python -u src/document_ia_task_scheduler/task/remove_ppi/main.py",
+      "size": "S"
+    },
+    {
+      "command": "0 5 * * * python -u src/document_ia_task_scheduler/task/replicate_analytics/main.py",
+      "size": "L"
+    }
+  ]
+}
 ```
 
-### Task code location
+### Task code location and entrypoints
 
-For each `task_name` defined in `cron.json`, the corresponding implementation lives under:
+Task entrypoints are Python scripts under:
 
 ```text
 src/document_ia_task_scheduler/task/<task_name>/main.py
 ```
 
-By convention:
-- `<task_name>` must match exactly the `task_name` value from `cron.json`.
-- The `main.py` module exposes the entry point for the task (for example, `async def run()` or `def main()`), which contains the actual job logic.
+Examples:
+- `src/document_ia_task_scheduler/task/remove_ppi/main.py`
+- `src/document_ia_task_scheduler/task/replicate_analytics/main.py`
 
-Example: for a task named `anonymize_events` in `cron.json`, the code would be located at:
+### ReplicateAnalytics (daily 05:00)
 
-```text
-src/document_ia_task_scheduler/task/anonymize_events/main.py
-```
+Purpose:
+- replicate reference data (`organization`) from the main DB to the analytics DB,
+- replicate `event_store` incrementally with payload anonymization.
 
-The scheduler uses this convention to resolve and execute the appropriate task module at runtime.
+Behavior:
+- `organization`: full replication with per-row upsert (small reference table, up to ~1000 rows).
+- `event_store`: incremental replication using destination cursor `MAX(created_at)` and source filter `created_at >= cursor`.
+- deduplication at insert-time with `INSERT ... ON CONFLICT (id) DO NOTHING`.
+- anonymization on copied events only (source entities are not mutated):
+  - `WorkflowExecutionStarted`: clear `file_info` and `metadata`,
+  - `WorkflowExecutionStepCompleted`: clear `final_result`.
+
+Idempotency and loop completion:
+- re-reading the boundary timestamp is expected and safe (`ON CONFLICT` drops duplicates),
+- loop stops on incomplete batch (`len(events) < ANALYTICS_EVENT_BATCH_SIZE`),
+- cursor advances to the last fetched `created_at`.
+
+Environment variables:
+- Analytics DB connection (optional, shared settings):
+  - `ANALYTICS_POSTGRESQL_URL`
+  - or `ANALYTICS_POSTGRES_HOST`, `ANALYTICS_POSTGRES_PORT`, `ANALYTICS_POSTGRES_DB`, `ANALYTICS_POSTGRES_USER`, `ANALYTICS_POSTGRES_PASSWORD`, `ANALYTICS_POSTGRES_SSL_MODE`
+- Task tuning:
+  - `ANALYTICS_EVENT_BATCH_SIZE` (default: `5000`)
+
+### PaaS rollout (Heroku / Coolify / Scalingo)
+
+Recommended rollout checklist:
+- Provision a dedicated analytics PostgreSQL database.
+- Set `ANALYTICS_*` variables on both API and worker apps.
+- Ensure the scheduler process is enabled for `cron.json` jobs.
+- Start/restart API first so analytics migrations are applied.
+- Confirm worker logs show `ReplicateAnalytics` execution and replicated counts.
+
+Important:
+- Analytics schema is managed by API Alembic startup migration.
+- Without `ANALYTICS_*`, analytics migration is skipped and replication must not be enabled.
 
 ---
 

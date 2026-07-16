@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "document-ia-worker"
-version = "1.0.6"
+version = "1.0.7"
 description = "Worker document ia"
 authors = ["Nicolas Sagon <nicolas.sagon@beta.gouv.fr>"]
 readme = "README.md"
@@ -35,6 +35,7 @@ torchvision = [
     { version = "0.22.1", markers = "sys_platform == 'darwin'" },
 ]
 qrdet = "^2.5"
+pyright = "^1.1.409"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.12.11"
@@ -46,7 +47,7 @@ uvicorn = "^0.38.0"
 [[tool.poetry.source]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
-priority = "supplemental"
+priority = "explicit"
 
 [build-system]
 requires = ["poetry-core"]

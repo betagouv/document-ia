@@ -13,11 +13,16 @@ from document_ia_evals.components.workflow_selector import (
     WorkflowSelection,
     render_workflow_selector,
 )
+from document_ia_evals.components.workflow_configurator import (
+    render_workflow_configurator,
+)
 
 __all__ = [
     # Workflow selector
     "WorkflowSelection",
     "render_workflow_selector",
+    # Workflow configurator
+    "render_workflow_configurator",
     # Document type selector
     "render_document_type_selector",
     # Project selector
