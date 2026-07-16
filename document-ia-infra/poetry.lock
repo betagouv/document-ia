@@ -484,7 +484,7 @@ files = [
 
 [[package]]
 name = "document-ia-schemas"
-version = "1.0.6"
+version = "1.0.7"
 description = "Projet pour stocker les schémas de documents de Document IA"
 optional = false
 python-versions = "^3.13"
