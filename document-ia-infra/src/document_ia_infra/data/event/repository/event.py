@@ -62,6 +62,7 @@ class EventRepository:
                 organization_id=organization_id,
                 event_type=event_type,
                 event=event_data,
+                created_at=datetime.now(),
             )
 
             self.session.add(event_record)
