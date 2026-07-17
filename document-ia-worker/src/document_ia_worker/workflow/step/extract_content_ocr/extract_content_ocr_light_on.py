@@ -143,6 +143,17 @@ class ExtractContentOcrLightOnStep(BaseStep[OcrResult]):
     def _mask_barcodes(
         self, file_path: str, page_number: int, barcodes: list[BarcodeVariant]
     ) -> str:
+        """
+        Masque les éléments visuellement complexes (2D-Doc, QR Code, Code-barres)
+        présents sur l'image en dessinant un polygone noir par-dessus.
+
+        Pourquoi ?
+        Les LLMs Vision (comme LightOn) essaient d'interpréter chaque pixel. Un 2D-Doc
+        ou un QR Code agit comme du "bruit visuel" extrêmement dense, ce qui sature
+        le modèle et allonge considérablement son temps de traitement (timeout).
+        En masquant ces zones préalablement détectées par la step `extract_barcode_data`,
+        on garantit une lecture rapide et fiable du reste du document.
+        """
         logger.info(
             f"Found {len(barcodes)} barcodes on page {page_number}. Masking them."
         )
@@ -150,6 +161,7 @@ class ExtractContentOcrLightOnStep(BaseStep[OcrResult]):
         if img is None:
             raise ValueError(f"Failed to read image {file_path}")
 
+        # On dessine un rectangle/polygone plein (noir) sur chaque code
         for barcode in barcodes:
             pos = barcode.position
             pts = np.array(
