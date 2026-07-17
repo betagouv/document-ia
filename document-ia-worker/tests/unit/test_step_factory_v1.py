@@ -73,10 +73,7 @@ def test_prepare_step_lists_v1_creates_all_supported_steps():
         "download_file",
         "preprocess_file",
         "extract_content_ocr",
-        "extract_content_marker_ocr",
         "extract_content_mistral_ocr",
-        "extract_content_nanonets_ocr",
-        "extract_content_deepseek_ocr",
         "extract_barcode_data",
         "extract_barcode_raw_data",
         "extract_barcode_2ddoc_data",
@@ -99,20 +96,11 @@ def test_prepare_step_lists_v1_creates_all_supported_steps():
         "document_ia_worker.workflow.step_factory_v1.ExtractContentOcrStep",
         return_value="extract_ocr",
     ) as mock_extract_ocr, patch(
-        "document_ia_worker.workflow.step_factory_v1.MarkerHttpHttpOcrService",
-        return_value="marker_service",
-    ), patch(
         "document_ia_worker.workflow.step_factory_v1.MistralHttpOcrService",
         return_value="mistral_service",
     ), patch(
-        "document_ia_worker.workflow.step_factory_v1.NanonetsHttpHttpOcrService",
-        return_value="nanonets_service",
-    ), patch(
-        "document_ia_worker.workflow.step_factory_v1.DeepSeekHttpHttpOcrService",
-        return_value="deepseek_service",
-    ), patch(
         "document_ia_worker.workflow.step_factory_v1.ExtractContentHttpOcrStep",
-        side_effect=["marker_step", "mistral_step", "nanonets_step", "deepseek_step"],
+        side_effect=["mistral_step"],
     ) as mock_extract_http, patch(
         "document_ia_worker.workflow.step_factory_v1.ExtractBarcodeData",
         return_value="barcode",
@@ -144,10 +132,7 @@ def test_prepare_step_lists_v1_creates_all_supported_steps():
         "download",
         "preprocess",
         "extract_ocr",
-        "marker_step",
         "mistral_step",
-        "nanonets_step",
-        "deepseek_step",
         "barcode",
         "barcode_raw",
         "barcode_2ddoc",
@@ -161,7 +146,7 @@ def test_prepare_step_lists_v1_creates_all_supported_steps():
         event_v1.s3_file_info,
         event_v1.file_url,
     )
-    assert mock_extract_http.call_count == 4
+    assert mock_extract_http.call_count == 1
     mock_barcode.assert_called_once_with()
     mock_barcode_raw.assert_called_once_with()
     mock_barcode_2ddoc.assert_called_once_with()

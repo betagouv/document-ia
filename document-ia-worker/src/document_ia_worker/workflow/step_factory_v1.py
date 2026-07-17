@@ -5,17 +5,8 @@ from document_ia_infra.data.event.schema.workflow.workflow_execution_started_eve
     WorkflowExecutionStartedEvent,
 )
 from document_ia_infra.data.workflow.dto.workflow_dto import WorkflowDTO
-from document_ia_worker.core.ocr.deepseek.deepseek_http_ocr_service import (
-    DeepSeekHttpHttpOcrService,
-)
-from document_ia_worker.core.ocr.marker.marker_http_ocr_service import (
-    MarkerHttpHttpOcrService,
-)
 from document_ia_worker.core.ocr.mistral.mistral_http_ocr_service import (
     MistralHttpOcrService,
-)
-from document_ia_worker.core.ocr.nanonets.nanonets_http_ocr_service import (
-    NanonetsHttpHttpOcrService,
 )
 from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
 from document_ia_worker.workflow.step.base_step import BaseStep
@@ -72,25 +63,9 @@ def prepareStepListsV1(
             step_list.append(PreprocessFileStep(workflow_context))
         elif step == "extract_content_ocr":
             step_list.append(ExtractContentOcrStep(workflow_context))
-        elif step == "extract_content_marker_ocr":
-            step_list.append(
-                ExtractContentHttpOcrStep(workflow_context, MarkerHttpHttpOcrService())
-            )
         elif step == "extract_content_mistral_ocr":
             step_list.append(
                 ExtractContentHttpOcrStep(workflow_context, MistralHttpOcrService())
-            )
-        elif step == "extract_content_nanonets_ocr":
-            step_list.append(
-                ExtractContentHttpOcrStep(
-                    workflow_context, NanonetsHttpHttpOcrService()
-                )
-            )
-        elif step == "extract_content_deepseek_ocr":
-            step_list.append(
-                ExtractContentHttpOcrStep(
-                    workflow_context, DeepSeekHttpHttpOcrService()
-                )
             )
         elif step == "extract_barcode_data":
             step_list.append(ExtractBarcodeData())

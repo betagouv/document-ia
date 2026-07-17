@@ -1,8 +1,11 @@
 {
   "include": [
-    "document-ia-api/src",
+    "document-ia-schemas/src",
     "document-ia-infra/src",
-    "document-ia-worker/src"
+    "document-ia-auto-scaler/src",
+    "document-ia-api/src",
+    "document-ia-worker/src",
+    "document-ia-evals/src"
   ],
   "ignore": [
     "**/pycache",
@@ -10,15 +13,14 @@
     "**/scripts/**.py",
     "document-ia-api/alembic/versions"
   ],
-  "pythonVersion": "3.12",
+  "pythonVersion": "3.13",
   "typeCheckingMode": "strict",
   "reportMissingTypeStubs": false,
   "executionEnvironments": [
     {
-      "root": "document-ia-api/src",
-      "extraPaths": [
-        "document-ia-api/src"
-      ]
+      "root": "document-ia-schemas",
+      "venvPath": "document-ia-schemas",
+      "venv": ".venv"
     },
     {
       "root": "document-ia-infra",

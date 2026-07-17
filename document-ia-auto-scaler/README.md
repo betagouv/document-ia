@@ -79,7 +79,7 @@ Le projet lit sa configuration via des variables d'environnement gérées par `p
 ### Installation des dépendances
 
 ```bash
-poetry install
+uv sync
 ```
 
 ### Lancement des tests unitaires
@@ -87,7 +87,7 @@ poetry install
 Des tests unitaires couvrant les scénarios de décision d'auto-scaling sont disponibles :
 
 ```bash
-poetry run pytest
+uv run pytest
 ```
 
 ---
