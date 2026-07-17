@@ -76,7 +76,7 @@ class MistralHttpOcrService(BaseHttpOCRService[MistralOcrSettings]):
         returned_content = ""
 
         for page in mistral_result.pages:
-            page_markdown = page.markdown
+            page_markdown = page.markdown.replace("&lt;", "<").replace("&gt;", ">")
             for table in page.tables:
                 placeholder = f"[{table.id}]({table.id})"
                 page_markdown = page_markdown.replace(placeholder, table.content)
@@ -90,6 +90,6 @@ class MistralHttpOcrService(BaseHttpOCRService[MistralOcrSettings]):
         return self.config.MISTRAL_OCR_API_KEY.get_secret_value()
 
     def get_base_url(self) -> str:
-        if self.config.MISTRAL_ORC_BASE_URL is None:
+        if self.config.MISTRAL_OCR_BASE_URL is None:
             raise HTTPOCRMissConfigurationException("Mistral")
-        return self.config.MISTRAL_ORC_BASE_URL
+        return self.config.MISTRAL_OCR_BASE_URL
