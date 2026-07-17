@@ -12,6 +12,7 @@ class LLMModel(str, Enum):
 class OCRModel(str, Enum):
     TESSERACT = "tesseract"
     MISTRAL = "mistral"
+    LIGHT_ON = "lightOn"
 
 
 class BarcodeExtractionType(str, Enum):

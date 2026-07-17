@@ -52,8 +52,7 @@ class ReplicateAnalytics(BaseScheduledJob):
         async with source_manager.local_session() as source_session:
             result = await source_session.execute(select(OrganizationEntity))
             orgs = [
-                self._to_replicated_organization(org)
-                for org in result.scalars().all()
+                self._to_replicated_organization(org) for org in result.scalars().all()
             ]
 
         async with dest_manager.local_session() as dest_session:
@@ -78,9 +77,9 @@ class ReplicateAnalytics(BaseScheduledJob):
         total_replicated = 0
         while True:
             async with source_manager.local_session() as source_session:
-                events = await EventRepository(
-                    source_session
-                ).get_events_created_after(after=cursor, limit=batch_size)
+                events = await EventRepository(source_session).get_events_created_after(
+                    after=cursor, limit=batch_size
+                )
 
             if not events:
                 break

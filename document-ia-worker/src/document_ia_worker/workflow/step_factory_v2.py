@@ -47,6 +47,9 @@ from document_ia_worker.workflow.step.extract_content_ocr.extract_content_http_o
 from document_ia_worker.workflow.step.extract_content_ocr.extract_content_ocr import (
     ExtractContentOcrStep,
 )
+from document_ia_worker.workflow.step.extract_content_ocr.extract_content_ocr_light_on import (
+    ExtractContentOcrLightOnStep,
+)
 from document_ia_worker.workflow.step.llm_classify_document.llm_classify_document import (
     LLMClassifyDocumentStep,
 )
@@ -150,6 +153,8 @@ def build_extract_content_ocr_step(
             return ExtractContentOcrStep(workflow_context)
         case OCRModel.MISTRAL:
             return ExtractContentHttpOcrStep(workflow_context, MistralHttpOcrService())
+        case OCRModel.LIGHT_ON:
+            return ExtractContentOcrLightOnStep(workflow_context)
         case _:
             raise ValueError(f"Unknown OCR model: {step_params.model}")
 

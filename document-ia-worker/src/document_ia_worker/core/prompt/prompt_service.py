@@ -111,8 +111,7 @@ class PromptService:
             )
 
             extraction_examples: list[dict[str, Any]] = [
-                example.model_dump(mode="json")
-                for example in schema_instance.examples
+                example.model_dump(mode="json") for example in schema_instance.examples
             ]
 
             prompt_text = prompt_template.render(

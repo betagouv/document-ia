@@ -1,0 +1,36 @@
+meta {
+  name: OCR - LLM
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{url}}/v1/chat/completions
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "model": "openweight-ocr",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "image_url",
+            "image_url": {
+              "url": ""
+            }
+          }
+        ],
+        "temperature": 0
+      }
+    ]
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
