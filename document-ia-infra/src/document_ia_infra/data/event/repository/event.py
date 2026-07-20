@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from document_ia_infra.data.event.dto.anonymization_enum import AnonymizationStatus
 from document_ia_infra.data.event.dto.event_dto import EventDTO
@@ -302,9 +303,9 @@ class EventRepository:
             The mutated payload dict.
         """
         if event_type == EventType.WORKFLOW_EXECUTION_STARTED.value:
-            payload["file_info"] = {}  # Clear file info
+            payload["s3_file_info"] = {}  # Clear file info
             payload["metadata"] = {}  # Clear metadata
-        elif event_type == EventType.WORKFLOW_EXECUTION_STEP_COMPLETED.value:
+        elif event_type == EventType.WORKFLOW_EXECUTION_COMPLETED.value:
             payload["final_result"] = {}  # Clear final result
         return payload
 
@@ -317,6 +318,9 @@ class EventRepository:
         """
 
         self.anonymize_payload(event.event_type, event.event)
+
+        # We need to flag the event as modified to trigger the change listener because self.anonymize_payload() modifie the inner objet but the memory address is still the same. That will not trigger dirty cheking of sqlAlchemy
+        flag_modified(event, "event")
 
         event.anonymization_status = AnonymizationStatus.DONE.value
         self.session.add(event)
@@ -376,9 +380,11 @@ class EventRepository:
         """
         if not events:
             return
-        
+
         column_names = [column.name for column in EventEntity.__table__.columns]
-        values = [{name: getattr(event, name) for name in column_names} for event in events]
+        values = [
+            {name: getattr(event, name) for name in column_names} for event in events
+        ]
         # pg_insert (and on_conflict_do_nothing) expects a list of dictionaries
         # not a list of EventEntity objects...
         stmt = (

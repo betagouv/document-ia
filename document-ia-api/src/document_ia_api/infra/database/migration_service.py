@@ -5,6 +5,7 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
+from sqlalchemy import text
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -26,9 +27,13 @@ class MigrationService:
         self.alembic_ini_path = project_root / "alembic.ini"
         self.alembic_script_location = project_root / "alembic"
 
-    async def _get_db_revision(self, engine: AsyncEngine) -> str | None:
+    async def _get_db_revision(
+        self, engine: AsyncEngine, schema: str | None = None
+    ) -> str | None:
         """Retourne la révision Alembic en DB (ou None si table absente)."""
         async with engine.connect() as conn:
+            if schema:
+                await conn.exec_driver_sql(f'SET search_path TO "{schema}", public')
             try:
                 res = await conn.exec_driver_sql(
                     "SELECT version_num FROM alembic_version"
@@ -63,15 +68,17 @@ class MigrationService:
         return out
 
     async def _run_migrations(
-        self, *, db_url: str, engine: AsyncEngine, label: str
+        self, *, db_url: str, engine: AsyncEngine, label: str, schema: str | None = None
     ) -> None:
         cfg = Config(str(self.alembic_ini_path))
         cfg.set_main_option("sqlalchemy.url", db_url)
         cfg.set_main_option("script_location", str(self.alembic_script_location))
         # Ne pas laisser Alembic reconfigurer les logs
         cfg.attributes["skip_file_config"] = True
+        if schema:
+            cfg.attributes["schema"] = schema
 
-        before = await self._get_db_revision(engine)
+        before = await self._get_db_revision(engine, schema=schema)
 
         logger.info(
             "Démarrage des migrations Alembic %s -> head (rév. avant: %s)",
@@ -84,7 +91,7 @@ class MigrationService:
             asyncio.to_thread(command.upgrade, cfg, "head"), timeout=300
         )
 
-        after = await self._get_db_revision(engine)
+        after = await self._get_db_revision(engine, schema=schema)
 
         if before == after:
             logger.info(
@@ -137,13 +144,20 @@ class MigrationService:
             )
             return
 
+        schema = analytics_database_settings.POSTGRES_SCHEMA
         analytics_manager = get_analytics_database_manager()
+
+        if schema:
+            async with analytics_manager.async_engine.begin() as conn:
+                await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
+            logger.info("Schéma PostgreSQL '%s' vérifié / créé avec succès.", schema)
+
         await self._run_migrations(
-            db_url=analytics_database_settings.get_database_url(
-                async_connection=True
-            ),
+            db_url=analytics_database_settings.get_database_url(async_connection=True),
             engine=analytics_manager.async_engine,
-            label="(base analytics)",
+            label=f"(base analytics, schema: {schema or 'public'})",
+            schema=schema,
         )
+
 
 migration_service = MigrationService()
