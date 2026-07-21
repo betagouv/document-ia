@@ -43,6 +43,11 @@ class DatabaseManager:
         if self.ssl_context:
             self.engine_kwargs["connect_args"] = {"ssl": self.ssl_context}
 
+        if db_settings.POSTGRES_SCHEMA:
+            connect_args = self.engine_kwargs.setdefault("connect_args", {})
+            server_settings = connect_args.setdefault("server_settings", {})
+            server_settings["search_path"] = f"{db_settings.POSTGRES_SCHEMA}, public"
+
         self.async_engine = create_async_engine(
             db_settings.get_database_url(async_connection=True),
             pool_size=pool_size,
@@ -71,6 +76,13 @@ class DatabaseManager:
         if self._sync_engine is not None and self._sync_session_factory is not None:
             return
         sync_engine_kwargs = {**self.engine_kwargs}
+        if self.db_settings.POSTGRES_SCHEMA:
+            sync_connect_args = dict(sync_engine_kwargs.get("connect_args", {}))
+            sync_connect_args.pop("server_settings", None)
+            sync_connect_args["options"] = (
+                f"-c search_path={self.db_settings.POSTGRES_SCHEMA},public"
+            )
+            sync_engine_kwargs["connect_args"] = sync_connect_args
         # NullPool to avoid holding connections in sync contexts
         sync_engine_kwargs["poolclass"] = NullPool
         self._sync_engine = create_engine(
@@ -119,6 +131,7 @@ database_manager = DatabaseManager()
 
 # Instantiated lazily (not at import time) because it requires the ANALYTICS_* environment variables.
 _analytics_database_manager: Optional[DatabaseManager] = None
+
 
 def get_analytics_database_manager() -> DatabaseManager:
     """Return the shared analytics DatabaseManager, building it on first use."""

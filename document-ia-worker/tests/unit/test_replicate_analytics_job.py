@@ -18,7 +18,7 @@ def _make_started_event() -> EventEntity:
         created_at=datetime.now(UTC),
         event_type=EventType.WORKFLOW_EXECUTION_STARTED.value,
         event={
-            "file_info": {"s3_key": "SECRET"},
+            "s3_file_info": {"s3_key": "SECRET"},
             "metadata": {"user": "john"},
             "keep": 42,
         },
@@ -34,7 +34,7 @@ class TestToReplicatedRow:
 
         # The source payload (including nested dicts) is left untouched.
         assert source.event == source_snapshot
-        assert source.event["file_info"] == {"s3_key": "SECRET"}
+        assert source.event["s3_file_info"] == {"s3_key": "SECRET"}
         assert source.event["metadata"] == {"user": "john"}
 
     def test_returned_copy_is_anonymized_and_independent(self):
@@ -43,7 +43,7 @@ class TestToReplicatedRow:
         replica = ReplicateAnalytics._to_replicated_event(source)
 
         # Sensitive fields cleared, non-sensitive fields preserved.
-        assert replica.event["file_info"] == {}
+        assert replica.event["s3_file_info"] == {}
         assert replica.event["metadata"] == {}
         assert replica.event["keep"] == 42
         assert replica.anonymization_status == AnonymizationStatus.DONE.value
@@ -53,7 +53,7 @@ class TestToReplicatedRow:
 
         # The replica payload is a distinct object graph from the source.
         assert replica.event is not source.event
-        assert replica.event["file_info"] is not source.event["file_info"]
+        assert replica.event["s3_file_info"] is not source.event["s3_file_info"]
 
     def test_mutating_replica_does_not_affect_source(self):
         source = _make_started_event()

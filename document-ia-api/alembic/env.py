@@ -40,15 +40,20 @@ def run_migrations_offline() -> None:
 
 async def run_migrations_online() -> None:
     connectable = config.attributes.get("connection", None)
+    schema = config.attributes.get("schema", None)
     if connectable is not None:
         async with connectable:
             await connectable.run_sync(do_run_migrations)
     else:
+        connect_args = {}
+        if schema:
+            connect_args["server_settings"] = {"search_path": f"{schema}, public"}
         # If no connection is provided in config, we create one
         connectable = create_async_engine(
             get_url(),
             poolclass=pool.NullPool,
             future=True,
+            connect_args=connect_args,
         )
         async with connectable.connect() as connection:
             await connection.run_sync(do_run_migrations)
@@ -56,14 +61,19 @@ async def run_migrations_online() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(
-        connection=connection,
-        target_metadata=target_metadata,
-        compare_type=True,
-        compare_server_default=True,
-        transaction_per_migration=True,
-        render_as_batch=False,
-    )
+    schema = config.attributes.get("schema", None)
+    context_kwargs = {
+        "connection": connection,
+        "target_metadata": target_metadata,
+        "compare_type": True,
+        "compare_server_default": True,
+        "transaction_per_migration": True,
+        "render_as_batch": False,
+    }
+    if schema:
+        context_kwargs["version_table_schema"] = schema
+
+    context.configure(**context_kwargs)
     with context.begin_transaction():
         context.run_migrations()
 

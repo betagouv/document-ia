@@ -14,6 +14,7 @@ class DatabaseSettings(BaseDocumentIaSettings):
 
     POSTGRES_USER: str | None = Field(default=None)
     POSTGRES_PASSWORD: SecretStr | None = Field(default=None)
+    POSTGRES_SCHEMA: str | None = Field(default=None)
 
     POSTGRESQL_URL: str | None = Field(default=None)
 
@@ -134,6 +135,9 @@ class AnalyticsDatabaseSettings(DatabaseSettings):
     )
     POSTGRES_PASSWORD: SecretStr | None = Field(
         default=None, validation_alias="ANALYTICS_POSTGRES_PASSWORD"
+    )
+    POSTGRES_SCHEMA: str | None = Field(
+        default=None, validation_alias="ANALYTICS_POSTGRES_SCHEMA"
     )
 
 
