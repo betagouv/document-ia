@@ -5,7 +5,7 @@ A Streamlit application to run Evals for Document IA.
 ## 📋 Prerequisites
 
 - Python 3.12 or higher
-- Poetry (for dependency management)
+- UV (for dependency management)
 
 ## 🛠️ Installation
 
@@ -20,8 +20,8 @@ conda activate document-ia-evals
 ### Step 3: Install Dependencies
 
 ```bash
-# Install all dependencies using Poetry
-poetry install
+# Install all dependencies using UV
+uv sync
 ```
 
 ## 🎯 Usage
@@ -29,11 +29,11 @@ poetry install
 ### Running the Application
 
 ```bash
-# Run with Poetry
-poetry run streamlit run src/document_ia_evals/app.py
+# Run with UV
+uv run streamlit run src/document_ia_evals/app.py
 
-# Or activate the Poetry shell first
-poetry shell
+# Or activate the UV virtual environment first
+source .venv/bin/activate
 streamlit run src/document_ia_evals/app.py
 ```
 

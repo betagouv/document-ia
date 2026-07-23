@@ -9,7 +9,7 @@ Technical README for the API subproject: setup, configuration, build, and useful
 ## Prerequisites
 
 - Python 3.13
-- Poetry 2.x
+- UV 0.11.x
 - Redis
 - PostgreSQL
 - S3/MinIO compatible storage
@@ -18,7 +18,7 @@ Technical README for the API subproject: setup, configuration, build, and useful
 
 ```bash
 cd document-ia-api
-poetry install
+uv sync
 ```
 
 ## Environment variables
@@ -50,14 +50,14 @@ Local start:
 
 ```bash
 cd document-ia-api
-poetry run python src/document_ia_api/main.py
+uv run python src/document_ia_api/main.py
 ```
 
 Uvicorn alternative:
 
 ```bash
 cd document-ia-api
-poetry run uvicorn src.document_ia_api.main:app --host 0.0.0.0 --port 8000 --reload
+uv run uvicorn src.document_ia_api.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 OpenAPI documentation:
@@ -69,8 +69,8 @@ OpenAPI documentation:
 
 ```bash
 cd document-ia-api
-poetry run alembic upgrade head
-poetry run alembic downgrade -1
+uv run alembic upgrade head
+uv run alembic downgrade -1
 ```
 
 Analytics note:
@@ -84,14 +84,22 @@ Analytics note:
 
 ```bash
 cd document-ia-api
-poetry run pytest
-poetry run ruff check src tests
-poetry run pyright
+uv run pytest
+uv run ruff check src tests
+uv run pyright
+```
+
+## Production & Deployment (Scalingo)
+
+To force UV to install local packages (like `document-ia-infra` or `document-ia-schemas`) in non-editable mode (copying them physically into the environment) on Scalingo, set the following environment variable:
+
+```bash
+scalingo env-set UV_NO_EDITABLE=1
 ```
 
 ## Build package
 
 ```bash
 cd document-ia-api
-poetry build
+uv build
 ```

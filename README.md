@@ -1,7 +1,7 @@
 # Document IA
 
 [![Python](https://img.shields.io/badge/python-3.13-blue)](https://www.python.org/downloads/)
-[![Poetry](https://img.shields.io/badge/package%20manager-poetry-blue)](https://python-poetry.org/)
+[![uv](https://img.shields.io/badge/package%20manager-uv-blue)](https://github.com/astral-sh/uv)
 [![FastAPI](https://img.shields.io/badge/api-FastAPI-009688)](https://fastapi.tiangolo.com/)
 [![Docker Compose](https://img.shields.io/badge/local-Docker%20Compose-2496ED)](https://docs.docker.com/compose/)
 [![License](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
@@ -15,7 +15,7 @@ The repository is organized as a Python monorepo with separate packages for the 
 Prerequisites:
 
 - Python 3.13
-- Poetry 2.x
+- UV 0.11.x
 - Docker Compose
 
 Create your local environment file:
@@ -36,24 +36,24 @@ Run the API in one terminal:
 
 ```bash
 cd document-ia-api
-poetry install
-poetry run python src/document_ia_api/main.py
+uv sync
+uv run python src/document_ia_api/main.py
 ```
 
 Run the worker in another terminal:
 
 ```bash
 cd document-ia-worker
-poetry install
-poetry run python src/document_ia_worker/main.py
+uv sync
+uv run python src/document_ia_worker/main.py
 ```
 
 Optional: run the evaluation app in a third terminal:
 
 ```bash
 cd document-ia-evals
-poetry install
-poetry run streamlit run src/document_ia_evals/app.py
+uv sync
+uv run streamlit run src/document_ia_evals/app.py
 ```
 
 Useful local URLs:
@@ -173,28 +173,28 @@ Run the API:
 
 ```bash
 cd document-ia-api
-poetry run python src/document_ia_api/main.py
+uv run python src/document_ia_api/main.py
 ```
 
 Run the API with Uvicorn reload:
 
 ```bash
 cd document-ia-api
-poetry run uvicorn src.document_ia_api.main:app --host 0.0.0.0 --port 8000 --reload
+uv run uvicorn src.document_ia_api.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 Run the worker:
 
 ```bash
 cd document-ia-worker
-poetry run python src/document_ia_worker/main.py
+uv run python src/document_ia_worker/main.py
 ```
 
 Run the evaluation app:
 
 ```bash
 cd document-ia-evals
-poetry run streamlit run src/document_ia_evals/app.py
+uv run streamlit run src/document_ia_evals/app.py
 ```
 
 Open the Bruno collection:
@@ -208,7 +208,7 @@ Regenerate worker prompt snapshots after schema changes:
 
 ```bash
 cd document-ia-worker
-poetry run python tests/fixtures/regenerate_extraction_prompt_fixtures.py
+uv run python tests/fixtures/regenerate_extraction_prompt_fixtures.py
 ```
 
 ## Development
@@ -217,25 +217,32 @@ Each subproject owns its Python environment and dependency lock file. Install de
 
 ```bash
 cd document-ia-api
-poetry install
+uv sync
 ```
 
 ```bash
 cd document-ia-worker
-poetry install
+uv sync
 ```
 
 ```bash
 cd document-ia-schemas
-poetry install
+uv sync
 ```
 
-When developing against shared local packages, install them in editable mode from the consuming package:
+When developing against shared local packages, they are already configured in `pyproject.toml` and installed in editable mode by default when running `uv sync`.
+
+## Production & Deployment (Scalingo)
+
+In production or during deployment on Scalingo, we want local path dependencies to be copied physically into the virtual environment instead of being symlinked (editable mode).
+
+To achieve this, configure the `UV_NO_EDITABLE` environment variable in your Scalingo application settings:
 
 ```bash
-poetry run pip install -e ../document-ia-infra
-poetry run pip install -e ../document-ia-schemas
+scalingo env-set UV_NO_EDITABLE=1
 ```
+
+When this variable is set, UV will automatically ignore the `editable = true` settings in `pyproject.toml` during the build process, ensuring all libraries are compiled and copied physically into the production container.
 
 ## Testing and Quality
 
@@ -243,22 +250,22 @@ Run tests from the relevant package:
 
 ```bash
 cd document-ia-api
-poetry run pytest
-poetry run ruff check src tests
-poetry run pyright
+uv run pytest
+uv run ruff check src tests
+uv run pyright
 ```
 
 ```bash
 cd document-ia-worker
-poetry run pytest
-poetry run ruff check src tests
+uv run pytest
+uv run ruff check src tests
 ```
 
 ```bash
 cd document-ia-schemas
-poetry run pytest
-poetry run ruff check .
-poetry run ruff format --check .
+uv run pytest
+uv run ruff check .
+uv run ruff format --check .
 ```
 
 ## License

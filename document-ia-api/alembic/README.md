@@ -22,30 +22,30 @@ You can also use Alembic commands directly:
 
 ```bash
 # Apply all pending migrations
-poetry run alembic upgrade head
+uv run alembic upgrade head
 
 # Create a new migration (auto-generate from model changes)
-poetry run alembic revision --autogenerate -m "Description of changes"
+uv run alembic revision --autogenerate -m "Description of changes"
 
 # Show current migration status
-poetry run alembic current
+uv run alembic current
 
 # Show migration history
-poetry run alembic history
+uv run alembic history
 
 # Downgrade to previous migration
-poetry run alembic downgrade -1
+uv run alembic downgrade -1
 
 # Dry run a migration for dev purposes
-poetry run alembic upgrade head --sql > migration.sql
+uv run alembic upgrade head --sql > migration.sql
 ```
 
 ## Migration Workflow
 
 1. **Make model changes**: Update your SQLAlchemy models in `infra/database/models/`
-2. **Generate migration**: Run `poetry run alembic revision --autogenerate -m "Description"`
+2. **Generate migration**: Run `uv run alembic revision --autogenerate -m "Description"`
 3. **Review migration**: Check the generated migration file in `versions/`
-4. **Apply migration**: Run `poetry run alembic upgrade head`
+4. **Apply migration**: Run `uv run alembic upgrade head`
 5. **Commit changes**: Commit both model changes and migration files
 
 ## Important Notes
@@ -86,10 +86,10 @@ If you have migration conflicts:
 
 To rollback a migration:
 ```bash
-poetry run alembic downgrade -1
+uv run alembic downgrade -1
 ```
 
 To rollback to a specific revision:
 ```bash
-poetry run alembic downgrade <revision_id>
+uv run alembic downgrade <revision_id>
 ```

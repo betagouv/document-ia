@@ -98,12 +98,11 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
         with:
-          virtualenvs-create: true
-          virtualenvs-in-project: true
-          installer-parallel: true
+          version: "0.11.x"
+          enable-cache: true
 
       # Install Tesseract OCR and French trained data
       - name: Install Tesseract OCR (with French language)
@@ -117,12 +116,12 @@ jobs:
       - name: Install dependencies (matrix project)
         run: |
           cd ${{ matrix.project }}
-          poetry install --no-interaction --no-ansi --with dev
+          uv sync --frozen
 
       - name: Ruff - Lint sources
         run: |
           cd ${{ matrix.project }}
-          poetry run ruff check src
+          uv run ruff check src
 
       - name: Start PostgreSQL
         if: ${{ matrix.needs_docker_stack == true }}
@@ -177,20 +176,20 @@ jobs:
         # We need to install deps of the API to run alembic migrations even on the worker
         run: |
           cd document-ia-api
-          poetry install --no-interaction --no-ansi --with dev
-          poetry run alembic upgrade head
+          uv sync --frozen
+          uv run alembic upgrade head
 
       - name: Init S3 bucket
         if: ${{ matrix.needs_docker_stack == true }}
         run: |
           cd ${{ matrix.project }}
           # Le script est à la racine du repo; on remonte et on l'exécute dans le venv courant
-          poetry run python ../scripts/init-s3-bucket.py
+          uv run python ../scripts/init-s3-bucket.py
 
       - name: Pytest - Tests (matrix project)
         run: |
           cd ${{ matrix.project }}
-          poetry run pytest --maxfail=1 --disable-warnings
+          uv run pytest --maxfail=1 --disable-warnings
 
       - name: Cleanup Docker containers
         if: ${{ always() && matrix.needs_docker_stack == true }}

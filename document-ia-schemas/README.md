@@ -1,4 +1,4 @@
-# document-ia-schemas  [![Python Version](https://img.shields.io/badge/python-3.13%2B-blue.svg)](https://www.python.org/downloads/) [![Poetry](https://img.shields.io/badge/package%20manager-poetry-blue)](https://python-poetry.org/)
+# document-ia-schemas  [![Python Version](https://img.shields.io/badge/python-3.13%2B-blue.svg)](https://www.python.org/downloads/) [![uv](https://img.shields.io/badge/package%20manager-uv-blue)](https://github.com/astral-sh/uv)
 
 Ensemble de modèles de documents utilisés par Document-IA pour l’extraction de données depuis des pièces justificatives françaises.
 
@@ -19,14 +19,14 @@ Chaque type de document est décrit par un schéma Pydantic (métadonnées + JSO
 
 Selon votre contexte, vous pouvez installer le package depuis une source Git ou un chemin local.
 
-- Avec Poetry (recommandé)
+- Avec UV (recommandé)
 
 ```bash
 # Depuis un dépôt Git (adaptez l’URL de votre dépôt)
-poetry add git+https://github.com/ORG/REPO.git#subdirectory=documentAI/document-ia-schemas
+uv add "git+https://github.com/ORG/REPO.git#subdirectory=documentAI/document-ia-schemas"
 
 # Ou depuis un chemin local (monorepo)
-poetry add ../documentAI/document-ia-schemas
+uv add ../documentAI/document-ia-schemas
 ```
 
 - Avec pip
@@ -109,18 +109,18 @@ src/
 
 ## 🧪 Développement
 
-Pré-requis: Python 3.13+, Poetry
+Pré-requis: Python 3.13+, UV
 
 ```bash
 # Installer les dépendances
-poetry install
+uv sync
 
 # Lint
-poetry run ruff check .
-poetry run ruff format --check .
+uv run ruff check .
+uv run ruff format --check .
 
 # Tests
-poetry run pytest -v
+uv run pytest -v
 ```
 
 ### Impact sur les snapshots de prompts du worker
