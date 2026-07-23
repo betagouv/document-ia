@@ -1,0 +1,36 @@
+meta {
+  name: OCR - LLM
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{url}}/v1/chat/completions
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "model": "lightonai/LightOnOCR-2-1B",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "image_url",
+            "image_url": {
+              "url": "data:image/png;base64,"
+            }
+          }
+        ],
+        "temperature": 0
+      }
+    ]
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
