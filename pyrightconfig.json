@@ -21,15 +21,47 @@
       ]
     },
     {
-      "root": "document-ia-infra/src",
+      "root": "document-ia-infra",
+      "venvPath": "document-ia-infra",
+      "venv": ".venv",
       "extraPaths": [
+        "document-ia-schemas/src"
+      ]
+    },
+    {
+      "root": "document-ia-auto-scaler",
+      "venvPath": "document-ia-auto-scaler",
+      "venv": ".venv",
+      "extraPaths": [
+        "document-ia-schemas/src",
         "document-ia-infra/src"
       ]
     },
     {
-      "root": "document-ia-worker/src",
+      "root": "document-ia-api",
+      "venvPath": "document-ia-api",
+      "venv": ".venv",
       "extraPaths": [
-        "document-ia-worker/src"
+        "document-ia-schemas/src",
+        "document-ia-infra/src"
+      ]
+    },
+    {
+      "root": "document-ia-worker",
+      "venvPath": "document-ia-worker",
+      "venv": ".venv",
+      "extraPaths": [
+        "document-ia-schemas/src",
+        "document-ia-infra/src"
+      ]
+    },
+    {
+      "root": "document-ia-evals",
+      "venvPath": "document-ia-evals",
+      "venv": ".venv",
+      "extraPaths": [
+        "document-ia-schemas/src",
+        "document-ia-infra/src"
       ]
     }
   ]

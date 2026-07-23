@@ -11,7 +11,7 @@ class ReplicateAnalyticsSettings(AnalyticsDatabaseSettings):
     """
 
     EVENT_BATCH_SIZE: int = Field(
-        default=5000,
+        default=2000,
         description="Number of events replicated per keyset-paged bulk insert",
         validation_alias="ANALYTICS_EVENT_BATCH_SIZE",
     )
