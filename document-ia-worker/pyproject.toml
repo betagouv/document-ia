@@ -1,6 +1,6 @@
 [project]
 name = "document-ia-worker"
-version = "1.0.7"
+version = "1.0.8"
 description = "Worker document ia"
 authors = [{name = "Nicolas Sagon",email = "nicolas.sagon@beta.gouv.fr"}]
 readme = "README.md"
