@@ -18,10 +18,10 @@ from document_ia_worker.workflow.step.step_result.ocr_result import OcrResult, O
 async def test_llm_classify_constructor_v1_compatibility(main_workflow_context):
     step = LLMClassifyDocumentStep(
         main_workflow_context=main_workflow_context,
-        model="albert-large",
+        model="openweight-medium",
     )
 
-    assert step.model == "albert-large"
+    assert step.model == "openweight-medium"
     assert step.temperature == 0.0
     assert step.document_types_override is None
 

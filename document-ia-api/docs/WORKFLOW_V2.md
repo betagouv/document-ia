@@ -39,8 +39,8 @@ X-API-KEY: <your-key>
           "params": {
             "model": {
               "type": "string",
-              "default": "albert-large",
-              "enum": ["albert-large", "albert-small"]
+              "default": "openweight-medium",
+              "enum": ["albert-small", "openweight-large", "openweight-medium", "openweight-small", "mistral-medium-2508"]
             }
           }
         }

@@ -135,10 +135,13 @@ async def _start_workflow_v2_execution(
                                         "params": {
                                             "model": {
                                                 "type": "string",
-                                                "default": "albert-large",
+                                                "default": "openweight-medium",
                                                 "enum": [
-                                                    "albert-large",
                                                     "albert-small",
+                                                    "openweight-large",
+                                                    "openweight-medium",
+                                                    "openweight-small",
+                                                    "mistral-medium-2508",
                                                 ],
                                             }
                                         },
@@ -242,7 +245,7 @@ async def list_available_workflows() -> WorkflowV2ListResponse:
                                     {
                                         "action": "llm_extract_data",
                                         "params": {
-                                            "model": "albert-large",
+                                            "model": "openweight-medium",
                                             "temperature": 0.0,
                                             "document_type": "cni",
                                         },

@@ -37,7 +37,7 @@ class TestLLMClassificationIntegration:
         assert pages, "OCR snapshot has no pages"
         ocr_result = OcrResult(pages=pages)
 
-        model = os.getenv("ALBERT_MODEL", "albert-large")
+        model = os.getenv("ALBERT_MODEL", "openweight-medium")
         llm = LLMClassifyDocumentStep(main_workflow_context=main_workflow_context, model=model)
         llm.inject_workflow_context({OcrResult.__name__: ocr_result})
         llm_result, metadata = await llm.execute()
@@ -84,7 +84,7 @@ class TestLLMClassificationIntegration:
         )
         ocr_result = OcrResult(pages=[tax_page_1, tax_page_2])
 
-        model = os.getenv("ALBERT_MODEL", "albert-large")
+        model = os.getenv("ALBERT_MODEL", "openweight-medium")
         llm = LLMClassifyDocumentStep(main_workflow_context=main_workflow_context, model=model)
         llm.inject_workflow_context({OcrResult.__name__: ocr_result})
         llm_result, metadata = await llm.execute()
