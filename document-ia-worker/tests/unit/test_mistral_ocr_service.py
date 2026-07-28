@@ -17,7 +17,7 @@ async def test_extract_text_from_image_e2e_success():
     """
     if (
         mistral_ocr_settings.MISTRAL_OCR_API_KEY is None
-        or mistral_ocr_settings.MISTRAL_ORC_BASE_URL is None
+        or mistral_ocr_settings.MISTRAL_OCR_BASE_URL is None
     ):
         pytest.skip(
             "MISTRAL_OCR_API_KEY / MISTRAL_ORC_BASE_URL non configurés, skip e2e"
@@ -49,7 +49,7 @@ async def test_extract_text_from_image_e2e_unauthorized():
     """
     if (
         mistral_ocr_settings.MISTRAL_OCR_API_KEY is None
-        or mistral_ocr_settings.MISTRAL_ORC_BASE_URL is None
+        or mistral_ocr_settings.MISTRAL_OCR_BASE_URL is None
     ):
         pytest.skip(
             "MISTRAL_OCR_API_KEY / MISTRAL_ORC_BASE_URL non configurés, skip e2e"
@@ -64,7 +64,7 @@ async def test_extract_text_from_image_e2e_unauthorized():
 
     # Forcer une clé invalide et conserver la base_url valide
     service.get_api_key = "invalid-key-for-test"
-    service.base_url = mistral_ocr_settings.MISTRAL_ORC_BASE_URL
+    service.base_url = mistral_ocr_settings.MISTRAL_OCR_BASE_URL
 
     result = await service.extract_text_from_image(
         str(fixture_path), mime_type="application/pdf"

@@ -1,8 +1,11 @@
 {
   "include": [
-    "document-ia-api/src",
+    "document-ia-schemas/src",
     "document-ia-infra/src",
-    "document-ia-worker/src"
+    "document-ia-auto-scaler/src",
+    "document-ia-api/src",
+    "document-ia-worker/src",
+    "document-ia-evals/src"
   ],
   "ignore": [
     "**/pycache",
@@ -10,26 +13,57 @@
     "**/scripts/**.py",
     "document-ia-api/alembic/versions"
   ],
-  "pythonVersion": "3.12",
+  "pythonVersion": "3.13",
   "typeCheckingMode": "strict",
   "reportMissingTypeStubs": false,
   "executionEnvironments": [
     {
-      "root": "document-ia-api/src",
+      "root": "document-ia-schemas",
+      "venvPath": "document-ia-schemas",
+      "venv": ".venv"
+    },
+    {
+      "root": "document-ia-infra",
+      "venvPath": "document-ia-infra",
+      "venv": ".venv",
       "extraPaths": [
-        "document-ia-api/src"
+        "document-ia-schemas/src"
       ]
     },
     {
-      "root": "document-ia-infra/src",
+      "root": "document-ia-auto-scaler",
+      "venvPath": "document-ia-auto-scaler",
+      "venv": ".venv",
       "extraPaths": [
+        "document-ia-schemas/src",
         "document-ia-infra/src"
       ]
     },
     {
-      "root": "document-ia-worker/src",
+      "root": "document-ia-api",
+      "venvPath": "document-ia-api",
+      "venv": ".venv",
       "extraPaths": [
-        "document-ia-worker/src"
+        "document-ia-schemas/src",
+        "document-ia-infra/src"
+      ]
+    },
+    {
+      "root": "document-ia-worker",
+      "venvPath": "document-ia-worker",
+      "venv": ".venv",
+      "extraPaths": [
+        "document-ia-schemas/src",
+        "document-ia-infra/src"
+      ]
+    },
+    {
+      "root": "document-ia-evals",
+      "venvPath": "document-ia-evals",
+      "venv": ".venv",
+      "extraPaths": [
+        "document-ia-schemas/src",
+        "document-ia-infra/src"
       ]
     }
   ]

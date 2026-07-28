@@ -32,7 +32,7 @@ class TestWorkflowEdgeCasesE2E:
         """Workflow with only 'preprocess_file': missing DownloadFileReturnData must fail in PreprocessFileStep."""
         # Build a fake workflow definition (no S3 needed since no download step is run)
         wf_id = "wf-missing-download"
-        fake_workflow = SimpleNamespace(id=wf_id, steps=["preprocess_file"], llm_model="albert-large")
+        fake_workflow = SimpleNamespace(id=wf_id, steps=["preprocess_file"], llm_model="openweight-medium")
 
         import document_ia_infra.data.workflow.repository.workflow as wf_repo_mod
 
@@ -102,7 +102,7 @@ class TestWorkflowEdgeCasesE2E:
 
         wf_id = "wf-missing-preprocess"
         fake_workflow = SimpleNamespace(id=wf_id, steps=["download_file", "extract_content_ocr"],
-                                        llm_model="albert-large")
+                                        llm_model="openweight-medium")
 
         import document_ia_infra.data.workflow.repository.workflow as wf_repo_mod
 
@@ -176,7 +176,7 @@ class TestWorkflowEdgeCasesE2E:
         fake_workflow = SimpleNamespace(
             id=wf_id,
             steps=["save_workflow_result"],
-            llm_model="albert-large",
+            llm_model="openweight-medium",
             type="classification",
         )
 

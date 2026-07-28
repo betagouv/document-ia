@@ -26,7 +26,7 @@ def _build_workflow(steps: list[str]) -> WorkflowDTO:
         enabled=True,
         supported_file_types=["application/pdf"],
         steps=steps,
-        llm_model=LLMModel.ALBERT_LARGE,
+        llm_model=LLMModel.OPEN_WEIGHT_MEDIUM,
         max_file_size_mb=25,
         processing_timeout_minutes=5,
         created_at="2026-01-01T00:00:00Z",

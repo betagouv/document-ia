@@ -53,14 +53,14 @@ pytest tests/api/test_api_authentication.py::TestAPIAuthentication
 pytest tests/api/test_api_authentication.py::TestAPIAuthentication::test_valid_api_key_returns_200
 ```
 
-### Using Poetry
+### Using UV
 
 ```bash
 # Install dependencies first
-poetry install
+uv sync
 
 # Run tests
-poetry run pytest
+uv run pytest
 ```
 
 ## Test Categories

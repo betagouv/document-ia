@@ -18,7 +18,7 @@
       "llm_classify_document",
       "save_workflow_result"
     ],
-    "llm_model": "albert-large",
+    "llm_model": "openweight-medium",
     "max_file_size_mb": 50,
     "processing_timeout_minutes": 2,
     "created_at": "2025-09-01T10:00:00Z",
@@ -26,7 +26,7 @@
   },
   {
     "id": "document-classification-mistral",
-    "name": "Document classification with Mistral v1 and albert-large",
+    "name": "Document classification with Mistral v1 and openweight-medium",
     "description": "Analyzes uploaded documents for OCR, barcode extraction, and classification",
     "version": "1.0.0",
     "enabled": true,
@@ -43,7 +43,7 @@
       "llm_classify_document",
       "save_workflow_result"
     ],
-    "llm_model": "albert-large",
+    "llm_model": "openweight-medium",
     "max_file_size_mb": 25,
     "processing_timeout_minutes": 5,
     "created_at": "2025-09-01T10:00:00Z",
@@ -69,33 +69,7 @@
       "llm_extract_data",
       "save_workflow_result"
     ],
-    "llm_model": "albert-large",
-    "max_file_size_mb": 25,
-    "processing_timeout_minutes": 5,
-    "created_at": "2025-09-01T10:00:00Z",
-    "updated_at": "2025-09-01T10:00:00Z"
-  },
-  {
-    "id": "document-extraction-marker-v1",
-    "name": "Document extraction with Marker v1",
-    "description": "Generic workflow to extract and process document content with marker ocr",
-    "version": "1.0.0",
-    "enabled": true,
-    "supported_file_types": [
-      "application/pdf",
-      "image/jpeg",
-      "image/png"
-    ],
-    "steps": [
-      "download_file",
-      "preprocess_file",
-      "extract_barcode_data",
-      "extract_content_marker_ocr",
-      "llm_classify_document",
-      "llm_extract_data",
-      "save_workflow_result"
-    ],
-    "llm_model": "albert-large",
+    "llm_model": "openweight-medium",
     "max_file_size_mb": 25,
     "processing_timeout_minutes": 5,
     "created_at": "2025-09-01T10:00:00Z",
@@ -103,8 +77,8 @@
   },
   {
     "id": "document-extraction-mistral-v1",
-    "name": "Document extraction with Mistral v1 and albert-large",
-    "description": "Generic workflow to extract and process document content with mistral ocr and albert-large LLM",
+    "name": "Document extraction with Mistral v1 and openweight-medium",
+    "description": "Generic workflow to extract and process document content with mistral ocr and openweight-medium LLM",
     "version": "1.0.0",
     "enabled": true,
     "supported_file_types": [
@@ -121,7 +95,7 @@
       "llm_extract_data",
       "save_workflow_result"
     ],
-    "llm_model": "albert-large",
+    "llm_model": "openweight-medium",
     "max_file_size_mb": 25,
     "processing_timeout_minutes": 5,
     "created_at": "2025-09-01T10:00:00Z",
@@ -206,58 +180,6 @@
     "updated_at": "2025-09-01T10:00:00Z"
   },
   {
-    "id": "document-extraction-nanonets-v1",
-    "name": "Document extraction with Nanonets v1",
-    "description": "Generic workflow to extract and process document content with nanonets ocr",
-    "version": "1.0.0",
-    "enabled": true,
-    "supported_file_types": [
-      "application/pdf",
-      "image/jpeg",
-      "image/png"
-    ],
-    "steps": [
-      "download_file",
-      "preprocess_file",
-      "extract_barcode_data",
-      "extract_content_nanonets_ocr",
-      "llm_classify_document",
-      "llm_extract_data",
-      "save_workflow_result"
-    ],
-    "llm_model": "albert-large",
-    "max_file_size_mb": 25,
-    "processing_timeout_minutes": 5,
-    "created_at": "2025-09-19T10:00:00Z",
-    "updated_at": "2025-09-19T10:00:00Z"
-  },
-  {
-    "id": "document-extraction-deepseek_ocr-v1",
-    "name": "Document extraction with Deepseek v1",
-    "description": "Generic workflow to extract and process document content with deepseek ocr",
-    "version": "1.0.0",
-    "enabled": true,
-    "supported_file_types": [
-      "application/pdf",
-      "image/jpeg",
-      "image/png"
-    ],
-    "steps": [
-      "download_file",
-      "preprocess_file",
-      "extract_barcode_data",
-      "extract_content_deepseek_ocr",
-      "llm_classify_document",
-      "llm_extract_data",
-      "save_workflow_result"
-    ],
-    "llm_model": "albert-large",
-    "max_file_size_mb": 25,
-    "processing_timeout_minutes": 5,
-    "created_at": "2025-12-11T10:00:00Z",
-    "updated_at": "2025-12-11T10:00:00Z"
-  },
-  {
     "id": "document-barcode-extraction",
     "name": "Extract Barcodes",
     "description": "**DEPRECATED** Workflow to extract barcode informations. If you want raw data : document-barcode-raw-extraction. If you want 2ddoc optimized workflow used : document-2ddoc-extraction  **DEPRECATED**",
@@ -274,7 +196,7 @@
       "extract_barcode_data",
       "save_workflow_result"
     ],
-    "llm_model": "albert-large",
+    "llm_model": "openweight-medium",
     "max_file_size_mb": 25,
     "processing_timeout_minutes": 5,
     "created_at": "2025-09-01T10:00:00Z",
@@ -297,7 +219,7 @@
       "extract_barcode_raw_data",
       "save_workflow_result"
     ],
-    "llm_model": "albert-large",
+    "llm_model": "openweight-medium",
     "max_file_size_mb": 25,
     "processing_timeout_minutes": 5,
     "created_at": "2025-09-01T10:00:00Z",
@@ -320,7 +242,7 @@
       "extract_barcode_2ddoc_data",
       "save_workflow_result"
     ],
-    "llm_model": "albert-large",
+    "llm_model": "openweight-medium",
     "max_file_size_mb": 25,
     "processing_timeout_minutes": 5,
     "created_at": "2025-09-01T10:00:00Z",

@@ -1,57 +1,77 @@
-[tool.poetry]
+[project]
 name = "document-ia-worker"
-version = "1.0.7"
+version = "1.0.8"
 description = "Worker document ia"
-authors = ["Nicolas Sagon <nicolas.sagon@beta.gouv.fr>"]
+authors = [{name = "Nicolas Sagon",email = "nicolas.sagon@beta.gouv.fr"}]
 readme = "README.md"
-packages = [
-    { include = "document_ia_worker", from = "src" },
-    { include = "document_ia_task_scheduler", from = "src" },
+requires-python = ">=3.13"
+dependencies = [
+    "document-ia-infra",
+    "document-ia-schemas",
+    "python-dotenv == 1.2.2",
+    "pydantic-settings == 2.14.1",
+    "pytesseract == 0.3.13",
+    "pymupdf == 1.27.2.3",
+    "opencv-python-headless == 4.13.0.92",
+    "jinja2 == 3.1.6",
+    "pydantic == 2.13.4",
+    "mypy-boto3-s3 == 1.43.14",
+    "greenlet == 3.5.1",
+    "zxing-cpp == 2.3.0",
+    "2ddoc-parser",
+    "python-magic == 0.4.27",
+    "psycopg2-binary == 2.9.12",
+    "torch == 2.7.1+cpu; sys_platform == 'linux'",
+    "torch == 2.7.1; sys_platform == 'darwin'",
+    "torchvision == 0.22.1+cpu; sys_platform == 'linux'",
+    "torchvision == 0.22.1; sys_platform == 'darwin'",
+    "qrdet == 2.5",
+    "pyright == 1.1.409",
 ]
-
-[tool.poetry.dependencies]
-python = "^3.13"
-document-ia-infra = { path = "../document-ia-infra", develop = false }
-document-ia-schemas = { path = "../document-ia-schemas", develop = false }
-python-dotenv = "^1.0.0"
-pydantic-settings = "^2.1.0"
-pytesseract = "^0.3.13"
-pymupdf = "^1.26.3"
-opencv-python-headless = "^4.12.0.88"
-jinja2 = "^3.1.6"
-pydantic = "^2.11.9"
-mypy-boto3-s3 = "^1.40.26"
-greenlet = "^3.2.4"
-zxing-cpp = "==2.3.0"
-2ddoc-parser = {git = "https://github.com/betagouv/2ddoc-parser.git", tag = "v1.0.5"}
-python-magic = "^0.4.27"
-psycopg2-binary = "^2.9.10"
-torch = [
-    { version = "2.7.1+cpu", source = "pytorch-cpu", markers = "sys_platform == 'linux'" },
-    { version = "2.7.1", markers = "sys_platform == 'darwin'" },
-]
-torchvision = [
-    { version = "0.22.1+cpu", source = "pytorch-cpu", markers = "sys_platform == 'linux'" },
-    { version = "0.22.1", markers = "sys_platform == 'darwin'" },
-]
-qrdet = "^2.5"
-pyright = "^1.1.409"
-
-[tool.poetry.group.dev.dependencies]
-ruff = "^0.12.11"
-pytest = "^8.4.1"
-pytest-asyncio = "^0.23.0"
-pre-commit = "^3.6.0"
-uvicorn = "^0.38.0"
-
-[[tool.poetry.source]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-priority = "explicit"
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "ruff == 0.12.12",
+    "pytest == 8.4.2",
+    "pytest-asyncio == 0.23.8",
+    "pre-commit == 3.8.0",
+    "uvicorn == 0.38.0",
+]
+
+[tool.uv]
+exclude-newer = "2 days"
+
+[tool.uv.sources.document-ia-infra]
+path = "../document-ia-infra"
+editable = true
+
+[tool.uv.sources.document-ia-schemas]
+path = "../document-ia-schemas"
+editable = true
+
+[tool.uv.sources.2ddoc-parser]
+git = "https://github.com/betagouv/2ddoc-parser.git"
+tag = "v1.0.5"
+
+[[tool.uv.sources.torch]]
+index = "pytorch-cpu"
+marker = "sys_platform == 'linux'"
+
+[[tool.uv.sources.torchvision]]
+index = "pytorch-cpu"
+marker = "sys_platform == 'linux'"
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/document_ia_worker", "src/document_ia_task_scheduler"]
 
 [tool.ruff]
 target-version = "py313"

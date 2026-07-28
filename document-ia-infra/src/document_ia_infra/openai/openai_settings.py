@@ -16,6 +16,9 @@ class OpenAISettings(BaseDocumentIaSettings):
     OPENAI_MAX_RETRIES: int = Field(
         default=1, description="Maximum number of retries for OpenAI API requests"
     )
+    LIGHT_ON_OCR_PARALLEL_CALLS: int = Field(
+        default=3, description="Maximum number of parallel API calls for LightOn OCR"
+    )
 
 
 openai_settings = OpenAISettings()

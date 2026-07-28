@@ -16,12 +16,12 @@ body:multipart-form {
       "extract_content_ocr" : [
         {
           "param" : "model",
-          "value" : "tesseract"
+          "value" : "lightOn"
         }
       ]
     }
   '''
-  file: @file()
+  file: @file(/Users/nsagon/Projects/files/Avis_d_impot_2025_sur_les_revenus_2024.pdf)
 }
 
 vars:pre-request {

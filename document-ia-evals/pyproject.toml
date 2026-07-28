@@ -1,37 +1,57 @@
 [project]
 name = "document-ia-evals"
-version = "1.0.7"
+version = "1.0.8"
 description = ""
 authors = [
     {name = "Erwan BOEHM",email = "erwan.boehm@gmail.com"},
-    {name = "Olivier DULCY",email = "olivier.dulcy@beta.gouv.fr"}
+    {name = "Olivier DULCY",email = "olivier.dulcy@beta.gouv.fr"},
+    {name = "Nicolas Sagon",email = "nicolas.sagon@beta.gouv.fr"}
 ]
 readme = "README.md"
-packages = [{include = "document_ia_evals", from = "src"}]
-
-[tool.poetry.dependencies]
-python = "^3.13"
-streamlit = ">=1.51.0,<2.0.0"
-pandas = ">=2.3.3,<3.0.0"
-plotly = ">=6.4.0,<7.0.0"
-python-dotenv = ">=1.2.1,<2.0.0"
-label-studio-sdk = "2.0.14"
-requests = ">=2.32.5,<3.0.0"
-urllib3 = ">=2.5.0,<3.0.0"
-boto3 = "1.35.99"
-deepdiff = ">=8.1.1,<9.0.0"
-sqlalchemy = ">=2.0.23,<3.0.0"
-alembic = ">=1.13.0,<2.0.0"
-pydantic-settings = "^2.1.0"
-psycopg2-binary = ">=2.9.9,<3.0.0"
-document-ia-schemas = { path = "../document-ia-schemas", develop = false }
-document-ia-infra = { path = "../document-ia-infra", develop = false }
-document-ia-api = { path = "../document-ia-api", develop = false }
-
-[tool.poetry.group.dev.dependencies]
-ruff = "^0.12.11"
-pytest = "^8.4.1"
+requires-python = ">=3.13"
+dependencies = [
+    "streamlit == 1.56.0",
+    "pandas == 2.3.3",
+    "plotly == 6.7.0",
+    "python-dotenv == 1.2.2",
+    "label-studio-sdk == 2.0.14",
+    "requests == 2.34.2",
+    "urllib3 == 2.7.0",
+    "boto3 == 1.35.99",
+    "deepdiff == 8.6.2",
+    "sqlalchemy == 2.0.50",
+    "alembic == 1.18.4",
+    "pydantic-settings == 2.14.1",
+    "psycopg2-binary == 2.9.12",
+    "document-ia-schemas",
+    "document-ia-infra",
+    "document-ia-api",
+]
 
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "ruff == 0.12.12",
+    "pytest == 8.4.2",
+]
+
+[tool.uv]
+exclude-newer = "2 days"
+
+[tool.uv.sources.document-ia-schemas]
+path = "../document-ia-schemas"
+editable = true
+
+[tool.uv.sources.document-ia-infra]
+path = "../document-ia-infra"
+editable = true
+
+[tool.uv.sources.document-ia-api]
+path = "../document-ia-api"
+editable = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/document_ia_evals"]

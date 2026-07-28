@@ -107,16 +107,16 @@ Concurrency knobs:
 Prerequisites:
 - PostgreSQL, Redis, S3/MinIO (same services as the API). See the root `docker-compose.yml`.
 
-Install (Poetry):
+Install (UV):
 ```bash
 # In document-ia-worker/
-poetry install
+uv sync
 ```
 
 Run the worker:
 ```bash
 cd document-ia-worker
-poetry run python src/document_ia_worker/main.py
+uv run python src/document_ia_worker/main.py
 ```
 
 ---
@@ -133,7 +133,7 @@ Key paths:
 Run the snapshot tests:
 ```bash
 cd document-ia-worker
-poetry run pytest tests/unit/test_prompt_service.py -q
+uv run pytest tests/unit/test_prompt_service.py -q
 ```
 
 ### Regenerating snapshots
@@ -142,7 +142,7 @@ When a schema in `document-ia-schemas` changes (new field, renamed field, edited
 
 ```bash
 cd document-ia-worker
-poetry run python tests/fixtures/regenerate_extraction_prompt_fixtures.py
+uv run python tests/fixtures/regenerate_extraction_prompt_fixtures.py
 ```
 
 This rewrites **all** snapshots under `tests/snapshots/prompts/extraction/`. Review the `git diff` and commit only the intended changes.
@@ -150,10 +150,6 @@ This rewrites **all** snapshots under `tests/snapshots/prompts/extraction/`. Rev
 ---
 
 ## Environment Variables
-
-### Marker configuration
-- `MARKER_API_KEY` (secret, default: `None`) — API key for Marker service.
-- `MARKER_BASE_URL` (str, default: `None`) — Base URL for Marker API.
 
 ### Redis
 - `REDIS_HOST` (str, default: `"localhost"`)
@@ -274,6 +270,7 @@ Environment variables:
 Recommended rollout checklist:
 - Provision a dedicated analytics PostgreSQL database.
 - Set `ANALYTICS_*` variables on both API and worker apps.
+- Configure the `UV_NO_EDITABLE=1` environment variable to ensure local dependencies are installed in non-editable mode.
 - Ensure the scheduler process is enabled for `cron.json` jobs.
 - Start/restart API first so analytics migrations are applied.
 - Confirm worker logs show `ReplicateAnalytics` execution and replicated counts.

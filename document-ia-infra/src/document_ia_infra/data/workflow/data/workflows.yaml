@@ -23,7 +23,7 @@ x-definitions:
   llm_model: &llm_model
     type: string
     description: "Modèle LLM à utiliser pour l'inférence"
-    default: "albert-large"
+    default: "openweight-medium"
     enum: !inject LLMModel
 
   llm_temperature: &llm_temperature
