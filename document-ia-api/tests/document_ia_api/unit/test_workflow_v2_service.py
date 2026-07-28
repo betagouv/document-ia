@@ -33,8 +33,8 @@ def _workflow_with_rules() -> dict[str, Any]:
                     # Optional (has default)
                     "model": {
                         "type": "string",
-                        "default": "albert-large",
-                        "enum": ["albert-large", "albert-small"],
+                        "default": "openweight-medium",
+                        "enum": ["openweight-medium", "albert-small"],
                     },
                 },
             },
@@ -86,7 +86,7 @@ def test_resolve_workflow_configuration_merges_defaults_and_overrides(
     assert [document_type.value for document_type in classify.params.document_types] == [
         "cni"
     ]
-    assert extract.params.model.value == "albert-large"
+    assert extract.params.model.value == "openweight-medium"
     assert extract.params.document_type.value == "passeport"
 
 

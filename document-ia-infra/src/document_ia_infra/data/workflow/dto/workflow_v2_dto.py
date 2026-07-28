@@ -26,7 +26,7 @@ class OCRParams(BaseModel):
 
 class LLMClassifyParams(BaseModel):
     model: LLMModel = Field(
-        default=LLMModel.ALBERT_LARGE,
+        default=LLMModel.OPEN_WEIGHT_MEDIUM,
         description="Modèle LLM à utiliser pour l'inférence de classification",
     )
     temperature: float = Field(
@@ -44,7 +44,7 @@ class LLMClassifyParams(BaseModel):
 
 class LLMExtractParams(BaseModel):
     model: LLMModel = Field(
-        default=LLMModel.ALBERT_LARGE,
+        default=LLMModel.OPEN_WEIGHT_MEDIUM,
         description="Modèle LLM à utiliser pour l'inférence de l'extraction",
     )
     temperature: float = Field(

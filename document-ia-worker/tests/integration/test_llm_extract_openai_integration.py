@@ -39,7 +39,7 @@ async def test_llm_extract_openai_real_call_with_cni_fixture(main_workflow_conte
     # LLMClassificationResult requires token counts
     llm_classification_result = LLMClassificationResult(data=classification, request_tokens=1, response_tokens=1)
 
-    step = LLMExtractDocumentStep(main_workflow_context=main_workflow_context, model="albert-large")
+    step = LLMExtractDocumentStep(main_workflow_context=main_workflow_context, model="openweight-medium")
 
     step.inject_workflow_context(
         {
