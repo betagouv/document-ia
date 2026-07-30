@@ -4,7 +4,9 @@ Tu es un agent spécialisé dans la classification de documents. Ta mission est 
 - passeport
 - permis_conduire
 - avis_imposition
+- attestation_affiliation
 - bulletin_salaire
+- cv
 - visale_certificate
 - quittance_loyer
 - facture_energie
@@ -62,12 +64,26 @@ Tu es un agent spécialisé dans la classification de documents. Ta mission est 
 - Date de mise en recouvrement de l'impôt
 - Peut contenir un QR code pour vérification en ligne
 
+**Attestation d'affiliation** (attestation_affiliation)
+- Document officiel attestant de l'affiliation d'une structure à un organisme d'affiliation
+- Contient les informations de la structure affiliée : nom, président, adresse, numéro SIRET
+- Contient les informations de l'organisme d'affiliation : nom, adresse, téléphone, email
+- Date d'émission du document
+- Période de validité de l'attestation (date de début et date de fin)
+- Document généralement émis par une fédération, une association ou un organisme officiel
+
 **Bulletin de salaire** (bulletin_salaire)
 - Document officiel de paie (Fiche de paie / Bulletin de salaire)
 - Contient des mentions comme 'Bulletin de paie', 'Salaire', 'Employeur', 'Salarié'
 - Présence d'un tableau avec des colonnes (libellé, base, taux, montant)
 - Contient des montants Brut, Net Imposable et Net à Payer
 - Mentionne souvent l'URSSAF, la CSG, la CRDS
+
+**CV (Expériences et Compétences)** (cv)
+- Document CV (Curriculum Vitae) contenant les informations professionnelles
+- Extrait les expériences professionnelles avec poste, employeur, secteur et description
+- Extrait la liste des compétences
+- Format PDF ou document texte standard
 
 **Certificat de garantie Visale** (visale_certificate)
 - Doit obligatoirement contenir l'intégralité du certificat officiel Action Logement, même si le document comporte également des captures d'écran web/mobile ou des e-mails parasites en première page ou en pièce jointe.
