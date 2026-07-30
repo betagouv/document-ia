@@ -3,7 +3,10 @@ from pathlib import Path
 
 import pytest
 
-from document_ia_worker.core.prompt.prompt_configuration import SupportedDocumentType
+from document_ia_worker.core.prompt.prompt_configuration import (
+    GENERIC_CLASSIFICATION_MODEL,
+    SupportedDocumentType,
+)
 from document_ia_worker.core.prompt.prompt_service import PromptService
 from document_ia_worker.exception.unsupported_document_type import (
     UnsupportedDocumentType,
@@ -11,6 +14,9 @@ from document_ia_worker.exception.unsupported_document_type import (
 
 EXPECTED_EXTRACTION_PROMPTS_DIR = (
     Path(__file__).resolve().parents[1] / "snapshots" / "prompts" / "extraction"
+)
+EXPECTED_CLASSIFICATION_PROMPTS_DIR = (
+    Path(__file__).resolve().parents[1] / "snapshots" / "prompts" / "classification"
 )
 
 
@@ -61,6 +67,24 @@ class TestPromptService:
         assert '"document_type"' in rendered
         assert '"confidence"' in rendered
         assert '"explanation"' in rendered
+
+    def test_classification_prompt_matches_generic_snapshot(self):
+        service = PromptService()
+
+        rendered = service.get_classification_prompt(GENERIC_CLASSIFICATION_MODEL)
+
+        expected_prompt_path = EXPECTED_CLASSIFICATION_PROMPTS_DIR / "generic.txt"
+        assert (
+            expected_prompt_path.exists()
+        ), "Missing expected classification prompt fixture"
+        expected_prompt_text = expected_prompt_path.read_text(
+            encoding="utf-8"
+        ).rstrip("\n")
+        assert rendered == expected_prompt_text, (
+            "Rendered classification prompt does not match expected fixture. "
+            "Use the script `regenerate_extraction_prompt_fixtures.py` to update "
+            "the expected prompt fixture if intentional changes were made"
+        )
 
     def test_classification_prompt_is_cwd_independent(self, tmp_path, monkeypatch):
         # Change CWD to a temporary directory to ensure PromptService resolves paths relative to its file
