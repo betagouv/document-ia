@@ -13,9 +13,7 @@
   ],
   "extraPaths": [
     "src",
-    "src/document_ia_evals",
-    "../document-ia-streamlit-common/src",
-    "../document-ia-schemas/src",
-    "../document-ia-infra/src"
+    "src/document_ia_streamlit_common",
+    "../document-ia-api/src"
   ]
 }

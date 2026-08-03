@@ -43,6 +43,16 @@ jobs:
             pythonpath: document-ia-evals/src
             needs_docker_stack: false
             needs_tesseract: false
+          - name: streamlit-common
+            project: document-ia-streamlit-common
+            pythonpath: document-ia-streamlit-common/src
+            needs_docker_stack: false
+            needs_tesseract: false
+          - name: playground
+            project: document-ia-playground
+            pythonpath: document-ia-playground/src
+            needs_docker_stack: false
+            needs_tesseract: false
     env:
       # Python path per project
       PYTHONPATH: ${{ matrix.pythonpath }}

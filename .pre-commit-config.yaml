@@ -4,9 +4,9 @@ repos:
     hooks:
       - id: ruff
         args: [ document-ia-api, --fix ]
-        files: ^(document-ia-api|document-ia-infra|document-ia-worker)/src/.*.py$
+        files: ^(document-ia-api|document-ia-infra|document-ia-worker|document-ia-evals|document-ia-playground|document-ia-streamlit-common)/src/.*.py$
       - id: ruff-format
-        files: ^(document-ia-api|document-ia-infra|document-ia-worker)/src/.*.py$
+        files: ^(document-ia-api|document-ia-infra|document-ia-worker|document-ia-evals|document-ia-playground|document-ia-streamlit-common)/src/.*.py$
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -65,3 +65,15 @@ repos:
         pass_filenames: false
         files: ^document-ia-evals/pyproject.toml$
         entry: bash -c 'cd document-ia-evals && uv lock'
+      - id: uv-lock-streamlit-common
+        name: uv lock (streamlit-common)
+        language: system
+        pass_filenames: false
+        files: ^document-ia-streamlit-common/pyproject.toml$
+        entry: bash -c 'cd document-ia-streamlit-common && uv lock'
+      - id: uv-lock-playground
+        name: uv lock (playground)
+        language: system
+        pass_filenames: false
+        files: ^document-ia-playground/pyproject.toml$
+        entry: bash -c 'cd document-ia-playground && uv lock'

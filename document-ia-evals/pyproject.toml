@@ -26,6 +26,7 @@ dependencies = [
     "document-ia-schemas",
     "document-ia-infra",
     "document-ia-api",
+    "document-ia-streamlit-common",
 ]
 
 [build-system]
@@ -51,6 +52,10 @@ editable = true
 
 [tool.uv.sources.document-ia-api]
 path = "../document-ia-api"
+editable = true
+
+[tool.uv.sources.document-ia-streamlit-common]
+path = "../document-ia-streamlit-common"
 editable = true
 
 [tool.hatch.build.targets.wheel]
