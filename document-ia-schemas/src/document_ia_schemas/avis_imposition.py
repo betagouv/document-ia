@@ -1,4 +1,3 @@
-from datetime import date
 from typing import Optional, Type
 from datetime import date
 from document_ia_schemas.base_document_type_schema import FuzzyDate
