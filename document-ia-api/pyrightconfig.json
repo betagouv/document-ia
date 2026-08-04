@@ -9,11 +9,12 @@
   ],
   "ignore": [
     "**/pycache",
-    "**/tests/**"
+    "**/tests/**",
+    "alembic/versions"
   ],
   "extraPaths": [
     "src",
-    "src/document_ia_evals",
+    "src/document_ia_api",
     "../document-ia-schemas/src",
     "../document-ia-infra/src"
   ]

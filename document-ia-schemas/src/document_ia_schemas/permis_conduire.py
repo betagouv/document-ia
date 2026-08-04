@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Optional, Type
 
 from pydantic import BaseModel, Field
@@ -84,11 +85,11 @@ class PermisConduireExtractSchema(BaseDocumentTypeSchema[PermisConduireModel]):
     examples: list[PermisConduireModel] = [
         PermisConduireModel(
             numero_document="1234567890123456789",
-            date_delivrance="2010-06-15",
-            date_expiration="2030-06-15",
+            date_delivrance=date(2010,6,15),
+            date_expiration=date(2030,6,15),
             nom="DUPONT",
             prenom="JEAN",
-            date_naissance="1990-01-01",
+            date_naissance=date(1990,1,1),
             lieu_naissance="PARIS",
             adresse="123 Rue de la Paix, 75008 Paris",
         )
