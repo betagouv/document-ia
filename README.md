@@ -48,12 +48,18 @@ uv sync
 uv run python src/document_ia_worker/main.py
 ```
 
-Optional: run the evaluation app in a third terminal:
+Optional: run the evaluation app or public playground in another terminal:
 
 ```bash
 cd document-ia-evals
 uv sync
 uv run streamlit run src/document_ia_evals/app.py
+```
+
+```bash
+cd document-ia-playground
+uv sync
+uv run streamlit run src/document_ia_playground/app.py
 ```
 
 Useful local URLs:
@@ -62,6 +68,7 @@ Useful local URLs:
 - API ReDoc: `http://localhost:8000/redoc`
 - MinIO console: `http://localhost:9001`
 - Streamlit evals: `http://localhost:8501`
+- Streamlit playground: `http://localhost:8501` (or next available port)
 
 ## Index
 
@@ -104,6 +111,8 @@ Client
 | `document-ia-schemas` | Pydantic document schemas used for extraction prompts and validation | [document-ia-schemas/README.md](./document-ia-schemas/README.md) |
 | `document-ia-infra` | Shared infrastructure code used by API and worker | [document-ia-infra/README.md](./document-ia-infra/README.md) |
 | `document-ia-evals` | Streamlit application for evaluating Document IA outputs | [document-ia-evals/README.md](./document-ia-evals/README.md) |
+| `document-ia-playground` | Public Streamlit playground for interactive API workflow testing and execution retrieval | [document-ia-playground/README.md](./document-ia-playground/README.md) |
+| `document-ia-streamlit-common` | Shared Streamlit UI components and API client utilities | [document-ia-streamlit-common/README.md](./document-ia-streamlit-common/README.md) |
 | `docker-compose.yml` | Local PostgreSQL, Redis, MinIO, MockServer, and S3 bucket setup | [docker-compose.yml](./docker-compose.yml) |
 | `env.example` | Reference environment variables for local development | [env.example](./env.example) |
 
@@ -122,6 +131,8 @@ Start here depending on what you need:
 | Document schema package and supported document types | [document-ia-schemas/README.md](./document-ia-schemas/README.md) |
 | Evaluation app | [document-ia-evals/README.md](./document-ia-evals/README.md) |
 | Evaluation metrics | [document-ia-evals/METRICS.md](./document-ia-evals/METRICS.md) |
+| Public API Playground | [document-ia-playground/README.md](./document-ia-playground/README.md) |
+| Shared Streamlit Library | [document-ia-streamlit-common/README.md](./document-ia-streamlit-common/README.md) |
 
 ## Local Infrastructure
 
@@ -195,6 +206,13 @@ Run the evaluation app:
 ```bash
 cd document-ia-evals
 uv run streamlit run src/document_ia_evals/app.py
+```
+
+Run the public playground app:
+
+```bash
+cd document-ia-playground
+uv run streamlit run src/document_ia_playground/app.py
 ```
 
 Open the Bruno collection:

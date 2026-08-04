@@ -1,0 +1,40 @@
+[project]
+name = "document-ia-playground"
+version = "1.0.0"
+description = "Playground interactif public pour l'API Document IA"
+authors = [
+    {name = "Nicolas Sagon", email = "nicolas.sagon@beta.gouv.fr"}
+]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "streamlit == 1.56.0",
+    "requests == 2.34.2",
+    "pydantic == 2.13.4",
+    "document-ia-streamlit-common",
+    "document-ia-api",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "ruff == 0.12.12",
+    "pytest == 8.4.2",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/document_ia_playground"]
+
+[tool.uv]
+exclude-newer = "2 days"
+
+[tool.uv.sources.document-ia-streamlit-common]
+path = "../document-ia-streamlit-common"
+editable = true
+
+[tool.uv.sources.document-ia-api]
+path = "../document-ia-api"
+editable = true

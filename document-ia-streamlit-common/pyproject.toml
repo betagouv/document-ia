@@ -1,0 +1,35 @@
+[project]
+name = "document-ia-streamlit-common"
+version = "1.0.0"
+description = "Composants et utilitaires Streamlit partagés pour Document IA"
+authors = [
+    {name = "Nicolas Sagon", email = "nicolas.sagon@beta.gouv.fr"}
+]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "streamlit >= 1.40.0",
+    "requests >= 2.31.0",
+    "pydantic >= 2.0.0",
+    "document-ia-api",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "ruff == 0.12.12",
+    "pytest == 8.4.2",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/document_ia_streamlit_common"]
+
+[tool.uv]
+exclude-newer = "2 days"
+
+[tool.uv.sources.document-ia-api]
+path = "../document-ia-api"
+editable = true
