@@ -236,7 +236,15 @@ class WorkflowV2Service:
             resolved_params: dict[str, Any] = {}
             for param_name, rule in params.items():
                 if param_name in override_map:
-                    resolved_params[param_name] = override_map[param_name]
+                    configured_value = (
+                        rule.get("default")
+                        if isinstance(rule, dict)
+                        else None
+                    )
+                    resolved_params[param_name] = self._merge_override_value(
+                        configured_value,
+                        override_map[param_name],
+                    )
                     continue
 
                 if isinstance(rule, dict) and "default" in rule:
@@ -320,6 +328,19 @@ class WorkflowV2Service:
             )
 
         return cast(dict[str, Any], metadata)
+
+    @staticmethod
+    def _merge_override_value(configured: Any, override: Any) -> Any:
+        """Merge object overrides so omitted nested values keep their defaults."""
+        if not isinstance(configured, dict) or not isinstance(override, dict):
+            return override
+
+        merged = dict(configured)
+        for key, value in override.items():
+            merged[key] = WorkflowV2Service._merge_override_value(
+                configured.get(key), value
+            )
+        return merged
 
     @staticmethod
     async def _read_file_content(file: UploadFile) -> bytes:

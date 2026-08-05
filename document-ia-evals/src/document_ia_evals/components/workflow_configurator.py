@@ -127,8 +127,50 @@ def render_workflow_configurator(
                 description = param_schema.get("description", "")
                 default_val = param_schema.get("default")
 
+                # Object parameters are sent as nested JSON objects. This is
+                # used by preprocess_file.params.yoloworld.
+                if param_schema.get("type") == "object" and isinstance(
+                    default_val, dict
+                ):
+                    value = {}
+                    for nested_name, nested_default in default_val.items():
+                        nested_key = (
+                            f"{step_action}_{param_name}_{nested_name}{key_suffix}"
+                        )
+                        nested_label = f"{param_name}.{nested_name}"
+                        if isinstance(nested_default, bool):
+                            nested_value = st.checkbox(
+                                nested_label,
+                                value=nested_default,
+                                key=nested_key,
+                            )
+                        elif isinstance(nested_default, int) and not isinstance(
+                            nested_default, bool
+                        ):
+                            nested_value = st.number_input(
+                                nested_label,
+                                value=nested_default,
+                                step=1,
+                                format="%d",
+                                key=nested_key,
+                            )
+                        elif isinstance(nested_default, float):
+                            nested_value = st.number_input(
+                                nested_label,
+                                value=nested_default,
+                                step=0.1,
+                                key=nested_key,
+                            )
+                        else:
+                            nested_value = st.text_input(
+                                nested_label,
+                                value=str(nested_default),
+                                key=nested_key,
+                            )
+                        value[nested_name] = nested_value
+
                 # Check for oneOf
-                if "oneOf" in param_schema:
+                elif "oneOf" in param_schema:
                     # Detect if it's the "all" string vs array of enums
                     string_all_option = None
                     array_option = None
@@ -173,6 +215,16 @@ def render_workflow_configurator(
                         f"{param_name} ({description})",
                         options=options,
                         index=index,
+                        key=f"{step_action}_{param_name}{key_suffix}",
+                    )
+                elif param_schema.get("type") == "integer":
+                    value = st.number_input(
+                        f"{param_name} - {description}",
+                        value=(
+                            int(default_val) if default_val is not None else 0
+                        ),
+                        step=1,
+                        format="%d",
                         key=f"{step_action}_{param_name}{key_suffix}",
                     )
                 elif param_schema.get("type") == "float":

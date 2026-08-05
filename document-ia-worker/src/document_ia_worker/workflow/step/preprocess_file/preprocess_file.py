@@ -4,6 +4,9 @@ from pathlib import Path
 from typing import Optional, Any, Iterable, Protocol, runtime_checkable, cast
 
 from pymupdf import pymupdf, Document
+from PIL import Image
+
+from document_ia_infra.data.workflow.dto.workflow_v2_dto import PreprocessFileParams
 
 from document_ia_worker.workflow.main_workflow_context import (
     MainWorkflowContext,
@@ -18,6 +21,7 @@ from document_ia_worker.workflow.step.step_result.download_file_result import (
 from document_ia_worker.workflow.step.step_result.preprocess_file_result import (
     PreprocessFileResult,
 )
+from document_ia_worker.core.preprocessing.yoloworld_crop import yoloworld_crop_image
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +51,13 @@ class PageLike(Protocol):
 class PreprocessFileStep(BaseFileManipulationStep[PreprocessFileResult]):
     download_file_result: Optional[DownloadFileResult] = None
 
-    def __init__(self, main_workflow_context: MainWorkflowContext):
+    def __init__(
+        self,
+        main_workflow_context: MainWorkflowContext,
+        params: Optional[PreprocessFileParams] = None,
+    ):
         super().__init__(main_workflow_context, subfolder="preprocess")
+        self.params = params or PreprocessFileParams()
         self.targeted_dpi = 180
         self.max_long_edge = 1800
         self.max_pixel_size = 2_000_000
@@ -78,12 +87,42 @@ class PreprocessFileStep(BaseFileManipulationStep[PreprocessFileResult]):
 
         if self.download_file_result.content_type == "application/pdf":
             logger.info("File is a PDF, preprocessing accordingly.")
-            return self._preprocess_pdf(), None
+            result = self._preprocess_pdf()
         else:
             logger.info("File is a Picture, no preprocessing needed.")
-            return PreprocessFileResult(
+            result = PreprocessFileResult(
                 output_files_path=[self.download_file_result.file_path]
-            ), None
+            )
+
+        if self.params.yoloworld.enabled:
+            result = self._apply_yoloworld(result)
+
+        return result, None
+
+    def _apply_yoloworld(
+        self, preprocess_result: PreprocessFileResult
+    ) -> PreprocessFileResult:
+        yolo_params = self.params.yoloworld
+        output_paths: list[str] = []
+        out_dir = Path(self.tmp_folder_path)
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        for index, file_path in enumerate(preprocess_result.output_files_path, start=1):
+            source_path = Path(file_path)
+            output_path = out_dir / f"{source_path.stem}_{index}_yoloworld_crop.png"
+            with Image.open(source_path) as image:
+                cropped_image = yoloworld_crop_image(
+                    image,
+                    class_name=yolo_params.class_name,
+                    margin=yolo_params.margin,
+                    confidence_threshold=yolo_params.confidence_threshold,
+                    image_size=yolo_params.image_size,
+                )
+                cropped_image.save(output_path, format="PNG")
+                cropped_image.close()
+            output_paths.append(str(output_path))
+
+        return PreprocessFileResult(output_files_path=output_paths)
 
     def _preprocess_pdf(self) -> PreprocessFileResult:
         image_paths: list[str] = []

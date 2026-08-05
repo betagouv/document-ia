@@ -61,6 +61,37 @@ class LLMExtractParams(BaseModel):
     )
 
 
+class YoloWorldParams(BaseModel):
+    enabled: bool = Field(
+        default=False,
+        description="Active ou non le preprocessing YOLO-World",
+    )
+    class_name: str = Field(
+        default="book",
+        description="Classe YoloWorld à détecter",
+    )
+    margin: int = Field(
+        default=20,
+        ge=0,
+        description="Marge en pixels ajoutée autour de la zone détectée",
+    )
+    confidence_threshold: float = Field(
+        default=0.25,
+        ge=0.0,
+        le=1.0,
+        description="Seuil de confiance minimal pour conserver une détection",
+    )
+    image_size: Optional[int] = Field(
+        default=None,
+        gt=0,
+        description="Taille d'image optionnelle passée à Ultralytics",
+    )
+
+
+class PreprocessFileParams(BaseModel):
+    yoloworld: YoloWorldParams = Field(default_factory=YoloWorldParams)
+
+
 # ==========================================
 # 3. DÉFINITION DES ACTIONS (Discriminated Union)
 # ==========================================
@@ -78,6 +109,7 @@ class DownloadFileStepDto(BaseWorkflowStepDto):
 
 class PreprocessFileStepDto(BaseWorkflowStepDto):
     action: Literal["preprocess_file"]
+    params: PreprocessFileParams = Field(default_factory=PreprocessFileParams)
 
 
 class SaveWorkflowResultStepDto(BaseWorkflowStepDto):

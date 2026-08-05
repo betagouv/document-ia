@@ -90,6 +90,54 @@ def test_resolve_workflow_configuration_merges_defaults_and_overrides(
     assert extract.params.document_type.value == "passeport"
 
 
+def test_resolve_workflow_configuration_merges_nested_preprocess_override(
+    service: WorkflowV2Service,
+):
+    payload = WorkflowV2OverridePayload.model_validate(
+        {
+            "preprocess_file": [
+                {
+                    "param": "yoloworld",
+                    "value": {"enabled": True, "class_name": "document"},
+                }
+            ],
+            "llm_extract_data": [
+                {"param": "document_type", "value": "cni"},
+            ],
+        }
+    )
+    raw_workflow = {
+        **_workflow_with_rules(),
+        "steps": [
+            {
+                "action": "preprocess_file",
+                "params": {
+                    "yoloworld": {
+                        "type": "object",
+                        "default": {
+                            "enabled": False,
+                            "class_name": "book",
+                            "margin": 20,
+                        },
+                    }
+                },
+            },
+            *_workflow_with_rules()["steps"],
+        ],
+    }
+
+    resolved = service._resolve_workflow_configuration(
+        raw_workflow=raw_workflow,
+        override_payload=payload,
+    )
+
+    preprocess = resolved.steps[0].params.yoloworld
+    assert preprocess.enabled is True
+    assert preprocess.model_dump().get("model") is None
+    assert preprocess.class_name == "document"
+    assert preprocess.margin == 20
+
+
 @pytest.mark.asyncio
 async def test_execute_workflow_emits_started_event_with_workflow_configuration(
     monkeypatch: pytest.MonkeyPatch,
