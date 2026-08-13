@@ -32,7 +32,6 @@ from infra.database.migration_service import migration_service
 from infra.redis_service import redis_service
 from infra.s3_service import s3_service
 
-MAX_BODY_BYTES = 2048
 
 setup_logging()
 
