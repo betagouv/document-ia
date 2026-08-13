@@ -1,3 +1,4 @@
+import argparse
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -125,6 +126,17 @@ app.add_middleware(RequestIDMiddleware)
 setup_exception_handlers(app)
 
 
+def parse_args() -> argparse.Namespace:
+    """Parse command-line options for the embedded Uvicorn server."""
+    parser = argparse.ArgumentParser(description="Run the Document IA API")
+    parser.add_argument(
+        "--reload",
+        action="store_true",
+        help="Enable automatic reloading when source files change.",
+    )
+    return parser.parse_args()
+
+
 @app.get("/redoc", include_in_schema=False)
 async def redoc_html():
     # FastAPI expose openapi_url et title mais pyright ne les connaît pas => ignore.
@@ -146,10 +158,12 @@ app.include_router(
 if __name__ == "__main__":
     import uvicorn
 
+    args = parse_args()
+
     uvicorn.run(  # type: ignore
         "main:app",
         host=settings.SERVER_HOST,
         port=settings.SERVER_PORT,
-        reload=True,
+        reload=args.reload,
         log_config=None,
     )
