@@ -53,6 +53,14 @@ cd document-ia-api
 uv run python src/document_ia_api/main.py
 ```
 
+Enable Uvicorn's automatic reload during local development with the `--reload`
+flag:
+
+```bash
+cd document-ia-api
+uv run python src/document_ia_api/main.py --reload
+```
+
 Uvicorn alternative:
 
 ```bash
