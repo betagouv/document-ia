@@ -11,9 +11,13 @@ FRA_TRAINEDDATA_PATH="$TESSDATA_DIR/fra.traineddata"
 echo "[post_compile] copy lib to vendor folder"
 cd "$APP_ROOT"
 mkdir -p vendor
+cp -r "$APP_ROOT/../document-ia-schemas" vendor/
 cp -r "$APP_ROOT/../document-ia-infra" vendor/
 
+export UV_SYSTEM_PYTHON=1
+
 echo "[post_compile] install local lib"
+uv pip install -e vendor/document-ia-schemas
 uv pip install -e vendor/document-ia-infra
 
 mkdir -p "$MODEL_SLUG_DIR" "$TESSDATA_DIR"
