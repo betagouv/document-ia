@@ -43,6 +43,16 @@ x-definitions:
     default: 2ddoc
     enum: !inject BarcodeExtractionType
 
+  yoloworld_preprocessing: &yoloworld_preprocessing
+    type: object
+    description: "Configuration optionnelle du preprocessing YOLO-World."
+    default:
+      enabled: false
+      class_name: book
+      margin: 20
+      confidence_threshold: 0.25
+      image_size: 1280
+
 workflows:
 - id: document-classification-extraction-v2
   name: Document Classification and extraction v2 (Configurable)
@@ -60,6 +70,8 @@ workflows:
     - action: download_file
 
     - action: preprocess_file
+      params:
+        yoloworld: *yoloworld_preprocessing
 
     - action: extract_barcode_data
       params:
@@ -98,6 +110,8 @@ workflows:
     - action: download_file
 
     - action: preprocess_file
+      params:
+        yoloworld: *yoloworld_preprocessing
 
     - action: extract_barcode_data
       params:
@@ -129,6 +143,8 @@ workflows:
   steps:
     - action: download_file
     - action: preprocess_file
+      params:
+        yoloworld: *yoloworld_preprocessing
     - action: extract_barcode_data
       params:
         barcode_type: *barcode_type
@@ -148,6 +164,8 @@ workflows:
   steps:
     - action: download_file
     - action: preprocess_file
+      params:
+        yoloworld: *yoloworld_preprocessing
     - action: extract_barcode_data
       params:
         barcode_type: *barcode_type

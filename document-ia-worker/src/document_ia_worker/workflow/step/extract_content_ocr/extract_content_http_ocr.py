@@ -8,19 +8,19 @@ from document_ia_worker.workflow.main_workflow_context import (
     StepMetadata,
 )
 from document_ia_worker.workflow.step.base_step import BaseStep
-from document_ia_worker.workflow.step.step_result.download_file_result import (
-    DownloadFileResult,
-)
 from document_ia_worker.workflow.step.step_result.ocr_result import (
     OcrResult,
     OcrResultPage,
+)
+from document_ia_worker.workflow.step.step_result.preprocess_file_result import (
+    PreprocessFileResult,
 )
 
 logger = logging.getLogger(__name__)
 
 
 class ExtractContentHttpOcrStep(BaseStep[OcrResult]):
-    download_file_result: Optional[DownloadFileResult] = None
+    preprocess_file_result: PreprocessFileResult | None = None
 
     def __init__(
         self,
@@ -35,22 +35,30 @@ class ExtractContentHttpOcrStep(BaseStep[OcrResult]):
 
     async def _prepare_step(self):
         logger.info(f"Preparing ocr extraction step for file: {self.execution_id}")
-        if self.download_file_result is None:
-            raise ValueError("DownloadFileReturnData not injected in context")
+        if self.preprocess_file_result is None:
+            raise ValueError("PreprocessFileResult not injected in context")
 
     def inject_workflow_context(self, context: dict[str, Any]):
-        not_typed_data = context.get(DownloadFileResult.__name__)
-        if not_typed_data is None or not isinstance(not_typed_data, DownloadFileResult):
-            raise ValueError("DownloadFileResult not found in context")
-        self.download_file_result = not_typed_data
+        self.preprocess_file_result = self._get_safe_workflow_context_key(
+            PreprocessFileResult, context
+        )
 
     async def _execute_internal(self) -> tuple[OcrResult, Optional[StepMetadata]]:
-        assert self.download_file_result is not None
-        result = await self.http_ocr_service.extract_text_from_image(
-            self.download_file_result.file_path, self.download_file_result.content_type
-        )
-        if not result.success:
-            raise RetryableException("HTTP OCR extraction failed")
-        return OcrResult(
-            pages=[OcrResultPage(page_number=1, text=result.content, has_failed=False)]
-        ), None
+        assert self.preprocess_file_result is not None
+        pages: list[OcrResultPage] = []
+        for index, file_path in enumerate(
+            self.preprocess_file_result.output_files_path, start=1
+        ):
+            result = await self.http_ocr_service.extract_text_from_image(
+                file_path, "image/png"
+            )
+            if not result.success:
+                raise RetryableException("HTTP OCR extraction failed")
+            pages.append(
+                OcrResultPage(
+                    page_number=index,
+                    text=result.content,
+                    has_failed=False,
+                )
+            )
+        return OcrResult(pages=pages), None
