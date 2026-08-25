@@ -155,11 +155,21 @@ def build_extract_content_ocr_step(
 ) -> BaseStep[Any]:
     match step_params.model:
         case OCRModel.TESSERACT:
-            return ExtractContentOcrStep(workflow_context)
+            return ExtractContentOcrStep(
+                workflow_context,
+                pdf_inspector_enabled=step_params.pdf_inspector.enabled,
+            )
         case OCRModel.MISTRAL:
-            return ExtractContentHttpOcrStep(workflow_context, MistralHttpOcrService())
+            return ExtractContentHttpOcrStep(
+                workflow_context,
+                MistralHttpOcrService(),
+                pdf_inspector_enabled=step_params.pdf_inspector.enabled,
+            )
         case OCRModel.LIGHT_ON:
-            return ExtractContentOcrLightOnStep(workflow_context)
+            return ExtractContentOcrLightOnStep(
+                workflow_context,
+                pdf_inspector_enabled=step_params.pdf_inspector.enabled,
+            )
         case _:
             raise ValueError(f"Unknown OCR model: {step_params.model}")
 

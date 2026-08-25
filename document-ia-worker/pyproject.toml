@@ -28,6 +28,7 @@ dependencies = [
     "qrdet == 2.5",
     "pyright == 1.1.409",
     "clip",
+    "pdf-inspector>=0.2.7",
 ]
 
 [build-system]
