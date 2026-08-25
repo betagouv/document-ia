@@ -21,6 +21,10 @@ from document_ia_worker.workflow.step.step_result.ocr_result import (
 from document_ia_worker.workflow.step.step_result.preprocess_file_result import (
     PreprocessFileResult,
 )
+from document_ia_worker.workflow.step.step_result.download_file_result import (
+    DownloadFileResult,
+)
+from document_ia_worker.core.ocr.pdf_inspector import extract_pdf_text_if_available
 from document_ia_worker.workflow.step.step_result.barcode_result import BarcodeResult
 from document_ia_infra.data.event.schema.barcode import BarcodeVariant
 
@@ -29,10 +33,17 @@ logger = logging.getLogger(__name__)
 
 class ExtractContentOcrLightOnStep(BaseStep[OcrResult]):
     preprocess_file_result: Optional[PreprocessFileResult] = None
+    download_file_result: Optional[DownloadFileResult] = None
     barcode_result: Optional[BarcodeResult] = None
 
-    def __init__(self, main_workflow_context: MainWorkflowContext):
+    def __init__(
+        self,
+        main_workflow_context: MainWorkflowContext,
+        *,
+        pdf_inspector_enabled: bool = False,
+    ):
         self.execution_id = main_workflow_context.execution_id
+        self.pdf_inspector_enabled = pdf_inspector_enabled
 
     def get_context_result_key(self) -> str:
         return OcrResult.__name__
@@ -51,6 +62,9 @@ class ExtractContentOcrLightOnStep(BaseStep[OcrResult]):
         ):
             raise ValueError("PreprocessFileReturnData not found in context")
         self.preprocess_file_result = not_typed_data
+        self.download_file_result = self._get_not_mandatory_workflow_context_key(
+            DownloadFileResult, context
+        )
 
         barcode_data = context.get(BarcodeResult.__name__)
         if barcode_data is not None and isinstance(barcode_data, BarcodeResult):
@@ -58,6 +72,14 @@ class ExtractContentOcrLightOnStep(BaseStep[OcrResult]):
 
     async def _execute_internal(self) -> tuple[OcrResult, Optional[StepMetadata]]:
         assert self.preprocess_file_result is not None
+        if self.download_file_result is not None:
+            native_result = extract_pdf_text_if_available(
+                self.download_file_result.file_path,
+                enabled=self.pdf_inspector_enabled,
+                content_type=self.download_file_result.content_type,
+            )
+            if native_result is not None:
+                return native_result, None
 
         api_key = (
             openai_settings.OPENAI_API_KEY.get_secret_value()

@@ -17,11 +17,19 @@ class BarcodeParams(BaseModel):
     )
 
 
+class PdfInspectorParams(BaseModel):
+    enabled: bool = Field(
+        default=False,
+        description="Utilise le texte natif du PDF avant de déclencher l'OCR",
+    )
+
+
 class OCRParams(BaseModel):
     model: OCRModel = Field(
         default=OCRModel.MISTRAL,
         description="Modèle OCR à utiliser pour l'extraction de contenu textuel",
     )
+    pdf_inspector: PdfInspectorParams = Field(default_factory=PdfInspectorParams)
 
 
 class LLMClassifyParams(BaseModel):

@@ -93,3 +93,40 @@ def test_preprocess_file_accepts_custom_yoloworld_params():
     assert params.margin == 5
     assert params.confidence_threshold == 0.7
     assert params.image_size == 640
+
+
+def test_extract_content_ocr_accepts_pdf_inspector_with_default_disabled():
+    payload = _base_workflow(
+        steps=[
+            {"action": "download_file"},
+            {
+                "action": "extract_content_ocr",
+                "params": {"model": "tesseract"},
+            },
+            {"action": "save_workflow_result"},
+        ]
+    )
+
+    dto = WorkflowV2Dto.model_validate(payload)
+
+    assert dto.steps[1].params.pdf_inspector.enabled is False
+
+
+def test_extract_content_ocr_accepts_enabled_pdf_inspector():
+    payload = _base_workflow(
+        steps=[
+            {"action": "download_file"},
+            {
+                "action": "extract_content_ocr",
+                "params": {
+                    "model": "tesseract",
+                    "pdf_inspector": {"enabled": True},
+                },
+            },
+            {"action": "save_workflow_result"},
+        ]
+    )
+
+    dto = WorkflowV2Dto.model_validate(payload)
+
+    assert dto.steps[1].params.pdf_inspector.enabled is True

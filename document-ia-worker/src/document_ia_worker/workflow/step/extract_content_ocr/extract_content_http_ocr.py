@@ -15,20 +15,28 @@ from document_ia_worker.workflow.step.step_result.ocr_result import (
 from document_ia_worker.workflow.step.step_result.preprocess_file_result import (
     PreprocessFileResult,
 )
+from document_ia_worker.workflow.step.step_result.download_file_result import (
+    DownloadFileResult,
+)
+from document_ia_worker.core.ocr.pdf_inspector import extract_pdf_text_if_available
 
 logger = logging.getLogger(__name__)
 
 
 class ExtractContentHttpOcrStep(BaseStep[OcrResult]):
     preprocess_file_result: PreprocessFileResult | None = None
+    download_file_result: DownloadFileResult | None = None
 
     def __init__(
         self,
         main_workflow_context: MainWorkflowContext,
         http_ocr_service: BaseHttpOCRService[Any],
+        *,
+        pdf_inspector_enabled: bool = False,
     ):
         self.execution_id = main_workflow_context.execution_id
         self.http_ocr_service = http_ocr_service
+        self.pdf_inspector_enabled = pdf_inspector_enabled
 
     def get_context_result_key(self) -> str:
         return OcrResult.__name__
@@ -42,9 +50,20 @@ class ExtractContentHttpOcrStep(BaseStep[OcrResult]):
         self.preprocess_file_result = self._get_safe_workflow_context_key(
             PreprocessFileResult, context
         )
+        self.download_file_result = self._get_not_mandatory_workflow_context_key(
+            DownloadFileResult, context
+        )
 
     async def _execute_internal(self) -> tuple[OcrResult, Optional[StepMetadata]]:
         assert self.preprocess_file_result is not None
+        if self.download_file_result is not None:
+            native_result = extract_pdf_text_if_available(
+                self.download_file_result.file_path,
+                enabled=self.pdf_inspector_enabled,
+                content_type=self.download_file_result.content_type,
+            )
+            if native_result is not None:
+                return native_result, None
         pages: list[OcrResultPage] = []
         for index, file_path in enumerate(
             self.preprocess_file_result.output_files_path, start=1

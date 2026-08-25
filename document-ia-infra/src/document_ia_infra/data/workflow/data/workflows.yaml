@@ -37,6 +37,12 @@ x-definitions:
     default: mistral
     enum: !inject OCRModel
 
+  pdf_inspector_ocr: &pdf_inspector_ocr
+    type: object
+    description: "Utilisation optionnelle du texte natif du PDF avant l'OCR."
+    default:
+      enabled: false
+
   barcode_type: &barcode_type
     type: string
     description: "Type d'extraction de données de code-barres"
@@ -80,6 +86,7 @@ workflows:
     - action: extract_content_ocr
       params:
         model: *ocr_model
+        pdf_inspector: *pdf_inspector_ocr
 
     - action: llm_classify_document
       params:
@@ -120,6 +127,7 @@ workflows:
     - action: extract_content_ocr
       params:
         model: *ocr_model
+        pdf_inspector: *pdf_inspector_ocr
 
     - action: llm_extract_data
       params:
@@ -172,6 +180,7 @@ workflows:
     - action: extract_content_ocr
       params:
         model: *ocr_model
+        pdf_inspector: *pdf_inspector_ocr
     - action: llm_classify_document
       params:
         model: *llm_model
