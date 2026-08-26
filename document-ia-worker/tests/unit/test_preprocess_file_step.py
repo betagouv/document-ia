@@ -2,6 +2,11 @@ from pathlib import Path
 
 import fitz
 import pytest
+from PIL import Image
+
+from document_ia_infra.data.workflow.dto.workflow_v2_dto import (
+    PreprocessFileParams,
+)
 
 from document_ia_worker.workflow.step.preprocess_file.preprocess_file import (
     PreprocessFileStep,
@@ -39,6 +44,47 @@ def _ensure_two_page_pdf(target_path: Path) -> Path:
 
 
 class TestPreprocessFileStep:
+    @pytest.mark.asyncio
+    async def test_preprocess_image_with_yoloworld_returns_cropped_image_and_cleans_up(
+        self, monkeypatch, tmp_path, main_workflow_context
+    ):
+        source_path = tmp_path / "source.png"
+        Image.new("RGB", (100, 80), "white").save(source_path)
+
+        def fake_crop(image, **kwargs):  # noqa: ANN001, ARG001
+            return image.crop((0, 0, 25, 30))
+
+        monkeypatch.setattr(
+            "document_ia_worker.workflow.step.preprocess_file.preprocess_file.yoloworld_crop_image",
+            fake_crop,
+        )
+
+        step = PreprocessFileStep(
+            main_workflow_context=main_workflow_context,
+            params=PreprocessFileParams(
+                yoloworld={"enabled": True},
+            ),
+        )
+        step.inject_workflow_context(
+            {
+                DownloadFileResult.__name__: DownloadFileResult(
+                    file_path=str(source_path), content_type="image/png"
+                )
+            }
+        )
+
+        result, _ = await step.execute()
+
+        assert len(result.output_files_path) == 1
+        output_path = Path(result.output_files_path[0])
+        assert output_path.exists()
+        with Image.open(output_path) as output_image:
+            assert output_image.size == (25, 30)
+
+        tmp_dir = Path(step.tmp_folder_path)
+        await step.cleanup(False)
+        assert not tmp_dir.exists()
+
     @pytest.mark.asyncio
     async def test_preprocess_pdf_creates_two_images_and_cleanup(self, main_workflow_context):
         # Ensure the fixture PDF has exactly 2 pages

@@ -1,19 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Dossier tessdata user-space
-export TESSDATA_PREFIX="/app/.apt/usr/share/tesseract-ocr/4.00/tessdata"
+# The model downloaded during post_compile is bundled in the slug.
+APP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MODEL_BUNDLED_PATH="$APP_ROOT/.models/yolov8m-world.pt"
+export TESSDATA_PREFIX="$APP_ROOT/.models/tessdata"
 TESSDATA_DIR="$TESSDATA_PREFIX"
 
-mkdir -p "$TESSDATA_DIR"
+if [ ! -f "$MODEL_BUNDLED_PATH" ]; then
+  echo "[boot] YOLO-World model is missing: $MODEL_BUNDLED_PATH" >&2
+  exit 1
+fi
+export YOLOWORLD_PATH="$MODEL_BUNDLED_PATH"
+echo "[boot] YOLO-World model available at $YOLOWORLD_PATH"
 
-# Télécharge fra.traineddata si absent
 if [ ! -f "$TESSDATA_DIR/fra.traineddata" ]; then
-  echo "[boot] Installing fra.traineddata into $TESSDATA_DIR"
-  curl -fL --retry 3 -o "$TESSDATA_DIR/fra.traineddata" \
-    https://github.com/tesseract-ocr/tessdata_fast/raw/main/fra.traineddata
-  chmod 0644 "$TESSDATA_DIR/fra.traineddata"
+  echo "[boot] French Tesseract data is missing: $TESSDATA_DIR/fra.traineddata" >&2
+  exit 1
 fi
 
-# Lancer ton worker Python (remplace par ton chemin si besoin)
 exec python -u src/document_ia_worker/main.py

@@ -13,7 +13,7 @@
   ],
   "extraPaths": [
     "src",
-    "src/document_ia_evals",
+    "src/document_ia_auto_scaler",
     "../document-ia-schemas/src",
     "../document-ia-infra/src"
   ]

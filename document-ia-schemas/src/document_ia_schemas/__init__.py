@@ -77,6 +77,7 @@ class SupportedDocumentType(str, Enum):
     ATTESTATION_CONTRAT_ENERGIE = "attestation_contrat_energie"
     ATTESTATION_HEBERGEMENT = "attestation_hebergement"
     TAXE_FONCIERE = "taxe_fonciere"
+    CARTE_GRISE = "carte_grise"
     AUTRE = "autre"
 
     @staticmethod

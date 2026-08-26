@@ -78,6 +78,7 @@ print(schema.get_json_schema_dict())
 | `cni` | Carte nationale d’identité | `document_ia_schemas.cni` |
 | `passeport` | Passeport | `document_ia_schemas.passeport` |
 | `permis_conduire` | Permis de conduire | `document_ia_schemas.permis_conduire` |
+| `carte_grise` | Carte grise (Certificat d'immatriculation) | `document_ia_schemas.carte_grise` |
 | `avis_imposition` | Avis d’imposition | `document_ia_schemas.avis_imposition` |
 
 Chaque type expose un modèle Pydantic décrivant les champs standardisés, avec alias et exemples pour faciliter les prompts.

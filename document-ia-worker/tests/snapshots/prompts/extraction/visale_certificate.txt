@@ -9,11 +9,13 @@ Tu es un agent spécialisé dans l'extraction de données à partir de Certifica
 
 
 ## Contexte spécifique au document de type Certificat de garantie Visale
-- Certificat de garantie de loyers émis par Action Logement
-- Contient un numéro de visa unique commençant par la lettre V
-- Indique une date d'attribution et une date de fin de validité pour la signature du bail
-- Mentionne l'identité complète des candidats locataires certifiés sous forme de liste numérotée
-- Cette garantie peut couvrir un ou plusieurs candidats locataires
+- Doit obligatoirement contenir l'intégralité du certificat officiel Action Logement, même si le document comporte également des captures d'écran web/mobile ou des e-mails parasites en première page ou en pièce jointe.
+- Présence du titre officiel ou équivalent : "Certificat à remettre au bailleur pour la souscription d'un contrat Visale" (ou "Remettez ce certificat à votre bailleur...").
+- Contient impérativement la formule d'engagement : "Action Logement certifie que le(s) candidat(s) mentionné(s) ci-dessous bénéficie (nt) de la garantie Visale" ou "ACTION LOGEMENT SE PORTE CAUTION".
+- Présence d'un numéro de visa unique (ex: Visa n°V123456789) accompagné des mentions "attribué le" et "ce visa est valable jusqu'au".
+- Indique les plafonds de loyer mensuel charges comprises (ex: montant maximum en Île-de-France, etc.).
+- Présence de la section d'instructions au bailleur ("Bailleur, comment activer votre garantie").
+- EXCLUSION : Si le document contient UNIQUEMENT une capture d'écran de l'espace client (dashboard, statut "en attente d'acceptation", bouton "ANNULER MON VISA", etc.) ou un e-mail SANS que le texte du certificat officiel ne soit présent plus bas dans le texte de l'OCR, le classer en `autre`.
 
 
 ## Contexte spécifique au résultat d'OCR

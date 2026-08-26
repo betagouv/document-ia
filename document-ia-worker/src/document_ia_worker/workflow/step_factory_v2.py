@@ -20,6 +20,7 @@ from document_ia_infra.data.workflow.dto.workflow_v2_dto import LLMExtractParams
 from document_ia_infra.data.workflow.dto.workflow_v2_dto import LlmExtractDataStepDto
 from document_ia_infra.data.workflow.dto.workflow_v2_dto import OCRParams
 from document_ia_infra.data.workflow.dto.workflow_v2_dto import PreprocessFileStepDto
+from document_ia_infra.data.workflow.dto.workflow_v2_dto import PreprocessFileParams
 from document_ia_infra.data.workflow.dto.workflow_v2_dto import (
     SaveWorkflowResultStepDto,
 )
@@ -86,7 +87,9 @@ def prepareStepListsV2(
                 step_list.append(build_download_step(workflow_context, event_v2))
             case "preprocess_file":
                 assert isinstance(typed_step, PreprocessFileStepDto)
-                step_list.append(build_preprocess_file_step(workflow_context))
+                step_list.append(
+                    build_preprocess_file_step(workflow_context, typed_step.params)
+                )
             case "extract_barcode_data":
                 assert isinstance(typed_step, ExtractBarcodeDataStepDto)
                 step_list.append(build_extract_barcode_data_step(typed_step.params))
@@ -129,9 +132,11 @@ def build_download_step(
 
 def build_preprocess_file_step(
     workflow_context: MainWorkflowContext,
+    step_params: PreprocessFileParams,
 ) -> PreprocessFileStep:
     return PreprocessFileStep(
         workflow_context,
+        params=step_params,
     )
 
 

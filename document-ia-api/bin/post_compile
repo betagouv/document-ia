@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+echo "[post_compile] copy lib to vendor folder"
+cd "$APP_ROOT"
+mkdir -p vendor
+cp -r "$APP_ROOT/../document-ia-schemas" vendor/
+cp -r "$APP_ROOT/../document-ia-infra" vendor/
+
+echo "[post_compile] install local lib"
+pip install --no-deps -e vendor/document-ia-schemas
+pip install --no-deps -e vendor/document-ia-infra

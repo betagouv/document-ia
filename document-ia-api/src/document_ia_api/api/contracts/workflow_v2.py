@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel
 from document_ia_api.schemas.workflow import WorkflowExecutionDataV2
 
 
-ParameterDefaultValue = str | int | float | bool | list[str]
+ParameterDefaultValue = Any
 
 
 class WorkflowV2ParameterItems(BaseModel):
