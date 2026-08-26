@@ -1,6 +1,6 @@
 [project]
 name = "document-ia-api"
-version = "1.0.8"
+version = "1.0.9"
 description = "API minimaliste FastAPI avec authentification API_KEY"
 authors = [{name = "Romaric HALDENWANG",email = "romaric.haldenwang@beta.gouv.fr"}, {name = "Nicolas Sagon",email = "nicolas.sagon@beta.gouv.fr"}]
 readme = "README.md"

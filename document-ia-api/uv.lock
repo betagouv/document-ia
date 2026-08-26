@@ -375,7 +375,7 @@ wheels = [
 
 [[package]]
 name = "document-ia-api"
-version = "1.0.8"
+version = "1.0.9"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
@@ -444,7 +444,7 @@ dev = [
 
 [[package]]
 name = "document-ia-infra"
-version = "1.0.8"
+version = "1.0.9"
 source = { editable = "../document-ia-infra" }
 dependencies = [
     { name = "asyncpg" },
@@ -495,7 +495,7 @@ dev = [
 
 [[package]]
 name = "document-ia-schemas"
-version = "1.0.8"
+version = "1.0.9"
 source = { editable = "../document-ia-schemas" }
 dependencies = [
     { name = "pydantic" },
