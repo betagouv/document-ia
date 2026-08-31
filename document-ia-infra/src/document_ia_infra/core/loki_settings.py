@@ -2,7 +2,9 @@ from logging import Filter, LogRecord
 from queue import Queue
 
 from logging_loki import LokiQueueHandler
-from pydantic import Field
+from pydantic import Field, SecretStr
+from requests import PreparedRequest
+from requests.auth import AuthBase
 
 from document_ia_infra.core.BaseDocumentIaSettings import BaseDocumentIaSettings
 
@@ -12,6 +14,9 @@ class LoggingSettings(BaseDocumentIaSettings):
     APP_ENV: str = Field(default="prod", validation_alias="APP_ENV")
     LOKI_LOGGING_ENABLED: bool = Field(
         default=True, validation_alias="LOKI_LOGGING_ENABLED"
+    )
+    LOKI_BEARER_TOKEN: SecretStr | None = Field(
+        default=None, validation_alias="LOKI_BEARER_TOKEN"
     )
 
 
@@ -32,14 +37,32 @@ class LokiTagsFilter(Filter):
         return True
 
 
+class LokiBearerAuth(AuthBase):
+    """Adds `Authorization: Bearer <token>` on each Loki push request."""
+
+    def __init__(self, token: str) -> None:
+        self.token = token
+
+    def __call__(self, request: PreparedRequest) -> PreparedRequest:
+        request.headers["Authorization"] = f"Bearer {self.token}"
+        return request
+
+
+def build_loki_auth(token: SecretStr | None) -> LokiBearerAuth | None:
+    if token is None:
+        return None
+    value = token.get_secret_value().strip()
+    if not value:
+        return None
+    return LokiBearerAuth(value)
+
+
 def build_loki_handler(app_name: str) -> LokiQueueHandler:
     """
     Asynchronous Loki handler (queue) for Scalingo.
     Configured via environment variables:
-      LOKI_PUSH=https://<domain>/loki/api/v1/push
-      LOKI_USER=lokiwriter (if BasicAuth)
-      LOKI_PASS=*********
-      APP_NAME=document-ia
+      LOKI_URL=https://<domain>/loki/api/v1/push
+      LOKI_BEARER_TOKEN=********* (optional Bearer token)
       APP_ENV=prod|staging|dev
     """
     url = logging_settings.LOKI_URL
@@ -47,7 +70,7 @@ def build_loki_handler(app_name: str) -> LokiQueueHandler:
     return LokiQueueHandler(
         Queue(-1),
         url=url,
-        auth=None,
+        auth=build_loki_auth(logging_settings.LOKI_BEARER_TOKEN),
         tags=base_tags,
         version="1",
     )
