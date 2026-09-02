@@ -1,6 +1,6 @@
 [project]
 name = "document-ia-schemas"
-version = "1.0.9"
+version = "1.0.10"
 description = "Projet pour stocker les schémas de documents de Document IA"
 authors = [{name = "Nicolas Sagon",email = "nicolas.sagon@beta.gouv.fr"}]
 readme = "README.md"
