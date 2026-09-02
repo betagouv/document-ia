@@ -41,6 +41,9 @@ Main API variables:
 | `SYNC_EXECUTION_TIMEOUT_SECONDS` | `30` | Soft timeout for sync endpoints |
 | `SYNC_EXECUTION_MAX_WAIT_SECONDS` | `60` | Hard max blocking time for sync endpoints |
 | `SYNC_EXECUTION_POLL_INTERVAL_MS` | `250` | Event Store polling interval |
+| `LOKI_URL` | `""` | Loki push endpoint (`/loki/api/v1/push`) |
+| `LOKI_LOGGING_ENABLED` | `true` | Enable Loki log ingestion |
+| `LOKI_BEARER_TOKEN` | unset | Optional Bearer token for Loki push. Use the raw token only, without the `Bearer ` prefix. Leave empty to push without authentication. |
 
 The API also depends on shared monorepo settings (PostgreSQL, Redis, S3, logging). Use the repository root `env.example` as reference.
 

@@ -183,6 +183,9 @@ This rewrites **all** snapshots under `tests/snapshots/prompts/extraction/`. Rev
 ### Logging & Loki
 - `LOKI_URL` (str, default: `""`)
 - `LOKI_LOGGING_ENABLED` (bool, default: `True`)
+- `LOKI_BEARER_TOKEN` (secret, default: `None`)
+
+When Loki push requires authentication, set `LOKI_BEARER_TOKEN` to the raw token (without the `Bearer ` prefix). The handler sends `Authorization: Bearer <token>` on each request to `/loki/api/v1/push`. Leave it empty to keep unauthenticated push.
 
 ### OpenAI / LLM
 - `OPENAI_API_KEY` (secret, default: `None`)
