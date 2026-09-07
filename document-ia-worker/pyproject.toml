@@ -59,7 +59,7 @@ editable = true
 
 [tool.uv.sources.2ddoc-parser]
 git = "https://github.com/betagouv/2ddoc-parser.git"
-tag = "v1.0.5"
+tag = "v1.0.6"
 
 [[tool.uv.sources.torch]]
 index = "pytorch-cpu"

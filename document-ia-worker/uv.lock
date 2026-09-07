@@ -14,8 +14,8 @@ exclude-newer-span = "P2D"
 
 [[package]]
 name = "2ddoc-parser"
-version = "1.0.5"
-source = { git = "https://github.com/betagouv/2ddoc-parser.git?tag=v1.0.5#6d521fe82bf9f0ee3e0c543013b808ee554a476a" }
+version = "1.0.6"
+source = { git = "https://github.com/betagouv/2ddoc-parser.git?tag=v1.0.6#31ce0180069bf0a533afe0c7bcd1cb80bcaad770" }
 dependencies = [
     { name = "cryptography" },
     { name = "pydantic" },
@@ -480,7 +480,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "2ddoc-parser", git = "https://github.com/betagouv/2ddoc-parser.git?tag=v1.0.5" },
+    { name = "2ddoc-parser", git = "https://github.com/betagouv/2ddoc-parser.git?tag=v1.0.6" },
     { name = "clip", git = "https://github.com/ultralytics/CLIP.git" },
     { name = "document-ia-infra", editable = "../document-ia-infra" },
     { name = "document-ia-schemas", editable = "../document-ia-schemas" },
