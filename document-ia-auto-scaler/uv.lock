@@ -303,7 +303,7 @@ dev = [
 
 [[package]]
 name = "document-ia-infra"
-version = "1.0.7"
+version = "1.0.10"
 source = { editable = "../document-ia-infra" }
 dependencies = [
     { name = "asyncpg" },
@@ -354,7 +354,7 @@ dev = [
 
 [[package]]
 name = "document-ia-schemas"
-version = "1.0.7"
+version = "1.0.10"
 source = { editable = "../document-ia-schemas" }
 dependencies = [
     { name = "pydantic" },
