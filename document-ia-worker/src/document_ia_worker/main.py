@@ -19,6 +19,24 @@ from document_ia_worker.workflow.message_handler import process_message
 setup_logging()
 logger = logging.getLogger(__name__)
 
+# Configure CPU thread limits for C libraries to avoid RAM bloating in Scalingo containers
+try:
+    import torch
+
+    torch.set_num_threads(int(os.environ.get("OMP_NUM_THREADS", "1")))
+    if hasattr(torch, "set_num_interop_threads"):
+        torch.set_num_interop_threads(1)
+except Exception:
+    pass
+
+try:
+    import cv2
+
+    cv2.setNumThreads(int(os.environ.get("OPENCV_FOR_THREADS_NUM", "1")))
+except Exception:
+    pass
+
+
 shutdown_flag = Event()
 
 # Instance globale pour permettre au handler de signal d'appeler stop_signal

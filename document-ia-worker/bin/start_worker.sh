@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Prevent glibc memory fragmentation in Scalingo Linux containers
+export MALLOC_ARENA_MAX=${MALLOC_ARENA_MAX:-2}
+
+# Limit CPU thread pools for PyTorch, OpenCV, OpenMP to prevent memory inflation
+export OMP_NUM_THREADS=${OMP_NUM_THREADS:-1}
+export MKL_NUM_THREADS=${MKL_NUM_THREADS:-1}
+export OPENBLAS_NUM_THREADS=${OPENBLAS_NUM_THREADS:-1}
+export OPENCV_FOR_THREADS_NUM=${OPENCV_FOR_THREADS_NUM:-1}
+
+
 # The model downloaded during post_compile is bundled in the slug.
 APP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MODEL_BUNDLED_PATH="$APP_ROOT/.models/yolov8m-world.pt"
