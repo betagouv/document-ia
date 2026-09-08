@@ -24,6 +24,11 @@ fi
 export YOLOWORLD_PATH="$MODEL_BUNDLED_PATH"
 echo "[boot] YOLO-World model available at $YOLOWORLD_PATH"
 
+export QRDET_WEIGHTS_DIR="$APP_ROOT/.models/qrdet"
+if [ -d "$QRDET_WEIGHTS_DIR" ]; then
+  echo "[boot] QRDet model directory available at $QRDET_WEIGHTS_DIR"
+fi
+
 if [ ! -f "$TESSDATA_DIR/fra.traineddata" ]; then
   echo "[boot] French Tesseract data is missing: $TESSDATA_DIR/fra.traineddata" >&2
   exit 1

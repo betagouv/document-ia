@@ -43,9 +43,33 @@ shutdown_flag = Event()
 _consumer: Optional[Consumer[WorkflowExecutionMessage]] = None
 
 
+def _prewarm_models() -> None:
+    logger.info("[boot] Pre-warming AI models (YOLO-World & QRDet)...")
+    try:
+        from document_ia_worker.core.preprocessing.yoloworld_crop import (
+            get_yoloworld_model,
+        )
+
+        get_yoloworld_model()
+        logger.info("[boot]   ✅ YOLO-World model pre-loaded into RAM")
+    except Exception as e:
+        logger.warning(f"[boot]   ⚠️ Could not pre-load YOLO-World model: {e}")
+
+    try:
+        from document_ia_worker.workflow.step.extract_barcode_data.extract_barcode_2ddoc_data import (
+            _get_qrdet_detector,
+        )
+
+        _get_qrdet_detector()
+        logger.info("[boot]   ✅ QRDet model pre-loaded into RAM")
+    except Exception as e:
+        logger.warning(f"[boot]   ⚠️ Could not pre-load QRDet model: {e}")
+
+
 async def run_consumer() -> None:
     global _consumer
     logger.info("--- Starting document-ia-worker ---")
+    _prewarm_models()
     logger.info("Register redis stream consumer for workflow execution")
 
     _consumer = Consumer[WorkflowExecutionMessage](
