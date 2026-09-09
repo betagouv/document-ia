@@ -8,6 +8,8 @@ An asynchronous worker that executes document-processing workflows by consuming 
 - Workflow Context Between Steps
 - Error Handling, Retry, and DLQ
 - Redis Consumer (Multi-thread)
+- Memory Optimization & OOM Protection (Scalingo / Linux Containers)
+- Stress Testing & Load Validation (`scripts/stress_test_staging.py`)
 - Configuration & Running
 - Environment Variables
 - Scheduled Tasks (Task Scheduler)
@@ -100,6 +102,88 @@ Concurrency knobs:
 - `worker_number`: thread pool size (per message). Start with 1 in debug.
 - `batch_size`, `block_time`: batching and blocking timeout for `XREADGROUP`.
 - `max_retry_number`: retry limit before DLQ.
+
+---
+
+## Memory Optimization & OOM Protection (Scalingo / Linux Containers)
+
+In production and staging environments (e.g., Scalingo Linux containers with 2 GB RAM), workers process multi-page PDFs and heavy AI models (PyTorch, OpenCV, PyMuPDF, Tesseract, zxing). Without swap memory, exceeding physical RAM limits triggers immediate SIGKILL (`OOM Killed` / `Scalingo R14 Memory Exceeded`).
+
+To guarantee stability and prevent OOM crashes under high concurrency (`REDIS_WORKER_NUMBER > 1`), the following optimizations are implemented:
+
+### 1. `MALLOC_ARENA_MAX=2` (glibc Memory Fragmentation Control)
+Native C/C++ libraries (PyTorch, OpenCV, PyMuPDF) allocate temporary memory arenas via glibc `malloc`. On multi-core host nodes, glibc defaults to creating up to `8 * num_cores` memory arenas, which prevents freed RAM from being returned to the OS.
+- **Setting**: `export MALLOC_ARENA_MAX=2` (in `bin/start_worker.sh` and Scalingo environment variables).
+- **Impact**: Reduces glibc memory fragmentation by up to 80%, forcing memory to be released back to the OS.
+
+### 2. C/C++ CPU Thread Pool Limits
+By default, PyTorch and OpenCV detect all host CPU cores (e.g. 16–32 cores) and spawn parallel OpenMP/MKL thread pools per model call, which inflates thread memory overhead.
+- **Environment variables**:
+  - `OMP_NUM_THREADS=1`
+  - `MKL_NUM_THREADS=1`
+  - `OPENBLAS_NUM_THREADS=1`
+  - `OPENCV_FOR_THREADS_NUM=1`
+- **Runtime initialization**: `main.py` explicitly invokes `torch.set_num_threads(1)` and `cv2.setNumThreads(1)` at startup.
+
+### 3. AI Model Pre-bundling & Boot Pre-warming
+- **Pre-downloading at build time**: Model weights for **YOLO-World** (`yolov8m-world.pt`) and **QRDet** (`qrdet-s.pt`), as well as Tesseract language files (`fra.traineddata`), are downloaded during `bin/post_compile` and stored in `$APP_ROOT/.models/`.
+- **Pre-warming on boot**: Before listening to Redis events, `src/document_ia_worker/main.py` invokes `_prewarm_models()` to load YOLO-World and QRDet models into RAM once at worker startup. This avoids concurrent on-the-fly downloads, model reloading delays, or race conditions during job execution.
+
+### 4. Critical Section Thread Locking for Heavy C/RAM Steps
+Network I/O steps (downloading from S3, HTTP OCR, LLM API calls) use virtually zero RAM and run with high concurrency (`REDIS_WORKER_NUMBER = 10+`).
+However, local PDF rasterization and PyTorch inference are heavy in RAM. Thread locks serialize only these brief C/RAM intensive phases:
+- `_PDF_LOCK` in `PreprocessFileStep` (PyMuPDF PDF page rendering)
+- `_YOLO_LOCK` in `yoloworld_crop.py` (YOLO-World object detection)
+- `_QRDET_LOCK` in `extract_barcode_2ddoc_data.py` (QRDet barcode detection)
+
+This allows high Redis concurrency (`REDIS_WORKER_NUMBER = 10`) for I/O bound waiting while keeping peak RAM footprint under 1.5 GB.
+
+---
+
+## Stress Testing & Load Validation (`scripts/stress_test_staging.py`)
+
+A load testing script is available at `scripts/stress_test_staging.py` to validate worker memory stability and throughput under concurrent requests.
+
+### Features
+- Sends $N$ concurrent HTTP POST requests with `multipart/form-data` payload and Tesseract OCR override.
+- Extracts `execution_id` from the API response (`data.execution_id`).
+- Asynchronously polls `GET /api/v1/executions/{execution_id}` with staggered polling intervals (default: `2.5s`) to avoid API rate limiting / 502 proxy errors.
+- Automatically handles temporary 502/503 HTTP gateway errors during polling.
+- Enforces a per-request timeout (default: 60 seconds). If an execution does not complete within 60s, it is marked as `TIMEOUT`.
+- Computes global end-to-end duration and per-request min/max/average processing times.
+
+### Script Usage & Options
+
+```bash
+# Basic usage (--file is required, --api-key is required)
+uv run python scripts/stress_test_staging.py \
+  --api-key "YOUR_STAGING_API_KEY" \
+  --file "/path/to/your/document.pdf" \
+  -c 10 \
+  -n 10
+```
+
+#### CLI Parameters:
+| Option | Description | Default |
+| :--- | :--- | :--- |
+| `--api-key` | *(Required)* API key (`X-Api-Key` header) | - |
+| `--file` | *(Required)* Path to local PDF document | - |
+| `--url` | Workflow execution URL v2 | `https://api.staging.document-ia.beta.gouv.fr/...` |
+| `-c`, `--concurrency` | Number of parallel concurrent requests | `10` |
+| `-n`, `--total-requests` | Total number of requests to execute | `10` |
+| `--poll-interval` | Interval in seconds between polling attempts | `2.5` |
+| `--max-timeout` | Maximum wait time in seconds before timing out an execution | `60.0` |
+
+#### Example: Stress test with 20 requests and custom timeout
+```bash
+uv run python scripts/stress_test_staging.py \
+  --api-key "YOUR_STAGING_API_KEY" \
+  --file "/Users/user/Documents/test_avis.pdf" \
+  -c 20 \
+  -n 20 \
+  --poll-interval 3.0 \
+  --max-timeout 60
+```
 
 ---
 
