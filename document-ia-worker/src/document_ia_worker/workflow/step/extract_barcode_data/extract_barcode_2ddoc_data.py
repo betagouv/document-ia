@@ -1,5 +1,4 @@
 import logging
-import os
 from typing import (
     Optional,
     Any,
@@ -83,8 +82,8 @@ def _get_qrdet_detector() -> QRDetector:
     global _qrdet_detector
     if _qrdet_detector is None:
         model_size = barcode_settings.QRDET_MODEL_SIZE
-        weights_folder = os.environ.get("QRDET_WEIGHTS_DIR")
-        if weights_folder and os.path.exists(weights_folder):
+        weights_folder = barcode_settings.QRDET_WEIGHTS_DIR
+        if weights_folder:
             _qrdet_detector = QRDetector(
                 model_size=model_size, weights_folder=weights_folder
             )
