@@ -1,6 +1,6 @@
 [project]
 name = "document-ia-auto-scaler"
-version = "1.0.0"
+version = "1.0.1"
 description = "Auto-scaler daemon for Scalingo workers based on queue lag"
 authors = [{name = "Nicolas Sagon",email = "nicolas.sagon@beta.gouv.fr"}]
 readme = "README.md"
