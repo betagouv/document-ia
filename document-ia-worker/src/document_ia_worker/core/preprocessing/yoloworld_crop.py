@@ -1,5 +1,6 @@
 import math
 import os
+import threading
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -8,6 +9,7 @@ from PIL import Image
 
 
 YOLO_WORLD_MODEL = "yolov8m-world.pt"
+_YOLO_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -39,15 +41,16 @@ def detect_boxes(
     confidence_threshold: float,
     image_size: Optional[int] = None,
 ) -> list[DetectionBox]:
-    yolo_model = get_yoloworld_model()
-    yolo_model.set_classes([class_name])
-
     predict_kwargs: dict[str, Any] = {"verbose": False}
     predict_kwargs["device"] = "cpu"
     if image_size is not None:
         predict_kwargs["imgsz"] = image_size
 
-    results = yolo_model.predict(image, **predict_kwargs)
+    with _YOLO_LOCK:
+        yolo_model = get_yoloworld_model()
+        yolo_model.set_classes([class_name])
+        results = yolo_model.predict(image, **predict_kwargs)
+
     if not results:
         return []
 
@@ -138,9 +141,7 @@ def compute_merged_crop_box(
 
 
 def _is_finite_box(box: DetectionBox) -> bool:
-    return all(
-        math.isfinite(value) for value in (box.x1, box.y1, box.x2, box.y2)
-    )
+    return all(math.isfinite(value) for value in (box.x1, box.y1, box.x2, box.y2))
 
 
 def _to_list(value: Any) -> list[Any]:

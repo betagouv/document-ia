@@ -29,6 +29,16 @@ fi
 
 echo "[post_compile] YOLO-World model bundled at $MODEL_SLUG_PATH"
 
+QRDET_DIR="$MODEL_SLUG_DIR/qrdet"
+mkdir -p "$QRDET_DIR"
+
+if [ ! -f "$QRDET_DIR/qrdet-s.pt" ]; then
+  echo "[post_compile] Downloading QRDet model to $QRDET_DIR"
+  uv run python -c "from qrdet import QRDetector; QRDetector(model_size='s', weights_folder='$QRDET_DIR')"
+fi
+
+echo "[post_compile] QRDet model bundled at $QRDET_DIR"
+
 if [ ! -f "$FRA_TRAINEDDATA_PATH" ]; then
   echo "[post_compile] Downloading French Tesseract data to $FRA_TRAINEDDATA_PATH"
   curl -fL --retry 3 -o "$FRA_TRAINEDDATA_PATH" \

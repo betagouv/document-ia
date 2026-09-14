@@ -10,6 +10,7 @@ from typing import (
 import cv2
 import numpy as np
 import zxingcpp
+import threading
 from numpy.typing import NDArray
 from qrdet import QRDetector
 
@@ -39,6 +40,7 @@ class QRDetDetection(TypedDict, total=False):
 
 ZXINGCPP: Any = zxingcpp
 _qrdet_detector: Optional[QRDetector] = None
+_QRDET_LOCK = threading.Lock()
 
 
 # This method is used to read barcodes using ZXingCPP, with some compatibility handling for different return types and optional upscaling for crops.
@@ -80,7 +82,13 @@ def _get_qrdet_detector() -> QRDetector:
     global _qrdet_detector
     if _qrdet_detector is None:
         model_size = barcode_settings.QRDET_MODEL_SIZE
-        _qrdet_detector = QRDetector(model_size=model_size)
+        weights_folder = barcode_settings.QRDET_WEIGHTS_DIR
+        if weights_folder:
+            _qrdet_detector = QRDetector(
+                model_size=model_size, weights_folder=weights_folder
+            )
+        else:
+            _qrdet_detector = QRDetector(model_size=model_size)
     return _qrdet_detector
 
 
@@ -184,11 +192,12 @@ class ExtractBarcode2DDocData(BaseExtractBarcode2DDoc):
                     logger.info(
                         "No suitable barcode found, trying QRDet for better QR code detection..."
                     )
-                    detector = cast(Any, _get_qrdet_detector())
-                    detections = cast(
-                        list[QRDetDetection],
-                        detector.detect(image=img, is_bgr=True),
-                    )
+                    with _QRDET_LOCK:
+                        detector = cast(Any, _get_qrdet_detector())
+                        detections = cast(
+                            list[QRDetDetection],
+                            detector.detect(image=img, is_bgr=True),
+                        )
                 except Exception as exc:
                     logger.warning(f"QRDet detection failed: {exc}")
                     detections = []

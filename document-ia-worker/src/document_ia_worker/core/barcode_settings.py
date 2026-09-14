@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import Field
 
@@ -9,6 +9,10 @@ class BarcodeSettings(BaseDocumentIaSettings):
     QRDET_MODEL_SIZE: Literal["n", "s", "m", "l"] = Field(
         default="s",
         description="Size of the model for QRcode and barcode detection. Can be 'n', 's', 'm' or 'l'. Larger models are more accurate but slower.",
+    )
+    QRDET_WEIGHTS_DIR: Optional[str] = Field(
+        default=None,
+        description="Directory path containing pre-downloaded weights for QRDet model.",
     )
 
 
