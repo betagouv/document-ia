@@ -88,8 +88,36 @@ class YoloWorldParams(BaseModel):
     )
 
 
+class PdfPreprocessingParams(BaseModel):
+    targeted_dpi: int = Field(
+        default=180,
+        gt=0,
+        description="Résolution cible en DPI pour le rendu des pages PDF",
+    )
+    max_long_edge: int = Field(
+        default=1800,
+        gt=0,
+        description="Longueur maximale du grand côté de l'image rendue",
+    )
+    max_pixel_size: int = Field(
+        default=2_000_000,
+        gt=0,
+        description="Nombre maximal de pixels de l'image rendue",
+    )
+    min_long_edge: int = Field(
+        default=1500,
+        gt=0,
+        description="Longueur minimale du grand côté de l'image rendue",
+    )
+    force_grayscale: bool = Field(
+        default=True,
+        description="Convertit le rendu PDF en niveaux de gris lorsque possible",
+    )
+
+
 class PreprocessFileParams(BaseModel):
     yoloworld: YoloWorldParams = Field(default_factory=YoloWorldParams)
+    pdf: PdfPreprocessingParams = Field(default_factory=PdfPreprocessingParams)
 
 
 # ==========================================
