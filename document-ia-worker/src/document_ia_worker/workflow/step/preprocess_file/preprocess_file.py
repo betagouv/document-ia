@@ -62,11 +62,6 @@ class PreprocessFileStep(BaseFileManipulationStep[PreprocessFileResult]):
     ):
         super().__init__(main_workflow_context, subfolder="preprocess")
         self.params = params or PreprocessFileParams()
-        self.targeted_dpi = 180
-        self.max_long_edge = 1800
-        self.max_pixel_size = 2_000_000
-        self.min_long_edge = 1500
-        self.force_grayscale = True
 
     def get_context_result_key(self) -> str:
         return PreprocessFileResult.__name__
@@ -130,6 +125,7 @@ class PreprocessFileStep(BaseFileManipulationStep[PreprocessFileResult]):
 
     def _preprocess_pdf(self) -> PreprocessFileResult:
         with _PDF_LOCK:
+            pdf_params = self.params.pdf
             image_paths: list[str] = []
             assert self.download_file_result
             doc: Document = pymupdf.open(filename=self.download_file_result.file_path)
@@ -144,27 +140,28 @@ class PreprocessFileStep(BaseFileManipulationStep[PreprocessFileResult]):
 
                     # Zoom cible basé sur le DPI souhaité
                     # 72 DPI est la résolution "naturelle" des pdf
-                    zoom = self.targeted_dpi / 72.0
+                    zoom = pdf_params.targeted_dpi / 72.0
 
                     # Taille prédite avec ce zoom
                     predicted_width = page_width * zoom
                     predicted_height = page_height * zoom
 
                     # On borne par la longueur max et le nombre total de pixels
-                    scale_by_edge = self.max_long_edge / max(
+                    scale_by_edge = pdf_params.max_long_edge / max(
                         predicted_width, predicted_height
                     )
                     scale_by_mp = math.sqrt(
-                        self.max_pixel_size / (predicted_width * predicted_height)
+                        pdf_params.max_pixel_size / (predicted_width * predicted_height)
                     )
                     clamp_factor = min(1.0, scale_by_edge, scale_by_mp)
 
                     # Si trop petit, on remonte au minimum requis
                     if (
                         clamp_factor == 1.0
-                        and max(predicted_width, predicted_height) < self.min_long_edge
+                        and max(predicted_width, predicted_height)
+                        < pdf_params.min_long_edge
                     ):
-                        clamp_factor = self.min_long_edge / max(
+                        clamp_factor = pdf_params.min_long_edge / max(
                             predicted_width, predicted_height
                         )
 
@@ -173,7 +170,7 @@ class PreprocessFileStep(BaseFileManipulationStep[PreprocessFileResult]):
 
                     # Préparation des kwargs pour get_pixmap (niveau de gris + pas d’alpha)
                     kwargs: dict[str, Any] = {"matrix": mat, "alpha": False}
-                    if self.force_grayscale and hasattr(pymupdf, "csGRAY"):
+                    if pdf_params.force_grayscale and hasattr(pymupdf, "csGRAY"):
                         kwargs["colorspace"] = pymupdf.csGRAY
 
                     pix = page.get_pixmap(**kwargs)
