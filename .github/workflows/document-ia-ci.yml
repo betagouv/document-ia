@@ -151,7 +151,7 @@ jobs:
             -e MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD} \
             -p ${MINIO_API_PORT}:9000 \
             -p ${MINIO_CONSOLE_PORT}:9001 \
-            minio/minio:latest-cicd server /data --console-address ":9001"
+            coollabsio/minio:latest server /data --console-address ":9001"
 
       - name: Wait for PostgreSQL to be ready
         if: ${{ matrix.needs_docker_stack == true }}
