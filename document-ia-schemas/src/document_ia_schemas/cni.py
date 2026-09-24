@@ -69,7 +69,7 @@ class CNIModel(BaseModel):
         description="Bande Mrz de la carte d'identité (Machine Readable Zone). Si absent, renseigné `null`.",
         default=None,
         json_schema_extra={
-            "metrics": Metric.LEVENSHTEIN_DISTANCE
+            "metrics": Metric.MRZ_EQUALITY
         }
     )
 

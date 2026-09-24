@@ -49,7 +49,7 @@ class PasseportModel(BaseModel):
             "P<FRADUPONT<<JEAN<ROBIN<ADRIEN<<<><><<<<<>>>123456789012FRA0002152F2809160<<<<<<<<<<<<<<00"
         ],
         json_schema_extra={
-            "metrics": Metric.LEVENSHTEIN_DISTANCE
+            "metrics": Metric.MRZ_EQUALITY
         }
     )
     date_delivrance: FuzzyDate = Field(

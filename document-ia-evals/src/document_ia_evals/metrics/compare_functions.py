@@ -348,6 +348,30 @@ def compare_token_set_equality(expected: Any, predicted: Any) -> float:
     return 1.0 if expected_tokens == predicted_tokens else 0.0
 
 
+def normalize_mrz(value: Any) -> str:
+    """Normalize an MRZ string for equality comparison.
+
+    The filler character ``<`` is not significant for this comparison. OCR/LLM
+    formatting differences such as whitespace, line breaks, and letter case
+    are ignored as well. This function deliberately does not validate the MRZ
+    structure, character set, or check digits.
+    """
+    if value is None:
+        return ""
+
+    return re.sub(r"[\s<]", "", str(value)).upper()
+
+
+def compare_mrz_equality(expected: Any, predicted: Any) -> float:
+    """Compare two MRZ strings after removing non-significant formatting.
+
+    Returns ``1.0`` when the normalized strings are equal and ``0.0``
+    otherwise. This is an equality metric only; it does not validate the MRZ
+    format or its check digits.
+    """
+    return 1.0 if normalize_mrz(expected) == normalize_mrz(predicted) else 0.0
+
+
 def skip(expected: Any, predicted: Any) -> float:
     return -1.0
 
@@ -360,5 +384,6 @@ METRIC_FUNCTIONS: Dict[Metric, Callable[[Any, Any], float]] = {
     Metric.STRING_DATE_EQUALITY: compare_string_date,
     Metric.COMPARE_NUMBER: compare_number,
     Metric.TOKEN_SET_EQUALITY: compare_token_set_equality,
+    Metric.MRZ_EQUALITY: compare_mrz_equality,
     Metric.SKIP: skip,
 }
