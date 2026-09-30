@@ -51,6 +51,7 @@ x-definitions:
       class_name: book
       margin: 20
       confidence_threshold: 0.25
+      iou: 0.7
       image_size: 1280
 
 workflows:

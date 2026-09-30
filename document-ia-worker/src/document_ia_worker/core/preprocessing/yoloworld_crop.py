@@ -39,11 +39,13 @@ def detect_boxes(
     *,
     class_name: str,
     confidence_threshold: float,
+    iou: float = 0.7,
     image_size: Optional[int] = None,
 ) -> list[DetectionBox]:
     predict_kwargs: dict[str, Any] = {"verbose": False}
     predict_kwargs["device"] = "cpu"
     predict_kwargs["conf"] = confidence_threshold
+    predict_kwargs["iou"] = iou
     if image_size is not None:
         predict_kwargs["imgsz"] = image_size
 
@@ -96,12 +98,14 @@ def yoloworld_crop_image(
     class_name: str = "book",
     margin: int = 20,
     confidence_threshold: float = 0.25,
+    iou: float = 0.7,
     image_size: Optional[int] = None,
 ) -> Image.Image:
     boxes = detect_boxes(
         image,
         class_name=class_name,
         confidence_threshold=confidence_threshold,
+        iou=iou,
         image_size=image_size,
     )
     return crop_image_to_merged_boxes(image, boxes, margin=margin)

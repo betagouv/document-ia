@@ -115,6 +115,7 @@ class PreprocessFileStep(BaseFileManipulationStep[PreprocessFileResult]):
                     class_name=yolo_params.class_name,
                     margin=yolo_params.margin,
                     confidence_threshold=yolo_params.confidence_threshold,
+                    iou=yolo_params.iou,
                     image_size=yolo_params.image_size,
                 )
                 cropped_image.save(output_path, format="PNG")

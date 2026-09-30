@@ -52,6 +52,7 @@ class TestPreprocessFileStep:
         Image.new("RGB", (100, 80), "white").save(source_path)
 
         def fake_crop(image, **kwargs):  # noqa: ANN001, ARG001
+            assert kwargs["iou"] == 0.7
             return image.crop((0, 0, 25, 30))
 
         monkeypatch.setattr(
