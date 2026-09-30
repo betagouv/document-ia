@@ -9,12 +9,11 @@ This page provides:
 import json
 import os
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 import streamlit as st
 from openai import OpenAI
 from openai.types.chat import ChatCompletion
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 from label_studio_sdk import LseTask
 from document_ia_infra.openai.response_format import get_response_format
 from document_ia_schemas import SupportedDocumentType, resolve_extract_schema
@@ -22,15 +21,15 @@ from document_ia_schemas import SupportedDocumentType, resolve_extract_schema
 from document_ia_evals.components import (
     ClientType,
     get_client,
-    render_document_type_selector,
     render_project_selector,
-    render_workflow_selector,
+    render_workflow_configurator,
 )
 from document_ia_evals.services.create_predictions_service import (
     get_failed_tasks,
     get_processing_statistics,
-    run_workflow_on_dataset,
+    run_workflow_on_dataset_v2,
 )
+from document_ia_evals.pages.review_prediction_errors import render_browser_pdf
 from document_ia_evals.utils.config import config
 from document_ia_evals.utils.label_studio import annotation_results_to_dict
 
@@ -67,30 +66,6 @@ def render_configuration_warnings() -> bool:
         return False
 
     return True
-
-
-def render_worker_config() -> int:
-    return st.number_input(
-        "Nombre de tâches à traiter en parallèle",
-        min_value=1,
-        max_value=10,
-        value=5,
-        step=1,
-    )
-
-
-def render_model_version_input(default_value: str) -> str:
-    return st.text_input(
-        "Nom de l'annotation (model version)",
-        value=default_value,
-        help="Nom affiché pour cette annotation dans Label Studio. Par défaut: ID du workflow",
-    )
-
-
-OPENAI_REPLAY_DIR = Path("/tmp/document-ia-openai-replay")
-PERSISTENCE_DIR = config.DATA_DIR / "prompt_improvement"
-PERSISTENCE_FILE = PERSISTENCE_DIR / "execution_mappings.json"
-SYSTEM_PROMPT_HISTORY_DIR = PERSISTENCE_DIR / "system_prompt"
 
 
 class ReplayPayload(BaseModel):
@@ -132,17 +107,10 @@ def _default_state() -> dict[str, Any]:
 
 
 def _load_persisted_state() -> dict[str, Any]:
-    PERSISTENCE_DIR.mkdir(parents=True, exist_ok=True)
-    if not PERSISTENCE_FILE.exists():
-        return _default_state()
-
-    try:
-        state = json.loads(PERSISTENCE_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return _default_state()
-
+    """Load playground state from the current Streamlit session only."""
+    state = st.session_state.get("prompt_playground_state")
     if not isinstance(state, dict):
-        return _default_state()
+        state = _default_state()
     if "latest_by_task" not in state or not isinstance(state["latest_by_task"], dict):
         state["latest_by_task"] = {}
     if "history" not in state or not isinstance(state["history"], list):
@@ -151,15 +119,13 @@ def _load_persisted_state() -> dict[str, Any]:
         state["system_prompt_by_document_type"], dict
     ):
         state["system_prompt_by_document_type"] = {}
+    st.session_state["prompt_playground_state"] = state
     return state
 
 
 def _save_persisted_state(state: dict[str, Any]) -> None:
-    PERSISTENCE_DIR.mkdir(parents=True, exist_ok=True)
-    PERSISTENCE_FILE.write_text(
-        json.dumps(state, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    """Save playground state in the current Streamlit session only."""
+    st.session_state["prompt_playground_state"] = state
 
 
 def _extract_filename_from_task_url(url: str | None) -> str:
@@ -180,35 +146,6 @@ def _safe_path_component(value: str) -> str:
     return "".join(ch if ch.isalnum() or ch in ("-", "_", ".") else "_" for ch in value)
 
 
-def _persist_system_prompt_snapshot(
-    *,
-    document_type: str,
-    system_prompt: str,
-    reason: str,
-    task_id: int | None = None,
-    execution_id: str | None = None,
-) -> None:
-    now = datetime.now(timezone.utc)
-    timestamp = now.strftime("%Y%m%dT%H%M%S.%fZ")
-    doc_type_key = _safe_path_component(_normalize_document_type(document_type))
-    out_dir = SYSTEM_PROMPT_HISTORY_DIR / doc_type_key
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_file = out_dir / f"{timestamp}.json"
-
-    payload = {
-        "timestamp": now.isoformat(),
-        "document_type": _normalize_document_type(document_type),
-        "reason": reason,
-        "task_id": task_id,
-        "execution_id": execution_id,
-        "system_prompt": system_prompt,
-    }
-    out_file.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
-
 def _set_system_prompt_for_document_type(
     *,
     state: dict[str, Any],
@@ -227,13 +164,6 @@ def _set_system_prompt_for_document_type(
 
     prompts_by_doc_type[normalized_doc_type] = system_prompt
     _save_persisted_state(state)
-    _persist_system_prompt_snapshot(
-        document_type=normalized_doc_type,
-        system_prompt=system_prompt,
-        reason=reason,
-        task_id=task_id,
-        execution_id=execution_id,
-    )
     return True
 
 
@@ -256,16 +186,21 @@ def _extract_ground_truth(task: LseTask) -> dict[str, Any] | None:
     return data
 
 
-def _load_replay_payload(execution_id: str) -> ReplayPayload | None:
-    replay_path = OPENAI_REPLAY_DIR / f"{execution_id}.json"
-    if not replay_path.exists():
-        return None
-    try:
-        return ReplayPayload.model_validate_json(
-            replay_path.read_text(encoding="utf-8")
+def _replay_payload_from_execution(
+    execution_id: str, execution_result: dict[str, Any] | None
+) -> ReplayPayload | None:
+    """Build a replay payload from API metadata when worker /tmp is not shared."""
+    for metadata in (execution_result or {}).get("workflow_metadata") or []:
+        if not metadata.get("system_prompt") or metadata.get("user_prompt") is None:
+            continue
+        return ReplayPayload(
+            execution_id=execution_id,
+            document_type=None,
+            model=metadata.get("model"),
+            system_prompt=metadata["system_prompt"],
+            user_prompt=metadata["user_prompt"],
         )
-    except (ValidationError, ValueError):
-        return None
+    return None
 
 
 def _call_openai_chat_completion(
@@ -332,6 +267,7 @@ def _store_execution_mapping(
             "project_title": project_title,
             "model_version": model_version,
             "document_type": selected_doc_type.value if selected_doc_type else None,
+            "execution_result": result.get("execution_result"),
             "updated_at": now_iso,
         }
 
@@ -362,51 +298,95 @@ def _render_processing_results(results: dict[int, dict[str, Any]]) -> None:
                 )
 
 
+def _render_extraction_comparison(
+    prediction: dict[str, Any] | None, ground_truth: dict[str, Any] | None
+) -> None:
+    """Show extracted properties next to the annotation used as reference."""
+    st.write("**Comparaison avec la ground truth**")
+    if ground_truth is None:
+        st.warning("Aucune annotation de ground truth trouvée pour cette tâche.")
+        if prediction is not None:
+            st.json(prediction)
+        return
+
+    raw_prediction = prediction or {}
+    if "extraction" in raw_prediction:
+        predicted_properties = raw_prediction["extraction"].get("properties", [])
+        predicted = {
+            item.get("name"): item.get("value")
+            for item in predicted_properties
+            if item.get("name")
+        }
+    elif isinstance(raw_prediction.get("properties"), dict):
+        predicted = raw_prediction["properties"]
+    elif isinstance(raw_prediction.get("properties"), list):
+        predicted = {
+            item.get("name"): item.get("value")
+            for item in raw_prediction["properties"]
+            if item.get("name")
+        }
+    else:
+        predicted = raw_prediction
+    expected = ground_truth.get("properties", ground_truth)
+    fields = sorted(set(predicted) | set(expected))
+    if not fields:
+        st.info("Aucun champ à comparer.")
+        return
+    rows = []
+    for field in fields:
+        value = predicted.get(field)
+        expected_value = expected.get(field)
+        rows.append(
+            {
+                "Champ": field,
+                "Prédit": value,
+                "Ground truth": expected_value,
+                "Statut": "✅" if value == expected_value else "❌",
+            }
+        )
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+
+
+def _render_yoloworld_output(execution_result: dict[str, Any]) -> None:
+    """Display YoloWorld previews returned in v2 debug metadata."""
+    images: list[str] = []
+    for metadata in execution_result.get("workflow_metadata") or []:
+        if metadata.get("step_name") != "PreprocessFileStep":
+            continue
+        images.extend(metadata.get("output_images") or [])
+
+    if not images:
+        return
+
+    st.write("**Sortie YoloWorld**")
+    st.caption("Images après recadrage par l'étape de preprocessing YoloWorld")
+    columns = st.columns(min(len(images), 3))
+    for index, image in enumerate(images):
+        with columns[index % len(columns)]:
+            st.image(image, caption=f"Page {index + 1}", use_container_width=True)
+
+
 @st.fragment
 def _render_latest_inference_section(
     *,
     state: dict[str, Any],
     tasks_by_id: dict[int, LseTask],
     project_id: int,
+    task_id: int,
 ) -> None:
-    st.subheader("Résultat par fichier / task Label Studio")
     latest_by_task: dict[str, Any] = state["latest_by_task"]
-
-    entries = [
-        entry
-        for entry in latest_by_task.values()
-        if entry.get("project_id") == project_id
-    ]
-
-    if not entries:
+    selected = latest_by_task.get(str(task_id))
+    if selected is None or selected.get("project_id") != project_id:
         st.info(
-            "Aucune inférence persistée pour ce dataset. Lancez d'abord une exécution."
+            "Aucune inférence persistée pour cette task. Lancez d'abord une exécution."
         )
         return
 
-    entries.sort(key=lambda e: e.get("updated_at", ""), reverse=True)
-    options = {
-        str(e["task_id"]): (
-            f"Task {e['task_id']} - {e.get('filename', 'unknown')} "
-            f"(exec: {e['execution_id']}...)"
-        )
-        for e in entries
-    }
-
-    selected_task_id = st.selectbox(
-        "Fichier / task Label Studio",
-        options=list(options.keys()),
-        format_func=lambda x: options[x],
+    replay_payload = _replay_payload_from_execution(
+        selected["execution_id"], selected.get("execution_result")
     )
-
-    selected = latest_by_task[selected_task_id]
-
-    replay_payload = _load_replay_payload(selected["execution_id"])
     if replay_payload is None:
-        st.warning(
-            "Replay introuvable sur ce host pour cette exécution. "
-            f"Fichier attendu: `{OPENAI_REPLAY_DIR / (selected['execution_id'] + '.json')}`"
-        )
+        st.info("Les prompts ne sont pas disponibles pour cette exécution.")
         return
 
     st.write("**Référence Label Studio**")
@@ -425,6 +405,9 @@ def _render_latest_inference_section(
         }
     )
 
+    task = tasks_by_id.get(selected["task_id"])
+    ground_truth = _extract_ground_truth(task) if task is not None else None
+
     prompts_by_doc_type: dict[str, str] = state["system_prompt_by_document_type"]
     if document_type not in prompts_by_doc_type:
         _set_system_prompt_for_document_type(
@@ -437,6 +420,16 @@ def _render_latest_inference_section(
         )
     current_system_prompt = prompts_by_doc_type.get(
         document_type, replay_payload.system_prompt
+    )
+
+    st.write("**User Prompt**")
+    st.caption("Texte transmis à l’étape d’extraction après l’OCR")
+    st.text_area(
+        "Texte OCR",
+        value=replay_payload.user_prompt,
+        height=260,
+        disabled=True,
+        key=f"ocr_text::{task_id}::{selected['execution_id']}",
     )
 
     st.write("**System Prompt**")
@@ -461,11 +454,10 @@ def _render_latest_inference_section(
     with system_prompt_tabs[1]:
         st.markdown(edited_system_prompt)
 
-    st.write("**User Prompt**")
-    st.code(replay_payload.user_prompt, language="markdown")
-
-    task = tasks_by_id.get(selected["task_id"])
-    ground_truth = _extract_ground_truth(task) if task is not None else None
+    execution_result = selected.get("execution_result")
+    if execution_result:
+        _render_yoloworld_output(execution_result)
+        _render_extraction_comparison(execution_result, ground_truth)
 
     model = replay_payload.model or selected.get("model_version")
     if not model:
@@ -478,17 +470,7 @@ def _render_latest_inference_section(
     use_edited_system_prompt = st.checkbox(
         "Utiliser le system prompt édité", value=True
     )
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.write("**Ground truth associée**")
-        if ground_truth is None:
-            st.warning("Aucune annotation de ground truth trouvée pour cette task.")
-        else:
-            st.json(ground_truth)
-
-    with col2:
-        if prediction_button:
+    if prediction_button:
             response_format = _build_response_format_from_document_type(
                 replay_payload.document_type
             ) or {"type": "json_object"}
@@ -515,35 +497,48 @@ def _render_latest_inference_section(
 
             if content:
                 try:
-                    st.write("**Prédiction**")
-                    st.json(json.loads(content))
+                    prediction = json.loads(content)
+                    st.json(prediction)
+                    _render_extraction_comparison(prediction, ground_truth)
                 except Exception:
                     st.warning("Réponse du LLM non parsable en JSON:")
                     st.code(content)
                     pass
 
 
+def _document_type_from_override(
+    workflow: dict[str, Any], override: dict[str, Any]
+) -> Any | None:
+    """Return the document type configured in a workflow v2 override."""
+    for params in override.values():
+        if not isinstance(params, list):
+            continue
+        for parameter in params:
+            if parameter.get("param") in {"document_type", "document-type"}:
+                value = parameter.get("value")
+                if value:
+                    try:
+                        return SupportedDocumentType.from_str(value)
+                    except ValueError:
+                        return None
+
+    for step in workflow.get("steps", []):
+        parameter = step.get("params", {}).get("document_type")
+        if parameter and parameter.get("default"):
+            try:
+                return SupportedDocumentType.from_str(parameter["default"])
+            except ValueError:
+                return None
+    return None
+
+
 def main() -> None:
-    title = "Amélioration du prompt d'extraction de données pour un type de document"
+    title = "Amélioration du prompt d'extraction (Workflow API)"
     st.set_page_config(page_title=title, page_icon="🔄")
     st.title(title)
     st.caption(
-        f"Using: API endpoint: {config.DOCUMENT_IA_BASE_URL}, "
-        f"S3 endpoint: {config.S3_ENDPOINT}/{config.S3_BUCKET_NAME}, "
+        f"Workflow API · API endpoint: {config.DOCUMENT_IA_BASE_URL} · "
         f"Label Studio URL: {config.LABEL_STUDIO_URL}"
-    )
-
-    st.caption(f"Persistance locale: {PERSISTENCE_FILE}")
-
-    st.markdown(
-        """
-    Cette page vous permet d'améliorer le prompt d'extraction de données pour un type de document spécifique :
-    1. Sélection du workflow à exécuter
-    2. Sélection du dataset Label Studio
-    3. Exécution du workflow sur chaque fichier
-    4. Récupération des vérités de terrain et des prédictions
-    5. Analyse des erreurs pour identifier les points d'amélioration du prompt avec un LLM
-    """
     )
 
     if not render_configuration_warnings():
@@ -551,11 +546,11 @@ def main() -> None:
 
     api_key = config.DOCUMENT_IA_API_KEY
 
-    workflow_selection = render_workflow_selector()
-    if workflow_selection is None:
+    selected_workflow, override = render_workflow_configurator(
+        config.DOCUMENT_IA_API_KEY, key_suffix="_prompt_playground"
+    )
+    if selected_workflow is None:
         return
-
-    selected_doc_type = render_document_type_selector()
 
     project_selection = render_project_selector(
         client_type=ClientType.SDK,
@@ -568,69 +563,74 @@ def main() -> None:
 
     ls_client = get_client(ClientType.SDK)
 
-    n_workers = render_worker_config()
-    model_version = render_model_version_input(workflow_selection.workflow_id)
-
-    tasks: list[LseTask] = [
-        task
-        for task in ls_client.tasks.list(
-            project=project_selection.project_id, fields="all"
-        )
-    ]
+    tasks = list(
+        ls_client.tasks.list(project=project_selection.project_id, fields="all")
+    )
     tasks_by_id = {task.id: task for task in tasks}
-    state = _load_persisted_state()
+    task_options = {
+        task.id: f"Task {task.id} · {_extract_filename_from_task_url((task.data or {}).get('pdf'))}"
+        for task in tasks
+    }
+    if not task_options:
+        st.warning("Aucune tâche trouvée dans ce dataset.")
+        return
+    selected_task_id = st.selectbox(
+        "Sélectionnez une task",
+        options=list(task_options),
+        format_func=lambda task_id: task_options[task_id],
+        key="prompt_playground_task",
+    )
+    selected_task = tasks_by_id[selected_task_id]
+    selected_document_url = (selected_task.data or {}).get("pdf")
+    document_column, payload_column = st.columns(2)
+    with document_column:
+        st.subheader("Document sélectionné")
+        if selected_document_url:
+            try:
+                render_browser_pdf(selected_document_url, height=650)
+            except Exception as exc:
+                st.error(f"Impossible d'afficher le document : {exc}")
+        else:
+            st.warning("Aucun document associé à cette task.")
+
+    with payload_column:
+        st.subheader("Payload du workflow")
+        st.json({"workflow_id": selected_workflow["id"], "override": override})
 
     if st.button("Lancer l'exécution du workflow", type="primary"):
-        extraction_parameters = None
-        if selected_doc_type:
-            extraction_parameters = {"document-type": selected_doc_type.value}
-
-        st.info(
-            f"🚀 Exécution du workflow '{workflow_selection.workflow_id}' "
-            f"sur le dataset '{project_selection.project_title}'..."
-        )
-
-        with st.spinner("Processing tasks...", show_time=True):
-            pbar = st.progress(0, text="Executing workflows...")
-
-            def update_progress(current: int, total: int) -> None:
-                pbar.progress(current / total)
-
-            processing_results = run_workflow_on_dataset(
-                workflow_id=workflow_selection.workflow_id,
+        with st.spinner("Exécution du workflow...", show_time=True):
+            progress = st.progress(0, text="Executing workflow...")
+            processing_results = run_workflow_on_dataset_v2(
+                workflow_id=selected_workflow["id"],
                 project_id=project_selection.project_id,
                 api_key=api_key,
                 ls_client=ls_client,
-                n_workers=n_workers,
-                model_version=model_version if model_version else None,
-                extraction_parameters=extraction_parameters,
-                on_progress=update_progress,
+                override=override or None,
+                model_version=selected_workflow["id"],
+                tasks=[selected_task],
+                on_progress=lambda current, total: progress.progress(current / total),
             )
 
-        if not processing_results:
-            st.warning("No tasks found in the selected dataset.")
-        else:
-            _render_processing_results(processing_results)
-            _store_execution_mapping(
-                state=state,
-                processing_results=processing_results,
-                tasks_by_id=tasks_by_id,
-                workflow_id=workflow_selection.workflow_id,
-                project_id=project_selection.project_id,
-                project_title=project_selection.project_title,
-                model_version=model_version,
-                selected_doc_type=selected_doc_type,
-            )
-            _save_persisted_state(state)
-
-            with st.expander("Détails des résultats"):
-                st.json(processing_results)
+        _render_processing_results(processing_results)
+        state = _load_persisted_state()
+        _store_execution_mapping(
+            state=state,
+            processing_results=processing_results,
+            tasks_by_id=tasks_by_id,
+            workflow_id=selected_workflow["id"],
+            project_id=project_selection.project_id,
+            project_title=project_selection.project_title,
+            model_version=selected_workflow["id"],
+            selected_doc_type=_document_type_from_override(selected_workflow, override),
+        )
+        _save_persisted_state(state)
 
     st.divider()
     _render_latest_inference_section(
-        state=state,
+        state=_load_persisted_state(),
         tasks_by_id=tasks_by_id,
         project_id=project_selection.project_id,
+        task_id=selected_task_id,
     )
 
 

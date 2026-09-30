@@ -218,5 +218,8 @@ class LLMExtractDocumentStep(BaseStep[LLMExtractionResult]):
                 step_name=self.__class__.__name__,
                 request_tokens=request_tokens,
                 response_tokens=response_tokens,
+                model=self.model,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
             ),
         )
