@@ -43,6 +43,7 @@ def detect_boxes(
 ) -> list[DetectionBox]:
     predict_kwargs: dict[str, Any] = {"verbose": False}
     predict_kwargs["device"] = "cpu"
+    predict_kwargs["conf"] = confidence_threshold
     if image_size is not None:
         predict_kwargs["imgsz"] = image_size
 
@@ -65,16 +66,13 @@ def detect_boxes(
     for coordinates, confidence in zip(xyxy_values, confidence_values):
         if len(coordinates) < 4:
             continue
-        confidence_float = float(confidence)
-        if confidence_float < confidence_threshold:
-            continue
         detections.append(
             DetectionBox(
                 x1=float(coordinates[0]),
                 y1=float(coordinates[1]),
                 x2=float(coordinates[2]),
                 y2=float(coordinates[3]),
-                confidence=confidence_float,
+                confidence=float(confidence),
             )
         )
     return detections
