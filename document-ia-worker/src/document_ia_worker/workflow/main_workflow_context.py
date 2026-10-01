@@ -13,12 +13,16 @@ from document_ia_infra.data.event.schema.workflow.workflow_execution_started_eve
 class StepMetadata(BaseModel):
     step_name: str
     execution_time: float
+    output_images: list[str] | None = None
 
 
 class StepLLMMetadata(StepMetadata):
     request_tokens: int
     response_tokens: int
     execution_time: float = Field(default=0)
+    model: str | None = None
+    system_prompt: str | None = None
+    user_prompt: str | None = None
 
 
 class MainWorkflowContext(BaseModel):

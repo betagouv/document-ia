@@ -28,6 +28,7 @@ class TaskProcessingResult:
     error: str | None = None
     execution_id: str | None = None
     total_processing_time_ms: int = -1
+    execution_result: dict[str, Any] | None = None
 
 
 def extract_s3_url_from_task_url(pdf_url: str) -> str:
@@ -199,6 +200,9 @@ def process_single_task(
             success=True,
             execution_id=execution_id,
             total_processing_time_ms=execution_details.data.total_processing_time_ms,
+            execution_result=result_data.model_dump(mode="json")
+            if hasattr(result_data, "model_dump")
+            else None,
         )
 
     except Exception as e:
@@ -247,6 +251,7 @@ def run_workflow_on_dataset(
     model_version: str | None = None,
     extraction_parameters: dict[str, Any] | None = None,
     on_progress: Callable[[int, int], None] | None = None,
+    tasks: list[Any] | None = None,
 ) -> dict[int, dict[str, Any]]:
     """
     Run workflow on all tasks in a Label Studio project.
@@ -264,8 +269,10 @@ def run_workflow_on_dataset(
     Returns:
         Dictionary mapping task IDs to their processing results
     """
-    # Get all tasks from the project
-    tasks = [task for task in ls_client.tasks.list(project=project_id, fields="all")]
+    # Callers can provide a deliberately small subset (typically one task).
+    # Keep the project-wide lookup as the backwards-compatible default.
+    if tasks is None:
+        tasks = [task for task in ls_client.tasks.list(project=project_id, fields="all")]
 
     if not tasks:
         return {}
@@ -306,6 +313,7 @@ def run_workflow_on_dataset(
             "error": result.error,
             "execution_id": result.execution_id,
             "total_processing_time_ms": result.total_processing_time_ms,
+            "execution_result": result.execution_result,
         }
         if on_progress:
             on_progress(i + 1, len(tasks))
@@ -506,6 +514,9 @@ def process_single_task_v2(
             success=True,
             execution_id=execution_id,
             total_processing_time_ms=workflow_data.total_processing_time_ms,
+            # Keep the result shape used by the prompt playground, including
+            # debug workflow metadata (system_prompt/user_prompt).
+            execution_result=execution_details.data.result.model_dump(mode="json"),
         )
 
     except Exception as e:
@@ -556,10 +567,11 @@ def run_workflow_on_dataset_v2(
     override: dict[str, Any] | None = None,
     dataset_type: str = "extraction",
     on_progress: Callable[[int, int], None] | None = None,
+    tasks: list[Any] | None = None,
 ) -> dict[int, dict[str, Any]]:
-    """Run V2 workflow on all tasks in a Label Studio project."""
-    # Get all tasks from the project
-    tasks = [task for task in ls_client.tasks.list(project=project_id, fields="all")]
+    """Run a V2 workflow on selected tasks, or on all project tasks."""
+    if tasks is None:
+        tasks = [task for task in ls_client.tasks.list(project=project_id, fields="all")]
 
     if not tasks:
         return {}
@@ -604,6 +616,7 @@ def run_workflow_on_dataset_v2(
             "error": result.error,
             "execution_id": result.execution_id,
             "total_processing_time_ms": result.total_processing_time_ms,
+            "execution_result": result.execution_result,
         }
         if on_progress:
             on_progress(i + 1, len(tasks))

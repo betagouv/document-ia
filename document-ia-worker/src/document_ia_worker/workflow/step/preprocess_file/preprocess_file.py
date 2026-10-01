@@ -1,3 +1,5 @@
+import base64
+import io
 import logging
 import math
 import threading
@@ -93,16 +95,18 @@ class PreprocessFileStep(BaseFileManipulationStep[PreprocessFileResult]):
                 output_files_path=[self.download_file_result.file_path]
             )
 
+        metadata: Optional[StepMetadata] = None
         if self.params.yoloworld.enabled:
-            result = self._apply_yoloworld(result)
+            result, metadata = self._apply_yoloworld(result)
 
-        return result, None
+        return result, metadata
 
     def _apply_yoloworld(
         self, preprocess_result: PreprocessFileResult
-    ) -> PreprocessFileResult:
+    ) -> tuple[PreprocessFileResult, StepMetadata]:
         yolo_params = self.params.yoloworld
         output_paths: list[str] = []
+        output_images: list[str] = []
         out_dir = Path(self.tmp_folder_path)
         out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -118,10 +122,25 @@ class PreprocessFileStep(BaseFileManipulationStep[PreprocessFileResult]):
                     image_size=yolo_params.image_size,
                 )
                 cropped_image.save(output_path, format="PNG")
+                # Keep a compact preview in the execution debug metadata so
+                # clients can inspect the YoloWorld output after worker cleanup.
+                preview = cropped_image.convert("RGB")
+                preview.thumbnail((1200, 1200))
+                preview_buffer = io.BytesIO()
+                preview.save(preview_buffer, format="JPEG", quality=80, optimize=True)
+                output_images.append(
+                    "data:image/jpeg;base64,"
+                    + base64.b64encode(preview_buffer.getvalue()).decode("ascii")
+                )
+                preview.close()
                 cropped_image.close()
             output_paths.append(str(output_path))
 
-        return PreprocessFileResult(output_files_path=output_paths)
+        return PreprocessFileResult(output_files_path=output_paths), StepMetadata(
+            step_name="PreprocessFileStep",
+            execution_time=0,
+            output_images=output_images,
+        )
 
     def _preprocess_pdf(self) -> PreprocessFileResult:
         with _PDF_LOCK:
