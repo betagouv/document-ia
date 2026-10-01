@@ -81,6 +81,12 @@ class YoloWorldParams(BaseModel):
         le=1.0,
         description="Seuil de confiance minimal pour conserver une détection",
     )
+    iou: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Seuil IoU utilisé par la suppression des doublons (NMS)",
+    )
     image_size: Optional[int] = Field(
         default=None,
         gt=0,

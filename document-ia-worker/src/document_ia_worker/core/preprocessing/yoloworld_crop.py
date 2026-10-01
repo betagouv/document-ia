@@ -39,10 +39,13 @@ def detect_boxes(
     *,
     class_name: str,
     confidence_threshold: float,
+    iou: float = 0.7,
     image_size: Optional[int] = None,
 ) -> list[DetectionBox]:
     predict_kwargs: dict[str, Any] = {"verbose": False}
     predict_kwargs["device"] = "cpu"
+    predict_kwargs["conf"] = confidence_threshold
+    predict_kwargs["iou"] = iou
     if image_size is not None:
         predict_kwargs["imgsz"] = image_size
 
@@ -65,16 +68,13 @@ def detect_boxes(
     for coordinates, confidence in zip(xyxy_values, confidence_values):
         if len(coordinates) < 4:
             continue
-        confidence_float = float(confidence)
-        if confidence_float < confidence_threshold:
-            continue
         detections.append(
             DetectionBox(
                 x1=float(coordinates[0]),
                 y1=float(coordinates[1]),
                 x2=float(coordinates[2]),
                 y2=float(coordinates[3]),
-                confidence=confidence_float,
+                confidence=float(confidence),
             )
         )
     return detections
@@ -98,12 +98,14 @@ def yoloworld_crop_image(
     class_name: str = "book",
     margin: int = 20,
     confidence_threshold: float = 0.25,
+    iou: float = 0.7,
     image_size: Optional[int] = None,
 ) -> Image.Image:
     boxes = detect_boxes(
         image,
         class_name=class_name,
         confidence_threshold=confidence_threshold,
+        iou=iou,
         image_size=image_size,
     )
     return crop_image_to_merged_boxes(image, boxes, margin=margin)

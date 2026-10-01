@@ -63,6 +63,7 @@ def test_preprocess_file_accepts_yoloworld_with_defaults():
     assert dto.steps[1].params.yoloworld.class_name == "book"
     assert dto.steps[1].params.yoloworld.margin == 20
     assert dto.steps[1].params.yoloworld.confidence_threshold == 0.25
+    assert dto.steps[1].params.yoloworld.iou == 0.7
 
 
 def test_preprocess_file_accepts_custom_yoloworld_params():
@@ -77,6 +78,7 @@ def test_preprocess_file_accepts_custom_yoloworld_params():
                         "class_name": "document",
                         "margin": 5,
                         "confidence_threshold": 0.7,
+                        "iou": 0.4,
                         "image_size": 640,
                     }
                 },
@@ -92,4 +94,5 @@ def test_preprocess_file_accepts_custom_yoloworld_params():
     assert params.class_name == "document"
     assert params.margin == 5
     assert params.confidence_threshold == 0.7
+    assert params.iou == 0.4
     assert params.image_size == 640

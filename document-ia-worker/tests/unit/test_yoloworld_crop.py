@@ -61,11 +61,16 @@ def test_confidence_threshold_is_applied(monkeypatch):
     class FakeModel:
         def __init__(self):
             self.classes = None
+            self.predict_kwargs = None
 
         def set_classes(self, classes):  # noqa: ANN001
             self.classes = classes
 
         def predict(self, image, **kwargs):  # noqa: ANN001, ARG002
+            self.predict_kwargs = kwargs
+            if kwargs["conf"] > 0.2:
+                FakeResult.boxes.xyxy = [FakeBoxes.xyxy[1]]
+                FakeResult.boxes.conf = [FakeBoxes.conf[1]]
             return [FakeResult()]
 
     fake_model = FakeModel()
@@ -79,9 +84,12 @@ def test_confidence_threshold_is_applied(monkeypatch):
         Image.new("RGB", (100, 80), "white"),
         class_name="book",
         confidence_threshold=0.25,
+        iou=0.6,
     )
 
     assert fake_model.classes == ["book"]
+    assert fake_model.predict_kwargs["conf"] == 0.25
+    assert fake_model.predict_kwargs["iou"] == 0.6
     assert boxes == [DetectionBox(20, 25, 50, 60, 0.8)]
 
 

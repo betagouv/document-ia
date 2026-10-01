@@ -95,6 +95,7 @@ def test_prepare_step_lists_v2_passes_yoloworld_preprocess_params():
                         "class_name": "document",
                         "margin": 8,
                         "confidence_threshold": 0.6,
+                        "iou": 0.5,
                         "image_size": 640,
                     }
                 },
@@ -120,4 +121,5 @@ def test_prepare_step_lists_v2_passes_yoloworld_preprocess_params():
     assert params.class_name == "document"
     assert params.margin == 8
     assert params.confidence_threshold == 0.6
+    assert params.iou == 0.5
     assert params.image_size == 640
