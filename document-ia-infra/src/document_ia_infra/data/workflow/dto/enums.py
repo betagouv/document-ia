@@ -9,6 +9,10 @@ class LLMModel(str, Enum):
     MISTRAL_MEDIUM = "mistral-medium-2508"
 
 
+class VLMModel(str, Enum):
+    MISTRAL_MEDIUM_3_5 = "mistral-medium-3-5"
+
+
 class OCRModel(str, Enum):
     TESSERACT = "tesseract"
     MISTRAL = "mistral"

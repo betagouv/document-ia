@@ -18,6 +18,8 @@ from document_ia_infra.data.workflow.dto.workflow_v2_dto import (
 )
 from document_ia_infra.data.workflow.dto.workflow_v2_dto import LLMExtractParams
 from document_ia_infra.data.workflow.dto.workflow_v2_dto import LlmExtractDataStepDto
+from document_ia_infra.data.workflow.dto.workflow_v2_dto import VlmExtractDataStepDto
+from document_ia_infra.data.workflow.dto.workflow_v2_dto import VLMExtractParams
 from document_ia_infra.data.workflow.dto.workflow_v2_dto import OCRParams
 from document_ia_infra.data.workflow.dto.workflow_v2_dto import PreprocessFileStepDto
 from document_ia_infra.data.workflow.dto.workflow_v2_dto import PreprocessFileParams
@@ -63,6 +65,9 @@ from document_ia_worker.workflow.step.preprocess_file.preprocess_file import (
 from document_ia_worker.workflow.step.save_workflow_result.save_workflow_result import (
     SaveWorkflowResultStep,
 )
+from document_ia_worker.workflow.step.vlm_extract_data.vlm_extract_data import (
+    VLMExtractDataStep,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +112,11 @@ def prepareStepListsV2(
                 assert isinstance(typed_step, LlmExtractDataStepDto)
                 step_list.append(
                     build_llm_extract_step(workflow_context, typed_step.params)
+                )
+            case "vlm_extract_data":
+                assert isinstance(typed_step, VlmExtractDataStepDto)
+                step_list.append(
+                    build_vlm_extract_step(workflow_context, typed_step.params)
                 )
             case "save_workflow_result":
                 assert isinstance(typed_step, SaveWorkflowResultStepDto)
@@ -190,3 +200,9 @@ def build_llm_extract_step(
         main_workflow_context=workflow_context,
         params=step_params,
     )
+
+
+def build_vlm_extract_step(
+    workflow_context: MainWorkflowContext, step_params: VLMExtractParams
+) -> VLMExtractDataStep:
+    return VLMExtractDataStep(workflow_context, step_params)

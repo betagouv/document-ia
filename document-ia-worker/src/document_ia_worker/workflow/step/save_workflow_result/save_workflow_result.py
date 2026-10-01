@@ -18,6 +18,7 @@ from document_ia_worker.workflow.step.step_result.barcode_result import BarcodeR
 from document_ia_worker.workflow.step.step_result.llm_result import (
     LLMClassificationResult,
     LLMExtractionResult,
+    VLMExtractionResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,7 @@ class SaveWorkflowResultStep(BaseStep[None]):
     llm_classification: Optional[LLMClassificationResult] = None
     llm_extraction_result: Optional[LLMExtractionResult] = None
     barcode_data: Optional[BarcodeResult] = None
+    vlm_extraction_result: Optional[VLMExtractionResult] = None
 
     def __init__(
         self,
@@ -58,10 +60,17 @@ class SaveWorkflowResultStep(BaseStep[None]):
         self.barcode_data = self._get_not_mandatory_workflow_context_key(
             BarcodeResult, context
         )
+        self.vlm_extraction_result = self._get_not_mandatory_workflow_context_key(
+            VLMExtractionResult, context
+        )
 
     async def _execute_internal(self) -> tuple[None, Optional[StepMetadata]]:
         end_time = datetime.now(UTC)
         final_result: CompletedEventResult = CompletedEventResult()
+
+        if self.vlm_extraction_result is not None:
+            final_result.classification = self.vlm_extraction_result.classification
+            final_result.extraction = self.vlm_extraction_result.extraction
 
         if self.llm_classification is not None:
             final_result.classification = self.llm_classification.data

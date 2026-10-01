@@ -23,3 +23,8 @@ class LLMClassificationResult(LLMResult):
 
 class LLMExtractionResult(LLMResult):
     data: DocumentExtraction[BaseModel]
+
+
+class VLMExtractionResult(LLMResult):
+    classification: DocumentClassification
+    extraction: DocumentExtraction[BaseModel]
