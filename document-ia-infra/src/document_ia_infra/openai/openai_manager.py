@@ -51,6 +51,93 @@ class OpenAIManager:
             temperature=temperature,
         )
 
+    async def get_vlm_response(
+        self,
+        messages: list[dict[str, Any]],
+        model: str,
+        temperature: float = 0,
+    ) -> tuple[str, int, int]:
+        """Send a multimodal conversation and return the raw assistant content.
+
+        The complete message history is sent on every call so compatible remote
+        servers can reuse the common prompt prefix through prompt/KV caching.
+        """
+        request_tokens = sum(
+            len(self.encoding.encode(str(message.get("content", ""))))
+            for message in messages
+        )
+        data: Dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+        }
+
+        try:
+            response: ChatCompletion = cast(
+                ChatCompletion, await self.client.chat.completions.create(**data)
+            )
+            result = response.choices[0].message.content
+            if result is None:
+                raise Exception(f"Failed to generate response: {response}")
+
+            response_tokens = len(self.encoding.encode(result))
+            return result, request_tokens, response_tokens
+        except AuthenticationError:
+            raise OpenAIAuthentificationError()
+        except Exception as e:
+            if isinstance(e, PermissionDeniedError):
+                raise OpenAIAuthentificationError()
+            logger.error("Error generating VLM response: %s", e)
+            raise
+
+    async def get_vlm_typed_response(
+        self,
+        messages: list[dict[str, Any]],
+        response_class: type[T],
+        model: str,
+        temperature: float = 0,
+    ) -> tuple[T, str, int, int]:
+        """Send a conversation with constrained structured output.
+
+        The raw assistant content is returned alongside the validated object so
+        callers can append the exact assistant message to the next turn.
+        """
+        request_tokens = sum(
+            len(self.encoding.encode(str(message.get("content", ""))))
+            for message in messages
+        )
+        data: Dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+        }
+
+        try:
+            response: ChatCompletion = cast(
+                ChatCompletion,
+                await self.client.chat.completions.parse(
+                    **data, response_format=get_response_format(response_class)
+                ),
+            )
+            result = response.choices[0].message.content
+            if result is None:
+                raise Exception(f"Failed to generate response: {response}")
+
+            response_tokens = len(self.encoding.encode(result))
+            return (
+                response_class.model_validate_json(result, by_alias=False, by_name=True),
+                result,
+                request_tokens,
+                response_tokens,
+            )
+        except AuthenticationError:
+            raise OpenAIAuthentificationError()
+        except Exception as e:
+            if isinstance(e, PermissionDeniedError):
+                raise OpenAIAuthentificationError()
+            logger.error("Error generating typed VLM response: %s", e)
+            raise
+
     async def get_extraction_response(
         self,
         system_prompt: str,

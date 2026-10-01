@@ -6,6 +6,7 @@ from document_ia_infra.data.workflow.dto.enums import (
     BarcodeExtractionType,
     OCRModel,
     LLMModel,
+    VLMModel,
 )
 from document_ia_schemas import SupportedDocumentType
 
@@ -58,6 +59,23 @@ class LLMExtractParams(BaseModel):
     document_type: Optional[SupportedDocumentType] = Field(
         default=None,
         description="Type de document à utiliser pour l'extraction (ex : cni, passeport, etc.)",
+    )
+
+
+class VLMExtractParams(BaseModel):
+    model: VLMModel = Field(
+        default=VLMModel.MISTRAL_MEDIUM_3_5,
+        description="Modèle VLM à utiliser pour l'OCR, la classification et l'extraction",
+    )
+    temperature: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Température à utiliser pour les appels VLM (entre 0.0 et 1.0)",
+    )
+    document_types: Union[Literal["all"], List[SupportedDocumentType]] = Field(
+        default="all",
+        description="Type(s) de document à utiliser pour la classification",
     )
 
 
@@ -170,6 +188,11 @@ class LlmExtractDataStepDto(BaseWorkflowStepDto):
     params: LLMExtractParams
 
 
+class VlmExtractDataStepDto(BaseWorkflowStepDto):
+    action: Literal["vlm_extract_data"]
+    params: VLMExtractParams
+
+
 WorkflowStep = Annotated[
     Union[
         DownloadFileStepDto,
@@ -178,6 +201,7 @@ WorkflowStep = Annotated[
         ExtractContentOcrStepDto,
         LlmClassifyDocumentStepDto,
         LlmExtractDataStepDto,
+        VlmExtractDataStepDto,
         SaveWorkflowResultStepDto,
     ],
     Field(discriminator="action"),
