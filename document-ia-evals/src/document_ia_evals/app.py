@@ -58,6 +58,10 @@ def main():
                 "pages/evaluate_metrics_v2.py",
                 title="🎯 Evaluate Predictions Metrics V2",
             ),
+            st.Page(
+                "pages/review_prediction_errors.py",
+                title="🔎 Review prediction errors",
+            ),
             st.Page("pages/list_experiments.py", title="📚 List Previous Evaluations"),
         ],
         "Prompt Playground": [

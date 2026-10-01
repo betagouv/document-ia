@@ -84,6 +84,7 @@ def wait_for_execution(
         response = requests.get(
             details_api_url,
             headers=headers,
+            params={"is_debug_mode": "true"},
         )
         response_json = response.json()
         status = response_json.get("status", "")

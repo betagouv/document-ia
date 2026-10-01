@@ -45,6 +45,7 @@ env/
 
 # Streamlit
 .streamlit/
+!.streamlit/config.toml
 
 # Data
 data/*
@@ -61,3 +62,6 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+# Data
+src/document_ia_evals/static/review-pdfs/
