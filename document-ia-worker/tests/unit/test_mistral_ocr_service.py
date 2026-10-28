@@ -9,19 +9,22 @@ from document_ia_worker.core.ocr.mistral.mistral_ocr_settings import (
 )
 
 
+def mistral_ocr_is_configured() -> bool:
+    return bool(
+        mistral_ocr_settings.MISTRAL_OCR_API_KEY
+        and mistral_ocr_settings.MISTRAL_OCR_API_KEY.get_secret_value()
+        and mistral_ocr_settings.MISTRAL_OCR_BASE_URL
+    )
+
+
 @pytest.mark.asyncio
 @pytest.mark.e2e
 async def test_extract_text_from_image_e2e_success():
     """Test e2e réel qui appelle l'API Mistral OCR si les variables d'env sont configurées.
     Skippé automatiquement sinon.
     """
-    if (
-        mistral_ocr_settings.MISTRAL_OCR_API_KEY is None
-        or mistral_ocr_settings.MISTRAL_OCR_BASE_URL is None
-    ):
-        pytest.skip(
-            "MISTRAL_OCR_API_KEY / MISTRAL_ORC_BASE_URL non configurés, skip e2e"
-        )
+    if not mistral_ocr_is_configured():
+        pytest.skip("Mistral OCR credentials are not configured")
 
     fixture_path = (
         pathlib.Path(__file__).resolve().parents[1]
@@ -47,13 +50,8 @@ async def test_extract_text_from_image_e2e_unauthorized(monkeypatch):
     """Test e2e d'échec avec une clé invalide (401 attendu côté service).
     On force une mauvaise clé sur l'instance du service.
     """
-    if (
-        mistral_ocr_settings.MISTRAL_OCR_API_KEY is None
-        or mistral_ocr_settings.MISTRAL_OCR_BASE_URL is None
-    ):
-        pytest.skip(
-            "MISTRAL_OCR_API_KEY / MISTRAL_ORC_BASE_URL non configurés, skip e2e"
-        )
+    if not mistral_ocr_is_configured():
+        pytest.skip("Mistral OCR credentials are not configured")
 
     fixture_path = (
         pathlib.Path(__file__).resolve().parents[1]
