@@ -12,6 +12,7 @@ from uuid import uuid4
 import httpx
 import pytest
 from redis.asyncio import Redis
+from sqlalchemy.exc import OperationalError
 
 from document_ia_api.infra.redis.simple_stream_consumer import SimpleStreamConsumer
 from document_ia_infra.redis.serializable_message import SerializableMessage
@@ -147,14 +148,23 @@ def mockserver_base_url() -> str:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_consumer_acknowledges_success(redis_client: Redis, mockserver_base_url: str) -> None:
+async def test_consumer_acknowledges_success(
+    redis_client: Redis,
+    mockserver_base_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     stream = f"test_webhook_stream_ok:{uuid4()}"
     group = f"group-ok-{uuid4()}"
-    consumer = SimpleStreamConsumer[
-        TestWebhookMessage
-    ](
+    handler_called = asyncio.Event()
+    original_handler = _webhook_handler_factory()
+
+    async def record_handler(message: TestWebhookMessage) -> None:
+        await original_handler(message)
+        handler_called.set()
+
+    consumer = SimpleStreamConsumer[TestWebhookMessage](
         stream_name=stream,
-        handler=_webhook_handler_factory(),
+        handler=record_handler,
         message_class=TestWebhookMessage,
         consumer_group=group,
         consumer_name=f"consumer-ok-{uuid4()}",
@@ -169,14 +179,24 @@ async def test_consumer_acknowledges_success(redis_client: Redis, mockserver_bas
     )
 
     await _append_message(redis_client, stream, message)
+    original_xack = redis_client.xack
+    acknowledged = asyncio.Event()
+
+    async def record_ack(stream_name: str, group_name: str, entry_id: str) -> int:
+        result = await original_xack(stream_name, group_name, entry_id)
+        acknowledged.set()
+        return result
+
+    monkeypatch.setattr(redis_client, "xack", record_ack)
     await consumer.start()
-
-    await _wait_until(_pending_is_zero_pred(redis_client, stream, group))
-    await _wait_until(_dlq_len_is_pred(redis_client, stream, expected=0))
-
-    await consumer.stop()
-    await redis_client.delete(stream)
-    await redis_client.delete(f"{stream}:dlq")
+    try:
+        await asyncio.wait_for(handler_called.wait(), timeout=2)
+        await asyncio.wait_for(acknowledged.wait(), timeout=2)
+        assert await _pending_count(redis_client, stream, group) == 0
+        assert await _dlq_len(redis_client, stream) == 0
+    finally:
+        await consumer.stop()
+        await redis_client.delete(stream, f"{stream}:dlq")
 
 
 @pytest.mark.asyncio
@@ -206,6 +226,61 @@ async def test_consumer_leaves_http_transport_failure_pending(
     message = TestWebhookMessage(
         workflow_execution_id=str(uuid4()),
         webhook_url="http://localhost:1080/webhook",
+    )
+    await _append_message(redis_client, stream, message)
+    original_xreadgroup = redis_client.xreadgroup
+    next_read_started = asyncio.Event()
+    read_count = 0
+
+    async def record_read(*args: Any, **kwargs: Any) -> Any:
+        nonlocal read_count
+        read_count += 1
+        if read_count >= 2:
+            next_read_started.set()
+        return await original_xreadgroup(*args, **kwargs)
+
+    monkeypatch.setattr(redis_client, "xreadgroup", record_read)
+    await consumer.start()
+    try:
+        await asyncio.wait_for(handler_called.wait(), timeout=2)
+        await asyncio.wait_for(next_read_started.wait(), timeout=2)
+        assert await _pending_count(redis_client, stream, group) == 1
+        assert await _dlq_len(redis_client, stream) == 0
+    finally:
+        await consumer.stop()
+        await redis_client.delete(stream, f"{stream}:dlq")
+
+
+@pytest.mark.asyncio
+async def test_consumer_leaves_database_failure_pending(
+    redis_client: Redis, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stream = f"test_webhook_database:{uuid4()}"
+    group = f"group-database-{uuid4()}"
+    handler_called = asyncio.Event()
+
+    from document_ia_api.infra import webhook_notification_service as service_module
+
+    def fail_database_session() -> None:
+        handler_called.set()
+        raise OperationalError(
+            "connect", {}, ConnectionError("database unavailable")
+        )
+
+    monkeypatch.setattr(
+        service_module.database_manager, "local_session", fail_database_session
+    )
+    message = TestWebhookMessage(
+        workflow_execution_id=str(uuid4()),
+        webhook_url="http://localhost:1080/webhook",
+    )
+    consumer = SimpleStreamConsumer[TestWebhookMessage](
+        stream_name=stream,
+        handler=service_module.webhook_notification_service.handle_webhook_notification,
+        message_class=TestWebhookMessage,
+        consumer_group=group,
+        consumer_name=f"consumer-database-{uuid4()}",
+        block_ms=10,
     )
     await _append_message(redis_client, stream, message)
     original_xreadgroup = redis_client.xreadgroup
