@@ -165,6 +165,39 @@ async def test_worker_terminal_failure_requires_dlq_before_ack(
 
 
 @pytest.mark.asyncio
+async def test_worker_requeue_and_dlq_failures_leave_message_pending(
+    redis_client: Redis, stream: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    group = "worker-group"
+    msg_id, fields = await read_message(
+        redis_client, stream, group, json.dumps({"payload": "requeue"})
+    )
+    consumer = make_consumer(stream, group)
+    future = asyncio.get_running_loop().create_future()
+    future.set_exception(RetryableException("temporary failure"))
+    operations: list[str] = []
+
+    async def fail_requeue(stream_name: str, fields: dict[str, Any]) -> Any:
+        operations.append(f"xadd:{stream_name}")
+        raise ConnectionError(f"Redis write unavailable for {stream_name}")
+
+    async def record_ack(stream_name: str, group_name: str, msg_id: str) -> Any:
+        operations.append(f"xack:{stream_name}")
+        return 1
+
+    monkeypatch.setattr(redis_client, "xadd", fail_requeue)
+    monkeypatch.setattr(redis_client, "xack", record_ack)
+
+    await consumer._handle_finished_future(future, msg_id, fields, redis_client)
+
+    assert operations == [f"xadd:{stream}", f"xadd:{stream}:dlq"]
+    assert await pending_count(redis_client, stream, group) == 1
+    assert await redis_client.xlen(stream) == 1
+    assert await redis_client.xlen(f"{stream}:dlq") == 0
+    consumer.executor.shutdown(wait=True)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("dlq_available", [True, False])
 async def test_worker_decode_failure_requires_dlq_before_ack(
     redis_client: Redis, stream: str, monkeypatch: pytest.MonkeyPatch, dlq_available: bool
