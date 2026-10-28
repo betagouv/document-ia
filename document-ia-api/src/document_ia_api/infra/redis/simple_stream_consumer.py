@@ -141,7 +141,7 @@ class SimpleStreamConsumer(Generic[T]):
         entry_id: Any,
         fields: dict[str, Any],
         error_message: str,
-    ) -> None:
+    ) -> bool:
         dlq_stream = f"{stream_name}:dlq"
         payload = fields.get("data")
         try:
@@ -160,6 +160,7 @@ class SimpleStreamConsumer(Generic[T]):
                 dlq_stream,
                 error_message,
             )
+            return True
         except Exception as dlq_err:
             logger.error(
                 "Unable to push message %s to DLQ '%s': %s",
@@ -167,6 +168,7 @@ class SimpleStreamConsumer(Generic[T]):
                 dlq_stream,
                 dlq_err,
             )
+            return False
 
     async def _handle_message_with_retry(
         self,
@@ -175,12 +177,12 @@ class SimpleStreamConsumer(Generic[T]):
         entry_id: Any,
         fields: dict[str, Any],
         message_data: T,
-    ) -> None:
+    ) -> bool:
         attempt = 0
         while True:
             try:
                 await self._handler(message_data)
-                return
+                return True
             except httpx.HTTPStatusError as exc:
                 status = exc.response.status_code
                 if not self._should_retry_http(status):
@@ -190,23 +192,21 @@ class SimpleStreamConsumer(Generic[T]):
                         stream_name,
                         entry_id,
                     )
-                    await self._send_to_dlq(
+                    return await self._send_to_dlq(
                         redis,
                         stream_name,
                         entry_id,
                         fields,
                         f"Non retryable HTTP {status}",
                     )
-                    return
                 if attempt >= self._max_retries:
-                    await self._send_to_dlq(
+                    return await self._send_to_dlq(
                         redis,
                         stream_name,
                         entry_id,
                         fields,
                         f"Max retries exceeded (HTTP {status})",
                     )
-                    return
                 delay = self._compute_backoff_delay(attempt)
                 attempt += 1
                 logger.warning(
@@ -250,12 +250,13 @@ class SimpleStreamConsumer(Generic[T]):
 
                 for stream_name, entries in response:
                     for entry_id, fields in entries:
+                        should_ack = False
                         try:
                             message_data: T = cast(
                                 T, self._message_class.from_json(fields["data"])
                             )
 
-                            await self._handle_message_with_retry(
+                            should_ack = await self._handle_message_with_retry(
                                 redis,
                                 stream_name,
                                 entry_id,
@@ -270,7 +271,12 @@ class SimpleStreamConsumer(Generic[T]):
                                 h_err,
                             )
                         finally:
-                            if self._group and self._consumer and self._auto_ack:
+                            if (
+                                should_ack
+                                and self._group
+                                and self._consumer
+                                and self._auto_ack
+                            ):
                                 try:
                                     await redis.xack(
                                         self._stream, self._group, entry_id
