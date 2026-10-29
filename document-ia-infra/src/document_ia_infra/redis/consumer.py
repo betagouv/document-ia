@@ -377,11 +377,14 @@ class Consumer(Generic[T]):
 
         Une conservation DLQ réussie suivie d'un ACK en échec laisse l'entrée
         d'origine en attente : une nouvelle récupération ne doit pas la
-        conserver une deuxième fois. La DLQ reste un flux d'exception, le
-        parcours complet reste borné en pratique.
+        conserver une deuxième fois. L'entrée DLQ d'un message ne peut exister
+        qu'après sa création dans le flux d'origine : le parcours démarre donc
+        à l'identifiant du message et ignore l'historique antérieur de la DLQ.
         """
         try:
-            entries = await redis_connection.xrange(self.dlq_stream_name)
+            entries = await redis_connection.xrange(
+                self.dlq_stream_name, min=msg_id
+            )
         except Exception as scan_err:
             logger.error(
                 f"Failed to scan DLQ stream '{self.dlq_stream_name}' for {msg_id}: {scan_err}"
