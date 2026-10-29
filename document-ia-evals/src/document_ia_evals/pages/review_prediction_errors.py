@@ -94,7 +94,10 @@ def _render_document(document: ErrorReviewDocument) -> None:
         st.warning("Aucune URL de document n’est disponible pour cette tâche.")
         return
 
-    if any(extension in document.document_url.lower() for extension in (".png", ".jpg", ".jpeg", ".webp")):
+    if any(
+        extension in document.document_url.lower()
+        for extension in (".png", ".jpg", ".jpeg", ".webp")
+    ):
         st.image(document.document_url, use_container_width=True)
     else:
         try:
@@ -140,7 +143,9 @@ def main() -> None:
     suggested_document_type = metadata.get("document_type")
     if suggested_document_type:
         try:
-            suggested_document_type = SupportedDocumentType.from_str(suggested_document_type).value
+            suggested_document_type = SupportedDocumentType.from_str(
+                suggested_document_type
+            ).value
         except ValueError:
             suggested_document_type = None
 
@@ -167,7 +172,9 @@ def main() -> None:
 
     model_versions = get_model_versions(tasks)
     if not model_versions:
-        st.warning("Aucune prédiction avec un model_version n’a été trouvée dans ce projet.")
+        st.warning(
+            "Aucune prédiction avec un model_version n’a été trouvée dans ce projet."
+        )
         return
     model_version = st.selectbox(
         "Modèle à examiner",
@@ -218,12 +225,16 @@ def main() -> None:
         tuple(sorted(selected_keys)),
     )
     if st.session_state.get("review_error_config") != current_config:
-        st.info("Cliquez sur « Analyser les erreurs » pour appliquer cette configuration.")
+        st.info(
+            "Cliquez sur « Analyser les erreurs » pour appliquer cette configuration."
+        )
         return
 
     ambiguous_task_ids = st.session_state.get("review_ambiguous_tasks", [])
     if ambiguous_task_ids:
-        st.warning(f"{len(ambiguous_task_ids)} tâche(s) exclue(s) : plusieurs prédictions portent ce model_version.")
+        st.warning(
+            f"{len(ambiguous_task_ids)} tâche(s) exclue(s) : plusieurs prédictions portent ce model_version."
+        )
 
     documents: list[ErrorReviewDocument] = sorted(
         st.session_state.get("review_error_documents", []),
@@ -272,7 +283,9 @@ def main() -> None:
             use_container_width=True,
         )
     document = documents[selected_index]
-    st.caption(f"Document {selected_index + 1} / {len(documents)} · Task ID: {document.task_id} · Prediction ID: {document.prediction_id}")
+    st.caption(
+        f"Document {selected_index + 1} / {len(documents)} · Task ID: {document.task_id} · Prediction ID: {document.prediction_id}"
+    )
 
     left, right = st.columns([3, 2])
     with left:

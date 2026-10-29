@@ -471,39 +471,39 @@ def _render_latest_inference_section(
         "Utiliser le system prompt édité", value=True
     )
     if prediction_button:
-            response_format = _build_response_format_from_document_type(
-                replay_payload.document_type
-            ) or {"type": "json_object"}
+        response_format = _build_response_format_from_document_type(
+            replay_payload.document_type
+        ) or {"type": "json_object"}
 
-            with st.spinner("Appel LLM en cours...", show_time=True):
-                openai_base_url = os.environ["OPENAI_BASE_URL"]
-                openai_api_key = os.environ["OPENAI_API_KEY"]
-                try:
-                    llm_response = _call_openai_chat_completion(
-                        base_url=openai_base_url,
-                        api_key=openai_api_key,
-                        model=model,
-                        system_prompt=edited_system_prompt
-                        if use_edited_system_prompt
-                        else replay_payload.system_prompt,
-                        user_prompt=replay_payload.user_prompt,
-                        response_format=response_format,
-                    )
-                except Exception as e:
-                    st.error(f"Erreur lors de l'appel LLM: {e}")
-                    return
+        with st.spinner("Appel LLM en cours...", show_time=True):
+            openai_base_url = os.environ["OPENAI_BASE_URL"]
+            openai_api_key = os.environ["OPENAI_API_KEY"]
+            try:
+                llm_response = _call_openai_chat_completion(
+                    base_url=openai_base_url,
+                    api_key=openai_api_key,
+                    model=model,
+                    system_prompt=edited_system_prompt
+                    if use_edited_system_prompt
+                    else replay_payload.system_prompt,
+                    user_prompt=replay_payload.user_prompt,
+                    response_format=response_format,
+                )
+            except Exception as e:
+                st.error(f"Erreur lors de l'appel LLM: {e}")
+                return
 
-            content = llm_response.choices[0].message.content
+        content = llm_response.choices[0].message.content
 
-            if content:
-                try:
-                    prediction = json.loads(content)
-                    st.json(prediction)
-                    _render_extraction_comparison(prediction, ground_truth)
-                except Exception:
-                    st.warning("Réponse du LLM non parsable en JSON:")
-                    st.code(content)
-                    pass
+        if content:
+            try:
+                prediction = json.loads(content)
+                st.json(prediction)
+                _render_extraction_comparison(prediction, ground_truth)
+            except Exception:
+                st.warning("Réponse du LLM non parsable en JSON:")
+                st.code(content)
+                pass
 
 
 def _document_type_from_override(

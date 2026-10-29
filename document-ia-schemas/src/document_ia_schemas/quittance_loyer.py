@@ -37,7 +37,7 @@ class LocataireModel(BaseModel):
                 Metric.TOKEN_SET_EQUALITY,
                 Metric.LEVENSHTEIN_DISTANCE,
             ]
-        }
+        },
     )
 
 
@@ -169,12 +169,15 @@ class QuittanceLoyerExtractSchema(BaseDocumentTypeSchema[QuittanceLoyerModel]):
             date_emission=date(2026, 5, 5),
             loyer_de_base=850.0,
             provisions_charges=70.0,
-            presence_signature=True
+            presence_signature=True,
         ),
         QuittanceLoyerModel(
             nature_document=NatureDocumentQuittance.QUITTANCE,
             type_parc=TypeParc.SOCIAL,
-            bailleur=BailleurModel(type_bailleur=TypeBailleur.PERSONNE_MORALE, nom_raison_sociale="OFFICE HLM"),
+            bailleur=BailleurModel(
+                type_bailleur=TypeBailleur.PERSONNE_MORALE,
+                nom_raison_sociale="OFFICE HLM",
+            ),
             locataires=[LocataireModel(identite="MARTIN Nora")],
             periode_debut=date(2026, 1, 1),
             periode_fin=date(2026, 1, 31),
