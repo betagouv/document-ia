@@ -515,3 +515,36 @@ async def test_dlq_retention_scan_skips_history_older_than_original(
     assert scans == [(msg_id, 0), (msg_id, 1)]
     assert await redis_client.xlen(dlq) == 201
     consumer.executor.shutdown(wait=True)
+
+
+@pytest.mark.asyncio
+async def test_dlq_retention_scan_includes_source_millisecond(
+    redis_client: Redis, stream: str
+) -> None:
+    """Séquences indépendantes par flux : une conservation DLQ de la même
+    milliseconde que le message d'origine peut précéder son identifiant
+    (source T-5, DLQ T-0) ; elle doit rester détectée après un ACK en échec."""
+    group = "worker-group"
+    dlq = f"{stream}:dlq"
+
+    # six entrées source dans la même milliseconde ; la dernière porte T-5
+    for seq in range(6):
+        await redis_client.xadd(stream, {"data": "x"}, id=f"12345-{seq}")
+    msg_id = "12345-5"
+
+    # conservation DLQ de la même milliseconde, séquence indépendante
+    await redis_client.xadd(
+        dlq,
+        {"original_id": msg_id, "data": "x", "reason": "decode_error"},
+        id="12345-0",
+    )
+
+    consumer = make_consumer(stream, group)
+
+    # la conservation existante est détectée malgré l'inversion de séquence :
+    # aucune nouvelle écriture DLQ
+    assert await consumer._send_to_dlq(
+        redis_client, msg_id, {"data": "x", "retries": "0"}, "decode_error"
+    )
+    assert await redis_client.xlen(dlq) == 1
+    consumer.executor.shutdown(wait=True)
