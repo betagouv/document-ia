@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -34,8 +35,8 @@ class MockRedis:
         self.xadd_ids: list[str] = []  # generated id per xadd call, same order
         self.xrange_calls: list[tuple[str, str, str]] = []  # (stream, min, max)
         self.groups_created: set[tuple[str, str]] = set()
-        self._id_ms = 0
-        self._id_seq = 0
+        self._id_state: dict[str, tuple[int, int]] = {}  # per-stream (ms, seq)
+        self._clock: Callable[[], int] = lambda: time.time_ns() // 1_000_000
         self._xautoclaim_queue: list[
             tuple[str, list[tuple[str, dict[str, Any]]], list[str]]
         ] = []
@@ -77,13 +78,14 @@ class MockRedis:
         return 1
 
     async def xadd(self, stream: str, fields: dict[str, Any]):
-        now_ms = time.time_ns() // 1_000_000
-        if now_ms > self._id_ms:
-            self._id_ms = now_ms
-            self._id_seq = 0
+        # séquences indépendantes par flux, comme en Redis réel
+        now_ms = self._clock()
+        last_ms, last_seq = self._id_state.get(stream, (0, 0))
+        if now_ms > last_ms:
+            msg_id = f"{now_ms}-0"
         else:
-            self._id_seq += 1
-        msg_id = f"{self._id_ms}-{self._id_seq}"
+            msg_id = f"{last_ms}-{last_seq + 1}"
+        self._id_state[stream] = self._id_key(msg_id)
         self.xadd_calls.append((stream, dict(fields)))
         self.xadd_ids.append(msg_id)
         return msg_id
@@ -515,6 +517,45 @@ async def test_dlq_retention_scan_is_bounded_to_original_id():
         retained_id,
         "9999999999999-0",
     ]
+
+
+@pytest.mark.asyncio
+async def test_dlq_retention_scan_covers_source_millisecond():
+    """Séquences indépendantes par flux : une copie DLQ créée dans la même
+    milliseconde que le message d'origine peut précéder son identifiant
+    (source T-5, DLQ T-0) et doit rester détectée."""
+    stream = "test-stream"
+    mock_redis = MockRedis(stream)
+    mock_redis._clock = lambda: 12345  # milliseconde figée
+
+    c = Consumer[SampleMessage](
+        consumer_name="c1",
+        consumer_group="g1",
+        stream_name=stream,
+        batch_size=10,
+        block_time=50,
+        message_class=SampleMessage,
+        process_message_callable=lambda m, r, _: asyncio.sleep(0),
+        worker_number=1,
+        max_retry_number=3,
+    )
+
+    # six entrées du flux source dans la même milliseconde : la dernière
+    # porte le numéro de séquence 5
+    source_id = ""
+    for _ in range(6):
+        source_id = await mock_redis.xadd(stream, {"data": "x"})
+    assert source_id == "12345-5"
+
+    fields = {"data": json.dumps({"a": 1}), "retries": "0"}
+    assert await c._send_to_dlq(mock_redis, source_id, fields, "decode_error")
+
+    # la copie DLQ de la même milliseconde porte la séquence 0 du flux DLQ :
+    # son identifiant précède celui du message d'origine
+    assert mock_redis.xadd_ids[-1] == "12345-0"
+
+    # la détection doit retrouver l'entrée malgré l'inversion de séquence
+    assert await c._already_retained_in_dlq(mock_redis, source_id) is True
 
 
 @pytest.mark.asyncio
