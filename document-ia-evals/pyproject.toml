@@ -39,7 +39,8 @@ dev = [
 ]
 
 [tool.uv]
-exclude-newer = "2 days"
+required-version = ">=0.12.0"
+exclude-newer = "1 week"
 
 [tool.uv.sources.document-ia-schemas]
 path = "../document-ia-schemas"
