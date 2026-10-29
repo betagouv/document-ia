@@ -20,14 +20,18 @@ class TestLLMClassificationIntegration:
     """Integration tests for LLM-based document classification using OCR results."""
 
     @pytest.mark.asyncio
-    async def test_llm_classification_returns_cni_and_fields_non_empty(self, main_workflow_context):
+    async def test_llm_classification_returns_cni_and_fields_non_empty(
+        self, main_workflow_context
+    ):
         """Integration: reuse OCR snapshot (ocr_result.json), pass OcrResult to the LLM, and
         verify the JSON output with document_type == 'cni' and other fields non-empty.
         Skips if Albert credentials or snapshot are not available.
         """
 
-        if not os.getenv("OPENAI_API_KEY"):
-            pytest.skip("OPENAI_API_KEY not set (fork PR without secrets)")
+        if not os.getenv("OPENAI_API_KEY") or not os.getenv("OPENAI_BASE_URL"):
+            pytest.skip(
+                "OPENAI_API_KEY and OPENAI_BASE_URL are required for the live LLM test"
+            )
 
         if not SNAPSHOT_PATH.exists():
             pytest.skip(
@@ -41,7 +45,9 @@ class TestLLMClassificationIntegration:
         ocr_result = OcrResult(pages=pages)
 
         model = os.getenv("ALBERT_MODEL", "openweight-medium")
-        llm = LLMClassifyDocumentStep(main_workflow_context=main_workflow_context, model=model)
+        llm = LLMClassifyDocumentStep(
+            main_workflow_context=main_workflow_context, model=model
+        )
         llm.inject_workflow_context({OcrResult.__name__: ocr_result})
         llm_result, metadata = await llm.execute()
 
@@ -53,8 +59,12 @@ class TestLLMClassificationIntegration:
         out = llm_result.data.model_dump()
         assert isinstance(out.get("document_type"), str)
         assert out["document_type"].strip().lower() == "cni"
-        assert isinstance(out.get("explanation"), str) and out["explanation"].strip() != ""
-        assert out.get("confidence") is not None and isinstance(out["confidence"], (int, float))
+        assert (
+            isinstance(out.get("explanation"), str) and out["explanation"].strip() != ""
+        )
+        assert out.get("confidence") is not None and isinstance(
+            out["confidence"], (int, float)
+        )
 
     @pytest.mark.asyncio
     async def test_llm_classification_tax_notice_not_cni(self, main_workflow_context):
@@ -63,8 +73,10 @@ class TestLLMClassificationIntegration:
         Skips if Albert credentials are not available.
         """
         # Simulated OCR text typical of a French tax notice
-        if not os.getenv("OPENAI_API_KEY"):
-            pytest.skip("OPENAI_API_KEY not set (fork PR without secrets)")
+        if not os.getenv("OPENAI_API_KEY") or not os.getenv("OPENAI_BASE_URL"):
+            pytest.skip(
+                "OPENAI_API_KEY and OPENAI_BASE_URL are required for the live LLM test"
+            )
 
         tax_page_1 = OcrResultPage(
             page_number=1,
@@ -91,7 +103,9 @@ class TestLLMClassificationIntegration:
         ocr_result = OcrResult(pages=[tax_page_1, tax_page_2])
 
         model = os.getenv("ALBERT_MODEL", "openweight-medium")
-        llm = LLMClassifyDocumentStep(main_workflow_context=main_workflow_context, model=model)
+        llm = LLMClassifyDocumentStep(
+            main_workflow_context=main_workflow_context, model=model
+        )
         llm.inject_workflow_context({OcrResult.__name__: ocr_result})
         llm_result, metadata = await llm.execute()
 
@@ -102,6 +116,12 @@ class TestLLMClassificationIntegration:
         # Validate JSON shape and ensure category is not 'cni'
         out = llm_result.data.model_dump()
         assert isinstance(out.get("document_type"), str)
-        assert out["document_type"].strip().lower() != "cni", f"Unexpected 'cni' classification: {out['document_type']}"
-        assert isinstance(out.get("explanation"), str) and out["explanation"].strip() != ""
-        assert out.get("confidence") is not None and isinstance(out["confidence"], (int, float))
+        assert out["document_type"].strip().lower() != "cni", (
+            f"Unexpected 'cni' classification: {out['document_type']}"
+        )
+        assert (
+            isinstance(out.get("explanation"), str) and out["explanation"].strip() != ""
+        )
+        assert out.get("confidence") is not None and isinstance(
+            out["confidence"], (int, float)
+        )

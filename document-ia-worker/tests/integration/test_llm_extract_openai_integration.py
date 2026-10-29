@@ -1,10 +1,13 @@
 import json
+import os
 from pathlib import Path
 
 import pytest
 from document_ia_schemas import SupportedDocumentType
 
-from document_ia_infra.data.document.schema.document_classification import DocumentClassification
+from document_ia_infra.data.document.schema.document_classification import (
+    DocumentClassification,
+)
 from document_ia_worker.workflow.step.llm_extract_document.llm_extract_document import (
     LLMExtractDocumentStep,
 )
@@ -21,6 +24,10 @@ FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures"
 SNAPSHOT_PATH = FIXTURES_DIR / "ocr_result_cni.json"
 
 
+@pytest.mark.skipif(
+    not os.getenv("OPENAI_API_KEY") or not os.getenv("OPENAI_BASE_URL"),
+    reason="OPENAI_API_KEY and OPENAI_BASE_URL are required for the live LLM test",
+)
 @pytest.mark.skipif(not SNAPSHOT_PATH.exists(), reason="Snapshot file does not exist")
 @pytest.mark.asyncio
 async def test_llm_extract_openai_real_call_with_cni_fixture(main_workflow_context):
@@ -37,9 +44,13 @@ async def test_llm_extract_openai_real_call_with_cni_fixture(main_workflow_conte
         confidence=0.9,
     )
     # LLMClassificationResult requires token counts
-    llm_classification_result = LLMClassificationResult(data=classification, request_tokens=1, response_tokens=1)
+    llm_classification_result = LLMClassificationResult(
+        data=classification, request_tokens=1, response_tokens=1
+    )
 
-    step = LLMExtractDocumentStep(main_workflow_context=main_workflow_context, model="openweight-medium")
+    step = LLMExtractDocumentStep(
+        main_workflow_context=main_workflow_context, model="openweight-medium"
+    )
 
     step.inject_workflow_context(
         {
