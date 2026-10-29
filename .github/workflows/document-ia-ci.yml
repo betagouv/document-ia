@@ -202,6 +202,13 @@ jobs:
           ")
           echo "DOCUMENT_IA_API_KEY=$KEY" >> "$GITHUB_ENV"
 
+      - name: Generate test webhook encryption key (if secret not set)
+        if: ${{ matrix.needs_docker_stack == true && env.WEBHOOK_SECRET_ENCRYPTION_KEY == '' }}
+        run: |
+          # Génère une clé Fernet valide (32 bytes base64 url-safe)
+          KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+          echo "WEBHOOK_SECRET_ENCRYPTION_KEY=$KEY" >> "$GITHUB_ENV"
+
       - name: Run migrations
         if: ${{ matrix.needs_docker_stack == true }}
         # We need to install deps of the API to run alembic migrations even on the worker
