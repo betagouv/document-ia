@@ -23,15 +23,29 @@ paths = [
     '''Cargo\.lock$''',
     '''package-lock\.json$''',
 
-    # Fichiers de tests ou documents mockés (pour les tests d'OCR par exemple)
-    '''^tests/.*mock.*$''',
-    '''^.*\.pdf$'''
+    # PDF de fixtures OCR : limité aux répertoires de fixtures de test, pas tous les PDF
+    '''^[^/]+/tests/fixtures/.*\.pdf$''',
+
+    # Tokens dia_dev_v1_TESTKEY... factices utilisés dans les tests unitaires.
+    # Ces fichiers ne contiennent aucun secret réel : ce sont des fixtures de test.
+    '''.*/tests/.*\.py$''',
+
+    # Exemples de documentation (commandes curl avec clés de démonstration).
+    # Les secrets réels ne doivent JAMAIS être documentés ici ; ces exemples
+    # utilisent des placeholders. Le scan de l'historique reste actif ailleurs.
+    '''\.md$''',
+
+    # Snippet d'exemple evals : commande curl avec API_KEY_PLACEHOLDER littéral.
+    '''document-ia-evals/src/document_ia_evals/assets/snippets/example\.sh$'''
 ]
 
 # Ignorer des faux positifs récurrents directement dans le code
 regexes = [
     '''gitleaks:allow''',
-    '''example_token_for_tests'''
+    '''example_token_for_tests''',
+    # Clé factice d'exemple OpenAPI (schéma de réponse de l'endpoint admin api_key).
+    # Valeur de documentation, jamais un secret réel ; présente dans l'historique.
+    '''dia_dev_v1_ABCD1234_ABCDEFGHIJKLMNOPQRSTUVWX1234567890YZ12_IFZS'''
 ]
 
 # ---------------------------------------------------------
