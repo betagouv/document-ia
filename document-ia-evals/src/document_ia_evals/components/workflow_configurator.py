@@ -220,9 +220,7 @@ def render_workflow_configurator(
                 elif param_schema.get("type") == "integer":
                     value = st.number_input(
                         f"{param_name} - {description}",
-                        value=(
-                            int(default_val) if default_val is not None else 0
-                        ),
+                        value=(int(default_val) if default_val is not None else 0),
                         step=1,
                         format="%d",
                         key=f"{step_action}_{param_name}{key_suffix}",

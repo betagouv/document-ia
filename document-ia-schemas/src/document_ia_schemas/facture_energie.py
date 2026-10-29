@@ -17,7 +17,7 @@ class BeneficiaireModel(BaseModel):
                 Metric.TOKEN_SET_EQUALITY,
                 Metric.LEVENSHTEIN_DISTANCE,
             ]
-        }
+        },
     )
 
 
@@ -41,7 +41,6 @@ class FactureEnergieModel(BaseModel):
         description="Liste des bénéficiaires du service",
         default_factory=list,
         json_schema_extra={"metrics": Metric.DEEP_EQUALITY},
-
     )
     adresse_beneficiaire: Optional[str] = Field(
         default=None,
@@ -70,7 +69,7 @@ class FactureEnergieExtractSchema(BaseDocumentTypeSchema[FactureEnergieModel]):
     name: str = "Facture d'énergie"
     description: list[str] = [
         "Document émis par un fournisseur de service facturant un service d'énergie.",
-        "Mentions \"Facture\", \"Facture d'énergie\", ou \"Facture d'électricité\"",
+        'Mentions "Facture", "Facture d\'énergie", ou "Facture d\'électricité"',
         "Nom et coordonnées du bénéficiaire",
         "Nom et coordonnées du fournisseur de service",
         "Date de la facture",

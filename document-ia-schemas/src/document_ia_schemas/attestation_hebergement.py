@@ -64,7 +64,9 @@ class AttestationHebergementModel(BaseModel):
     )
 
 
-class AttestationHebergementExtractSchema(BaseDocumentTypeSchema[AttestationHebergementModel]):
+class AttestationHebergementExtractSchema(
+    BaseDocumentTypeSchema[AttestationHebergementModel]
+):
     type: str = "attestation_hebergement"
     name: str = "Attestation d'hebergement"
     description: list[str] = [
