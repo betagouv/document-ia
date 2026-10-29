@@ -370,6 +370,28 @@ class Consumer(Generic[T]):
             raise ConnectionError("No Redis connection available")
         return self.redis
 
+    async def _already_retained_in_dlq(
+        self, redis_connection: Redis, msg_id: str
+    ) -> bool:
+        """Vérifie si le message d'origine est déjà conservé dans la DLQ.
+
+        Une conservation DLQ réussie suivie d'un ACK en échec laisse l'entrée
+        d'origine en attente : une nouvelle récupération ne doit pas la
+        conserver une deuxième fois. La DLQ reste un flux d'exception, le
+        parcours complet reste borné en pratique.
+        """
+        try:
+            entries = await redis_connection.xrange(self.dlq_stream_name)
+        except Exception as scan_err:
+            logger.error(
+                f"Failed to scan DLQ stream '{self.dlq_stream_name}' for {msg_id}: {scan_err}"
+            )
+            return False
+        for _entry_id, entry_fields in entries:
+            if str(entry_fields.get("original_id", "")) == str(msg_id):
+                return True
+        return False
+
     async def _send_to_dlq(
         self,
         redis_connection: Redis,
@@ -386,6 +408,11 @@ class Consumer(Generic[T]):
             reason: short code describing why it was sent to DLQ (e.g., 'decode_error')
             error: optional error string/details
         """
+        if await self._already_retained_in_dlq(redis_connection, msg_id):
+            logger.info(
+                f"Message {msg_id} already retained in DLQ stream '{self.dlq_stream_name}'; skipping duplicate write"
+            )
+            return True
         dlq_fields: dict[FieldT, EncodableT] = {
             "data": str(fields.get("data", "")),
             "retries": str(fields.get("retries", "0")),
@@ -405,11 +432,13 @@ class Consumer(Generic[T]):
             logger.error(f"Failed to push message {msg_id} to DLQ: {dlq_err}")
             return False
 
-    # It reclaims pending messages that have been idle for more than RECLAIM_IDLE_MS
-    # and re-queues them for processing
-    # It uses xautoclaim to claim messages and xadd to re-queue them
-    # It also increments a "retries" field in the message to track how many times it has been retried
-    # If the retries exceed a certain threshold, it could be sent to a dead-letter queue (not implemented here)
+    # Récupère les messages en attente inactifs depuis plus de RECLAIM_IDLE_MS
+    # et les remet en file pour traitement (xautoclaim puis xadd).
+    # Convention partagée avec le chemin d'erreur du worker : le champ « retries »
+    # compte les tentatives déjà consommées et max_retry_number est le nombre total
+    # de tentatives autorisées. Une récupération consomme une seule tentative ;
+    # une entrée épuisée est conservée dans la DLQ puis acquittée uniquement
+    # après conservation confirmée.
     async def _reclaim_pending_messages(self):
         logger.info(f"Reclaimer task started idle_ms = {RECLAIM_IDLE_MS}")
         start = "0-0"
@@ -429,10 +458,10 @@ class Consumer(Generic[T]):
                 )
                 for msg_id, fields in claimed:
                     logger.info(f"Reclaimed message ID: {msg_id} with fields: {fields}")
-                    retry_count = int(fields.get("retries", "0")) + 1
-                    if retry_count > self.max_retry_number:
+                    attempts = int(fields.get("retries", "0")) + 1
+                    if attempts >= self.max_retry_number:
                         logger.error(
-                            f"Max retry count exceeded for reclaimed message {msg_id}. Moving to DLQ."
+                            f"Max attempts exceeded for reclaimed message {msg_id}. Moving to DLQ."
                         )
                         if await self._send_to_dlq(
                             redis_connection=self.redis,
@@ -451,7 +480,7 @@ class Consumer(Generic[T]):
                                 )
                         continue
                     try:
-                        fields["retries"] = str(retry_count + 1)
+                        fields["retries"] = str(attempts)
                         await self.redis.xadd(self.stream_name, fields)
                         logger.info(f"Add new message with fields: {fields}")
                         try:
