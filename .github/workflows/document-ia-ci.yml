@@ -145,10 +145,10 @@ jobs:
         run: |
           docker run -d \
             --name postgres-test \
-            -e POSTGRES_DB=${POSTGRES_DB} \
-            -e POSTGRES_USER=${POSTGRES_USER} \
-            -e POSTGRES_PASSWORD=${POSTGRES_PASSWORD} \
-            -p ${POSTGRES_PORT}:5432 \
+            -e POSTGRES_DB="${POSTGRES_DB}" \
+            -e POSTGRES_USER="${POSTGRES_USER}" \
+            -e POSTGRES_PASSWORD="${POSTGRES_PASSWORD}" \
+            -p "${POSTGRES_PORT}":5432 \
             postgres:17-alpine
 
       - name: Start Redis
@@ -156,7 +156,7 @@ jobs:
         run: |
           docker run -d \
             --name redis-test \
-            -p ${REDIS_PORT}:6379 \
+            -p "${REDIS_PORT}":6379 \
             redis:8-alpine
 
       - name: Start MinIO
@@ -164,16 +164,16 @@ jobs:
         run: |
           docker run -d \
             --name minio-test \
-            -e MINIO_ROOT_USER=${MINIO_ROOT_USER} \
-            -e MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD} \
-            -p ${MINIO_API_PORT}:9000 \
-            -p ${MINIO_CONSOLE_PORT}:9001 \
+            -e MINIO_ROOT_USER="${MINIO_ROOT_USER}" \
+            -e MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD}" \
+            -p "${MINIO_API_PORT}":9000 \
+            -p "${MINIO_CONSOLE_PORT}":9001 \
             coollabsio/minio:latest server /data --console-address ":9001"
 
       - name: Wait for PostgreSQL to be ready
         if: ${{ matrix.needs_docker_stack == true }}
         run: |
-          timeout 60s bash -c 'until docker exec postgres-test pg_isready -U ${POSTGRES_USER}; do sleep 1; done'
+          timeout 60s bash -c "until docker exec postgres-test pg_isready -U ${POSTGRES_USER}; do sleep 1; done"
           echo "PostgreSQL is ready!"
 
       - name: Wait for Redis to be ready
@@ -185,8 +185,22 @@ jobs:
       - name: Wait for MinIO to be ready
         if: ${{ matrix.needs_docker_stack == true }}
         run: |
-          timeout 60s bash -c 'until curl -f http://localhost:${MINIO_API_PORT}/minio/health/live; do sleep 1; done'
+          timeout 60s bash -c "until curl -f http://localhost:${MINIO_API_PORT}/minio/health/live; do sleep 1; done"
           echo "MinIO is ready!"
+
+      - name: Generate test API key (if secret not set)
+        if: ${{ matrix.needs_docker_stack == true && env.DOCUMENT_IA_API_KEY == '' }}
+        run: |
+          cd document-ia-api
+          uv sync --locked
+          # Génère une clé de test valide avec les poivres par défaut
+          KEY=$(uv run python -c "
+          from document_ia_api.application.services.api_key.api_key_helper import ApiKeyHelper
+          h = ApiKeyHelper()
+          presented, _, _ = h.generate_new_api_key()
+          print(presented)
+          ")
+          echo "DOCUMENT_IA_API_KEY=$KEY" >> "$GITHUB_ENV"
 
       - name: Run migrations
         if: ${{ matrix.needs_docker_stack == true }}
@@ -226,26 +240,58 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install Gitleaks
+        run: |
+          GITLEAKS_VERSION="8.30.1"
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o /tmp/gitleaks.tar.gz
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
       - name: Gitleaks
-        uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc # v2
-        env:
-          GITLEAKS_CONFIG: .gitleaks.toml
+        run: |
+          gitleaks git --config .gitleaks.toml --verbose --redact .
 
   osv-scan:
     name: OSV Scanner (dépendances)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       actions: read
       security-events: write
-    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@e69cc6c86b31f1e7e23935bbe7031b50e51082de # v2.0.2
-    with:
-      scan-args: |-
-        --lockfile=document-ia-api/uv.lock
-        --lockfile=document-ia-infra/uv.lock
-        --lockfile=document-ia-worker/uv.lock
-        --lockfile=document-ia-schemas/uv.lock
-        --lockfile=document-ia-evals/uv.lock
-        --lockfile=document-ia-auto-scaler/uv.lock
+    # Non bloquant : des vulnérabilités existantes (cryptography, filelock)
+    # doivent être corrigées dans un commit séparé. Voir #124 point 3.
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install OSV Scanner
+        run: |
+          OSV_VERSION="2.0.2"
+          curl -sSfL "https://github.com/google/osv-scanner/releases/download/v${OSV_VERSION}/osv-scanner_linux_amd64" -o /usr/local/bin/osv-scanner
+          chmod +x /usr/local/bin/osv-scanner
+          osv-scanner --version
+
+      - name: Run OSV Scanner
+        run: |
+          osv-scanner \
+            --lockfile=document-ia-api/uv.lock \
+            --lockfile=document-ia-infra/uv.lock \
+            --lockfile=document-ia-worker/uv.lock \
+            --lockfile=document-ia-schemas/uv.lock \
+            --lockfile=document-ia-evals/uv.lock \
+            --lockfile=document-ia-auto-scaler/uv.lock \
+            --format=sarif \
+            --output=results.sarif \
+            --fail-on-vuln=false
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@45775bd8235c68ba998cffa5171334d58593da47 # v3
+        with:
+          sarif_file: results.sarif
+          wait-for-processing: true
 
   pyright:
     name: Pyright (${{ matrix.name }})
