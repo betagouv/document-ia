@@ -466,3 +466,52 @@ async def test_reclaim_after_dlq_retention_terminates_without_duplicate(
     dlq_entries = await redis_client.xrange(f"{stream}:dlq")
     assert dlq_entries[0][1]["original_id"] == msg_id
     consumer.executor.shutdown(wait=True)
+
+
+@pytest.mark.asyncio
+async def test_dlq_retention_scan_skips_history_older_than_original(
+    redis_client: Redis, stream: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """La détection d'entrée déjà conservée démarre à l'identifiant du message
+    d'origine : l'historique antérieur de la DLQ n'est pas chargé, et la
+    conservation reste idempotente via ce parcours borné."""
+    group = "worker-group"
+    dlq = f"{stream}:dlq"
+
+    # 200 entrées DLQ antérieures au message d'origine (identifiants explicites
+    # pour garantir un ordre strict indépendant de l'horloge)
+    for index in range(200):
+        await redis_client.xadd(
+            dlq, {"original_id": f"stale-{index}", "data": "x"}, id=f"{index + 1}-0"
+        )
+
+    msg_id = await redis_client.xadd(stream, {"data": json.dumps({"payload": "scan"})})
+    consumer = make_consumer(stream, group)
+
+    scans: list[tuple[str, int]] = []
+    original_xrange = redis_client.xrange
+
+    async def spying_xrange(
+        name: str, min: str = "-", max: str = "+", count: int | None = None
+    ) -> Any:
+        result = await original_xrange(name, min, max, count)
+        if name == dlq:
+            scans.append((str(min), len(result)))
+        return result
+
+    monkeypatch.setattr(redis_client, "xrange", spying_xrange)
+
+    fields = {"data": json.dumps({"payload": "scan"}), "retries": "2"}
+    assert await consumer._send_to_dlq(
+        redis_client, msg_id, fields, "max_retries_exceeded"
+    )
+    # deuxième conservation : détectée comme doublon par le parcours borné
+    assert await consumer._send_to_dlq(
+        redis_client, msg_id, fields, "max_retries_exceeded"
+    )
+
+    # chaque parcours démarre à l'identifiant d'origine et ignore les 200
+    # entrées antérieures ; le second retrouve la seule entrée du message
+    assert scans == [(msg_id, 0), (msg_id, 1)]
+    assert await redis_client.xlen(dlq) == 201
+    consumer.executor.shutdown(wait=True)
