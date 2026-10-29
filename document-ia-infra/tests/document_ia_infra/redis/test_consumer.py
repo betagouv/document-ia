@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 from typing import Any
 
 import pytest
@@ -30,7 +31,11 @@ class MockRedis:
         self._xread_calls = 0
         self.acks: list[tuple[str, str]] = []  # (stream, msg_id)
         self.xadd_calls: list[tuple[str, dict[str, Any]]] = []  # (stream, fields)
+        self.xadd_ids: list[str] = []  # generated id per xadd call, same order
+        self.xrange_calls: list[tuple[str, str, str]] = []  # (stream, min, max)
         self.groups_created: set[tuple[str, str]] = set()
+        self._id_ms = 0
+        self._id_seq = 0
         self._xautoclaim_queue: list[
             tuple[str, list[tuple[str, dict[str, Any]]], list[str]]
         ] = []
@@ -72,15 +77,44 @@ class MockRedis:
         return 1
 
     async def xadd(self, stream: str, fields: dict[str, Any]):
+        now_ms = time.time_ns() // 1_000_000
+        if now_ms > self._id_ms:
+            self._id_ms = now_ms
+            self._id_seq = 0
+        else:
+            self._id_seq += 1
+        msg_id = f"{self._id_ms}-{self._id_seq}"
         self.xadd_calls.append((stream, dict(fields)))
-        return "0-1"
+        self.xadd_ids.append(msg_id)
+        return msg_id
 
-    async def xrange(self, stream: str):
-        return [
-            (f"{index}-0", dict(fields))
-            for index, (recorded_stream, fields) in enumerate(self.xadd_calls)
+    @staticmethod
+    def _id_key(stream_id: str) -> tuple[int, int]:
+        ms, seq = stream_id.split("-")
+        return (int(ms), int(seq))
+
+    async def xrange(
+        self, stream: str, min: str = "-", max: str = "+", count: int | None = None
+    ):
+        self.xrange_calls.append((stream, min, max))
+        entries = [
+            (msg_id, dict(fields))
+            for (recorded_stream, fields), msg_id in zip(self.xadd_calls, self.xadd_ids)
             if recorded_stream == stream
         ]
+        lower = None if min == "-" else self._id_key(min)
+        upper = None if max == "+" else self._id_key(max)
+        result = []
+        for msg_id, fields in entries:
+            key = self._id_key(msg_id)
+            if lower is not None and key < lower:
+                continue
+            if upper is not None and key > upper:
+                continue
+            result.append((msg_id, fields))
+        if count is not None:
+            result = result[:count]
+        return result
 
     async def xautoclaim(
         self,
@@ -440,6 +474,47 @@ async def test_dlq_retention_is_idempotent_per_message(monkeypatch):
     assert second is True
     dlqs = [call for call in mock_redis.xadd_calls if call[0] == f"{stream}:dlq"]
     assert len(dlqs) == 1
+
+
+@pytest.mark.asyncio
+async def test_dlq_retention_scan_is_bounded_to_original_id():
+    """La détection d'entrée déjà conservée ne parcourt que les entrées DLQ
+    postérieures au message d'origine : l'historique antérieur de la DLQ
+    n'est pas chargé à chaque échec terminal."""
+    stream = "test-stream"
+    mock_redis = MockRedis(stream)
+
+    c = Consumer[SampleMessage](
+        consumer_name="c1",
+        consumer_group="g1",
+        stream_name=stream,
+        batch_size=10,
+        block_time=50,
+        message_class=SampleMessage,
+        process_message_callable=lambda m, r, _: asyncio.sleep(0),
+        worker_number=1,
+        max_retry_number=3,
+    )
+
+    # une entrée DLQ existe déjà (identifiant généré à l'instant)
+    retained_id = "1700000000000-0"
+    fields = {"data": json.dumps({"a": 1}), "retries": "2"}
+    await c._send_to_dlq(mock_redis, retained_id, fields, "max_retries_exceeded")
+
+    # un message créé après cette entrée la retrouve : borne inclusive
+    assert await c._already_retained_in_dlq(mock_redis, retained_id) is True
+    # un message créé avant toute entrée DLQ ne la voit pas : le parcours
+    # démarre après son propre identifiant
+    assert await c._already_retained_in_dlq(mock_redis, "9999999999999-0") is False
+
+    dlq_scans = [call for call in mock_redis.xrange_calls if call[0] == f"{stream}:dlq"]
+    assert len(dlq_scans) == 3
+    assert all(scan[1] != "-" for scan in dlq_scans)
+    assert [scan[1] for scan in dlq_scans] == [
+        retained_id,
+        retained_id,
+        "9999999999999-0",
+    ]
 
 
 @pytest.mark.asyncio
