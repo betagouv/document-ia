@@ -50,7 +50,7 @@ Purpose:
 Snapshot regeneration command:
 ```bash
 cd document-ia-worker
-poetry run python tests/fixtures/regenerate_extraction_prompt_fixtures.py
+uv run python tests/fixtures/regenerate_extraction_prompt_fixtures.py
 ```
 
 Reference docs:
