@@ -26,6 +26,9 @@ class TestLLMClassificationIntegration:
         Skips if Albert credentials or snapshot are not available.
         """
 
+        if not os.getenv("OPENAI_API_KEY"):
+            pytest.skip("OPENAI_API_KEY not set (fork PR without secrets)")
+
         if not SNAPSHOT_PATH.exists():
             pytest.skip(
                 "OCR snapshot not found. Generate it first (WRITE_SNAPSHOT=1 run) or commit tests/fixtures/ocr_result_cni.json."
@@ -60,6 +63,9 @@ class TestLLMClassificationIntegration:
         Skips if Albert credentials are not available.
         """
         # Simulated OCR text typical of a French tax notice
+        if not os.getenv("OPENAI_API_KEY"):
+            pytest.skip("OPENAI_API_KEY not set (fork PR without secrets)")
+
         tax_page_1 = OcrResultPage(
             page_number=1,
             text=(
