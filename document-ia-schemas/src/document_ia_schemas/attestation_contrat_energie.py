@@ -17,7 +17,7 @@ class BeneficiaireModel(BaseModel):
                 Metric.TOKEN_SET_EQUALITY,
                 Metric.LEVENSHTEIN_DISTANCE,
             ]
-        }
+        },
     )
 
 
@@ -59,12 +59,14 @@ class AttestationContratEnergieModel(BaseModel):
     )
 
 
-class AttestationContratEnergieExtractSchema(BaseDocumentTypeSchema[AttestationContratEnergieModel]):
+class AttestationContratEnergieExtractSchema(
+    BaseDocumentTypeSchema[AttestationContratEnergieModel]
+):
     type: str = "attestation_contrat_energie"
     name: str = "Attestation de contrat d'énergie"
     description: list[str] = [
         "Document émis par un fournisseur de service certifiant qu'un bénéficiaire a bien contracté avec le fournisseur.",
-        "Mentions \"Attestation de contrat\", \"Certificat de contrat\", ou \"Contrat\"",
+        'Mentions "Attestation de contrat", "Certificat de contrat", ou "Contrat"',
         "Nom et coordonnées du bénéficiaire",
         "Nom et coordonnées du fournisseur de service",
         "Date de début du contrat",
@@ -74,13 +76,13 @@ class AttestationContratEnergieExtractSchema(BaseDocumentTypeSchema[AttestationC
     ]
     examples: list[AttestationContratEnergieModel] = [
         AttestationContratEnergieModel(
-            date_emission=date(2024,1, 15),
+            date_emission=date(2024, 1, 15),
             nom_fournisseur="EDF",
             siret_fournisseur="55208131766522",
             beneficiaires=[BeneficiaireModel(identite="DUPONT Camille")],
             adresse_beneficiaire="10 RUE DE LA PAIX 75001 PARIS",
             numero_contrat="ELEC-458796214",
-            date_debut_contrat=date(2024,1, 1),
+            date_debut_contrat=date(2024, 1, 1),
         ),
         AttestationContratEnergieModel(
             date_emission=date(2024, 2, 28),
@@ -96,4 +98,6 @@ class AttestationContratEnergieExtractSchema(BaseDocumentTypeSchema[AttestationC
         ),
     ]
 
-    document_model: Type[AttestationContratEnergieModel] = AttestationContratEnergieModel
+    document_model: Type[AttestationContratEnergieModel] = (
+        AttestationContratEnergieModel
+    )

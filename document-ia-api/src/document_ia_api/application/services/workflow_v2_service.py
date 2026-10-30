@@ -237,9 +237,7 @@ class WorkflowV2Service:
             for param_name, rule in params.items():
                 if param_name in override_map:
                     configured_value = (
-                        rule.get("default")
-                        if isinstance(rule, dict)
-                        else None
+                        rule.get("default") if isinstance(rule, dict) else None
                     )
                     resolved_params[param_name] = self._merge_override_value(
                         configured_value,

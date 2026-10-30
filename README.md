@@ -232,6 +232,22 @@ uv sync
 
 When developing against shared local packages, they are already configured in `pyproject.toml` and installed in editable mode by default when running `uv sync`.
 
+### Git Hooks
+
+The repository ships a [pre-commit](https://pre-commit.com/) configuration. Install the hooks once per clone:
+
+```bash
+pre-commit install
+bash scripts/pre-push
+```
+
+Two hook types are installed:
+
+- `pre-commit`: gitleaks scans staged changes.
+- `pre-push`: a native wrapper scans the commits introduced by every pushed ref, including multi-ref pushes and secrets added then removed across intermediate commits.
+
+The pre-push hook requires the `gitleaks` binary (v8.30.1) on your `PATH`; install it from the [gitleaks releases](https://github.com/gitleaks/gitleaks/releases). If it is missing, pushes are blocked. Run `bash scripts/pre-push` again after switching worktrees: Git hooks are local to each clone or worktree.
+
 ## Production & Deployment (Scalingo)
 
 In production or during deployment on Scalingo, we want local path dependencies to be copied physically into the virtual environment instead of being symlinked (editable mode).

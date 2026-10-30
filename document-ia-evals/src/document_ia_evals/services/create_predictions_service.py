@@ -272,7 +272,9 @@ def run_workflow_on_dataset(
     # Callers can provide a deliberately small subset (typically one task).
     # Keep the project-wide lookup as the backwards-compatible default.
     if tasks is None:
-        tasks = [task for task in ls_client.tasks.list(project=project_id, fields="all")]
+        tasks = [
+            task for task in ls_client.tasks.list(project=project_id, fields="all")
+        ]
 
     if not tasks:
         return {}
@@ -571,7 +573,9 @@ def run_workflow_on_dataset_v2(
 ) -> dict[int, dict[str, Any]]:
     """Run a V2 workflow on selected tasks, or on all project tasks."""
     if tasks is None:
-        tasks = [task for task in ls_client.tasks.list(project=project_id, fields="all")]
+        tasks = [
+            task for task in ls_client.tasks.list(project=project_id, fields="all")
+        ]
 
     if not tasks:
         return {}

@@ -12,65 +12,47 @@ class CNIModel(BaseModel):
     numero_document: Optional[str] = Field(
         default=None,
         description="Identifiant unique de la carte d'identité (format alphanumérique)",
-        json_schema_extra={
-            "metrics": Metric.COMPARE_NUMBER
-        }
+        json_schema_extra={"metrics": Metric.COMPARE_NUMBER},
     )
     date_delivrance: FuzzyDate = Field(
         description="Date d'émission du document (format JJ MM AAAA). Si absente, renseigner `null`.",
         default=None,
-        json_schema_extra={
-            "metrics": Metric.STRING_DATE_EQUALITY
-        }
+        json_schema_extra={"metrics": Metric.STRING_DATE_EQUALITY},
     )
     date_expiration: FuzzyDate = Field(
         description="Date limite de validité du document (format JJ MM AAAA). Une carte d'identité est valide 10 ans. Si absente renseigner `null`.",
         default=None,
-        json_schema_extra={
-            "metrics": Metric.STRING_DATE_EQUALITY
-        }
+        json_schema_extra={"metrics": Metric.STRING_DATE_EQUALITY},
     )
     nom: Optional[str] = Field(
         default=None,
         description="Nom de famille du titulaire (en majuscules sur le document)",
-        json_schema_extra={
-            "metrics": Metric.LEVENSHTEIN_DISTANCE
-        }
+        json_schema_extra={"metrics": Metric.LEVENSHTEIN_DISTANCE},
     )
     prenom: Optional[str] = Field(
         default=None,
         description="Prénom du titulaire, uniquement le premier s'il y en a plusieurs",
-        json_schema_extra={
-            "metrics": Metric.LEVENSHTEIN_DISTANCE
-        }
+        json_schema_extra={"metrics": Metric.LEVENSHTEIN_DISTANCE},
     )
     date_naissance: FuzzyDate = Field(
         description="Date de naissance du titulaire (format JJ MM AAAA). Si absente renseigner `null`.",
         default=None,
-        json_schema_extra={
-            "metrics": Metric.STRING_DATE_EQUALITY
-        }
+        json_schema_extra={"metrics": Metric.STRING_DATE_EQUALITY},
     )
     lieu_naissance: Optional[str] = Field(
         default=None,
         description="Lieu de naissance du titulaire",
-        json_schema_extra={
-            "metrics": Metric.LEVENSHTEIN_DISTANCE
-        }
+        json_schema_extra={"metrics": Metric.LEVENSHTEIN_DISTANCE},
     )
     nationalite: Optional[str] = Field(
         default=None,
         description="Nationalité du titulaire (en majuscules sur le document)",
-        json_schema_extra={
-            "metrics": Metric.LEVENSHTEIN_DISTANCE
-        }
+        json_schema_extra={"metrics": Metric.LEVENSHTEIN_DISTANCE},
     )
     bande_mrz: Optional[str] = Field(
         description="Bande Mrz de la carte d'identité (Machine Readable Zone). Si absent, renseigné `null`.",
         default=None,
-        json_schema_extra={
-            "metrics": Metric.MRZ_EQUALITY
-        }
+        json_schema_extra={"metrics": Metric.MRZ_EQUALITY},
     )
 
 
@@ -89,11 +71,11 @@ class CNIExtractSchema(BaseDocumentTypeSchema[CNIModel]):
     examples: list[CNIModel] = [
         CNIModel(
             numero_document="123456789012",
-            date_delivrance=date(2010,1,1),
-            date_expiration=date(2020,1,1),
+            date_delivrance=date(2010, 1, 1),
+            date_expiration=date(2020, 1, 1),
             nom="DUPONT",
             prenom="JEAN",
-            date_naissance=date(1990,1,1),
+            date_naissance=date(1990, 1, 1),
             lieu_naissance="PARIS 15e",
             nationalite="FRANÇAISE",
             bande_mrz=(

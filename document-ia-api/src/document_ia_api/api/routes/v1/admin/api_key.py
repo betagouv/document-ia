@@ -41,7 +41,7 @@ router = APIRouter()
                     "example": {
                         "id": "8f2fdafb-9c2c-4a82-8a0e-7c7f12c9e111",
                         "prefix": "ABCD1234",
-                        "key": "dia_dev_v1_ABCD1234_ABCDEFGHIJKLMNOPQRSTUVWX1234567890YZ12_IFZS",
+                        "key": "dia_dev_v1_ABCD1234_ABCDEFGHIJKLMNOPQRSTUVWX1234567890YZ12_IFZS",  # gitleaks:allow -- exemple de documentation OpenAPI, clé factice
                         "status": "Active",
                         "created_at": "2025-11-06T10:45:00Z",
                         "updated_at": "2025-11-06T10:45:00Z",

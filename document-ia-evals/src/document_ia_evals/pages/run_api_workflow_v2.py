@@ -15,7 +15,6 @@ def load_snippet(filename: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
-
 def main():
     title = "🧾 Execute a workflow on document"
     st.set_page_config(page_title=title, page_icon="🧾")
@@ -130,19 +129,21 @@ def main():
 
         if override:
             curl_template = curl_template.replace(
-                "OVERRIDE_CODE_PLACEHOLDER",
-                f"-F 'override={override_json_str}'"
+                "OVERRIDE_CODE_PLACEHOLDER", f"-F 'override={override_json_str}'"
             )
         else:
-            curl_template = curl_template.replace("  OVERRIDE_CODE_PLACEHOLDER \\\n", "")
+            curl_template = curl_template.replace(
+                "  OVERRIDE_CODE_PLACEHOLDER \\\n", ""
+            )
 
         if metadata:
             curl_template = curl_template.replace(
-                "METADATA_CODE_PLACEHOLDER",
-                f"-F 'metadata={metadata_json_str}'"
+                "METADATA_CODE_PLACEHOLDER", f"-F 'metadata={metadata_json_str}'"
             )
         else:
-            curl_template = curl_template.replace("  METADATA_CODE_PLACEHOLDER \\\n", "")
+            curl_template = curl_template.replace(
+                "  METADATA_CODE_PLACEHOLDER \\\n", ""
+            )
 
         curl_code = (
             curl_template.replace("URL_PLACEHOLDER", full_url)
@@ -164,7 +165,7 @@ formData.append('file', fileStream as any);"""
         if override:
             ts_template = ts_template.replace(
                 "OVERRIDE_CODE_PLACEHOLDER",
-                f"formData.append('override', JSON.stringify({override_json_str}));"
+                f"formData.append('override', JSON.stringify({override_json_str}));",
             )
         else:
             ts_template = ts_template.replace("OVERRIDE_CODE_PLACEHOLDER\n", "")
@@ -172,7 +173,7 @@ formData.append('file', fileStream as any);"""
         if metadata:
             ts_template = ts_template.replace(
                 "METADATA_CODE_PLACEHOLDER",
-                f"formData.append('metadata', JSON.stringify({metadata_json_str}));"
+                f"formData.append('metadata', JSON.stringify({metadata_json_str}));",
             )
         else:
             ts_template = ts_template.replace("METADATA_CODE_PLACEHOLDER\n", "")
@@ -196,18 +197,22 @@ formData.append('file', fileStream as any);"""
         if override:
             java_template = java_template.replace(
                 "OVERRIDE_CODE_PLACEHOLDER",
-                f'bodyBuilder.addFormDataPart("override", "{override_escaped_java}");'
+                f'bodyBuilder.addFormDataPart("override", "{override_escaped_java}");',
             )
         else:
-            java_template = java_template.replace("        OVERRIDE_CODE_PLACEHOLDER\n", "")
+            java_template = java_template.replace(
+                "        OVERRIDE_CODE_PLACEHOLDER\n", ""
+            )
 
         if metadata:
             java_template = java_template.replace(
                 "METADATA_CODE_PLACEHOLDER",
-                f'bodyBuilder.addFormDataPart("metadata", "{metadata_escaped_java}");'
+                f'bodyBuilder.addFormDataPart("metadata", "{metadata_escaped_java}");',
             )
         else:
-            java_template = java_template.replace("        METADATA_CODE_PLACEHOLDER\n", "")
+            java_template = java_template.replace(
+                "        METADATA_CODE_PLACEHOLDER\n", ""
+            )
 
         java_code = (
             java_template.replace("URL_PLACEHOLDER", full_url)
@@ -270,7 +275,9 @@ formData.append('file', fileStream as any);"""
                     return
                 st.subheader("Résultat final")
                 result_dict = (
-                    execution_details.model_dump(mode="json") if execution_details else None
+                    execution_details.model_dump(mode="json")
+                    if execution_details
+                    else None
                 )
                 st.code(
                     json.dumps(result_dict, indent=2, ensure_ascii=False),
