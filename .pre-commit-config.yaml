@@ -42,6 +42,7 @@ repos:
         language: system
         entry: bash scripts/gitleaks_pre_push.sh
         pass_filenames: false
+        always_run: true
         stages: [pre-push]
 
   # Hooks locaux pour gérer uv lock par sous-projet lorsque le pyproject.toml change

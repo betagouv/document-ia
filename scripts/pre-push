@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# Wrapper Git pre-push : scanne toutes les références avec Gitleaks.
+#
+# pre-commit ne sélectionne que la première référence d'une poussée multiple.
+# Ce wrapper installe le hook natif et conserve le hook pre-commit d'origine
+# pour référence ; le contrôle Gitleaks au push est entièrement pris en charge
+# ici, référence par référence.
+# Sans argument, le script s'installe comme hook pre-push du clone courant.
+
+set -euo pipefail
+
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  SOURCE_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" = /* ]] || SOURCE="$SOURCE_DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+
+if [ "$#" -eq 0 ]; then
+  REPO_ROOT="$(git rev-parse --show-toplevel)"
+  HOOKS_DIR="$(cd "$REPO_ROOT" && git rev-parse --git-path hooks)"
+  HOOK_PATH="$HOOKS_DIR/pre-push"
+  [ "$SCRIPT_DIR" = "$REPO_ROOT/scripts" ] || {
+    echo "erreur : ce script doit être exécuté depuis le dossier scripts du dépôt." >&2
+    exit 1
+  }
+  command -v pre-commit >/dev/null 2>&1 || {
+    echo "erreur : pre-commit est introuvable dans le PATH." >&2
+    exit 1
+  }
+  command -v gitleaks >/dev/null 2>&1 || {
+    echo "erreur : gitleaks est introuvable dans le PATH." >&2
+    echo "Installez gitleaks v8.30.1 : https://github.com/gitleaks/gitleaks/releases" >&2
+    exit 1
+  }
+
+  mkdir -p "$HOOKS_DIR"
+  if [ -e "$HOOK_PATH" ] || [ -L "$HOOK_PATH" ]; then
+    if [ "$(readlink "$HOOK_PATH" || true)" = "$SCRIPT_DIR/pre-push" ]; then
+      echo "Hook pre-push déjà installé : $HOOK_PATH"
+      exit 0
+    fi
+    cp "$HOOK_PATH" "$HOOK_PATH.pre-commit-legacy"
+    chmod +x "$HOOK_PATH.pre-commit-legacy"
+    rm "$HOOK_PATH"
+  else
+    (cd "$REPO_ROOT" && pre-commit install --hook-type pre-push)
+    if [ "$(readlink "$HOOK_PATH" || true)" = "$SCRIPT_DIR/pre-push" ]; then
+      echo "Hook pre-push déjà installé : $HOOK_PATH"
+      exit 0
+    fi
+    mv "$HOOK_PATH" "$HOOK_PATH.pre-commit-legacy"
+  fi
+  ln -s "$SCRIPT_DIR/pre-push" "$HOOK_PATH"
+  echo "Hook pre-push installé : $HOOK_PATH -> $SOURCE"
+  exit 0
+fi
+
+if [ "$#" -ne 2 ]; then
+  echo "usage Git : $0 <remote> <url>" >&2
+  exit 1
+fi
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+REMOTE="$1"
+HOOKS_DIR="$(git rev-parse --git-path hooks)"
+LEGACY_HOOK="$HOOKS_DIR/pre-push.pre-commit-legacy"
+PUSH_INPUT="$(cat)"
+
+if [ ! -x "$LEGACY_HOOK" ]; then
+  echo "erreur : le hook pre-commit est absent ($LEGACY_HOOK)." >&2
+  echo "Réinstallez les hooks : bash scripts/pre-push" >&2
+  exit 1
+fi
+
+# Un scan par référence évite la sélection de la seule première ligne par
+# pre-commit. Le scan porte sur l'historique, même sans diff final. Les autres
+# hooks pre-commit restent destinés aux fichiers modifiés au pre-commit.
+while read -r LOCAL_REF LOCAL_SHA REMOTE_REF REMOTE_SHA; do
+  [ -n "$LOCAL_REF" ] || continue
+  bash "$SCRIPT_DIR/gitleaks_pre_push.sh" \
+    "$LOCAL_REF" "$LOCAL_SHA" "$REMOTE_REF" "$REMOTE_SHA" "$REMOTE" || exit $?
+done <<< "$PUSH_INPUT"
