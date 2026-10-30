@@ -21,7 +21,10 @@ from document_ia_api.api.middleware.rate_limiting_middleware import RateLimitMid
 from document_ia_api.api.middleware.request_id_middleware import RequestIDMiddleware
 from document_ia_api.core.logging_setup import setup_logging
 from document_ia_api.infra.database_service import database_service
-from document_ia_api.infra.redis.simple_stream_consumer import SimpleStreamConsumer
+from document_ia_api.infra.redis.simple_stream_consumer import (
+    SimpleStreamConsumer,
+    build_instance_consumer_name,
+)
 from document_ia_api.infra.webhook_notification_service import (
     webhook_notification_service,
 )
@@ -59,7 +62,7 @@ async def lifespan(app: FastAPI):
         handler=webhook_notification_service.handle_webhook_notification,
         message_class=WebHookMessage,
         consumer_group=redis_settings.WEBHOOK_CONSUMER_GROUP,
-        consumer_name="api-webhook-consumer",
+        consumer_name=build_instance_consumer_name("api-webhook-consumer"),
         auto_ack=True,
         block_ms=5000,
         count=50,
