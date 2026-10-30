@@ -188,7 +188,24 @@ class SimpleStreamConsumer(Generic[T]):
     ) -> bool:
         dlq_stream = f"{stream_name}:dlq"
         payload = fields.get("data")
-        if await self._already_retained_in_dlq(redis, stream_name, entry_id):
+        try:
+            already_retained = await self._already_retained_in_dlq(
+                redis, stream_name, entry_id
+            )
+        except Exception as scan_err:
+            # Échec du parcours d'idempotence : l'état de conservation est
+            # inconnu, pas « absent ». Ni écrire une seconde copie, ni
+            # laisser l'appelant acquitter — l'entrée reste en attente et
+            # la passe suivante réessaie.
+            logger.error(
+                "Unable to confirm DLQ retention for message %s in '%s': %s; "
+                "leaving entry pending",
+                entry_id,
+                dlq_stream,
+                scan_err,
+            )
+            return False
+        if already_retained:
             logger.info(
                 "Message %s already retained in DLQ '%s'; skipping duplicate write",
                 entry_id,
@@ -235,19 +252,14 @@ class SimpleStreamConsumer(Generic[T]):
         qu'à partir de sa milliseconde de création ; les numéros de séquence
         sont indépendants par flux, le parcours couvre donc toute la
         milliseconde d'origine et ignore l'historique antérieur de la DLQ.
+
+        Échec fermé : une erreur de parcours remonte à l'appelant, qui
+        laisse l'entrée en attente et retente à la passe suivante — ne
+        jamais conclure « pas conservée » sur un parcours incertain.
         """
         dlq_stream = f"{stream_name}:dlq"
-        try:
-            source_ms = str(entry_id).split("-")[0]
-            entries = await redis.xrange(dlq_stream, min=f"{source_ms}-0")
-        except Exception as scan_err:
-            logger.error(
-                "Unable to scan DLQ '%s' for message %s: %s",
-                dlq_stream,
-                entry_id,
-                scan_err,
-            )
-            return False
+        source_ms = str(entry_id).split("-")[0]
+        entries = await redis.xrange(dlq_stream, min=f"{source_ms}-0")
         for _entry_id, entry_fields in entries:
             if str(entry_fields.get("original_id", "")) == str(entry_id):
                 return True
