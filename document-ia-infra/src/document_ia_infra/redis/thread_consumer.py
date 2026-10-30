@@ -88,7 +88,7 @@ class ThreadConsumer(BaseConsumer[T]):
         executor = self.executor
         self.executor = None
         if executor is not None:
-            await asyncio.to_thread(executor.shutdown, True)
+            executor.shutdown(wait=False, cancel_futures=True)
 
     def _prepare_execution_resources(self) -> None:
         self._ensure_executor()

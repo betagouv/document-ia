@@ -3,6 +3,7 @@ Classe abstraite BaseConsumer pour les consommateurs Redis Stream.
 """
 
 import asyncio
+import contextlib
 import logging
 import os
 import secrets
@@ -35,6 +36,7 @@ T = TypeVar("T", bound=SerializableMessage)
 
 RECLAIM_IDLE_MS = 300000
 DLQ_SCAN_BATCH_SIZE = 200
+RESOURCE_CLOSE_TIMEOUT_S = 5.0
 _PROCESS_BOOT_ID = secrets.token_hex(4)
 
 # Script Lua de remise en file atomique et idempotente :
@@ -196,12 +198,18 @@ class BaseConsumer(ABC, Generic[T]):
 
         self._in_flight_ids: set[str] = set()
         self._reclaiming_ids: set[str] = set()
+        self._processing_futures: set[asyncio.Future[Any]] = set()
         self._listener_active = False
         self._reclaimer_active = False
         self._needs_group_init = False
         self._listener_done = asyncio.Event()
         self._draining = False
         self._heartbeat_interval_s_override: float | None = None
+
+    @property
+    def has_running_handlers(self) -> bool:
+        """Indique si des traitements de messages sont actuellement en cours d'exécution."""
+        return any(not future.done() for future in self._processing_futures)
 
     @property
     def _redis_manager(self) -> RedisManager:
@@ -460,7 +468,14 @@ class BaseConsumer(ABC, Generic[T]):
         await self._release_execution_resources()
         if self.close_redis_on_stop:
             self.redis = None
-            await self._redis_manager.close()
+            try:
+                await asyncio.wait_for(
+                    self._redis_manager.close(), timeout=RESOURCE_CLOSE_TIMEOUT_S
+                )
+            except TimeoutError:
+                logger.warning("Timed out closing Redis resources during shutdown")
+            except Exception as exc:
+                logger.warning("Failed to close Redis resources during shutdown: %s", exc)
 
     async def _ensure_connection(self) -> Redis | None:
         if self.redis is not None:
@@ -538,6 +553,7 @@ class BaseConsumer(ABC, Generic[T]):
 
                 for fut in done_futures:
                     msg_id, fields = active_futures.pop(fut)
+                    self._processing_futures.discard(fut)
                     try:
                         await self._handle_finished_future(
                             fut, msg_id, fields, redis_conn
@@ -552,9 +568,15 @@ class BaseConsumer(ABC, Generic[T]):
                 # 3. Stratégie de lecture
                 if free_slots <= 0:
                     if active_futures:
-                        _, _ = await asyncio.wait(
-                            active_futures.keys(), return_when=asyncio.FIRST_COMPLETED
+                        stop_wait = asyncio.create_task(self.stop_flag.wait())
+                        _, pending = await asyncio.wait(
+                            {*active_futures.keys(), stop_wait},
+                            return_when=asyncio.FIRST_COMPLETED,
                         )
+                        if stop_wait in pending:
+                            stop_wait.cancel()
+                            with contextlib.suppress(asyncio.CancelledError):
+                                await stop_wait
                     continue
 
                 current_block_time = (
@@ -654,6 +676,7 @@ class BaseConsumer(ABC, Generic[T]):
                     try:
                         fut = self._submit_message(loop, message_data, retry_count)
                         active_futures[fut] = (msg_id, fields)
+                        self._processing_futures.add(fut)
                     except Exception as submit_err:
                         logger.error(
                             "Failed to submit message %s for processing: %s",
@@ -714,6 +737,7 @@ class BaseConsumer(ABC, Generic[T]):
                     else:
                         self._listener_done.set()
                         self._in_flight_ids.clear()
+                        self._processing_futures.clear()
                     self._listener_active = False
 
     async def _drain_pending(
@@ -743,6 +767,7 @@ class BaseConsumer(ABC, Generic[T]):
                 logger.error("Error finalizing drained futures: %s", e)
             finally:
                 self._in_flight_ids.difference_update(pending_ids)
+                self._processing_futures.difference_update(pending)
                 self._draining = False
                 self._listener_done.set()
 
@@ -753,6 +778,7 @@ class BaseConsumer(ABC, Generic[T]):
         redis_conn: Redis,
     ) -> None:
         for fut in done_futures:
+            self._processing_futures.discard(fut)
             popped = active_futures.pop(fut, None)
             if popped is None:
                 continue
@@ -1195,6 +1221,8 @@ class BaseConsumer(ABC, Generic[T]):
                         start,
                         count=self.reclaim_batch_size,
                     )
+                    if self.stop_flag.is_set():
+                        break
                     # Séparer les entrées activement en cours de traitement par ce consommateur
                     # de celles abandonnées par d'autres instances.
                     valid_claimed: list[tuple[str, dict[str, Any] | None]] = []
