@@ -28,6 +28,10 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=SerializableMessage)
 
 RECLAIM_IDLE_MS = 300000
+# Durée de vie des clés d'index d'idempotence (remise en file et conservation
+# DLQ) : bien au-delà de la durée de vie d'une entrée en attente, pour couvrir
+# toute re-récupération ultérieure de l'original tout en bornant la mémoire.
+REQUEUE_INDEX_TTL_S = 7 * 24 * 3600
 
 
 class Consumer(Generic[T]):
@@ -45,12 +49,20 @@ class Consumer(Generic[T]):
     ):
         self.redis: Optional[Redis] = None
         self.reclaimer_task: Optional[Task[Any]] = None
+        self.heartbeat_task: Optional[Task[Any]] = None
         self.stop_flag = asyncio.Event()
         self.consumer_name = consumer_name
         self.stream_name = stream_name
         self.consumer_group = consumer_group
         self.message_class = message_class
         self.process_message_callable = process_message_callable
+        # Battement d'inactivité : XAUTOCLAIM mesure l'inactivité depuis la
+        # livraison, pas l'activité du handler. Ces ensembles suivent les
+        # entrées en cours de traitement pour les rafraîchir.
+        self._heartbeat_interval_s = max(RECLAIM_IDLE_MS / 3, 10) / 1000.0
+        self._in_flight_ids: set[str] = set()
+        self._reclaiming_ids: set[str] = set()
+        self._listener_done = asyncio.Event()
 
         # Configuration du consumer
         self.batch_size = batch_size
@@ -79,6 +91,10 @@ class Consumer(Generic[T]):
                 tg.create_task(
                     self._start_listening_messages(),
                     name=f"listener-{self.consumer_name}",
+                )
+                self.heartbeat_task = tg.create_task(
+                    self._heartbeat_in_flight_entries(),
+                    name=f"heartbeat-{self.consumer_name}",
                 )
         except Exception as e:
             raise e
@@ -124,6 +140,7 @@ class Consumer(Generic[T]):
 
                 for fut in done_futures:
                     msg_id, fields = active_futures.pop(fut)
+                    self._in_flight_ids.discard(msg_id)
                     await self._handle_finished_future(fut, msg_id, fields, self.redis)
 
                 # 2. Calcul de la capacité restante
@@ -198,6 +215,7 @@ class Consumer(Generic[T]):
 
                     fut = loop.run_in_executor(self.executor, func)
                     active_futures[fut] = (msg_id, fields)
+                    self._in_flight_ids.add(msg_id)
 
         except Exception as e:
             logger.error(f"Error in consumer loop shutdown: {e}")
@@ -215,6 +233,10 @@ class Consumer(Generic[T]):
                         await self._handle_finished_future(
                             fut, msg_id, fields, self.redis
                         )
+            # Signale au battement que la boucle principale est terminée :
+            # celui-ci ne doit sortir qu'après la vidange complète du lot.
+            self._listener_done.set()
+            self._in_flight_ids.clear()
 
     async def _handle_finished_future(
         self,
@@ -242,10 +264,25 @@ class Consumer(Generic[T]):
 
             if retry_count < self.max_retry_number - 1:
                 try:
-                    await redis_connection.xadd(
-                        self.stream_name,
-                        {"data": data, "retries": str(retry_count + 1)},
-                    )
+                    if await self._already_requeued(redis_connection, msg_id):
+                        logger.info(
+                            f"Message {msg_id} already requeued; retrying ACK only"
+                        )
+                    else:
+                        try:
+                            await redis_connection.xadd(
+                                self.stream_name,
+                                {
+                                    "data": data,
+                                    "retries": str(retry_count + 1),
+                                    "original_id": str(msg_id),
+                                },
+                            )
+                        except Exception:
+                            await self._release_requeue_reservation(
+                                redis_connection, msg_id
+                            )
+                            raise
                     try:
                         await redis_connection.xack(
                             self.stream_name, self.consumer_group, msg_id
@@ -370,6 +407,52 @@ class Consumer(Generic[T]):
             raise ConnectionError("No Redis connection available")
         return self.redis
 
+    def _requeue_index_key(self, msg_id: str) -> str:
+        return f"{self.stream_name}:requeued:{msg_id}"
+
+    async def _already_requeued(
+        self, redis_connection: Redis, msg_id: str
+    ) -> bool:
+        """Réserve l'index de remise en file et dit si une copie existe déjà.
+
+        Une remise en file réussie suivie d'un ACK en échec laisse l'entrée
+        d'origine en attente : une nouvelle tentative ne doit pas créer une
+        deuxième copie. La garde est une clé d'index `SET ... NX` posée avant
+        le XADD — atomique entre reclaimers concurrents, contrairement à un
+        parcours XRANGE du flux (résidu documenté dans #131) : deux
+        traitements concurrents de la même entrée ne peuvent pas tous deux
+        observer l'absence. La clé porte un TTL bornant la mémoire ; elle
+        survit largement à la durée de vie d'une entrée en attente.
+
+        La réservation est libérée par `_release_requeue_reservation` si la
+        copie (XADD) échoue, pour que la tentative suivante puisse la créer.
+
+        Échec fermé : une erreur de la garde remonte à l'appelant, qui
+        laisse l'entrée en attente et retente à la passe suivante.
+        """
+        key = self._requeue_index_key(msg_id)
+        # SET NX EX : retourne True si la clé a été posée (première copie),
+        # None si elle existait déjà (copie déjà créée par une tentative
+        # antérieure dont l'ACK a échoué).
+        created = await redis_connection.set(
+            key, "1", nx=True, ex=REQUEUE_INDEX_TTL_S
+        )
+        return created is None
+
+    async def _release_requeue_reservation(
+        self, redis_connection: Redis, msg_id: str
+    ) -> None:
+        """Libère la réservation d'index après un échec de copie (XADD).
+
+        Sans cela, une copie jamais créée laisserait la clé posée et toute
+        tentative ultérieure sauterait la remise en file : l'entrée serait
+        acquittée sans jamais avoir été recopiée — perte de message.
+        """
+        try:
+            await redis_connection.delete(self._requeue_index_key(msg_id))
+        except Exception as del_err:
+            logger.error(f"Failed to release requeue reservation for {msg_id}: {del_err}")
+
     async def _already_retained_in_dlq(
         self, redis_connection: Redis, msg_id: str
     ) -> bool:
@@ -381,17 +464,17 @@ class Consumer(Generic[T]):
         qu'à partir de sa milliseconde de création ; les numéros de séquence
         sont indépendants par flux, le parcours couvre donc toute la
         milliseconde d'origine et ignore l'historique antérieur de la DLQ.
+        Le parcours est borné (COUNT) : une récupération ne doit jamais
+        balayer une DLQ non bornée.
+
+        Échec fermé : une erreur de parcours remonte à l'appelant, qui
+        laisse l'entrée en attente et retente à la passe suivante — ne
+        jamais conclure « pas conservée » sur un parcours incertain.
         """
-        try:
-            source_ms = msg_id.split("-")[0]
-            entries = await redis_connection.xrange(
-                self.dlq_stream_name, min=f"{source_ms}-0"
-            )
-        except Exception as scan_err:
-            logger.error(
-                f"Failed to scan DLQ stream '{self.dlq_stream_name}' for {msg_id}: {scan_err}"
-            )
-            return False
+        source_ms = msg_id.split("-")[0]
+        entries = await redis_connection.xrange(
+            self.dlq_stream_name, min=f"{source_ms}-0", max="+", count=1000
+        )
         for _entry_id, entry_fields in entries:
             if str(entry_fields.get("original_id", "")) == str(msg_id):
                 return True
@@ -413,7 +496,21 @@ class Consumer(Generic[T]):
             reason: short code describing why it was sent to DLQ (e.g., 'decode_error')
             error: optional error string/details
         """
-        if await self._already_retained_in_dlq(redis_connection, msg_id):
+        try:
+            already_retained = await self._already_retained_in_dlq(
+                redis_connection, msg_id
+            )
+        except Exception as scan_err:
+            # Échec du parcours d'idempotence : l'état de conservation est
+            # inconnu, pas « absent ». Ni écrire une seconde copie, ni
+            # laisser l'appelant acquitter — l'entrée reste en attente et
+            # la passe suivante réessaie.
+            logger.error(
+                f"Unable to confirm DLQ retention for message {msg_id} in "
+                f"'{self.dlq_stream_name}': {scan_err}; leaving entry pending"
+            )
+            return False
+        if already_retained:
             logger.info(
                 f"Message {msg_id} already retained in DLQ stream '{self.dlq_stream_name}'; skipping duplicate write"
             )
@@ -461,44 +558,19 @@ class Consumer(Generic[T]):
                     start,
                     count=1,
                 )
-                for msg_id, fields in claimed:
-                    logger.info(f"Reclaimed message ID: {msg_id} with fields: {fields}")
-                    attempts = int(fields.get("retries", "0")) + 1
-                    if attempts >= self.max_retry_number:
-                        logger.error(
-                            f"Max attempts exceeded for reclaimed message {msg_id}. Moving to DLQ."
-                        )
-                        if await self._send_to_dlq(
-                            redis_connection=self.redis,
-                            msg_id=msg_id,
-                            fields=fields,
-                            reason="max_retries_exceeded",
-                            error="Exceeded max retry count during reclaim",
-                        ):
-                            try:
-                                await self.redis.xack(
-                                    self.stream_name, self.consumer_group, msg_id
-                                )
-                            except Exception:
-                                logger.error(
-                                    f"ACK failed for reclaimed DLQ message {msg_id}"
-                                )
-                        continue
-                    try:
-                        fields["retries"] = str(attempts)
-                        await self.redis.xadd(self.stream_name, fields)
-                        logger.info(f"Add new message with fields: {fields}")
+                claimed_ids = {msg_id for msg_id, _ in claimed}
+                self._reclaiming_ids.update(claimed_ids)
+                # Nettoyage par lot : une exception ou une annulation qui
+                # interrompt le parcours ne doit laisser aucune entrée non
+                # visitée protégée indéfiniment par le battement.
+                try:
+                    for msg_id, fields in claimed:
                         try:
-                            await self.redis.xack(
-                                self.stream_name, self.consumer_group, msg_id
-                            )
-                            logger.info(f"Acknowledged reclaimed message {msg_id}")
-                        except Exception:
-                            logger.error(f"ACK failed for reclaimed {msg_id}")
-                    except Exception as ack_err:
-                        logger.error(
-                            f"Failed to requeue reclaimed message {msg_id}: {ack_err}"
-                        )
+                            await self._reclaim_entry(msg_id, fields)
+                        finally:
+                            self._reclaiming_ids.discard(msg_id)
+                finally:
+                    self._reclaiming_ids.difference_update(claimed_ids)
                 start = next_start or "0-0"
                 # Petit sleep coopératif
                 await asyncio.sleep(1)
@@ -509,3 +581,137 @@ class Consumer(Generic[T]):
                 await asyncio.sleep(5)
                 continue
         logger.info("Reclaimer task stopped")
+
+    async def _reclaim_entry(self, msg_id: str, fields: dict[str, Any]) -> None:
+        """Retraite une entrée revendiquée : DLQ si épuisée, sinon remise en file."""
+        logger.info(f"Reclaimed message ID: {msg_id} with fields: {fields}")
+        try:
+            attempts = int(fields.get("retries", "0")) + 1
+        except (TypeError, ValueError):
+            # Champ « retries » illisible : la tentative ne peut être comptée
+            # ni la remise en file honorée. Conserver en DLQ plutôt que de
+            # re-réclamer la même entrée indéfiniment.
+            logger.error(
+                f"Malformed retries field for reclaimed message {msg_id}: "
+                f"{fields.get('retries')!r}. Moving to DLQ."
+            )
+            await self._retain_in_dlq_and_ack(
+                msg_id,
+                fields,
+                "max_retries_exceeded",
+                f"Malformed retries field: {fields.get('retries')!r}",
+            )
+            return
+        if attempts >= self.max_retry_number:
+            logger.error(
+                f"Max attempts exceeded for reclaimed message {msg_id}. Moving to DLQ."
+            )
+            await self._retain_in_dlq_and_ack(
+                msg_id,
+                fields,
+                "max_retries_exceeded",
+                "Exceeded max retry count during reclaim",
+            )
+            return
+        try:
+            if await self._already_requeued(self.redis, msg_id):
+                logger.info(
+                    f"Reclaimed message {msg_id} already requeued; retrying ACK only"
+                )
+            else:
+                fields["retries"] = str(attempts)
+                fields["original_id"] = str(msg_id)
+                try:
+                    await self.redis.xadd(self.stream_name, fields)
+                except Exception:
+                    # La copie n'a pas été créée : libérer la réservation pour
+                    # que la tentative suivante puisse la créer.
+                    await self._release_requeue_reservation(self.redis, msg_id)
+                    raise
+                logger.info(f"Requeued reclaimed message {msg_id} (attempt {attempts})")
+            try:
+                await self.redis.xack(self.stream_name, self.consumer_group, msg_id)
+                logger.info(f"Acknowledged reclaimed message {msg_id}")
+            except Exception:
+                logger.error(f"ACK failed for reclaimed {msg_id}")
+        except Exception as requeue_err:
+            logger.error(f"Failed to requeue reclaimed message {msg_id}: {requeue_err}")
+
+    async def _retain_in_dlq_and_ack(
+        self, msg_id: str, fields: dict[str, Any], reason: str, error: str
+    ) -> None:
+        """Conserve l'entrée en DLQ puis l'acquitte après conservation confirmée."""
+        retained = await self._send_to_dlq(
+            redis_connection=self.redis,
+            msg_id=msg_id,
+            fields=fields,
+            reason=reason,
+            error=error,
+        )
+        if not retained:
+            logger.warning(
+                f"Reclaimed message {msg_id} left pending: DLQ retention unconfirmed"
+            )
+            return
+        try:
+            await self.redis.xack(self.stream_name, self.consumer_group, msg_id)
+        except Exception:
+            logger.error(f"ACK failed for reclaimed DLQ message {msg_id}")
+
+    async def _heartbeat_in_flight_entries(self) -> None:
+        """Rafraîchit l'inactivité des entrées en cours de traitement.
+
+        XAUTOCLAIM mesure le temps depuis la livraison, pas l'activité du
+        handler : un message sain dont le traitement dépasse RECLAIM_IDLE_MS
+        serait revendiqué par le reclaimer de sa propre instance pendant son
+        traitement, puis remis en file — livraison en double. Un battement
+        XCLAIM (justid) remet le compteur d'inactivité à zéro toutes les
+        RECLAIM_IDLE_MS / 3, marge de 3 au seuil de récupération. Les entrées
+        acquittées ne sont plus dans la PEL et sont ignorées sans erreur.
+
+        Le battement couvre le lot de la boucle principale et les entrées
+        revendiquées en cours de retraitement. À l'arrêt, il ne sort que
+        lorsque la boucle principale et le reclaimer sont terminés : une
+        lecture bloquée peut encore livrer un lot après la demande d'arrêt,
+        et sortir plus tôt exposerait ce lot à une récupération pendant
+        l'arrêt gracieux.
+        """
+        logger.info(
+            f"Heartbeat task started interval={self._heartbeat_interval_s:.3f}s"
+        )
+        while True:
+            if self.stop_flag.is_set():
+                # Ne sortir que lorsque les tâches qui peuvent remplir les
+                # ensembles sont terminées. Des ensembles vides ne prouvent
+                # rien — une lecture bloquée peut encore livrer après.
+                listener_done = self._listener_done.is_set()
+                reclaimer_done = (
+                    self.reclaimer_task is None or self.reclaimer_task.done()
+                )
+                if listener_done and reclaimer_done:
+                    break
+                await asyncio.sleep(min(self._heartbeat_interval_s, 1.0))
+            else:
+                try:
+                    await asyncio.wait_for(
+                        self.stop_flag.wait(), timeout=self._heartbeat_interval_s
+                    )
+                except asyncio.TimeoutError:
+                    pass
+            ids = self._in_flight_ids | self._reclaiming_ids
+            if not ids:
+                continue
+            try:
+                await self.redis.xclaim(
+                    self.stream_name,
+                    self.consumer_group,
+                    self.consumer_name,
+                    min_idle_time=0,
+                    message_ids=list(ids),
+                    justid=True,
+                )
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"Heartbeat failed: {e}")
+        logger.info("Heartbeat task stopped")

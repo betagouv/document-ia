@@ -132,6 +132,24 @@ class MockRedis:
         await asyncio.sleep(0.01)
         return (start, [], [])
 
+    async def set(self, key: str, value: str, nx: bool = False, ex: int | None = None):
+        # Sémantique SET NX : ne pose la clé que si absente ; retourne None sinon.
+        if not hasattr(self, "_kv"):
+            self._kv: dict[str, str] = {}
+        if nx and key in self._kv:
+            return None
+        self._kv[key] = value
+        return True
+
+    async def delete(self, *keys: str):
+        if not hasattr(self, "_kv"):
+            self._kv = {}
+        removed = 0
+        for key in keys:
+            if self._kv.pop(key, None) is not None:
+                removed += 1
+        return removed
+
 
 @pytest.mark.asyncio
 async def test_consumer_happy_path(monkeypatch):
@@ -377,8 +395,22 @@ async def test_reclaimer_reclaim_consumes_single_attempt(monkeypatch):
 
     requeues = [call for call in mock_redis.xadd_calls if call[0] == stream]
     assert requeues == [
-        (stream, {"data": json.dumps({"a": 1}), "retries": "1"}),
-        (stream, {"data": json.dumps({"a": 2}), "retries": "2"}),
+        (
+            stream,
+            {
+                "data": json.dumps({"a": 1}),
+                "retries": "1",
+                "original_id": "1700000000000-0",
+            },
+        ),
+        (
+            stream,
+            {
+                "data": json.dumps({"a": 2}),
+                "retries": "2",
+                "original_id": "1700000000001-0",
+            },
+        ),
     ]
     assert (stream, "1700000000000-0") in mock_redis.acks
     assert (stream, "1700000000001-0") in mock_redis.acks
