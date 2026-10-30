@@ -142,6 +142,15 @@ class Consumer(Generic[T]):
 
         try:
             await self._init_consumer()
+            # Le battement est créé hors du TaskGroup : une annulation de
+            # start_consumer() (par exemple à l'arrêt du worker sur signal)
+            # annule le listener et le reclaimer, mais PAS le battement.
+            # Celui-ci doit continuer de protéger les entrées tant que des
+            # handlers tournent, et n'est arrêté qu'après la vidange (finally).
+            self.heartbeat_task = asyncio.create_task(
+                self._heartbeat_in_flight_entries(),
+                name=f"heartbeat-{self.consumer_name}",
+            )
             async with asyncio.TaskGroup() as tg:
                 self.reclaimer_task = tg.create_task(
                     self._reclaim_pending_messages(),
@@ -151,14 +160,41 @@ class Consumer(Generic[T]):
                     self._start_listening_messages(),
                     name=f"listener-{self.consumer_name}",
                 )
-                self.heartbeat_task = tg.create_task(
-                    self._heartbeat_in_flight_entries(),
-                    name=f"heartbeat-{self.consumer_name}",
-                )
-        except Exception as e:
+        except (asyncio.CancelledError, Exception) as e:
             raise e
         finally:
-            await self._de_init_consumer()
+            await self._shutdown_after_cancel()
+
+    async def _shutdown_after_cancel(self):
+        """Vidange les handlers puis arrête le battement, même sur annulation.
+
+        Appelé dans le finally de start_consumer : que la sortie soit normale
+        ou due à une annulation, on laisse la boucle principale finir sa
+        vidange, on attend les handlers restants, et seulement ensuite on
+        arrête le battement. Sans cela, une annulation tuerait le battement
+        pendant que des handlers tournent encore.
+        """
+        self.stop_flag.set()
+        # Attendre que la boucle principale signale la fin de sa vidange.
+        # Si elle a déjà spawné une tâche de vidange (_drain_pending), celle-ci
+        # lèvera _listener_done à l'achèvement des handlers. On réessaie en
+        # cas d'annulation pour ne pas abandonner la protection trop tôt.
+        for _ in range(3):
+            try:
+                await asyncio.wait_for(self._listener_done.wait(), timeout=15)
+                break
+            except asyncio.TimeoutError:
+                break
+            except asyncio.CancelledError:
+                continue
+        # Arrêter le battement maintenant que les handlers sont vidangés.
+        if self.heartbeat_task is not None and not self.heartbeat_task.done():
+            self.heartbeat_task.cancel()
+            try:
+                await self.heartbeat_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        await self._de_init_consumer()
 
     async def _init_consumer(self):
         try:

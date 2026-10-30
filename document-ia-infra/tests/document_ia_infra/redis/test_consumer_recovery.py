@@ -486,3 +486,67 @@ async def test_malformed_retries_routes_to_dlq(
         assert "Malformed retries" in entries[0][1]["error"]
     finally:
         await stop_tasks(consumer, reclaimer)
+
+
+@pytest.mark.asyncio
+async def test_cancellation_keeps_heartbeat_until_handlers_drain(
+    redis_client: Redis, stream: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cancelling start_consumer() must not reclaim a still-running handler.
+
+    The worker's signal-driven shutdown cancels the consumer task. The
+    heartbeat must stay alive until executor handlers finish; otherwise a
+    healthy entry is reclaimed mid-shutdown. Reproduced via the real
+    start_consumer() cancellation path (not just stop_flag).
+    """
+    import threading
+
+    group = f"group-cancel-{uuid4()}"
+    monkeypatch.setattr("document_ia_infra.redis.consumer.RECLAIM_IDLE_MS", 300)
+    consumer = make_consumer(stream, group)
+    consumer._heartbeat_interval_s = 0.05
+
+    started, release = threading.Event(), threading.Event()
+
+    async def blocking_handler(message, rc, is_last):
+        started.set()
+        release.wait(5)
+
+    consumer.process_message_callable = blocking_handler
+
+    async def get_redis() -> Redis:
+        return redis_client
+
+    consumer._get_safe_redis_connection = get_redis  # type: ignore
+
+    await redis_client.xgroup_create(stream, group, id="0-0", mkstream=True)
+    await redis_client.xadd(
+        stream, {"data": json.dumps({"payload": "x"}), "retries": "0"}
+    )
+
+    task = asyncio.create_task(consumer.start_consumer())
+    try:
+        while not started.is_set():
+            await asyncio.sleep(0.01)
+        await asyncio.sleep(0.1)
+        task.cancel()
+        await asyncio.sleep(0.5)
+        # Another consumer must NOT be able to reclaim the running handler's
+        # entry while shutdown is draining.
+        claimed = await redis_client.xautoclaim(
+            stream, group, "other-worker", 300, "0-0", count=1
+        )
+        assert not claimed[1], (
+            f"healthy entry reclaimed during cancellation: {claimed[1]}"
+        )
+        assert consumer.heartbeat_task is not None
+        assert not consumer.heartbeat_task.done(), (
+            "heartbeat was cancelled before handlers drained"
+        )
+    finally:
+        release.set()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
+        consumer.executor.shutdown(wait=False)
