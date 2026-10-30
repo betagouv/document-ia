@@ -475,7 +475,9 @@ class BaseConsumer(ABC, Generic[T]):
             except TimeoutError:
                 logger.warning("Timed out closing Redis resources during shutdown")
             except Exception as exc:
-                logger.warning("Failed to close Redis resources during shutdown: %s", exc)
+                logger.warning(
+                    "Failed to close Redis resources during shutdown: %s", exc
+                )
 
     async def _ensure_connection(self) -> Redis | None:
         if self.redis is not None:
