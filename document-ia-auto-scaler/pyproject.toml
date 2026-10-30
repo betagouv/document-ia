@@ -28,7 +28,6 @@ dev = [
 required-version = ">=0.12.0"
 exclude-newer = "1 week"
 # Security: virtualenv >= 21.14.13 fixes GHSA-cx6f-vjhg-g3cc and supports filelock >= 4.2.1.
-exclude-newer-package = { virtualenv = "2026-10-23" }
 
 [tool.uv.sources.document-ia-infra]
 path = "../document-ia-infra"
