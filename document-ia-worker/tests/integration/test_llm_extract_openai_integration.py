@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,10 @@ FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures"
 SNAPSHOT_PATH = FIXTURES_DIR / "ocr_result_cni.json"
 
 
+@pytest.mark.skipif(
+    not os.getenv("OPENAI_API_KEY") or not os.getenv("OPENAI_BASE_URL"),
+    reason="Albert credentials are not available",
+)
 @pytest.mark.skipif(not SNAPSHOT_PATH.exists(), reason="Snapshot file does not exist")
 @pytest.mark.asyncio
 async def test_llm_extract_openai_real_call_with_cni_fixture(main_workflow_context):
