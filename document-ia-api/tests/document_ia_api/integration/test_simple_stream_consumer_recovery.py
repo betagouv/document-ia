@@ -197,6 +197,130 @@ async def test_reclaimer_recovers_entry_of_dead_instance(
 
 
 @pytest.mark.asyncio
+async def test_reclaimer_does_not_duplicate_in_flight_batch(
+    redis_client: Redis,
+) -> None:
+    """Entries of a healthy in-flight batch are never reclaimed as duplicates.
+
+    XAUTOCLAIM measures time since delivery, not handler activity: without
+    the in-flight heartbeat, a slow first handler in a multi-entry batch
+    lets the reclaimer copy and redeliver entries the main loop is still
+    processing.
+    """
+    stream = f"test_recovery_in_flight:{uuid4()}"
+    group = f"group-in-flight-{uuid4()}"
+    calls: list[str] = []
+    all_done = asyncio.Event()
+
+    async def handler(message: TestRecoveryMessage) -> None:
+        calls.append(message.content)
+        if message.content == "slow-first":
+            await asyncio.sleep(1.3)
+        if len(calls) == 2:
+            all_done.set()
+
+    consumer = SimpleStreamConsumer[TestRecoveryMessage](
+        stream_name=stream,
+        handler=handler,
+        message_class=TestRecoveryMessage,
+        consumer_group=group,
+        consumer_name=f"consumer-in-flight-{uuid4()}",
+        block_ms=10,
+        reclaim_idle_ms=100,
+        count=50,
+    )
+
+    await redis_client.xgroup_create(stream, group, id="0-0", mkstream=True)
+    await _add_entry(redis_client, stream, "slow-first")
+    await _add_entry(redis_client, stream, "fast-second")
+
+    await consumer.start()
+    try:
+        await asyncio.wait_for(all_done.wait(), timeout=10)
+        # Let several reclaimer passes run past the slow handler duration.
+        await asyncio.sleep(3)
+        assert sorted(calls) == ["fast-second", "slow-first"]
+        assert len(calls) == 2
+        assert await redis_client.xlen(stream) == 2
+        assert await _pending_count(redis_client, stream, group) == 0
+        assert await _dlq_len(redis_client, stream) == 0
+    finally:
+        await consumer.stop()
+        await redis_client.delete(stream, f"{stream}:dlq")
+
+
+@pytest.mark.asyncio
+async def test_requeue_is_idempotent_when_ack_fails(
+    redis_client: Redis,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A requeued copy is never duplicated when the original's ACK fails.
+
+    The requeue XADD and the original's XACK are separate commands: if the
+    ACK fails, the original stays pending and is reclaimed again. The
+    `original_id` guard must prevent a second copy and only retry the ACK.
+    """
+    stream = f"test_recovery_requeue_idem:{uuid4()}"
+    group = f"group-requeue-idem-{uuid4()}"
+    delivered: list[str] = []
+    handler_called = asyncio.Event()
+
+    async def handler(message: TestRecoveryMessage) -> None:
+        delivered.append(message.content)
+        handler_called.set()
+
+    consumer = SimpleStreamConsumer[TestRecoveryMessage](
+        stream_name=stream,
+        handler=handler,
+        message_class=TestRecoveryMessage,
+        consumer_group=group,
+        consumer_name=f"consumer-requeue-idem-{uuid4()}",
+        block_ms=10,
+        reclaim_idle_ms=100,
+        max_retries=3,
+    )
+
+    await redis_client.xgroup_create(stream, group, id="0-0", mkstream=True)
+    original_id = await _add_entry(redis_client, stream, "requeue-once")
+    await _deliver_to_dead_consumer(redis_client, stream, group)
+    assert await _pending_count(redis_client, stream, group) == 1
+
+    original_xack = redis_client.xack
+    ack_failures = 0
+
+    async def fail_ack_once_for_original(
+        stream_name: str, group_name: str, *entry_ids: str
+    ) -> int:
+        nonlocal ack_failures
+        if stream_name == stream and original_id in entry_ids and ack_failures == 0:
+            ack_failures += 1
+            raise ConnectionError("redis ack failed")
+        return await original_xack(stream_name, group_name, *entry_ids)
+
+    monkeypatch.setattr(redis_client, "xack", fail_ack_once_for_original)
+
+    await consumer.start()
+    try:
+        await asyncio.wait_for(handler_called.wait(), timeout=10)
+        await _wait_until(
+            _pending_is_zero_pred(redis_client, stream, group), timeout=10
+        )
+        entries = await redis_client.xrange(stream)
+        assert len(entries) == 2
+        copies = [
+            fields for _, fields in entries if fields.get("original_id") == original_id
+        ]
+        assert len(copies) == 1
+        assert copies[0]["retries"] == "1"
+        assert delivered == ["requeue-once"]
+        assert ack_failures == 1
+        assert await _dlq_len(redis_client, stream) == 0
+    finally:
+        await consumer.stop()
+        await redis_client.delete(stream, f"{stream}:dlq")
+
+
+@pytest.mark.asyncio
 async def test_live_instance_recovers_entry_abandoned_by_another_instance(
     redis_client: Redis,
     monkeypatch: pytest.MonkeyPatch,
