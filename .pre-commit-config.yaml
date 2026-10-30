@@ -1,4 +1,7 @@
-# Installe les hooks aux étapes pre-commit et pre-push (le scan gitleaks couvre aussi le push).
+# Installe les hooks aux étapes pre-commit et pre-push :
+# - pre-commit : gitleaks scanne les modifications stagées (diff de l'index) ;
+# - pre-push : scripts/gitleaks_pre_push.sh scanne les commits sortants
+#   (au push, l'index est vide, un scan --staged ne détecterait rien).
 default_install_hook_types: [pre-commit, pre-push]
 
 repos:
@@ -28,7 +31,18 @@ repos:
     hooks:
       - id: gitleaks
         args: ["--config", ".gitleaks.toml"]
-        stages: [pre-commit, pre-push]
+        stages: [pre-commit]
+
+  # Scan gitleaks des commits sortants au push : l'index est vide à ce stade,
+  # le hook pre-commit (--staged) ne détecterait rien.
+  - repo: local
+    hooks:
+      - id: gitleaks-pre-push
+        name: gitleaks pre-push (commits sortants)
+        language: system
+        entry: bash scripts/gitleaks_pre_push.sh
+        pass_filenames: false
+        stages: [pre-push]
 
   # Hooks locaux pour gérer uv lock par sous-projet lorsque le pyproject.toml change
   - repo: local
