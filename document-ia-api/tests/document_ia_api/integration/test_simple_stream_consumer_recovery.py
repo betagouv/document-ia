@@ -743,6 +743,104 @@ async def test_requeue_guard_fails_closed_when_scan_fails(
         await redis_client.delete(stream, f"{stream}:dlq")
 
 
+@pytest.mark.parametrize("retries_value", ["2", "bad"])
+@pytest.mark.asyncio
+async def test_dlq_retention_guard_fails_closed_when_scan_fails(
+    redis_client: Redis,
+    monkeypatch: pytest.MonkeyPatch,
+    retries_value: str,
+) -> None:
+    """A failing DLQ idempotence scan never writes a second DLQ row.
+
+    After a DLQ retention whose ACK failed, the original stays pending. If
+    the retention guard's XRANGE then errors on a later pass, "scan failed"
+    must be treated as "retention unknown", not "not retained": the entry
+    is left pending without a second DLQ write, and the next pass retries.
+    Covers both DLQ routes: exhausted entries and malformed retries fields.
+    """
+    stream = f"test_recovery_dlq_guard_fail_closed:{uuid4()}"
+    group = f"group-dlq-guard-fail-closed-{uuid4()}"
+    dlq_stream = f"{stream}:dlq"
+
+    async def handler(message: TestRecoveryMessage) -> None:
+        pass
+
+    consumer = SimpleStreamConsumer[TestRecoveryMessage](
+        stream_name=stream,
+        handler=handler,
+        message_class=TestRecoveryMessage,
+        consumer_group=group,
+        consumer_name=f"consumer-dlq-guard-fail-{uuid4()}",
+        block_ms=10,
+        reclaim_idle_ms=100,
+        max_retries=3,
+    )
+
+    await redis_client.xgroup_create(stream, group, id="0-0", mkstream=True)
+    original_id = await redis_client.xadd(
+        stream,
+        {"data": json.dumps({"content": "exhausted"}), "retries": retries_value},
+    )
+    await _deliver_to_dead_consumer(redis_client, stream, group)
+    assert await _pending_count(redis_client, stream, group) == 1
+
+    original_xack = redis_client.xack
+    ack_failures = 0
+
+    async def fail_ack_once_for_original(
+        stream_name: str, group_name: str, *entry_ids: str
+    ) -> int:
+        nonlocal ack_failures
+        if stream_name == stream and original_id in entry_ids and ack_failures == 0:
+            ack_failures += 1
+            raise ConnectionError("redis ack failed")
+        return await original_xack(stream_name, group_name, *entry_ids)
+
+    original_xrange = redis_client.xrange
+    guard_scans = 0
+
+    async def fail_second_dlq_guard_scan(*args: Any, **kwargs: Any) -> Any:
+        nonlocal guard_scans
+        if args and args[0] == dlq_stream and "min" in kwargs:
+            guard_scans += 1
+            if guard_scans == 2:
+                raise ConnectionError("redis scan failed")
+        return await original_xrange(*args, **kwargs)
+
+    monkeypatch.setattr(redis_client, "xack", fail_ack_once_for_original)
+    monkeypatch.setattr(redis_client, "xrange", fail_second_dlq_guard_scan)
+
+    await consumer.start()
+    try:
+        # Pass 1: retention succeeds, ACK fails -> one DLQ row, still pending.
+        await _wait_until(_dlq_len_is_pred(redis_client, stream, 1), timeout=10)
+        assert await _pending_count(redis_client, stream, group) == 1
+
+        # Pass 2: DLQ scan fails -> retention unknown. No second DLQ row,
+        # no ACK: the entry must stay pending with a single DLQ row.
+        await _wait_until(lambda: guard_scans >= 2, timeout=10)
+        assert await _dlq_len(redis_client, stream) == 1
+        assert await _pending_count(redis_client, stream, group) == 1
+
+        # Pass 3: scan succeeds again -> already retained, ACK proceeds.
+        await _wait_until(
+            _pending_is_zero_pred(redis_client, stream, group), timeout=10
+        )
+        assert await _dlq_len(redis_client, stream) == 1
+        assert guard_scans >= 3
+        assert ack_failures == 1
+        dlq_entries = await redis_client.xrange(dlq_stream)
+        retained = [
+            fields
+            for _, fields in dlq_entries
+            if fields.get("original_id") == original_id
+        ]
+        assert len(retained) == 1
+    finally:
+        await consumer.stop()
+        await redis_client.delete(stream, dlq_stream)
+
+
 @pytest.mark.asyncio
 async def test_reclaimed_work_is_heartbeat_protected(
     redis_client: Redis,
