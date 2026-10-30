@@ -51,9 +51,7 @@ async def stream(redis_client: Redis) -> str:
         await redis_client.delete(name, f"{name}:dlq")
 
 
-async def wait_until(
-    predicate: Callable[[], Any], timeout: float = 5.0
-) -> None:
+async def wait_until(predicate: Callable[[], Any], timeout: float = 5.0) -> None:
     async with asyncio.timeout(timeout):
         while True:
             result = predicate()
@@ -335,9 +333,7 @@ async def test_dlq_retention_is_idempotent_and_complete(
         redis_client, msg_id, {"data": "x", "retries": "0"}, "decode_error"
     )
     retained = [
-        f
-        for _, f in await redis_client.xrange(dlq)
-        if f.get("original_id") == msg_id
+        f for _, f in await redis_client.xrange(dlq) if f.get("original_id") == msg_id
     ]
     assert len(retained) == 1, "a second DLQ row was written past the scan window"
     consumer.executor.shutdown(wait=False)
@@ -452,7 +448,9 @@ async def test_requeue_after_crash_creates_copy_no_message_loss(
     await consumer._reclaim_entry(original_id, dict(fields))
     assert await pending_count(redis_client, stream, group) == 0
     copies = [
-        f for _, f in await redis_client.xrange(stream) if f.get("original_id") == original_id
+        f
+        for _, f in await redis_client.xrange(stream)
+        if f.get("original_id") == original_id
     ]
     assert len(copies) == 1, "the message was lost: no requeue copy exists"
     consumer.executor.shutdown(wait=False)

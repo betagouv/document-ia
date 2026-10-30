@@ -140,7 +140,9 @@ class MockRedis:
         orig = args[1]
         # Recherche d'une copie existante avec original_id == orig.
         for (recorded_stream, fields), msg_id in zip(self.xadd_calls, self.xadd_ids):
-            if recorded_stream == stream and str(fields.get("original_id", "")) == str(orig):
+            if recorded_stream == stream and str(fields.get("original_id", "")) == str(
+                orig
+            ):
                 return [0, msg_id]
         if stream == self.stream_name:
             # Remise en file : data, retries, original_id.
@@ -540,7 +542,9 @@ async def test_dlq_retention_dedup_per_original_id():
     # deuxième conservation du même message : aucune nouvelle ligne
     assert await c._send_to_dlq(mock_redis, retained_id, fields, "max_retries_exceeded")
     # un autre message est conservé indépendamment
-    assert await c._send_to_dlq(mock_redis, "1700000000001-0", fields, "max_retries_exceeded")
+    assert await c._send_to_dlq(
+        mock_redis, "1700000000001-0", fields, "max_retries_exceeded"
+    )
 
     dlqs = [call for call in mock_redis.xadd_calls if call[0] == f"{stream}:dlq"]
     originals = sorted(call[1]["original_id"] for call in dlqs)
