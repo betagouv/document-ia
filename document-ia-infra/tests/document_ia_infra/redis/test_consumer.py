@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import time
 from collections.abc import Callable
@@ -885,3 +886,141 @@ async def test_shutdown_waits_for_inflight_processing(monkeypatch):
     # Verify that ACK has been performed and that no new batch was read
     assert mock_redis.acks == [(stream, msg_id)]
     assert mock_redis._xread_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_shutdown_leaves_blocked_message_unacked(monkeypatch):
+    import threading
+
+    monkeypatch.setattr(
+        "document_ia_infra.redis.consumer.IN_FLIGHT_SHUTDOWN_TIMEOUT_S", 0.05
+    )
+    started = threading.Event()
+    release = threading.Event()
+    msg_id = "1700000000000-0"
+    mock_redis = MockRedis("test-stream")
+    mock_redis.queue_xread_batch(
+        [(msg_id, {"data": json.dumps({"blocked": True}), "retries": "0"})]
+    )
+
+    async def fake_get_connection():
+        return mock_redis
+
+    from document_ia_infra.redis import redis_manager as rm_module
+
+    monkeypatch.setattr(rm_module.redis_manager, "get_connection", fake_get_connection)
+
+    async def process_blocked(*_args):
+        started.set()
+        release.wait()
+
+    consumer = Consumer[SampleMessage](
+        consumer_name="c1",
+        consumer_group="g1",
+        stream_name="test-stream",
+        batch_size=1,
+        block_time=50,
+        message_class=SampleMessage,
+        process_message_callable=process_blocked,
+        worker_number=1,
+    )
+    listener = asyncio.create_task(consumer._start_listening_messages())
+    try:
+        for _ in range(100):
+            if started.is_set():
+                break
+            await asyncio.sleep(0.01)
+        assert started.is_set(), "Processing did not start within the expected time"
+
+        consumer.stop_flag.set()
+        await asyncio.wait_for(listener, timeout=1)
+
+        assert mock_redis.acks == []
+        assert consumer.has_running_handlers
+    finally:
+        release.set()
+        if not listener.done():
+            listener.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await listener
+        consumer.executor.shutdown(wait=True)
+        await asyncio.sleep(0.01)
+    assert not consumer.has_running_handlers
+
+
+@pytest.mark.asyncio
+async def test_executor_shutdown_does_not_wait_for_running_threads(monkeypatch):
+    stream = "test-stream"
+    consumer = Consumer[SampleMessage](
+        consumer_name="c1",
+        consumer_group="g1",
+        stream_name=stream,
+        batch_size=1,
+        block_time=10,
+        message_class=SampleMessage,
+        process_message_callable=lambda *_args: asyncio.sleep(0),
+    )
+    shutdown_calls = []
+
+    class Executor:
+        def shutdown(self, *, wait, cancel_futures):
+            shutdown_calls.append((wait, cancel_futures))
+
+    async def close_redis():
+        return None
+
+    consumer.executor = Executor()
+    monkeypatch.setattr(
+        "document_ia_infra.redis.consumer.redis_manager_main_thread.close",
+        close_redis,
+    )
+
+    await consumer._de_init_consumer()
+
+    assert shutdown_calls == [(False, True)]
+
+
+@pytest.mark.asyncio
+async def test_requeue_survives_cancellation_after_atomic_redis_write():
+    class CancelAfterAtomicWriteRedis(MockRedis):
+        def __init__(self, stream_name: str):
+            super().__init__(stream_name)
+            self.cancel_after_write = True
+
+        async def eval(self, *args):
+            result = await super().eval(*args)
+            if self.cancel_after_write:
+                self.cancel_after_write = False
+                raise asyncio.CancelledError
+            return result
+
+    stream = "test-stream"
+    group = "g1"
+    msg_id = "1700000000000-0"
+    mock_redis = CancelAfterAtomicWriteRedis(stream)
+    consumer = Consumer[SampleMessage](
+        consumer_name="c1",
+        consumer_group=group,
+        stream_name=stream,
+        batch_size=1,
+        block_time=10,
+        message_class=SampleMessage,
+        process_message_callable=lambda *_args: asyncio.sleep(0),
+    )
+    consumer.redis = mock_redis
+    fields = {"data": json.dumps({"payload": "recover"}), "retries": "1"}
+
+    with pytest.raises(asyncio.CancelledError):
+        await consumer._reclaim_entry(msg_id, fields.copy())
+    assert mock_redis.acks == []
+
+    await consumer._reclaim_entry(msg_id, fields.copy())
+
+    copies = [
+        fields
+        for recorded_stream, fields in mock_redis.xadd_calls
+        if recorded_stream == stream and fields.get("original_id") == msg_id
+    ]
+    assert len(copies) == 1
+    assert mock_redis.acks == [(stream, msg_id)]
+    consumer.executor.shutdown(wait=True)
