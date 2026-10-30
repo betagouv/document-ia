@@ -44,6 +44,11 @@ class SimpleStreamConsumer(Generic[T]):
     livrées mais jamais acquittées (instance arrêtée ou plantée) via XAUTOCLAIM,
     puis les remet en file ; les entrées épuisées sont conservées en DLQ puis
     acquittées après conservation confirmée.
+
+    La remise en file est idempotente : une copie déjà créée puis un ACK en
+    échec ne produit jamais de deuxième copie. Les entrées du lot en cours de
+    traitement sont protégées par un battement qui rafraîchit leur inactivité,
+    pour que la récupération ne les duplique pas.
     """
 
     def __init__(
@@ -75,6 +80,9 @@ class SimpleStreamConsumer(Generic[T]):
         self._stop_event = asyncio.Event()
         self._task: Optional[asyncio.Task[Any]] = None
         self._reclaimer_task: Optional[asyncio.Task[Any]] = None
+        self._heartbeat_task: Optional[asyncio.Task[Any]] = None
+        self._heartbeat_interval_s = max(reclaim_idle_ms / 3, 10) / 1000.0
+        self._in_flight_ids: list[Any] = []
         # Group mode
         self._group = consumer_group
         self._consumer = consumer_name
@@ -98,6 +106,10 @@ class SimpleStreamConsumer(Generic[T]):
                 self._reclaim_pending_messages(),
                 name=f"simple-consumer-reclaimer:{self._stream}",
             )
+            self._heartbeat_task = asyncio.create_task(
+                self._heartbeat_in_flight_entries(),
+                name=f"simple-consumer-heartbeat:{self._stream}",
+            )
         logger.info(
             "SimpleStreamConsumer started (stream='%s', mode=%s, reclaimer=%s)",
             self._stream,
@@ -107,7 +119,7 @@ class SimpleStreamConsumer(Generic[T]):
 
     async def stop(self) -> None:
         self._stop_event.set()
-        for task in (self._task, self._reclaimer_task):
+        for task in (self._task, self._reclaimer_task, self._heartbeat_task):
             if task is None:
                 continue
             try:
@@ -316,50 +328,57 @@ class SimpleStreamConsumer(Generic[T]):
                 if not response:
                     continue
 
-                for stream_name, entries in response:
-                    for entry_id, fields in entries:
-                        should_ack = False
-                        try:
-                            message_data: T = cast(
-                                T, self._message_class.from_json(fields["data"])
-                            )
+                if self._group and self._consumer:
+                    self._in_flight_ids = [
+                        entry_id for _, entries in response for entry_id, _ in entries
+                    ]
+                try:
+                    for stream_name, entries in response:
+                        for entry_id, fields in entries:
+                            should_ack = False
+                            try:
+                                message_data: T = cast(
+                                    T, self._message_class.from_json(fields["data"])
+                                )
 
-                            should_ack = await self._handle_message_with_retry(
-                                redis,
-                                stream_name,
-                                entry_id,
-                                fields,
-                                message_data,
-                            )
-                        except Exception as h_err:
-                            logger.error(
-                                "Handler error for stream=%s id=%s: %s",
-                                stream_name,
-                                entry_id,
-                                h_err,
-                            )
-                        finally:
-                            if (
-                                should_ack
-                                and self._group
-                                and self._consumer
-                                and self._auto_ack
-                            ):
-                                try:
-                                    await redis.xack(
-                                        self._stream, self._group, entry_id
-                                    )
-                                except Exception as ack_err:
-                                    logger.error(
-                                        "ACK error for stream=%s id=%s: %s",
-                                        stream_name,
-                                        entry_id,
-                                        ack_err,
-                                    )
-                            else:
-                                if not (self._group and self._consumer):
-                                    # Avance le curseur uniquement en mode simple
-                                    self._last_id = entry_id
+                                should_ack = await self._handle_message_with_retry(
+                                    redis,
+                                    stream_name,
+                                    entry_id,
+                                    fields,
+                                    message_data,
+                                )
+                            except Exception as h_err:
+                                logger.error(
+                                    "Handler error for stream=%s id=%s: %s",
+                                    stream_name,
+                                    entry_id,
+                                    h_err,
+                                )
+                            finally:
+                                if (
+                                    should_ack
+                                    and self._group
+                                    and self._consumer
+                                    and self._auto_ack
+                                ):
+                                    try:
+                                        await redis.xack(
+                                            self._stream, self._group, entry_id
+                                        )
+                                    except Exception as ack_err:
+                                        logger.error(
+                                            "ACK error for stream=%s id=%s: %s",
+                                            stream_name,
+                                            entry_id,
+                                            ack_err,
+                                        )
+                                else:
+                                    if not (self._group and self._consumer):
+                                        # Avance le curseur uniquement en mode simple
+                                        self._last_id = entry_id
+                finally:
+                    self._in_flight_ids = []
 
             except asyncio.CancelledError:
                 break
@@ -372,6 +391,51 @@ class SimpleStreamConsumer(Generic[T]):
             "group" if (self._group and self._consumer) else "simple",
         )
 
+    async def _heartbeat_in_flight_entries(self) -> None:
+        """Rafraîchit l'inactivité des entrées du lot en cours de traitement.
+
+        XAUTOCLAIM mesure le temps depuis la livraison, pas l'activité du
+        handler : un lot sain traité séquentiellement (jusqu'à `count`
+        entrées) deviendrait éligible à la récupération pendant son propre
+        traitement. Un battement XCLAIM (justid) remet le compteur
+        d'inactivité à zéro toutes les `reclaim_idle_ms / 3`, laissant une
+        marge de 3 au seuil de récupération. Les entrées acquittées ne sont
+        plus dans la PEL et sont ignorées par XCLAIM sans erreur.
+        """
+        logger.info(
+            "Heartbeat task started (stream='%s', interval=%.3fs)",
+            self._stream,
+            self._heartbeat_interval_s,
+        )
+        while not self._stop_event.is_set():
+            try:
+                await asyncio.wait_for(
+                    self._stop_event.wait(), timeout=self._heartbeat_interval_s
+                )
+                break
+            except asyncio.TimeoutError:
+                pass
+            ids = self._in_flight_ids
+            if not ids:
+                continue
+            try:
+                redis = await self._ensure_connection()
+                if redis is None:
+                    continue
+                await redis.xclaim(
+                    self._stream,
+                    self._group or "",
+                    self._consumer or "",
+                    min_idle_time=0,
+                    message_ids=list(ids),
+                    justid=True,
+                )
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning("Heartbeat failed for stream=%s: %s", self._stream, e)
+        logger.info("Heartbeat task stopped (stream='%s')", self._stream)
+
     async def _reclaim_pending_messages(self) -> None:
         """Récupère les entrées livrées mais jamais acquittées (XAUTOCLAIM).
 
@@ -379,7 +443,9 @@ class SimpleStreamConsumer(Generic[T]):
         entrées en attente dans la PEL du groupe. Après `reclaim_idle_ms` sans
         activité, ces entrées sont reclaims puis remises en file pour être
         relivées ; les entrées épuisées sont conservées en DLQ puis acquittées
-        uniquement après conservation confirmée.
+        uniquement après conservation confirmée. Les entrées du lot en cours
+        de traitement restent protégées par le battement d'inactivité, qui
+        maintient leur compteur en dessous du seuil.
 
         Convention partagée avec le worker : le champ « retries » compte les
         tentatives déjà consommées et max_retries est le nombre total de
@@ -460,15 +526,24 @@ class SimpleStreamConsumer(Generic[T]):
                 )
             return
         try:
-            fields["retries"] = str(attempts)
-            await redis.xadd(self._stream, fields)
-            logger.info(
-                "Requeued reclaimed entry stream=%s id=%s (attempt %d/%d)",
-                self._stream,
-                entry_id,
-                attempts,
-                self._max_retries,
-            )
+            if await self._already_requeued(redis, entry_id):
+                logger.info(
+                    "Reclaimed entry stream=%s id=%s already requeued; "
+                    "retrying ACK only",
+                    self._stream,
+                    entry_id,
+                )
+            else:
+                fields["retries"] = str(attempts)
+                fields["original_id"] = str(entry_id)
+                await redis.xadd(self._stream, fields)
+                logger.info(
+                    "Requeued reclaimed entry stream=%s id=%s (attempt %d/%d)",
+                    self._stream,
+                    entry_id,
+                    attempts,
+                    self._max_retries,
+                )
             try:
                 await redis.xack(self._stream, self._group, entry_id)
                 logger.info(
@@ -490,3 +565,30 @@ class SimpleStreamConsumer(Generic[T]):
                 entry_id,
                 requeue_err,
             )
+
+    async def _already_requeued(
+        self,
+        redis: Redis,
+        entry_id: Any,
+    ) -> bool:
+        """Vérifie si l'entrée d'origine est déjà remise en file par récupération.
+
+        Une remise en file réussie suivie d'un ACK en échec laisse l'entrée
+        d'origine en attente : une nouvelle récupération ne doit pas créer une
+        deuxième copie. Les copies portent le champ « original_id » et ne
+        peuvent exister qu'après l'entrée d'origine dans le même flux.
+        """
+        try:
+            entries = await redis.xrange(self._stream, min=str(entry_id))
+        except Exception as scan_err:
+            logger.error(
+                "Unable to scan stream '%s' for requeued copy of %s: %s",
+                self._stream,
+                entry_id,
+                scan_err,
+            )
+            return False
+        for _entry_id, entry_fields in entries:
+            if str(entry_fields.get("original_id", "")) == str(entry_id):
+                return True
+        return False
