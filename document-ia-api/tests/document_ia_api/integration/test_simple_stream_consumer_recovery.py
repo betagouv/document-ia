@@ -822,3 +822,206 @@ async def test_reclaimed_work_is_heartbeat_protected(
     finally:
         await consumer.stop()
         await redis_client.delete(stream, f"{stream}:dlq")
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_covers_batch_delivered_during_shutdown_read(
+    redis_client: Redis,
+) -> None:
+    """A batch delivered by a blocked read after stop() stays protected.
+
+    stop() sets the shared stop event while the main loop can still be
+    blocked inside XREADGROUP with empty in-flight sets. If the heartbeat
+    honored the stop event as soon as the sets were empty, a message
+    arriving before the read times out would be processed unprotected and
+    another instance's reclaimer could requeue it mid-handler: a duplicate
+    delivery during a clean shutdown. The heartbeat must stay alive until
+    the worker tasks themselves are done.
+    """
+    stream = f"test_recovery_shutdown_read:{uuid4()}"
+    group = f"group-shutdown-read-{uuid4()}"
+    calls: list[str] = []
+    handler_started = asyncio.Event()
+
+    async def handler_a(message: TestRecoveryMessage) -> None:
+        calls.append("a")
+        handler_started.set()
+        await asyncio.sleep(2.5)
+
+    async def handler_b(message: TestRecoveryMessage) -> None:
+        calls.append("b")
+
+    consumer_a = SimpleStreamConsumer[TestRecoveryMessage](
+        stream_name=stream,
+        handler=handler_a,
+        message_class=TestRecoveryMessage,
+        consumer_group=group,
+        consumer_name=f"consumer-read-a-{uuid4()}",
+        block_ms=5000,
+        reclaim_idle_ms=100,
+    )
+    consumer_b = SimpleStreamConsumer[TestRecoveryMessage](
+        stream_name=stream,
+        handler=handler_b,
+        message_class=TestRecoveryMessage,
+        consumer_group=group,
+        consumer_name=f"consumer-read-b-{uuid4()}",
+        block_ms=10,
+        reclaim_idle_ms=100,
+    )
+
+    await redis_client.xgroup_create(stream, group, id="0-0", mkstream=True)
+
+    await consumer_a.start()
+    try:
+        # A is now blocked inside XREADGROUP on an empty stream.
+        await asyncio.sleep(0.1)
+        stopping = asyncio.create_task(consumer_a.stop())
+        await asyncio.sleep(0.1)
+        assert consumer_a._heartbeat_task is not None
+        assert not consumer_a._heartbeat_task.done(), (
+            "heartbeat exited while the main loop can still receive a batch"
+        )
+
+        await _add_entry(redis_client, stream, "late")
+        await asyncio.wait_for(handler_started.wait(), timeout=5)
+        await consumer_b.start()
+        try:
+            # Blocks until A has drained the late batch (~2.5s): B's
+            # reclaimer polls several times inside that window.
+            await stopping
+            assert calls == ["a"]
+            assert await redis_client.xlen(stream) == 1
+            assert await _pending_count(redis_client, stream, group) == 0
+            assert await _dlq_len(redis_client, stream) == 0
+        finally:
+            await consumer_b.stop()
+    finally:
+        await consumer_a.stop()
+        await redis_client.delete(stream, f"{stream}:dlq")
+
+
+@pytest.mark.asyncio
+async def test_malformed_retries_routes_to_dlq_and_batch_continues(
+    redis_client: Redis,
+) -> None:
+    """An unreadable retries field goes to DLQ without stranding siblings.
+
+    A malformed retries field cannot be counted nor requeued: before the
+    fix it escaped _reclaim_entry, aborted the claimed batch and left the
+    healthy sibling claimed-but-never-processed, reclaimed forever. The
+    malformed entry must be retained in DLQ (idempotently, acked after
+    confirmed retention) and the healthy sibling must be requeued normally.
+    """
+    stream = f"test_recovery_malformed:{uuid4()}"
+    group = f"group-malformed-{uuid4()}"
+    delivered: list[str] = []
+
+    async def handler(message: TestRecoveryMessage) -> None:
+        delivered.append(message.content)
+
+    consumer = SimpleStreamConsumer[TestRecoveryMessage](
+        stream_name=stream,
+        handler=handler,
+        message_class=TestRecoveryMessage,
+        consumer_group=group,
+        consumer_name=f"consumer-malformed-{uuid4()}",
+        block_ms=10,
+        reclaim_idle_ms=100,
+    )
+
+    await redis_client.xgroup_create(stream, group, id="0-0", mkstream=True)
+    bad_id = await redis_client.xadd(
+        stream, {"data": json.dumps({"content": "poison"}), "retries": "bad"}
+    )
+    good_id = await _add_entry(redis_client, stream, "healthy")
+    await _deliver_to_dead_consumer(redis_client, stream, group)
+    assert await _pending_count(redis_client, stream, group) == 2
+
+    await consumer.start()
+    try:
+
+        async def _dlq_has(entry_id: str) -> bool:
+            entries = await redis_client.xrange(f"{stream}:dlq")
+            return any(fields.get("original_id") == entry_id for _, fields in entries)
+
+        async def _copy_exists(entry_id: str) -> bool:
+            entries = await redis_client.xrange(stream)
+            return any(fields.get("original_id") == entry_id for _, fields in entries)
+
+        await _wait_until(lambda: _dlq_has(str(bad_id)), timeout=5)
+        await _wait_until(lambda: _copy_exists(str(good_id)), timeout=5)
+        await _wait_until(lambda: delivered == ["healthy"], timeout=5)
+        await _wait_until(_pending_is_zero_pred(redis_client, stream, group), timeout=5)
+        assert consumer._reclaiming_ids == set()
+        assert consumer._reclaimer_task is not None
+        assert not consumer._reclaimer_task.done()
+    finally:
+        await consumer.stop()
+        await redis_client.delete(stream, f"{stream}:dlq")
+
+
+@pytest.mark.asyncio
+async def test_reclaiming_ids_cleared_when_reclaim_batch_is_cancelled(
+    redis_client: Redis,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cancelling the reclaimer mid-batch must not strand unvisited entries.
+
+    stop() cancels the reclaimer through wait_for on timeout, and any
+    escaping exception aborts the claimed-batch loop. Both must clean the
+    whole batch's IDs from _reclaiming_ids: a stale ID would be refreshed
+    by the heartbeat forever, making the entry unrecoverable by this
+    instance or any other.
+    """
+    stream = f"test_reclaim_cancel:{uuid4()}"
+    group = f"group-reclaim-cancel-{uuid4()}"
+    consumer_name = f"consumer-cancel-{uuid4()}"
+    first_entry_started = asyncio.Event()
+
+    async def handler(message: TestRecoveryMessage) -> None:
+        pass
+
+    consumer = SimpleStreamConsumer[TestRecoveryMessage](
+        stream_name=stream,
+        handler=handler,
+        message_class=TestRecoveryMessage,
+        consumer_group=group,
+        consumer_name=consumer_name,
+        block_ms=10,
+        reclaim_idle_ms=100,
+    )
+
+    async def slow_reclaim_entry(redis: Redis, entry_id: Any, fields: dict) -> None:
+        first_entry_started.set()
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(consumer, "_reclaim_entry", slow_reclaim_entry)
+
+    await redis_client.xgroup_create(stream, group, id="0-0", mkstream=True)
+    for _ in range(2):
+        await _add_entry(redis_client, stream, "claimed")
+    await _deliver_to_dead_consumer(redis_client, stream, group)
+    assert await _pending_count(redis_client, stream, group) == 2
+
+    consumer._reclaimer_task = asyncio.create_task(consumer._reclaim_pending_messages())
+    consumer._heartbeat_task = asyncio.create_task(
+        consumer._heartbeat_in_flight_entries()
+    )
+    try:
+        await asyncio.wait_for(first_entry_started.wait(), timeout=5)
+        # Both claimed IDs are registered; the first is being processed.
+        assert len(consumer._reclaiming_ids) == 2
+
+        consumer._reclaimer_task.cancel()
+        await asyncio.gather(consumer._reclaimer_task, return_exceptions=True)
+        assert consumer._reclaiming_ids == set(), (
+            "cancelled reclaim batch left unvisited entries heartbeat-protected"
+        )
+
+        consumer._heartbeat_task.cancel()
+        await asyncio.gather(consumer._heartbeat_task, return_exceptions=True)
+    finally:
+        consumer._reclaimer_task = None
+        consumer._heartbeat_task = None
+        await redis_client.delete(stream, f"{stream}:dlq")

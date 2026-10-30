@@ -407,9 +407,11 @@ class SimpleStreamConsumer(Generic[T]):
 
         Le battement couvre à la fois le lot de la boucle principale et les
         entrées revendiquées par la récupération en cours de retraitement.
-        À l'arrêt, il continue tant qu'un travail est en cours de vidange :
-        le sortir plus tôt exposerait le lot à une récupération par une
-        autre instance pendant l'arrêt gracieux.
+        À l'arrêt, il ne sort que lorsque les tâches de travail sont
+        terminées : une lecture bloquée peut encore livrer un lot après la
+        demande d'arrêt, et sortir plus tôt — sur la seule vacuité des
+        ensembles — exposerait ce lot à une récupération par une autre
+        instance pendant l'arrêt gracieux.
         """
         logger.info(
             "Heartbeat task started (stream='%s', interval=%.3fs)",
@@ -417,13 +419,14 @@ class SimpleStreamConsumer(Generic[T]):
             self._heartbeat_interval_s,
         )
         while True:
-            if self._stop_event.is_set() and not (
-                self._batch_ids or self._reclaiming_ids
-            ):
-                break
             if self._stop_event.is_set():
-                # Arrêt demandé : continuer à protéger le travail en cours
-                # de vidange, avec une cadence bornée pour rester réactif.
+                # Arrêt demandé : ne sortir que lorsque les tâches qui
+                # peuvent remplir les ensembles sont terminées. Des
+                # ensembles vides ne prouvent rien — une lecture bloquée
+                # peut encore livrer un lot après la demande d'arrêt.
+                if self._worker_tasks_done():
+                    break
+                # Cadence bornée pendant la vidange pour rester réactif.
                 await asyncio.sleep(min(self._heartbeat_interval_s, 1.0))
             else:
                 try:
@@ -453,6 +456,12 @@ class SimpleStreamConsumer(Generic[T]):
                 logger.warning("Heartbeat failed for stream=%s: %s", self._stream, e)
         logger.info("Heartbeat task stopped (stream='%s')", self._stream)
 
+    def _worker_tasks_done(self) -> bool:
+        """Les tâches susceptibles de remplir les ensembles sont-elles finies ?"""
+        run_done = self._task is None or self._task.done()
+        reclaim_done = self._reclaimer_task is None or self._reclaimer_task.done()
+        return run_done and reclaim_done
+
     async def _reclaim_pending_messages(self) -> None:
         """Récupère les entrées livrées mais jamais acquittées (XAUTOCLAIM).
 
@@ -468,6 +477,9 @@ class SimpleStreamConsumer(Generic[T]):
         Convention partagée avec le worker : le champ « retries » compte les
         tentatives déjà consommées et max_retries est le nombre total de
         tentatives autorisées. Une récupération consomme une seule tentative.
+        Un champ « retries » illisible ne peut ni être compté ni remis en
+        file : l'entrée est conservée en DLQ plutôt que re-réclamée à
+        chaque passe.
         """
         logger.info(
             "Reclaimer task started (stream='%s', group='%s', idle_ms=%d)",
@@ -491,12 +503,19 @@ class SimpleStreamConsumer(Generic[T]):
                     start,
                     count=self._count,
                 )
-                self._reclaiming_ids.update(entry_id for entry_id, _ in claimed)
-                for entry_id, fields in claimed:
-                    try:
-                        await self._reclaim_entry(redis, entry_id, fields)
-                    finally:
-                        self._reclaiming_ids.discard(entry_id)
+                claimed_ids = {entry_id for entry_id, _ in claimed}
+                self._reclaiming_ids.update(claimed_ids)
+                # Nettoyage par lot : une exception ou une annulation qui
+                # interrompt le parcours ne doit laisser aucune entrée non
+                # visitée protégée indéfiniment par le battement.
+                try:
+                    for entry_id, fields in claimed:
+                        try:
+                            await self._reclaim_entry(redis, entry_id, fields)
+                        finally:
+                            self._reclaiming_ids.discard(entry_id)
+                finally:
+                    self._reclaiming_ids.difference_update(claimed_ids)
                 start = next_start or "0-0"
                 # Petit sleep coopératif
                 await asyncio.sleep(1)
@@ -513,7 +532,26 @@ class SimpleStreamConsumer(Generic[T]):
         entry_id: Any,
         fields: dict[str, Any],
     ) -> None:
-        attempts = int(fields.get("retries", "0")) + 1
+        try:
+            attempts = int(fields.get("retries", "0")) + 1
+        except (TypeError, ValueError):
+            # Champ « retries » illisible : la tentative ne peut être
+            # comptée ni la remise en file honorée. Conserver en DLQ plutôt
+            # que de re-réclamer la même entrée indéfiniment.
+            logger.error(
+                "Malformed retries field for reclaimed entry stream=%s id=%s: "
+                "%r. Moving to DLQ.",
+                self._stream,
+                entry_id,
+                fields.get("retries"),
+            )
+            await self._retain_in_dlq_and_ack(
+                redis,
+                entry_id,
+                fields,
+                f"Malformed retries field: {fields.get('retries')!r}",
+            )
+            return
         if attempts >= self._max_retries:
             logger.error(
                 "Max retries exceeded for reclaimed entry stream=%s id=%s "
@@ -523,29 +561,12 @@ class SimpleStreamConsumer(Generic[T]):
                 attempts,
                 self._max_retries,
             )
-            retained = await self._send_to_dlq(
+            await self._retain_in_dlq_and_ack(
                 redis,
-                self._stream,
                 entry_id,
                 fields,
                 f"Max retries exceeded during reclaim ({attempts}/{self._max_retries})",
             )
-            if not retained:
-                logger.warning(
-                    "Reclaimed entry stream=%s id=%s left pending: DLQ retention unconfirmed",
-                    self._stream,
-                    entry_id,
-                )
-                return
-            try:
-                await redis.xack(self._stream, self._group, entry_id)
-            except Exception as ack_err:
-                logger.error(
-                    "ACK failed for reclaimed DLQ entry stream=%s id=%s: %s",
-                    self._stream,
-                    entry_id,
-                    ack_err,
-                )
             return
         try:
             if await self._already_requeued(redis, entry_id):
@@ -586,6 +607,34 @@ class SimpleStreamConsumer(Generic[T]):
                 self._stream,
                 entry_id,
                 requeue_err,
+            )
+
+    async def _retain_in_dlq_and_ack(
+        self,
+        redis: Redis,
+        entry_id: Any,
+        fields: dict[str, Any],
+        error_message: str,
+    ) -> None:
+        """Conserve l'entrée en DLQ puis l'acquitte après conservation confirmée."""
+        retained = await self._send_to_dlq(
+            redis, self._stream, entry_id, fields, error_message
+        )
+        if not retained:
+            logger.warning(
+                "Reclaimed entry stream=%s id=%s left pending: DLQ retention unconfirmed",
+                self._stream,
+                entry_id,
+            )
+            return
+        try:
+            await redis.xack(self._stream, self._group, entry_id)
+        except Exception as ack_err:
+            logger.error(
+                "ACK failed for reclaimed DLQ entry stream=%s id=%s: %s",
+                self._stream,
+                entry_id,
+                ack_err,
             )
 
     async def _already_requeued(
