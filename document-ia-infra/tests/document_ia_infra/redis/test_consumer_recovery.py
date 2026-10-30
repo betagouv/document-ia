@@ -48,10 +48,7 @@ async def stream(redis_client: Redis) -> str:
     try:
         yield name
     finally:
-        keys = [name, f"{name}:dlq"]
-        async for key in redis_client.scan_iter(f"{name}:requeued:*"):
-            keys.append(key)
-        await redis_client.delete(*keys)
+        await redis_client.delete(name, f"{name}:dlq")
 
 
 async def wait_until(
@@ -273,19 +270,20 @@ async def test_dlq_retention_guard_fails_closed_when_scan_fails(
             raise ConnectionError("ack failed")
         return await original_xack(stream_name, group_name, *ids)
 
-    original_xrange = redis_client.xrange
-    dlq_scans = 0
+    original_eval = redis_client.eval
+    dlq_attempts = 0
 
-    async def fail_second_dlq_scan(*args: Any, **kwargs: Any) -> Any:
-        nonlocal dlq_scans
-        if args and args[0] == dlq:
-            dlq_scans += 1
-            if dlq_scans == 2:
-                raise ConnectionError("dlq scan failed")
-        return await original_xrange(*args, **kwargs)
+    async def fail_second_dlq_eval(script: str, numkeys: int, *args: Any) -> Any:
+        nonlocal dlq_attempts
+        # The DLQ retention script targets the DLQ stream as its single key.
+        if numkeys == 1 and args and args[0] == dlq:
+            dlq_attempts += 1
+            if dlq_attempts == 2:
+                raise ConnectionError("dlq retention failed")
+        return await original_eval(script, numkeys, *args)
 
     monkeypatch.setattr(redis_client, "xack", fail_ack_once)
-    monkeypatch.setattr(redis_client, "xrange", fail_second_dlq_scan)
+    monkeypatch.setattr(redis_client, "eval", fail_second_dlq_eval)
 
     reclaimer = asyncio.create_task(consumer._reclaim_pending_messages())
     try:
@@ -293,11 +291,11 @@ async def test_dlq_retention_guard_fails_closed_when_scan_fails(
         await wait_until(lambda: ack_failures == 1)
         assert await pending_count(redis_client, stream, group) == 1
         assert await redis_client.xlen(dlq) == 1
-        # Pass 2: DLQ scan fails -> retention unknown. No second row, no ACK.
-        await wait_until(lambda: dlq_scans >= 2)
+        # Pass 2: retention fails -> outcome unknown. No second row, no ACK.
+        await wait_until(lambda: dlq_attempts >= 2)
         assert await redis_client.xlen(dlq) == 1
         assert await pending_count(redis_client, stream, group) == 1
-        # Pass 3: scan succeeds -> already retained, ACK proceeds.
+        # Pass 3: retention succeeds (already present) -> ACK proceeds.
         await wait_until(lambda: _pending_is_zero(redis_client, stream, group))
         assert await redis_client.xlen(dlq) == 1
         retained = [
@@ -311,84 +309,152 @@ async def test_dlq_retention_guard_fails_closed_when_scan_fails(
 
 
 @pytest.mark.asyncio
-async def test_dlq_scan_is_bounded(
+async def test_dlq_retention_is_idempotent_and_complete(
     redis_client: Redis, stream: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The DLQ idempotence scan must carry an upper bound / COUNT.
+    """DLQ retention must be exactly-once even beyond a 1000-entry scan window.
 
-    Mutation: dropping COUNT from the XRANGE makes the recorded call unbounded.
+    The atomic Lua guard finds an existing original_id copy regardless of
+    position, so a retained row past the first 1000 entries is still detected.
+    Mutation: reverting to a bounded COUNT scan that declares absence on a
+    truncated result writes a second DLQ row.
     """
-    group = f"group-bounded-{uuid4()}"
+    group = f"group-dlqcomplete-{uuid4()}"
+    use_test_redis(monkeypatch, redis_client)
     consumer = make_consumer(stream, group)
     dlq = f"{stream}:dlq"
-    calls: list[dict[str, Any]] = []
-    original_xrange = redis_client.xrange
-
-    async def spy_xrange(*args: Any, **kwargs: Any) -> Any:
-        if args and args[0] == dlq:
-            calls.append(kwargs)
-        return await original_xrange(*args, **kwargs)
-
-    monkeypatch.setattr(redis_client, "xrange", spy_xrange)
 
     msg_id = await redis_client.xadd(stream, {"data": "x", "retries": "0"})
+    # 1000 unrelated DLQ rows, then the row that retains our message.
+    for i in range(1000):
+        await redis_client.xadd(dlq, {"original_id": f"other-{i}", "data": "x"})
+    await redis_client.xadd(dlq, {"original_id": msg_id, "data": "x"})
+
+    # A second retention must detect the existing row and not duplicate it.
     assert await consumer._send_to_dlq(
         redis_client, msg_id, {"data": "x", "retries": "0"}, "decode_error"
     )
-    assert calls, "no DLQ scan recorded"
-    for kwargs in calls:
-        assert kwargs.get("max") == "+", "scan has no upper bound"
-        assert kwargs.get("count") is not None, "scan has no COUNT bound"
+    retained = [
+        f
+        for _, f in await redis_client.xrange(dlq)
+        if f.get("original_id") == msg_id
+    ]
+    assert len(retained) == 1, "a second DLQ row was written past the scan window"
     consumer.executor.shutdown(wait=False)
 
 
 @pytest.mark.asyncio
-async def test_requeue_guard_is_atomic_under_concurrent_reclaim(
+async def test_requeue_is_atomic_under_concurrent_reclaim(
     redis_client: Redis, stream: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Concurrent reclaimers of the same entry produce exactly one reservation.
+    """Concurrent requeue attempts produce exactly one copy, no orphan window.
 
-    Covers the residual documented in #131: a read-then-write XRANGE guard is
-    not atomic. The SET NX index key is atomic, so even two overlapping
-    reclaim passes yield a single reservation.
-    Mutation: a non-atomic read-then-write guard lets both observe absence.
+    The atomic Lua script checks-and-creates in one step: two overlapping
+    attempts yield a single copy, and there is no separate reservation that
+    could be orphaned by a crash between reserve and copy (message loss).
+    Mutation: a non-atomic check-then-create lets both create a copy.
     """
     group = f"group-atomic-{uuid4()}"
     use_test_redis(monkeypatch, redis_client)
     consumer = make_consumer(stream, group)
 
     original_id = "1700000000000-0"
-    results = await asyncio.gather(
-        consumer._already_requeued(redis_client, original_id),
-        consumer._already_requeued(redis_client, original_id),
+    await asyncio.gather(
+        consumer._requeue_once(redis_client, original_id, "x", 1),
+        consumer._requeue_once(redis_client, original_id, "x", 1),
     )
-    # Exactly one caller reserved the index (False = first copy); the other
-    # observed it already exists (True).
-    assert sorted(results) == [False, True], "both guards observed absence"
+    entries = await redis_client.xrange(stream)
+    copies = [f for _, f in entries if f.get("original_id") == original_id]
+    assert len(copies) == 1, "concurrent requeues produced duplicate copies"
     consumer.executor.shutdown(wait=False)
 
 
 @pytest.mark.asyncio
-async def test_failed_xadd_releases_reservation_for_retry(
+async def test_requeue_after_lost_response_does_not_duplicate(
     redis_client: Redis, stream: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A failed XADD must free the index reservation so the retry copies.
+    """A lost XADD response must not cause a duplicate on the next attempt.
 
-    Without release, a copy that was never created would leave the key set
-    and every later attempt would skip the requeue: message loss.
+    Simulates a copy that was created but whose response was lost: the next
+    requeue attempt finds the existing copy instead of creating a second.
     """
-    group = f"group-release-{uuid4()}"
+    group = f"group-lostresp-{uuid4()}"
     use_test_redis(monkeypatch, redis_client)
     consumer = make_consumer(stream, group)
-    msg_id = "1700000000000-0"
+    original_id = "1700000000000-0"
 
-    assert await consumer._already_requeued(redis_client, msg_id) is False
-    key = consumer._requeue_index_key(msg_id)
-    assert await redis_client.exists(key) == 1
-    await consumer._release_requeue_reservation(redis_client, msg_id)
-    assert await redis_client.exists(key) == 0
-    # A fresh attempt can reserve again and create the copy.
-    assert await consumer._already_requeued(redis_client, msg_id) is False
+    # First attempt "succeeds server-side" (copy exists), then a second
+    # attempt must not create another.
+    await consumer._requeue_once(redis_client, original_id, "x", 1)
+    await consumer._requeue_once(redis_client, original_id, "x", 1)
+    entries = await redis_client.xrange(stream)
+    copies = [f for _, f in entries if f.get("original_id") == original_id]
+    assert len(copies) == 1, "a lost response led to a duplicate copy"
+    consumer.executor.shutdown(wait=False)
+
+
+@pytest.mark.asyncio
+async def test_requeue_after_crash_creates_copy_no_message_loss(
+    redis_client: Redis, stream: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed requeue must not leave durable state that suppresses the copy.
+
+    The P1 finding: a SET NX reservation orphaned by a crash made another
+    reclaimer ACK the original without creating a copy (message loss). The
+    invariant that prevents it: a failed requeue attempt must leave no state
+    other than (possibly) the copy itself, so the next attempt always creates
+    the copy if it is absent.
+
+    This test fails the first attempt after any reservation would be taken,
+    then asserts the second attempt still creates exactly one copy and ACKs.
+    Mutation (SET NX approach): the failed first attempt leaves a reservation
+    key, the second attempt reads it as "copy exists" and skips the copy —
+    the stream ends with no copy, so this test fails.
+    """
+    group = f"group-crash-{uuid4()}"
+    monkeypatch.setattr("document_ia_infra.redis.consumer.RECLAIM_IDLE_MS", 0)
+    use_test_redis(monkeypatch, redis_client)
+    consumer = make_consumer(stream, group)
+
+    await redis_client.xadd(
+        stream, {"data": json.dumps({"payload": "x"}), "retries": "0"}
+    )
+    await redis_client.xgroup_create(stream, group, id="0-0", mkstream=True)
+    resp = await redis_client.xreadgroup(
+        groupname=group, consumername="dead-worker", streams={stream: ">"}, count=1
+    )
+    original_id, fields = resp[0][1][0]
+    consumer.redis = redis_client
+
+    # Force the first attempt to fail after any reservation side effect. We
+    # patch eval so the requeue's atomic step errors — but only after letting
+    # a SET NX-style implementation take its reservation via `set`. The
+    # atomic implementation performs a single eval and leaves nothing.
+    original_eval = redis_client.eval
+    attempts = 0
+
+    async def fail_first_eval(script: str, numkeys: int, *args: Any) -> Any:
+        nonlocal attempts
+        if numkeys == 1 and args and args[0] == stream:
+            attempts += 1
+            if attempts == 1:
+                raise ConnectionError("simulated crash during requeue")
+        return await original_eval(script, numkeys, *args)
+
+    monkeypatch.setattr(redis_client, "eval", fail_first_eval)
+
+    # First attempt crashes -> original stays pending, no copy created.
+    await consumer._reclaim_entry(original_id, dict(fields))
+    assert await pending_count(redis_client, stream, group) == 1
+    assert not [f for _, f in await redis_client.xrange(stream) if f.get("original_id")]
+
+    # Second attempt recovers -> exactly one copy created, original ACKed.
+    await consumer._reclaim_entry(original_id, dict(fields))
+    assert await pending_count(redis_client, stream, group) == 0
+    copies = [
+        f for _, f in await redis_client.xrange(stream) if f.get("original_id") == original_id
+    ]
+    assert len(copies) == 1, "the message was lost: no requeue copy exists"
     consumer.executor.shutdown(wait=False)
 
 

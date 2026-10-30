@@ -28,10 +28,68 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=SerializableMessage)
 
 RECLAIM_IDLE_MS = 300000
-# Durée de vie des clés d'index d'idempotence (remise en file et conservation
-# DLQ) : bien au-delà de la durée de vie d'une entrée en attente, pour couvrir
-# toute re-récupération ultérieure de l'original tout en bornant la mémoire.
-REQUEUE_INDEX_TTL_S = 7 * 24 * 3600
+
+# Script Lua de remise en file atomique et idempotente.
+#
+# Une remise en file crée une copie de l'entrée d'origine (avec le champ
+# « original_id ») puis l'acquitte. Sans garde atomique, un acquittement en
+# échec laisse l'original en attente et chaque récupération crée une copie
+# supplémentaire. La solution naïve — une clé d'index `SET NX` posée avant le
+# XADD — est pire : une réservation orpheline (crash entre la réservation et
+# la copie) fait croire à une copie existante et laisse un autre reclaimer
+# acquitter l'original sans jamais le recopier (perte de message).
+#
+# Le script rend la vérification et la copie atomiques : il recherche une
+# copie portant « original_id » et n'en crée une que si aucune n'existe. Il
+# n'y a donc pas de réservation séparée à orpheliner, et une réponse perdue
+# (le XADD a réussi mais le client n'a pas reçu la réponse) ne crée pas de
+# doublon à la tentative suivante : la copie est retrouvée.
+#
+# Retour : {created_flag, id} — created_flag vaut 1 si une copie a été créée,
+# 0 si une copie existait déjà ; id est l'identifiant de la copie.
+_REQUEUE_LUA = """
+local stream = KEYS[1]
+local orig = ARGV[1]
+local retries = ARGV[2]
+local data = ARGV[3]
+local existing = redis.call('XRANGE', stream, orig, '+')
+for _, e in ipairs(existing) do
+  local f = e[2]
+  for i = 1, #f, 2 do
+    if f[i] == 'original_id' and f[i+1] == orig then
+      return {0, e[1]}
+    end
+  end
+end
+local id = redis.call('XADD', stream, '*', 'data', data, 'retries', retries, 'original_id', orig)
+return {1, id}
+"""
+
+# Script Lua de conservation DLQ atomique et idempotente, même principe :
+# recherche d'une entrée DLQ portant « original_id » puis XADD si absente.
+# Les champs DLQ sont passés en paires clé/valeur après original_id.
+_RETAIN_DLQ_LUA = """
+local dlq = KEYS[1]
+local orig = ARGV[1]
+-- L'identifiant de l'entrée DLQ est indépendant de celui de l'entrée source
+-- (flux différents, séquences indépendantes) : le parcours part de 0-0 pour
+-- ne jamais manquer une copie déjà conservée, quelle que soit sa position.
+local existing = redis.call('XRANGE', dlq, '0-0', '+')
+for _, e in ipairs(existing) do
+  local f = e[2]
+  for i = 1, #f, 2 do
+    if f[i] == 'original_id' and f[i+1] == orig then
+      return {0, e[1]}
+    end
+  end
+end
+local args = {}
+for i = 2, #ARGV do
+  table.insert(args, ARGV[i])
+end
+local id = redis.call('XADD', dlq, '*', unpack(args))
+return {1, id}
+"""
 
 
 class Consumer(Generic[T]):
@@ -63,6 +121,7 @@ class Consumer(Generic[T]):
         self._in_flight_ids: set[str] = set()
         self._reclaiming_ids: set[str] = set()
         self._listener_done = asyncio.Event()
+        self._draining = False
 
         # Configuration du consumer
         self.batch_size = batch_size
@@ -183,7 +242,13 @@ class Consumer(Generic[T]):
                 if not entries:
                     continue
 
-                # 4. Soumission des nouveaux messages
+                # 4. Soumission des nouveaux messages.
+                # Enregistrer TOUTES les entrées livrées avant le premier
+                # await : une entrée en erreur de décodage peut bloquer sur
+                # sa conservation DLQ, et les entrées suivantes du lot
+                # resteraient non protégées contre une récupération.
+                for msg_id, _fields in entries:
+                    self._in_flight_ids.add(msg_id)
                 for msg_id, fields in entries:
                     raw_data = fields.get("data")
                     retry_count = int(fields.get("retries", "0"))
@@ -207,6 +272,10 @@ class Consumer(Generic[T]):
                                 )
                             except Exception:
                                 logger.error(f"ACK failed for decode_error {msg_id}")
+                        # L'entrée est terminée (conservée ou laissée en
+                        # attente pour une prochaine récupération) : cesser
+                        # de la protéger pour ne pas la garder indéfiniment.
+                        self._in_flight_ids.discard(msg_id)
                         continue
 
                     func = functools.partial(
@@ -215,7 +284,6 @@ class Consumer(Generic[T]):
 
                     fut = loop.run_in_executor(self.executor, func)
                     active_futures[fut] = (msg_id, fields)
-                    self._in_flight_ids.add(msg_id)
 
         except Exception as e:
             logger.error(f"Error in consumer loop shutdown: {e}")
@@ -225,7 +293,7 @@ class Consumer(Generic[T]):
             # Attendre la fin des tâches restantes à l'arrêt si nécessaire
             if active_futures:
                 logger.info(f"Waiting for {len(active_futures)} tasks to finish...")
-                done, _ = await asyncio.wait(active_futures.keys(), timeout=10)
+                done, pending = await asyncio.wait(active_futures.keys(), timeout=10)
                 # Traiter les futures terminées pour ACK/DLQ
                 for fut in done:
                     msg_id, fields = active_futures.pop(fut, (None, None))  # type: ignore
@@ -233,10 +301,40 @@ class Consumer(Generic[T]):
                         await self._handle_finished_future(
                             fut, msg_id, fields, self.redis
                         )
+                if pending:
+                    # Des handlers tournent encore : leurs entrées doivent
+                    # rester protégées contre une récupération tant qu'ils
+                    # ne sont pas terminés. On les suit dans une tâche de
+                    # vidange qui ne lèvera la protection qu'à leur achèvement,
+                    # au lieu de tout effacer maintenant (fenêtre de double
+                    # livraison) ni de bloquer la boucle événement.
+                    pending_ids = {
+                        active_futures[f][0] for f in pending if f in active_futures
+                    }
+                    asyncio.create_task(self._drain_pending(pending, pending_ids))
+                    # Ne pas marquer la vidange comme terminée ici : la tâche
+                    # de vidange le fera. Le battement continue donc de
+                    # protéger ces entrées pendant leur exécution.
+                    self._draining = True
+                    return
             # Signale au battement que la boucle principale est terminée :
             # celui-ci ne doit sortir qu'après la vidange complète du lot.
             self._listener_done.set()
             self._in_flight_ids.clear()
+
+    async def _drain_pending(
+        self, pending: set[asyncio.Future[Any]], pending_ids: set[str]
+    ) -> None:
+        """Achève les handlers restants puis lève la protection du battement."""
+        try:
+            if pending:
+                await asyncio.wait(pending)
+        except Exception:
+            pass
+        finally:
+            self._in_flight_ids.difference_update(pending_ids)
+            self._draining = False
+            self._listener_done.set()
 
     async def _handle_finished_future(
         self,
@@ -264,25 +362,12 @@ class Consumer(Generic[T]):
 
             if retry_count < self.max_retry_number - 1:
                 try:
-                    if await self._already_requeued(redis_connection, msg_id):
-                        logger.info(
-                            f"Message {msg_id} already requeued; retrying ACK only"
-                        )
-                    else:
-                        try:
-                            await redis_connection.xadd(
-                                self.stream_name,
-                                {
-                                    "data": data,
-                                    "retries": str(retry_count + 1),
-                                    "original_id": str(msg_id),
-                                },
-                            )
-                        except Exception:
-                            await self._release_requeue_reservation(
-                                redis_connection, msg_id
-                            )
-                            raise
+                    # Copie atomique et idempotente : créée si absente,
+                    # retrouvée sinon. L'acquittement n'a lieu que si la
+                    # copie existe.
+                    await self._requeue_once(
+                        redis_connection, msg_id, str(data), retry_count + 1
+                    )
                     try:
                         await redis_connection.xack(
                             self.stream_name, self.consumer_group, msg_id
@@ -407,78 +492,28 @@ class Consumer(Generic[T]):
             raise ConnectionError("No Redis connection available")
         return self.redis
 
-    def _requeue_index_key(self, msg_id: str) -> str:
-        return f"{self.stream_name}:requeued:{msg_id}"
-
-    async def _already_requeued(
-        self, redis_connection: Redis, msg_id: str
+    async def _requeue_once(
+        self,
+        redis_connection: Redis,
+        msg_id: str,
+        data: str,
+        retries: int,
     ) -> bool:
-        """Réserve l'index de remise en file et dit si une copie existe déjà.
+        """Crée la copie de remise en file si absente, de façon atomique.
 
-        Une remise en file réussie suivie d'un ACK en échec laisse l'entrée
-        d'origine en attente : une nouvelle tentative ne doit pas créer une
-        deuxième copie. La garde est une clé d'index `SET ... NX` posée avant
-        le XADD — atomique entre reclaimers concurrents, contrairement à un
-        parcours XRANGE du flux (résidu documenté dans #131) : deux
-        traitements concurrents de la même entrée ne peuvent pas tous deux
-        observer l'absence. La clé porte un TTL bornant la mémoire ; elle
-        survit largement à la durée de vie d'une entrée en attente.
+        Retourne True si la copie existe (créée par cet appel ou déjà
+        présente), et laisse l'appelant acquitter l'original. Une exception
+        remonte à l'appelant, qui laisse l'entrée en attente et retente à la
+        passe suivante (échec fermé).
 
-        La réservation est libérée par `_release_requeue_reservation` si la
-        copie (XADD) échoue, pour que la tentative suivante puisse la créer.
-
-        Échec fermé : une erreur de la garde remonte à l'appelant, qui
-        laisse l'entrée en attente et retente à la passe suivante.
+        Le script Lua rend la vérification et la copie atomiques : pas de
+        réservation séparée à orpheliner (crash entre réserve et copie =
+        perte de message), pas de doublon après une réponse perdue.
         """
-        key = self._requeue_index_key(msg_id)
-        # SET NX EX : retourne True si la clé a été posée (première copie),
-        # None si elle existait déjà (copie déjà créée par une tentative
-        # antérieure dont l'ACK a échoué).
-        created = await redis_connection.set(
-            key, "1", nx=True, ex=REQUEUE_INDEX_TTL_S
+        await redis_connection.eval(
+            _REQUEUE_LUA, 1, self.stream_name, msg_id, str(retries), data
         )
-        return created is None
-
-    async def _release_requeue_reservation(
-        self, redis_connection: Redis, msg_id: str
-    ) -> None:
-        """Libère la réservation d'index après un échec de copie (XADD).
-
-        Sans cela, une copie jamais créée laisserait la clé posée et toute
-        tentative ultérieure sauterait la remise en file : l'entrée serait
-        acquittée sans jamais avoir été recopiée — perte de message.
-        """
-        try:
-            await redis_connection.delete(self._requeue_index_key(msg_id))
-        except Exception as del_err:
-            logger.error(f"Failed to release requeue reservation for {msg_id}: {del_err}")
-
-    async def _already_retained_in_dlq(
-        self, redis_connection: Redis, msg_id: str
-    ) -> bool:
-        """Vérifie si le message d'origine est déjà conservé dans la DLQ.
-
-        Une conservation DLQ réussie suivie d'un ACK en échec laisse l'entrée
-        d'origine en attente : une nouvelle récupération ne doit pas la
-        conserver une deuxième fois. L'entrée DLQ d'un message ne peut exister
-        qu'à partir de sa milliseconde de création ; les numéros de séquence
-        sont indépendants par flux, le parcours couvre donc toute la
-        milliseconde d'origine et ignore l'historique antérieur de la DLQ.
-        Le parcours est borné (COUNT) : une récupération ne doit jamais
-        balayer une DLQ non bornée.
-
-        Échec fermé : une erreur de parcours remonte à l'appelant, qui
-        laisse l'entrée en attente et retente à la passe suivante — ne
-        jamais conclure « pas conservée » sur un parcours incertain.
-        """
-        source_ms = msg_id.split("-")[0]
-        entries = await redis_connection.xrange(
-            self.dlq_stream_name, min=f"{source_ms}-0", max="+", count=1000
-        )
-        for _entry_id, entry_fields in entries:
-            if str(entry_fields.get("original_id", "")) == str(msg_id):
-                return True
-        return False
+        return True
 
     async def _send_to_dlq(
         self,
@@ -488,33 +523,18 @@ class Consumer(Generic[T]):
         reason: str,
         error: Optional[str] = None,
     ) -> bool:
-        """Push a message to the Dead Letter Queue (DLQ) stream.
+        """Conserve le message dans la DLQ de façon atomique et idempotente.
 
-        Args:
-            msg_id: original message id in the source stream
-            fields: original message fields (from Redis XREADGROUP)
-            reason: short code describing why it was sent to DLQ (e.g., 'decode_error')
-            error: optional error string/details
+        Le script Lua recherche une entrée DLQ portant « original_id » et
+        n'en crée une que si aucune n'existe. Conservation et dédup sont
+        atomiques : pas de seconde ligne après un ACK en échec, pas de
+        doublon entre rédacteurs DLQ concurrents, pas de résultat tronqué
+        qui déclarerait « absent » une entrée présente plus loin.
+
+        Retourne True si l'entrée est conservée (créée ou déjà présente) ;
+        une exception est convertie en False pour que l'appelant laisse
+        l'entrée en attente et retente à la passe suivante.
         """
-        try:
-            already_retained = await self._already_retained_in_dlq(
-                redis_connection, msg_id
-            )
-        except Exception as scan_err:
-            # Échec du parcours d'idempotence : l'état de conservation est
-            # inconnu, pas « absent ». Ni écrire une seconde copie, ni
-            # laisser l'appelant acquitter — l'entrée reste en attente et
-            # la passe suivante réessaie.
-            logger.error(
-                f"Unable to confirm DLQ retention for message {msg_id} in "
-                f"'{self.dlq_stream_name}': {scan_err}; leaving entry pending"
-            )
-            return False
-        if already_retained:
-            logger.info(
-                f"Message {msg_id} already retained in DLQ stream '{self.dlq_stream_name}'; skipping duplicate write"
-            )
-            return True
         dlq_fields: dict[FieldT, EncodableT] = {
             "data": str(fields.get("data", "")),
             "retries": str(fields.get("retries", "0")),
@@ -524,14 +544,21 @@ class Consumer(Generic[T]):
             "consumer": self.consumer_name,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+        # Paires clé/valeur après original_id pour le script Lua.
+        argv: list[str] = [str(msg_id)]
+        for key, value in dlq_fields.items():
+            argv.append(str(key))
+            argv.append(str(value))
         try:
-            dlq_id = await redis_connection.xadd(self.dlq_stream_name, dlq_fields)
-            logger.info(
-                f"Pushed message {msg_id} to DLQ stream '{self.dlq_stream_name}' with id {dlq_id} (reason={reason})"
+            await redis_connection.eval(
+                _RETAIN_DLQ_LUA, 1, self.dlq_stream_name, *argv
             )
             return True
         except Exception as dlq_err:
-            logger.error(f"Failed to push message {msg_id} to DLQ: {dlq_err}")
+            logger.error(
+                f"Failed to retain message {msg_id} in DLQ "
+                f"'{self.dlq_stream_name}': {dlq_err}; leaving entry pending"
+            )
             return False
 
     # Récupère les messages en attente inactifs depuis plus de RECLAIM_IDLE_MS
@@ -614,21 +641,12 @@ class Consumer(Generic[T]):
             )
             return
         try:
-            if await self._already_requeued(self.redis, msg_id):
-                logger.info(
-                    f"Reclaimed message {msg_id} already requeued; retrying ACK only"
-                )
-            else:
-                fields["retries"] = str(attempts)
-                fields["original_id"] = str(msg_id)
-                try:
-                    await self.redis.xadd(self.stream_name, fields)
-                except Exception:
-                    # La copie n'a pas été créée : libérer la réservation pour
-                    # que la tentative suivante puisse la créer.
-                    await self._release_requeue_reservation(self.redis, msg_id)
-                    raise
-                logger.info(f"Requeued reclaimed message {msg_id} (attempt {attempts})")
+            # Copie atomique et idempotente : créée si absente, retrouvée
+            # sinon. L'acquittement n'a lieu que si la copie existe.
+            await self._requeue_once(
+                self.redis, msg_id, str(fields.get("data", "")), attempts
+            )
+            logger.info(f"Requeued reclaimed message {msg_id} (attempt {attempts})")
             try:
                 await self.redis.xack(self.stream_name, self.consumer_group, msg_id)
                 logger.info(f"Acknowledged reclaimed message {msg_id}")
