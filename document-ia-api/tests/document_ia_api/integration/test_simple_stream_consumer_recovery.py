@@ -3,8 +3,10 @@
 Covers the recovery of entries left pending by a stopped or crashed API
 instance: XAUTOCLAIM-based reclaim by a live instance, per-instance
 consumer identities, idempotent DLQ retention for exhausted entries, no
-requeue of successfully delivered entries, and start_from handling at
-group creation.
+requeue of successfully delivered entries, heartbeat protection of in-flight
+batches (including during shutdown drain) and of reclaimer work, fail-closed
+behavior of the requeue idempotency guard, and start_from handling at group
+creation.
 """
 
 from __future__ import annotations
@@ -584,6 +586,239 @@ async def test_start_from_zero_delivers_existing_history(
         await asyncio.wait_for(handler_called.wait(), timeout=5)
         assert delivered == ["history"]
         await _wait_until(_pending_is_zero_pred(redis_client, stream, group), timeout=5)
+    finally:
+        await consumer.stop()
+        await redis_client.delete(stream, f"{stream}:dlq")
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_protects_batch_during_shutdown_drain(
+    redis_client: Redis,
+) -> None:
+    """A graceful stop does not expose the draining batch to another instance.
+
+    stop() sets the shared stop event before awaiting the main loop, which
+    keeps processing its current batch. If the heartbeat honored the stop
+    event immediately, the batch's idle time would grow and another
+    instance's reclaimer could requeue entries still being handled: a
+    duplicate delivery during a clean shutdown.
+    """
+    stream = f"test_recovery_shutdown_drain:{uuid4()}"
+    group = f"group-shutdown-drain-{uuid4()}"
+    calls: list[str] = []
+    handler_started = asyncio.Event()
+
+    async def handler_a(message: TestRecoveryMessage) -> None:
+        calls.append("a")
+        handler_started.set()
+        await asyncio.sleep(2.5)
+
+    async def handler_b(message: TestRecoveryMessage) -> None:
+        calls.append("b")
+
+    consumer_a = SimpleStreamConsumer[TestRecoveryMessage](
+        stream_name=stream,
+        handler=handler_a,
+        message_class=TestRecoveryMessage,
+        consumer_group=group,
+        consumer_name=f"consumer-drain-a-{uuid4()}",
+        block_ms=10,
+        reclaim_idle_ms=100,
+    )
+    consumer_b = SimpleStreamConsumer[TestRecoveryMessage](
+        stream_name=stream,
+        handler=handler_b,
+        message_class=TestRecoveryMessage,
+        consumer_group=group,
+        consumer_name=f"consumer-drain-b-{uuid4()}",
+        block_ms=10,
+        reclaim_idle_ms=100,
+    )
+
+    await redis_client.xgroup_create(stream, group, id="0-0", mkstream=True)
+    await _add_entry(redis_client, stream, "draining")
+
+    await consumer_a.start()
+    try:
+        await asyncio.wait_for(handler_started.wait(), timeout=5)
+        await consumer_b.start()
+        try:
+            # Blocks until A's batch has drained (~2.5s): B's reclaimer
+            # polls several times inside that window.
+            await consumer_a.stop()
+            assert calls == ["a"]
+            assert await redis_client.xlen(stream) == 1
+            assert await _pending_count(redis_client, stream, group) == 0
+            assert await _dlq_len(redis_client, stream) == 0
+        finally:
+            await consumer_b.stop()
+    finally:
+        await consumer_a.stop()
+        await redis_client.delete(stream, f"{stream}:dlq")
+
+
+@pytest.mark.asyncio
+async def test_requeue_guard_fails_closed_when_scan_fails(
+    redis_client: Redis,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failing idempotency scan never creates a second requeue copy.
+
+    After a requeue whose ACK failed, the original stays pending. If the
+    guard's XRANGE then errors on a later pass, "scan failed" must be
+    treated as "unknown", not "no copy exists": the original is left
+    pending and the next pass retries, instead of blindly requeueing a
+    second copy.
+    """
+    stream = f"test_recovery_guard_fail_closed:{uuid4()}"
+    group = f"group-guard-fail-closed-{uuid4()}"
+    delivered: list[str] = []
+    handler_called = asyncio.Event()
+
+    async def handler(message: TestRecoveryMessage) -> None:
+        delivered.append(message.content)
+        handler_called.set()
+
+    consumer = SimpleStreamConsumer[TestRecoveryMessage](
+        stream_name=stream,
+        handler=handler,
+        message_class=TestRecoveryMessage,
+        consumer_group=group,
+        consumer_name=f"consumer-guard-fail-{uuid4()}",
+        block_ms=10,
+        reclaim_idle_ms=100,
+        max_retries=3,
+    )
+
+    await redis_client.xgroup_create(stream, group, id="0-0", mkstream=True)
+    original_id = await _add_entry(redis_client, stream, "fail-closed")
+    await _deliver_to_dead_consumer(redis_client, stream, group)
+    assert await _pending_count(redis_client, stream, group) == 1
+
+    original_xack = redis_client.xack
+    ack_failures = 0
+
+    async def fail_ack_once_for_original(
+        stream_name: str, group_name: str, *entry_ids: str
+    ) -> int:
+        nonlocal ack_failures
+        if stream_name == stream and original_id in entry_ids and ack_failures == 0:
+            ack_failures += 1
+            raise ConnectionError("redis ack failed")
+        return await original_xack(stream_name, group_name, *entry_ids)
+
+    original_xrange = redis_client.xrange
+    guard_scans = 0
+
+    async def fail_second_guard_scan(*args: Any, **kwargs: Any) -> Any:
+        nonlocal guard_scans
+        if args and args[0] == stream and "min" in kwargs:
+            guard_scans += 1
+            if guard_scans == 2:
+                raise ConnectionError("redis scan failed")
+        return await original_xrange(*args, **kwargs)
+
+    monkeypatch.setattr(redis_client, "xack", fail_ack_once_for_original)
+    monkeypatch.setattr(redis_client, "xrange", fail_second_guard_scan)
+
+    await consumer.start()
+    try:
+        await asyncio.wait_for(handler_called.wait(), timeout=10)
+        await _wait_until(
+            _pending_is_zero_pred(redis_client, stream, group), timeout=10
+        )
+        entries = await redis_client.xrange(stream)
+        assert len(entries) == 2
+        copies = [
+            fields for _, fields in entries if fields.get("original_id") == original_id
+        ]
+        assert len(copies) == 1
+        assert copies[0]["retries"] == "1"
+        assert delivered == ["fail-closed"]
+        assert ack_failures == 1
+        assert guard_scans >= 3
+        assert await _dlq_len(redis_client, stream) == 0
+    finally:
+        await consumer.stop()
+        await redis_client.delete(stream, f"{stream}:dlq")
+
+
+@pytest.mark.asyncio
+async def test_reclaimed_work_is_heartbeat_protected(
+    redis_client: Redis,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Entries claimed by the reclaimer stay protected while reprocessed.
+
+    XAUTOCLAIM resets a claimed entry's idle time, but slow reprocessing
+    (guard scan + requeue of up to `count` entries) would let the idle
+    counter cross the threshold again, letting another instance steal and
+    duplicate the entry mid-reclaim. The heartbeat must refresh claimed
+    entries too, keeping their idle time below the threshold.
+    """
+    stream = f"test_recovery_reclaim_protected:{uuid4()}"
+    group = f"group-reclaim-protected-{uuid4()}"
+    consumer_name = f"consumer-reclaim-prot-{uuid4()}"
+    delivered: list[str] = []
+    handler_called = asyncio.Event()
+
+    async def handler(message: TestRecoveryMessage) -> None:
+        delivered.append(message.content)
+        handler_called.set()
+
+    consumer = SimpleStreamConsumer[TestRecoveryMessage](
+        stream_name=stream,
+        handler=handler,
+        message_class=TestRecoveryMessage,
+        consumer_group=group,
+        consumer_name=consumer_name,
+        block_ms=10,
+        reclaim_idle_ms=100,
+    )
+
+    await redis_client.xgroup_create(stream, group, id="0-0", mkstream=True)
+    original_id = await _add_entry(redis_client, stream, "reclaim-protected")
+    await _deliver_to_dead_consumer(redis_client, stream, group)
+    assert await _pending_count(redis_client, stream, group) == 1
+
+    original_reclaim_entry = consumer._reclaim_entry
+
+    async def delayed_reclaim_entry(redis: Redis, entry_id: Any, fields: dict) -> None:
+        await asyncio.sleep(1.5)
+        await original_reclaim_entry(redis, entry_id, fields)
+
+    monkeypatch.setattr(consumer, "_reclaim_entry", delayed_reclaim_entry)
+
+    await consumer.start()
+    try:
+        saw_claimed = False
+        deadline = monotonic() + 10
+        while monotonic() < deadline:
+            pending_entries = await redis_client.xpending_range(
+                stream, group, "-", "+", 10
+            )
+            claimed = [
+                entry for entry in pending_entries if entry["consumer"] == consumer_name
+            ]
+            for entry in claimed:
+                saw_claimed = True
+                assert entry["time_since_delivered"] < 100, (
+                    f"claimed entry idle {entry['time_since_delivered']}ms exceeds "
+                    "the reclaim threshold while being reprocessed"
+                )
+            if not pending_entries and saw_claimed:
+                break
+            await asyncio.sleep(0.03)
+        assert saw_claimed, "reclaimer never claimed the abandoned entry"
+
+        entries = await redis_client.xrange(stream)
+        assert len(entries) == 2
+        copies = [
+            fields for _, fields in entries if fields.get("original_id") == original_id
+        ]
+        assert len(copies) == 1
+        assert delivered == ["reclaim-protected"]
+        assert await _dlq_len(redis_client, stream) == 0
     finally:
         await consumer.stop()
         await redis_client.delete(stream, f"{stream}:dlq")

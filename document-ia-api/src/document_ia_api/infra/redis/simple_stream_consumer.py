@@ -46,9 +46,11 @@ class SimpleStreamConsumer(Generic[T]):
     acquittées après conservation confirmée.
 
     La remise en file est idempotente : une copie déjà créée puis un ACK en
-    échec ne produit jamais de deuxième copie. Les entrées du lot en cours de
-    traitement sont protégées par un battement qui rafraîchit leur inactivité,
-    pour que la récupération ne les duplique pas.
+    échec ne produit jamais de deuxième copie, et une erreur de parcours de
+    garde laisse l'entrée en attente plutôt que d'en créer une deuxième. Les
+    entrées en cours de traitement (lot de la boucle principale ou travail de
+    la récupération) sont protégées par un battement qui rafraîchit leur
+    inactivité, y compris pendant la vidange du lot à l'arrêt.
     """
 
     def __init__(
@@ -82,7 +84,8 @@ class SimpleStreamConsumer(Generic[T]):
         self._reclaimer_task: Optional[asyncio.Task[Any]] = None
         self._heartbeat_task: Optional[asyncio.Task[Any]] = None
         self._heartbeat_interval_s = max(reclaim_idle_ms / 3, 10) / 1000.0
-        self._in_flight_ids: list[Any] = []
+        self._batch_ids: set[Any] = set()
+        self._reclaiming_ids: set[Any] = set()
         # Group mode
         self._group = consumer_group
         self._consumer = consumer_name
@@ -329,9 +332,9 @@ class SimpleStreamConsumer(Generic[T]):
                     continue
 
                 if self._group and self._consumer:
-                    self._in_flight_ids = [
+                    self._batch_ids = {
                         entry_id for _, entries in response for entry_id, _ in entries
-                    ]
+                    }
                 try:
                     for stream_name, entries in response:
                         for entry_id, fields in entries:
@@ -378,7 +381,7 @@ class SimpleStreamConsumer(Generic[T]):
                                         # Avance le curseur uniquement en mode simple
                                         self._last_id = entry_id
                 finally:
-                    self._in_flight_ids = []
+                    self._batch_ids = set()
 
             except asyncio.CancelledError:
                 break
@@ -392,7 +395,7 @@ class SimpleStreamConsumer(Generic[T]):
         )
 
     async def _heartbeat_in_flight_entries(self) -> None:
-        """Rafraîchit l'inactivité des entrées du lot en cours de traitement.
+        """Rafraîchit l'inactivité des entrées en cours de traitement.
 
         XAUTOCLAIM mesure le temps depuis la livraison, pas l'activité du
         handler : un lot sain traité séquentiellement (jusqu'à `count`
@@ -401,21 +404,35 @@ class SimpleStreamConsumer(Generic[T]):
         d'inactivité à zéro toutes les `reclaim_idle_ms / 3`, laissant une
         marge de 3 au seuil de récupération. Les entrées acquittées ne sont
         plus dans la PEL et sont ignorées par XCLAIM sans erreur.
+
+        Le battement couvre à la fois le lot de la boucle principale et les
+        entrées revendiquées par la récupération en cours de retraitement.
+        À l'arrêt, il continue tant qu'un travail est en cours de vidange :
+        le sortir plus tôt exposerait le lot à une récupération par une
+        autre instance pendant l'arrêt gracieux.
         """
         logger.info(
             "Heartbeat task started (stream='%s', interval=%.3fs)",
             self._stream,
             self._heartbeat_interval_s,
         )
-        while not self._stop_event.is_set():
-            try:
-                await asyncio.wait_for(
-                    self._stop_event.wait(), timeout=self._heartbeat_interval_s
-                )
+        while True:
+            if self._stop_event.is_set() and not (
+                self._batch_ids or self._reclaiming_ids
+            ):
                 break
-            except asyncio.TimeoutError:
-                pass
-            ids = self._in_flight_ids
+            if self._stop_event.is_set():
+                # Arrêt demandé : continuer à protéger le travail en cours
+                # de vidange, avec une cadence bornée pour rester réactif.
+                await asyncio.sleep(min(self._heartbeat_interval_s, 1.0))
+            else:
+                try:
+                    await asyncio.wait_for(
+                        self._stop_event.wait(), timeout=self._heartbeat_interval_s
+                    )
+                except asyncio.TimeoutError:
+                    pass
+            ids = self._batch_ids | self._reclaiming_ids
             if not ids:
                 continue
             try:
@@ -443,9 +460,10 @@ class SimpleStreamConsumer(Generic[T]):
         entrées en attente dans la PEL du groupe. Après `reclaim_idle_ms` sans
         activité, ces entrées sont reclaims puis remises en file pour être
         relivées ; les entrées épuisées sont conservées en DLQ puis acquittées
-        uniquement après conservation confirmée. Les entrées du lot en cours
-        de traitement restent protégées par le battement d'inactivité, qui
-        maintient leur compteur en dessous du seuil.
+        uniquement après conservation confirmée. Les entrées actives — lot de
+        la boucle principale ou entrées revendiquées en cours de retraitement
+        — restent protégées par le battement d'inactivité, qui maintient leur
+        compteur en dessous du seuil.
 
         Convention partagée avec le worker : le champ « retries » compte les
         tentatives déjà consommées et max_retries est le nombre total de
@@ -473,8 +491,12 @@ class SimpleStreamConsumer(Generic[T]):
                     start,
                     count=self._count,
                 )
+                self._reclaiming_ids.update(entry_id for entry_id, _ in claimed)
                 for entry_id, fields in claimed:
-                    await self._reclaim_entry(redis, entry_id, fields)
+                    try:
+                        await self._reclaim_entry(redis, entry_id, fields)
+                    finally:
+                        self._reclaiming_ids.discard(entry_id)
                 start = next_start or "0-0"
                 # Petit sleep coopératif
                 await asyncio.sleep(1)
@@ -577,17 +599,12 @@ class SimpleStreamConsumer(Generic[T]):
         d'origine en attente : une nouvelle récupération ne doit pas créer une
         deuxième copie. Les copies portent le champ « original_id » et ne
         peuvent exister qu'après l'entrée d'origine dans le même flux.
+
+        Échec fermé : une erreur de parcours remonte à l'appelant, qui
+        laisse l'entrée en attente et retente à la passe suivante — ne
+        jamais conclure « pas de copie » sur un parcours incertain.
         """
-        try:
-            entries = await redis.xrange(self._stream, min=str(entry_id))
-        except Exception as scan_err:
-            logger.error(
-                "Unable to scan stream '%s' for requeued copy of %s: %s",
-                self._stream,
-                entry_id,
-                scan_err,
-            )
-            return False
+        entries = await redis.xrange(self._stream, min=str(entry_id))
         for _entry_id, entry_fields in entries:
             if str(entry_fields.get("original_id", "")) == str(entry_id):
                 return True
