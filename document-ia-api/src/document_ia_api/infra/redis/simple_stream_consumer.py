@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import os
+import socket
 from typing import Any, Awaitable, Callable, Optional, TypeVar, Generic, cast
 
 from redis.asyncio import Redis
@@ -17,6 +19,17 @@ T = TypeVar("T", bound=SerializableMessage)
 Handler = Callable[[T], Awaitable[None]]
 
 
+def build_instance_consumer_name(base_name: str) -> str:
+    """Nom de consommateur unique par instance de l'API.
+
+    En mode groupé, chaque instance doit posséder une identité de consommateur
+    distincte et observable (XINFO CONSUMERS) : les entrées livrées mais non
+    acquittées restent dans la PEL du consommateur qui les a lues, et la
+    récupération par XAUTOCLAIM suppose de pouvoir distinguer les instances.
+    """
+    return f"{base_name}-{socket.gethostname()}-{os.getpid()}"
+
+
 class SimpleStreamConsumer(Generic[T]):
     """Consumer Redis Stream minimaliste.
 
@@ -26,6 +39,11 @@ class SimpleStreamConsumer(Generic[T]):
 
     Dans le mode groupé, le consumer ack les messages après exécution du handler
     et crée automatiquement le groupe si nécessaire (mkstream=True).
+
+    En mode groupé avec auto_ack, une tâche de récupération reclame les entrées
+    livrées mais jamais acquittées (instance arrêtée ou plantée) via XAUTOCLAIM,
+    puis les remet en file ; les entrées épuisées sont conservées en DLQ puis
+    acquittées après conservation confirmée.
     """
 
     def __init__(
@@ -41,6 +59,7 @@ class SimpleStreamConsumer(Generic[T]):
         # Paramètres communs
         block_ms: int = 5000,
         count: int = 50,
+        reclaim_idle_ms: int = 300_000,
         max_retries: int = 3,
         retry_initial_delay_seconds: float = 5.0,
         retry_backoff_multiplier: float = 2.0,
@@ -51,9 +70,11 @@ class SimpleStreamConsumer(Generic[T]):
         self._last_id = start_from
         self._block_ms = block_ms
         self._count = count
+        self._reclaim_idle_ms = reclaim_idle_ms
         self._redis: Optional[Redis] = None
         self._stop_event = asyncio.Event()
         self._task: Optional[asyncio.Task[Any]] = None
+        self._reclaimer_task: Optional[asyncio.Task[Any]] = None
         # Group mode
         self._group = consumer_group
         self._consumer = consumer_name
@@ -72,21 +93,29 @@ class SimpleStreamConsumer(Generic[T]):
         self._task = asyncio.create_task(
             self._run(), name=f"simple-consumer:{self._stream}"
         )
+        if self._group and self._consumer and self._auto_ack:
+            self._reclaimer_task = asyncio.create_task(
+                self._reclaim_pending_messages(),
+                name=f"simple-consumer-reclaimer:{self._stream}",
+            )
         logger.info(
-            "SimpleStreamConsumer started (stream='%s', mode=%s)",
+            "SimpleStreamConsumer started (stream='%s', mode=%s, reclaimer=%s)",
             self._stream,
             "group" if (self._group and self._consumer) else "simple",
+            self._reclaimer_task is not None,
         )
 
     async def stop(self) -> None:
         self._stop_event.set()
-        if self._task:
+        for task in (self._task, self._reclaimer_task):
+            if task is None:
+                continue
             try:
-                await asyncio.wait_for(self._task, timeout=10)
+                await asyncio.wait_for(task, timeout=10)
             except asyncio.TimeoutError:
-                logger.warning("Timeout waiting for SimpleStreamConsumer to stop")
+                logger.warning("Timeout waiting for SimpleStreamConsumer task to stop")
             except Exception as e:
-                logger.error("Error stopping SimpleStreamConsumer: %s", e)
+                logger.error("Error stopping SimpleStreamConsumer task: %s", e)
 
     async def _ensure_connection(self) -> Optional[Redis]:
         if self._redis is not None:
@@ -104,14 +133,14 @@ class SimpleStreamConsumer(Generic[T]):
             await redis.xgroup_create(
                 name=self._stream,
                 groupname=self._group or "",
-                id="0-0",
+                id=self._last_id,
                 mkstream=True,
             )
             logger.info(
                 "Created consumer group '%s' on stream '%s' (start id=%s)",
                 self._group,
                 self._stream,
-                "0-0",
+                self._last_id,
             )
         except ResponseError as e:
             # Groupe déjà existant => ok
@@ -144,6 +173,13 @@ class SimpleStreamConsumer(Generic[T]):
     ) -> bool:
         dlq_stream = f"{stream_name}:dlq"
         payload = fields.get("data")
+        if await self._already_retained_in_dlq(redis, stream_name, entry_id):
+            logger.info(
+                "Message %s already retained in DLQ '%s'; skipping duplicate write",
+                entry_id,
+                dlq_stream,
+            )
+            return True
         try:
             await redis.xadd(
                 dlq_stream,
@@ -169,6 +205,38 @@ class SimpleStreamConsumer(Generic[T]):
                 dlq_err,
             )
             return False
+
+    async def _already_retained_in_dlq(
+        self,
+        redis: Redis,
+        stream_name: str,
+        entry_id: Any,
+    ) -> bool:
+        """Vérifie si l'entrée d'origine est déjà conservée dans la DLQ.
+
+        Une conservation DLQ réussie suivie d'un ACK en échec laisse l'entrée
+        d'origine en attente : une nouvelle récupération ne doit pas la
+        conserver une deuxième fois. L'entrée DLQ d'un message ne peut exister
+        qu'à partir de sa milliseconde de création ; les numéros de séquence
+        sont indépendants par flux, le parcours couvre donc toute la
+        milliseconde d'origine et ignore l'historique antérieur de la DLQ.
+        """
+        dlq_stream = f"{stream_name}:dlq"
+        try:
+            source_ms = str(entry_id).split("-")[0]
+            entries = await redis.xrange(dlq_stream, min=f"{source_ms}-0")
+        except Exception as scan_err:
+            logger.error(
+                "Unable to scan DLQ '%s' for message %s: %s",
+                dlq_stream,
+                entry_id,
+                scan_err,
+            )
+            return False
+        for _entry_id, entry_fields in entries:
+            if str(entry_fields.get("original_id", "")) == str(entry_id):
+                return True
+        return False
 
     async def _handle_message_with_retry(
         self,
@@ -289,8 +357,9 @@ class SimpleStreamConsumer(Generic[T]):
                                         ack_err,
                                     )
                             else:
-                                # Avance le curseur uniquement en mode simple
-                                self._last_id = entry_id
+                                if not (self._group and self._consumer):
+                                    # Avance le curseur uniquement en mode simple
+                                    self._last_id = entry_id
 
             except asyncio.CancelledError:
                 break
@@ -302,3 +371,122 @@ class SimpleStreamConsumer(Generic[T]):
             self._stream,
             "group" if (self._group and self._consumer) else "simple",
         )
+
+    async def _reclaim_pending_messages(self) -> None:
+        """Récupère les entrées livrées mais jamais acquittées (XAUTOCLAIM).
+
+        Une instance arrêtée ou plantée entre la lecture et l'ACK laisse ses
+        entrées en attente dans la PEL du groupe. Après `reclaim_idle_ms` sans
+        activité, ces entrées sont reclaims puis remises en file pour être
+        relivées ; les entrées épuisées sont conservées en DLQ puis acquittées
+        uniquement après conservation confirmée.
+
+        Convention partagée avec le worker : le champ « retries » compte les
+        tentatives déjà consommées et max_retries est le nombre total de
+        tentatives autorisées. Une récupération consomme une seule tentative.
+        """
+        logger.info(
+            "Reclaimer task started (stream='%s', group='%s', idle_ms=%d)",
+            self._stream,
+            self._group,
+            self._reclaim_idle_ms,
+        )
+        start = "0-0"
+        while not self._stop_event.is_set():
+            try:
+                redis = await self._ensure_connection()
+                if redis is None:
+                    await asyncio.sleep(2)
+                    continue
+
+                next_start, claimed, _ = await redis.xautoclaim(
+                    self._stream,
+                    self._group,
+                    self._consumer,
+                    self._reclaim_idle_ms,
+                    start,
+                    count=self._count,
+                )
+                for entry_id, fields in claimed:
+                    await self._reclaim_entry(redis, entry_id, fields)
+                start = next_start or "0-0"
+                # Petit sleep coopératif
+                await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error("Reclaimer loop error for stream=%s: %s", self._stream, e)
+                await asyncio.sleep(5)
+        logger.info("Reclaimer task stopped (stream='%s')", self._stream)
+
+    async def _reclaim_entry(
+        self,
+        redis: Redis,
+        entry_id: Any,
+        fields: dict[str, Any],
+    ) -> None:
+        attempts = int(fields.get("retries", "0")) + 1
+        if attempts >= self._max_retries:
+            logger.error(
+                "Max retries exceeded for reclaimed entry stream=%s id=%s "
+                "(attempt %d/%d). Moving to DLQ.",
+                self._stream,
+                entry_id,
+                attempts,
+                self._max_retries,
+            )
+            retained = await self._send_to_dlq(
+                redis,
+                self._stream,
+                entry_id,
+                fields,
+                f"Max retries exceeded during reclaim ({attempts}/{self._max_retries})",
+            )
+            if not retained:
+                logger.warning(
+                    "Reclaimed entry stream=%s id=%s left pending: DLQ retention unconfirmed",
+                    self._stream,
+                    entry_id,
+                )
+                return
+            try:
+                await redis.xack(self._stream, self._group, entry_id)
+            except Exception as ack_err:
+                logger.error(
+                    "ACK failed for reclaimed DLQ entry stream=%s id=%s: %s",
+                    self._stream,
+                    entry_id,
+                    ack_err,
+                )
+            return
+        try:
+            fields["retries"] = str(attempts)
+            await redis.xadd(self._stream, fields)
+            logger.info(
+                "Requeued reclaimed entry stream=%s id=%s (attempt %d/%d)",
+                self._stream,
+                entry_id,
+                attempts,
+                self._max_retries,
+            )
+            try:
+                await redis.xack(self._stream, self._group, entry_id)
+                logger.info(
+                    "Acknowledged reclaimed entry stream=%s id=%s",
+                    self._stream,
+                    entry_id,
+                )
+            except Exception as ack_err:
+                logger.error(
+                    "ACK failed for reclaimed entry stream=%s id=%s: %s",
+                    self._stream,
+                    entry_id,
+                    ack_err,
+                )
+        except Exception as requeue_err:
+            logger.error(
+                "Failed to requeue reclaimed entry stream=%s id=%s: %s",
+                self._stream,
+                entry_id,
+                requeue_err,
+            )
