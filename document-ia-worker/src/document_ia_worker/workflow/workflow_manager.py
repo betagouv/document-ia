@@ -4,6 +4,7 @@ from typing import Optional, Any
 
 from document_ia_infra.data.database import DatabaseManager
 from document_ia_infra.data.event.dto.event_dto import EventDTO
+from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.repository.event import EventRepository
 from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import (
     WorkflowExecutionStartedEvent,
@@ -101,11 +102,20 @@ class WorkflowManager:
         err_type: Optional[str] = None
         err_message: Optional[str] = None
         failed_step: Optional[str] = None
+        is_completed_duplicate = False
         local_database_manager = DatabaseManager(pool_size=1, max_overflow=1)
         try:
             async with local_database_manager.local_session() as session:
                 try:
-                    await self._prepare_workflow(session)
+                    is_completed_duplicate = (
+                        await self._prepare_workflow(session) is True
+                    )
+                    if is_completed_duplicate:
+                        logger.info(
+                            "Skipping duplicate delivery for completed execution %s",
+                            self.message.workflow_execution_id,
+                        )
+                        return
                     self.event_data = self._parse_start_event()
                     self._prepare_executor(session)
                     await self._execute_workflow()
@@ -165,25 +175,26 @@ class WorkflowManager:
                             else []
                         )
                     )
-                    # Persist DB changes
-                    await session.commit()
-                    if need_to_notify_webhook:
-                        await self._notify_webhook_execution_finished(session)
-                    handle_finish_execution(
-                        logger,
-                        self.main_workflow_context.organization_id,
-                        workflow_id_for_logs,
-                        is_success,
-                        self.retry_count,
-                        workflow_steps_for_logs,
-                        self._agg_token_exec,
-                        self._agg_token_buf,
-                        self._agg_token_started_at,
-                        err_type,
-                        err_message,
-                        failed_step,
-                        self.main_workflow_context.steps_metadata,
-                    )
+                    if not is_completed_duplicate:
+                        # Persist DB changes
+                        await session.commit()
+                        if need_to_notify_webhook:
+                            await self._notify_webhook_execution_finished(session)
+                        handle_finish_execution(
+                            logger,
+                            self.main_workflow_context.organization_id,
+                            workflow_id_for_logs,
+                            is_success,
+                            self.retry_count,
+                            workflow_steps_for_logs,
+                            self._agg_token_exec,
+                            self._agg_token_buf,
+                            self._agg_token_started_at,
+                            err_type,
+                            err_message,
+                            failed_step,
+                            self.main_workflow_context.steps_metadata,
+                        )
         finally:
             # We destroy correctly the databaeManager
             try:
@@ -191,15 +202,23 @@ class WorkflowManager:
             except Exception as e:
                 logger.error(f"Error while disposing local database manager: {e}")
 
-    async def _prepare_workflow(self, session: AsyncSession):
+    async def _prepare_workflow(self, session: AsyncSession) -> bool:
         try:
             logger.info(f"Preparing workflow {self.message.workflow_execution_id}")
-            event_dto = await EventRepository(
-                session
-            ).get_created_event_if_execution_not_completed_or_failed(
+            event_repository = EventRepository(session)
+            event_dto = await event_repository.get_created_event_if_execution_not_completed_or_failed(
                 self.message.workflow_execution_id
             )
             if event_dto is None:
+                latest_event = await event_repository.get_last_event_by_execution_id(
+                    self.message.workflow_execution_id
+                )
+                if (
+                    latest_event is not None
+                    and latest_event.event_type
+                    == EventType.WORKFLOW_EXECUTION_COMPLETED
+                ):
+                    return True
                 logger.error(
                     f"No events found that match a new execution {self.message.workflow_execution_id}"
                 )
@@ -248,6 +267,7 @@ class WorkflowManager:
                         ExtractionParameters.model_validate(extraction_raw)
                     )
 
+            return False
         except Exception as e:
             # We catch all exceptions here to wrap them in a WorkflowStepException
             raise WorkflowStepException("prepare_workflow", e)
