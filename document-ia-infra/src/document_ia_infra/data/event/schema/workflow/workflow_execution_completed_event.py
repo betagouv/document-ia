@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Literal
 
 from pydantic import Field, BaseModel
 
@@ -29,7 +29,7 @@ class CompletedEventResult(BaseModel):
 class WorkflowExecutionCompletedEvent(BaseEvent):
     """Event triggered when entire workflow completes successfully."""
 
-    event_type: EventType = Field(
+    event_type: Literal[EventType.WORKFLOW_EXECUTION_COMPLETED] = Field(  # pyright: ignore[reportIncompatibleVariableOverride]
         default=EventType.WORKFLOW_EXECUTION_COMPLETED, description="Event type"
     )
     final_result: CompletedEventResult = Field(description="Final workflow result")

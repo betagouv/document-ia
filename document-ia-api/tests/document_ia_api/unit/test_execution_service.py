@@ -64,7 +64,7 @@ def test_get_event_model_started(service: ExecutionService):
     )
     dto = EventDTO(
         id=uuid4(),
-        organization_id=uuid4(),
+        organization_id=start_evt.organization_id,
         workflow_id="wf",
         execution_id="exec",
         created_at=datetime.now(UTC),
@@ -91,7 +91,7 @@ def test_get_event_model_failed(service: ExecutionService):
     )
     dto = EventDTO(
         id=uuid4(),
-        organization_id=uuid4(),
+        organization_id=failed_evt.organization_id,
         workflow_id="wf",
         execution_id="exec",
         created_at=datetime.now(UTC),
@@ -142,7 +142,7 @@ def test_get_event_model_completed_with_extraction_and_classification(service: E
 
     dto = EventDTO(
         id=uuid4(),
-        organization_id=uuid4(),
+        organization_id=completed.organization_id,
         workflow_id="wf",
         execution_id="exec",
         created_at=datetime.now(UTC),
@@ -216,7 +216,7 @@ def test_get_event_model_completed_with_other_extraction_skips_schema_resolution
 
     dto = EventDTO(
         id=uuid4(),
-        organization_id=uuid4(),
+        organization_id=completed.organization_id,
         workflow_id="wf",
         execution_id="exec",
         created_at=datetime.now(UTC),

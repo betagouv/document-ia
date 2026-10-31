@@ -3,7 +3,7 @@ import copy
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -163,18 +163,18 @@ def test_parse_start_event_uses_shared_decoder(version):
     manager.event_dto = EventDTO(
         id=uuid4(),
         workflow_id=payload["workflow_id"],
-        organization_id=uuid4(),
+        organization_id=UUID(payload["organization_id"]),
         execution_id=payload["execution_id"],
         created_at=datetime.now(UTC),
         event_type=EventType.WORKFLOW_EXECUTION_STARTED,
         event=payload,
     )
     with patch(
-        "document_ia_worker.workflow.workflow_manager.convert_inner_event_dto",
-        wraps=event_mapper.convert_inner_event_dto,
+        "document_ia_worker.workflow.workflow_manager.decode_event_dto",
+        wraps=event_mapper.decode_event_dto,
     ) as decoder:
         event = manager._parse_start_event()
-    decoder.assert_called_once_with(payload, EventType.WORKFLOW_EXECUTION_STARTED)
+    decoder.assert_called_once_with(manager.event_dto)
     assert isinstance(event, WorkflowExecutionStartedEvent)
     assert event.version == version
     if version == 1:
@@ -202,7 +202,7 @@ def test_parse_start_event_rejects_other_event_types():
         event={}, event_type=EventType.WORKFLOW_EXECUTION_FAILED
     )
     with patch(
-        "document_ia_worker.workflow.workflow_manager.convert_inner_event_dto",
+        "document_ia_worker.workflow.workflow_manager.decode_event_dto",
         return_value=MagicMock(),
     ):
         with pytest.raises(WorkflowStepException) as error:
@@ -221,6 +221,26 @@ def test_malformed_parameters_are_reported_by_the_start_event_decoder():
     with pytest.raises(WorkflowStepException) as error:
         manager._parse_start_event()
     assert error.value.step_name == "parse_start_event"
-    assert "classification_parameters.document_types.0" in str(
-        error.value.inner_exception
+    assert str(error.value.inner_exception) == "Invalid persisted workflow event payload"
+
+
+@pytest.mark.parametrize("field", ["execution_id", "workflow_id", "organization_id"])
+def test_worker_rejects_inconsistent_envelope(field):
+    event = _build_event(version=1)
+    manager = _build_manager()
+    manager.event_dto = EventDTO(
+        id=uuid4(),
+        workflow_id=event.workflow_id,
+        organization_id=event.organization_id,
+        execution_id=event.execution_id,
+        created_at=event.created_at,
+        event_type=event.event_type,
+        event=event.model_dump(mode="json"),
     )
+    manager.event_dto.event[field] = (
+        str(uuid4()) if field == "organization_id" else "other-private-identifier"
+    )
+    with pytest.raises(WorkflowStepException) as error:
+        manager._parse_start_event()
+    assert error.value.step_name == "parse_start_event"
+    assert str(error.value.inner_exception) == f"Event envelope/payload mismatch: {field}"

@@ -80,16 +80,17 @@ def sample_event():
 @pytest.fixture
 def sample_event_record():
     """Sample event record for testing."""
+    organization_id = uuid4()
     return EventDTO(
         id=uuid4(),
         workflow_id="test_workflow_001",
-        organization_id=uuid4(),
+        organization_id=organization_id,
         execution_id="test_execution_001",
         created_at=datetime.now(UTC),
         event_type=EventType.WORKFLOW_EXECUTION_STARTED,
         event={
             "event_id": str(uuid4()),
-            "organization_id": str(uuid4()),
+            "organization_id": str(organization_id),
             "workflow_id": "test_workflow_001",
             "execution_id": "test_execution_001",
             "created_at": datetime.now(UTC).isoformat(),
@@ -113,7 +114,7 @@ class TestEventStoreService:
         # Arrange
         mock_stored_event = EventDTO(
             id=uuid4(),
-            organization_id=uuid4(),
+            organization_id=sample_event.organization_id,
             workflow_id="test_workflow_001",
             execution_id="test_execution_001",
             created_at=datetime.now(UTC),

@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Literal
 
 from pydantic import Field
 
@@ -9,7 +9,7 @@ from document_ia_infra.data.event.schema.event import BaseEvent
 class WorkflowExecutionStepCompletedEvent(BaseEvent):
     """Event triggered for each workflow step completion."""
 
-    event_type: EventType = Field(
+    event_type: Literal[EventType.WORKFLOW_EXECUTION_STEP_COMPLETED] = Field(  # pyright: ignore[reportIncompatibleVariableOverride]
         default=EventType.WORKFLOW_EXECUTION_STEP_COMPLETED, description="Event type"
     )
     step_name: str = Field(description="Name of the completed step")
