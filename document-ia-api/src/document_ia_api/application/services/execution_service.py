@@ -29,6 +29,9 @@ from document_ia_infra.data.document.schema.document_extraction import (
 )
 from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.dto.event_type_enum import EventType
+from document_ia_infra.data.event.schema.mappers.event_mapper import (
+    convert_inner_event_dto,
+)
 from document_ia_infra.data.event.schema.workflow.workflow_execution_completed_event import (
     WorkflowExecutionCompletedEvent,
 )
@@ -56,8 +59,15 @@ class ExecutionService:
     def get_event_model(
         self, event_dto: EventDTO, execution_id: str, is_debug_mode: bool
     ) -> ExecutionStartedModel | ExecutionSuccessModel | ExecutionFailedModel:
-        if event_dto.event_type == EventType.WORKFLOW_EXECUTION_STARTED:
-            event_data = WorkflowExecutionStartedEvent(**event_dto.event)
+        if event_dto.event_type not in (
+            EventType.WORKFLOW_EXECUTION_STARTED,
+            EventType.WORKFLOW_EXECUTION_FAILED,
+            EventType.WORKFLOW_EXECUTION_COMPLETED,
+        ):
+            raise HTTPException(status_code=400, detail="Event type not supported")
+
+        event_data = convert_inner_event_dto(event_dto.event, event_dto.event_type)
+        if isinstance(event_data, WorkflowExecutionStartedEvent):
             file_info: Optional[S3FileInfo] = None
             if event_data.s3_file_info is not None:
                 file_info = S3FileInfo(
@@ -75,8 +85,7 @@ class ExecutionService:
                 ),
             )
 
-        if event_dto.event_type == EventType.WORKFLOW_EXECUTION_FAILED:
-            event_data = WorkflowExecutionFailedEvent(**event_dto.event)
+        if isinstance(event_data, WorkflowExecutionFailedEvent):
             return ExecutionFailedModel(
                 id=execution_id,
                 status=ExecutionStatus.FAILED,
@@ -89,16 +98,17 @@ class ExecutionService:
                 ),
             )
 
-        if event_dto.event_type == EventType.WORKFLOW_EXECUTION_COMPLETED:
-            return self._get_success_response(execution_id, event_dto, is_debug_mode)
+        if isinstance(event_data, WorkflowExecutionCompletedEvent):
+            return self._get_success_response(execution_id, event_data, is_debug_mode)
 
         raise HTTPException(status_code=400, detail="Event type not supported")
 
     def _get_success_response(
-        self, execution_id: str, last_event: EventDTO, is_debug_mode: bool
+        self,
+        execution_id: str,
+        event_data: WorkflowExecutionCompletedEvent,
+        is_debug_mode: bool,
     ):
-        event_data = WorkflowExecutionCompletedEvent(**last_event.event)
-
         success_result = SuccessResult()
 
         if event_data.final_result.classification is not None:

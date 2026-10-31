@@ -1,9 +1,16 @@
 from datetime import datetime, UTC
+import copy
+import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from document_ia_infra.data.event.dto.event_dto import EventDTO
+from document_ia_infra.data.event.dto.event_type_enum import EventType
+from document_ia_infra.data.event.schema.mappers import event_mapper
 from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import (
     ClassificationParameters,
     ExtractionParameters,
@@ -11,10 +18,13 @@ from document_ia_infra.data.event.schema.workflow.workflow_execution_started_eve
 )
 from document_ia_infra.data.workflow.dto.enums import LLMModel
 from document_ia_infra.data.workflow.dto.workflow_dto import WorkflowDTO
-from document_ia_infra.redis.model.workflow_execution_message import WorkflowExecutionMessage
+from document_ia_infra.redis.model.workflow_execution_message import (
+    WorkflowExecutionMessage,
+)
 from document_ia_schemas import SupportedDocumentType
 from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
 from document_ia_worker.workflow.workflow_manager import WorkflowManager
+from document_ia_worker.exception.workflow_step_exception import WorkflowStepException
 
 
 def _build_workflow(steps: list[str]) -> WorkflowDTO:
@@ -70,15 +80,20 @@ def _build_context() -> MainWorkflowContext:
 
 
 def _build_manager() -> WorkflowManager:
-    with patch("document_ia_worker.workflow.workflow_manager.setup_logging_worker"), patch(
-        "document_ia_worker.workflow.workflow_manager.execution_id_var"
-    ) as mock_exec_var, patch(
-        "document_ia_worker.workflow.workflow_manager.agg_buffer_var"
-    ) as mock_agg_var, patch(
-        "document_ia_worker.workflow.workflow_manager.start_time_var"
-    ) as mock_start_var, patch(
-        "document_ia_worker.workflow.workflow_manager.Publisher"
-    ), patch("document_ia_worker.workflow.workflow_manager.RedisManager"):
+    with (
+        patch("document_ia_worker.workflow.workflow_manager.setup_logging_worker"),
+        patch(
+            "document_ia_worker.workflow.workflow_manager.execution_id_var"
+        ) as mock_exec_var,
+        patch(
+            "document_ia_worker.workflow.workflow_manager.agg_buffer_var"
+        ) as mock_agg_var,
+        patch(
+            "document_ia_worker.workflow.workflow_manager.start_time_var"
+        ) as mock_start_var,
+        patch("document_ia_worker.workflow.workflow_manager.Publisher"),
+        patch("document_ia_worker.workflow.workflow_manager.RedisManager"),
+    ):
         mock_exec_var.set.return_value = object()
         mock_agg_var.set.return_value = object()
         mock_start_var.set.return_value = object()
@@ -113,12 +128,15 @@ def test_prepare_executor_uses_v2_factory_for_event_v2():
     manager.main_workflow_context = _build_context()
     session = MagicMock(spec=AsyncSession)
 
-    with patch(
-        "document_ia_worker.workflow.workflow_manager.prepareStepListsV1"
-    ) as mock_factory, patch(
-        "document_ia_worker.workflow.workflow_manager.prepareStepListsV2",
-        return_value=["from_v2_factory"],
-    ) as mock_v2_factory:
+    with (
+        patch(
+            "document_ia_worker.workflow.workflow_manager.prepareStepListsV1"
+        ) as mock_factory,
+        patch(
+            "document_ia_worker.workflow.workflow_manager.prepareStepListsV2",
+            return_value=["from_v2_factory"],
+        ) as mock_v2_factory,
+    ):
         manager._prepare_executor(session)
 
     mock_factory.assert_not_called()
@@ -128,3 +146,81 @@ def test_prepare_executor_uses_v2_factory_for_event_v2():
         session=session,
     )
     assert manager.step_list == ["from_v2_factory"]
+
+
+@pytest.mark.parametrize("version", [1, 2])
+def test_parse_start_event_uses_shared_decoder(version):
+    fixtures = json.loads(
+        (
+            Path(__file__).parents[3]
+            / "document-ia-infra/tests/fixtures/persisted_events.json"
+        ).read_text()
+    )
+    payload = copy.deepcopy(
+        fixtures["common"] | fixtures["events"][f"started_v{version}"]
+    )
+    manager = _build_manager()
+    manager.event_dto = EventDTO(
+        id=uuid4(),
+        workflow_id=payload["workflow_id"],
+        organization_id=uuid4(),
+        execution_id=payload["execution_id"],
+        created_at=datetime.now(UTC),
+        event_type=EventType.WORKFLOW_EXECUTION_STARTED,
+        event=payload,
+    )
+    with patch(
+        "document_ia_worker.workflow.workflow_manager.convert_inner_event_dto",
+        wraps=event_mapper.convert_inner_event_dto,
+    ) as decoder:
+        event = manager._parse_start_event()
+    decoder.assert_called_once_with(payload, EventType.WORKFLOW_EXECUTION_STARTED)
+    assert isinstance(event, WorkflowExecutionStartedEvent)
+    assert event.version == version
+    if version == 1:
+        assert event.s3_file_info.filename == "document.pdf"
+        assert event.workflow_configuration is None
+    else:
+        assert event.file_url == "https://example.com/input.pdf"
+        assert event.workflow_configuration.steps[0].action == "download_file"
+        assert event.extraction_parameters.document_type == SupportedDocumentType.CNI
+
+
+def test_parse_start_event_retains_failure_stage():
+    manager = _build_manager()
+    manager.event_dto = MagicMock(
+        event={}, event_type=EventType.WORKFLOW_EXECUTION_STARTED
+    )
+    with pytest.raises(WorkflowStepException) as error:
+        manager._parse_start_event()
+    assert error.value.step_name == "parse_start_event"
+
+
+def test_parse_start_event_rejects_other_event_types():
+    manager = _build_manager()
+    manager.event_dto = MagicMock(
+        event={}, event_type=EventType.WORKFLOW_EXECUTION_FAILED
+    )
+    with patch(
+        "document_ia_worker.workflow.workflow_manager.convert_inner_event_dto",
+        return_value=MagicMock(),
+    ):
+        with pytest.raises(WorkflowStepException) as error:
+            manager._parse_start_event()
+    assert isinstance(error.value.inner_exception, ValueError)
+
+
+def test_malformed_parameters_are_reported_by_the_start_event_decoder():
+    event = _build_event(version=1)
+    payload = event.model_dump(mode="json")
+    payload["classification_parameters"] = {"document_types": ["unknown-type"]}
+    manager = _build_manager()
+    manager.event_dto = MagicMock(
+        event=payload, event_type=EventType.WORKFLOW_EXECUTION_STARTED
+    )
+    with pytest.raises(WorkflowStepException) as error:
+        manager._parse_start_event()
+    assert error.value.step_name == "parse_start_event"
+    assert "classification_parameters.document_types.0" in str(
+        error.value.inner_exception
+    )

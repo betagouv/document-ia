@@ -1,0 +1,437 @@
+{
+  "started_v1": {
+    "false": {
+      "id": "exec-historical",
+      "status": "STARTED",
+      "data": {
+        "created_at": "2026-01-01T12:00:00Z",
+        "s3_file_info": {
+          "file_name": "document.pdf",
+          "content_type": "application/pdf",
+          "presigned_url": "https://example.com/document.pdf"
+        },
+        "file_url": null
+      }
+    },
+    "true": {
+      "id": "exec-historical",
+      "status": "STARTED",
+      "data": {
+        "created_at": "2026-01-01T12:00:00Z",
+        "s3_file_info": {
+          "file_name": "document.pdf",
+          "content_type": "application/pdf",
+          "presigned_url": "https://example.com/document.pdf"
+        },
+        "file_url": null
+      }
+    }
+  },
+  "started_v2": {
+    "false": {
+      "id": "exec-historical",
+      "status": "STARTED",
+      "data": {
+        "created_at": "2026-01-01T12:00:00Z",
+        "s3_file_info": null,
+        "file_url": "https://example.com/input.pdf"
+      }
+    },
+    "true": {
+      "id": "exec-historical",
+      "status": "STARTED",
+      "data": {
+        "created_at": "2026-01-01T12:00:00Z",
+        "s3_file_info": null,
+        "file_url": "https://example.com/input.pdf"
+      }
+    }
+  },
+  "completed_v1": {
+    "false": {
+      "id": "exec-historical",
+      "status": "SUCCESS",
+      "data": {
+        "total_processing_time_ms": 100,
+        "result": {
+          "classification": {
+            "document_type": "cni",
+            "confidence": 0.9,
+            "explanation": "Identity card"
+          },
+          "extraction": {
+            "type": "cni",
+            "properties": [
+              {
+                "name": "numero_document",
+                "value": null,
+                "type": "string"
+              },
+              {
+                "name": "date_delivrance",
+                "value": null,
+                "type": "date"
+              },
+              {
+                "name": "date_expiration",
+                "value": null,
+                "type": "date"
+              },
+              {
+                "name": "nom",
+                "value": "EXEMPLE",
+                "type": "string"
+              },
+              {
+                "name": "prenom",
+                "value": "Alice",
+                "type": "string"
+              },
+              {
+                "name": "date_naissance",
+                "value": "1990-01-02",
+                "type": "date"
+              },
+              {
+                "name": "lieu_naissance",
+                "value": null,
+                "type": "string"
+              },
+              {
+                "name": "nationalite",
+                "value": null,
+                "type": "string"
+              },
+              {
+                "name": "bande_mrz",
+                "value": null,
+                "type": "string"
+              }
+            ]
+          },
+          "barcodes": [],
+          "workflow_metadata": null
+        }
+      }
+    },
+    "true": {
+      "id": "exec-historical",
+      "status": "SUCCESS",
+      "data": {
+        "total_processing_time_ms": 100,
+        "result": {
+          "classification": {
+            "document_type": "cni",
+            "confidence": 0.9,
+            "explanation": "Identity card"
+          },
+          "extraction": {
+            "type": "cni",
+            "properties": [
+              {
+                "name": "numero_document",
+                "value": null,
+                "type": "string"
+              },
+              {
+                "name": "date_delivrance",
+                "value": null,
+                "type": "date"
+              },
+              {
+                "name": "date_expiration",
+                "value": null,
+                "type": "date"
+              },
+              {
+                "name": "nom",
+                "value": "EXEMPLE",
+                "type": "string"
+              },
+              {
+                "name": "prenom",
+                "value": "Alice",
+                "type": "string"
+              },
+              {
+                "name": "date_naissance",
+                "value": "1990-01-02",
+                "type": "date"
+              },
+              {
+                "name": "lieu_naissance",
+                "value": null,
+                "type": "string"
+              },
+              {
+                "name": "nationalite",
+                "value": null,
+                "type": "string"
+              },
+              {
+                "name": "bande_mrz",
+                "value": null,
+                "type": "string"
+              }
+            ]
+          },
+          "barcodes": [],
+          "workflow_metadata": null
+        }
+      }
+    }
+  },
+  "completed_v2": {
+    "false": {
+      "id": "exec-historical",
+      "status": "SUCCESS",
+      "data": {
+        "total_processing_time_ms": 200,
+        "result": {
+          "classification": null,
+          "extraction": {
+            "type": "autre",
+            "properties": []
+          },
+          "barcodes": [
+            {
+              "position": {
+                "top_left": [
+                  0,
+                  0
+                ],
+                "top_right": [
+                  10,
+                  0
+                ],
+                "bottom_right": [
+                  10,
+                  10
+                ],
+                "bottom_left": [
+                  0,
+                  10
+                ]
+              },
+              "page_number": 1,
+              "type": "QR",
+              "raw_data": "https://example.com/qr"
+            },
+            {
+              "position": {
+                "top_left": [
+                  0,
+                  0
+                ],
+                "top_right": [
+                  10,
+                  0
+                ],
+                "bottom_right": [
+                  10,
+                  10
+                ],
+                "bottom_left": [
+                  0,
+                  10
+                ]
+              },
+              "page_number": 2,
+              "type": "DATA_MATRIX",
+              "raw_data": "matrix-content"
+            },
+            {
+              "position": {
+                "top_left": [
+                  0,
+                  0
+                ],
+                "top_right": [
+                  10,
+                  0
+                ],
+                "bottom_right": [
+                  10,
+                  10
+                ],
+                "bottom_left": [
+                  0,
+                  10
+                ]
+              },
+              "page_number": 3,
+              "type": "2D_DOC",
+              "is_valid": true,
+              "raw_data": {
+                "issuer": "example"
+              },
+              "typed_data": [
+                {
+                  "name": "name",
+                  "value": "Alice",
+                  "type": "string"
+                }
+              ],
+              "issue_date": "2026-01-01",
+              "ants_type": "01",
+              "doc_type": "example"
+            }
+          ],
+          "workflow_metadata": null
+        }
+      }
+    },
+    "true": {
+      "id": "exec-historical",
+      "status": "SUCCESS",
+      "data": {
+        "total_processing_time_ms": 200,
+        "result": {
+          "classification": null,
+          "extraction": {
+            "type": "autre",
+            "properties": []
+          },
+          "barcodes": [
+            {
+              "position": {
+                "top_left": [
+                  0,
+                  0
+                ],
+                "top_right": [
+                  10,
+                  0
+                ],
+                "bottom_right": [
+                  10,
+                  10
+                ],
+                "bottom_left": [
+                  0,
+                  10
+                ]
+              },
+              "page_number": 1,
+              "type": "QR",
+              "raw_data": "https://example.com/qr"
+            },
+            {
+              "position": {
+                "top_left": [
+                  0,
+                  0
+                ],
+                "top_right": [
+                  10,
+                  0
+                ],
+                "bottom_right": [
+                  10,
+                  10
+                ],
+                "bottom_left": [
+                  0,
+                  10
+                ]
+              },
+              "page_number": 2,
+              "type": "DATA_MATRIX",
+              "raw_data": "matrix-content"
+            },
+            {
+              "position": {
+                "top_left": [
+                  0,
+                  0
+                ],
+                "top_right": [
+                  10,
+                  0
+                ],
+                "bottom_right": [
+                  10,
+                  10
+                ],
+                "bottom_left": [
+                  0,
+                  10
+                ]
+              },
+              "page_number": 3,
+              "type": "2D_DOC",
+              "is_valid": true,
+              "raw_data": {
+                "issuer": "example"
+              },
+              "typed_data": [
+                {
+                  "name": "name",
+                  "value": "Alice",
+                  "type": "string"
+                }
+              ],
+              "issue_date": "2026-01-01",
+              "ants_type": "01",
+              "doc_type": "example"
+            }
+          ],
+          "workflow_metadata": [
+            {
+              "step": "ocr",
+              "duration_ms": 12
+            }
+          ]
+        }
+      }
+    }
+  },
+  "failed_v1": {
+    "false": {
+      "id": "exec-historical",
+      "status": "FAILED",
+      "data": {
+        "error_type": "ValueError",
+        "failed_step": null,
+        "retry_count": 0,
+        "workflow_id": "wf-historical",
+        "error_message": "Invalid document"
+      }
+    },
+    "true": {
+      "id": "exec-historical",
+      "status": "FAILED",
+      "data": {
+        "error_type": "ValueError",
+        "failed_step": null,
+        "retry_count": 0,
+        "workflow_id": "wf-historical",
+        "error_message": "Invalid document"
+      }
+    }
+  },
+  "failed_v2": {
+    "false": {
+      "id": "exec-historical",
+      "status": "FAILED",
+      "data": {
+        "error_type": "RetryableException",
+        "failed_step": "ocr",
+        "retry_count": 2,
+        "workflow_id": "wf-historical",
+        "error_message": "Service unavailable"
+      }
+    },
+    "true": {
+      "id": "exec-historical",
+      "status": "FAILED",
+      "data": {
+        "error_type": "RetryableException",
+        "failed_step": "ocr",
+        "retry_count": 2,
+        "workflow_id": "wf-historical",
+        "error_message": "Service unavailable"
+      }
+    }
+  }
+}

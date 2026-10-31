@@ -3,6 +3,10 @@ from unittest.mock import MagicMock, AsyncMock, patch
 import pytest
 
 from document_ia_infra.data.event.dto.event_type_enum import EventType
+from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import (
+    ClassificationParameters,
+    ExtractionParameters,
+)
 from document_ia_infra.exception.retryable_exception import RetryableException
 from document_ia_infra.redis.model.workflow_execution_message import WorkflowExecutionMessage
 from document_ia_worker.exception.workflow_step_exception import WorkflowStepException
@@ -76,15 +80,31 @@ class TestWorkflowManager:
         """Test nominal : tout se passe bien."""
 
         manager = WorkflowManager(mock_workflow_message, retry_count=0)
+        parsed_event = MagicMock(
+            classification_parameters=ClassificationParameters(document_types=["cni"]),
+            extraction_parameters=ExtractionParameters(document_type="cni"),
+        )
 
         # Mock internal methods to simulate success without going into details
         # We want to test start() orchestration
-        with patch.object(manager, '_prepare_workflow', new_callable=AsyncMock) as mock_prepare, \
-                patch.object(manager, '_parse_start_event', return_value=MagicMock()) as mock_parse, \
-                patch.object(manager, '_prepare_executor') as mock_prepare_exec, \
-                patch.object(manager, '_execute_workflow', new_callable=AsyncMock) as mock_execute, \
-                patch.object(manager, '_notify_webhook_execution_finished', new_callable=AsyncMock) as mock_notify, \
-                patch.object(manager, '_save_failure_event', new_callable=AsyncMock) as mock_save_fail:
+        with (
+            patch.object(
+                manager, "_prepare_workflow", new_callable=AsyncMock
+            ) as mock_prepare,
+            patch.object(
+                manager, "_parse_start_event", return_value=parsed_event
+            ) as mock_parse,
+            patch.object(manager, "_prepare_executor") as mock_prepare_exec,
+            patch.object(
+                manager, "_execute_workflow", new_callable=AsyncMock
+            ) as mock_execute,
+            patch.object(
+                manager, "_notify_webhook_execution_finished", new_callable=AsyncMock
+            ) as mock_notify,
+            patch.object(
+                manager, "_save_failure_event", new_callable=AsyncMock
+            ) as mock_save_fail,
+        ):
             await manager.start()
 
             # Verify orchestration
@@ -92,6 +112,12 @@ class TestWorkflowManager:
             mock_parse.assert_called_once()
             mock_prepare_exec.assert_called_once()
             mock_execute.assert_called_once()
+            assert manager.main_workflow_context.classification_parameters is (
+                parsed_event.classification_parameters
+            )
+            assert manager.main_workflow_context.extraction_parameters is (
+                parsed_event.extraction_parameters
+            )
 
             # Commit should be called
             mock_session = mock_db_manager.return_value.local_session.return_value.__aenter__.return_value
