@@ -20,7 +20,6 @@ from redis.exceptions import ResponseError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 from redis.typing import EncodableT, FieldT
 
-from document_ia_infra.exception.retryable_exception import RetryableException
 from document_ia_infra.redis.redis_manager import (
     RedisManager,
 )
@@ -29,6 +28,8 @@ from document_ia_infra.redis.redis_manager import (
 )
 from document_ia_infra.redis.redis_settings import redis_settings
 from document_ia_infra.redis.serializable_message import SerializableMessage
+from document_ia_infra.redis.stream_delivery import StreamDelivery
+from document_ia_infra.redis.worker_error_policy import WorkerErrorPolicy
 
 logger = logging.getLogger(__name__)
 
@@ -38,66 +39,6 @@ RECLAIM_IDLE_MS = 300000
 DLQ_SCAN_BATCH_SIZE = 200
 RESOURCE_CLOSE_TIMEOUT_S = 5.0
 _PROCESS_BOOT_ID = secrets.token_hex(4)
-
-# Script Lua de remise en file atomique et idempotente :
-# recherche une entrée portant « original_id » et n'effectue XADD que si absente.
-_REQUEUE_LUA = """
-local stream = KEYS[1]
-local orig = ARGV[1]
-local maxlen = tonumber(ARGV[2])
-local existing = redis.call('XRANGE', stream, orig, '+')
-for _, e in ipairs(existing) do
-  local f = e[2]
-  for i = 1, #f, 2 do
-    if f[i] == 'original_id' and f[i+1] == orig then
-      return {0, e[1]}
-    end
-  end
-end
-local args = {}
-if maxlen and maxlen > 0 then
-  table.insert(args, 'MAXLEN')
-  table.insert(args, '~')
-  table.insert(args, maxlen)
-end
-table.insert(args, '*')
-for i = 3, #ARGV do
-  table.insert(args, ARGV[i])
-end
-local id = redis.call('XADD', stream, unpack(args))
-return {1, id}
-"""
-
-# Script Lua de conservation DLQ atomique et idempotente :
-# recherche une entrée DLQ portant « original_id » puis XADD si absente.
-# L'identifiant de l'entrée DLQ étant indépendant de celui de l'entrée source,
-# le parcours part de 0-0.
-_RETAIN_DLQ_LUA = """
-local dlq = KEYS[1]
-local orig = ARGV[1]
-local maxlen = tonumber(ARGV[2])
-local existing = redis.call('XRANGE', dlq, '0-0', '+')
-for _, e in ipairs(existing) do
-  local f = e[2]
-  for i = 1, #f, 2 do
-    if f[i] == 'original_id' and f[i+1] == orig then
-      return {0, e[1]}
-    end
-  end
-end
-local args = {}
-if maxlen and maxlen > 0 then
-  table.insert(args, 'MAXLEN')
-  table.insert(args, '~')
-  table.insert(args, maxlen)
-end
-table.insert(args, '*')
-for i = 3, #ARGV do
-  table.insert(args, ARGV[i])
-end
-local id = redis.call('XADD', dlq, unpack(args))
-return {1, id}
-"""
 
 __all__ = [
     "BaseConsumer",
@@ -195,6 +136,9 @@ class BaseConsumer(ABC, Generic[T]):
         self.close_redis_on_stop = close_redis_on_stop
 
         self.dlq_stream_name = f"{self.stream_name}:dlq"
+
+        self.delivery = StreamDelivery(stream_name, consumer_group, consumer_name)
+        self.error_policy = WorkerErrorPolicy(max_retry_number)
 
         self._in_flight_ids: set[str] = set()
         self._reclaiming_ids: set[str] = set()
@@ -391,9 +335,18 @@ class BaseConsumer(ABC, Generic[T]):
         """Arrête proprement les tâches de fond en maintenant le battement pendant la vidange."""
         await self._stop_tasks_only()
         await self._release_execution_resources()
-        if self.close_redis_on_stop:
+        if self.close_redis_on_stop and self._custom_redis_manager is None:
             self.redis = None
-            await self._redis_manager.close()
+            try:
+                await asyncio.wait_for(
+                    self._redis_manager.close(), timeout=RESOURCE_CLOSE_TIMEOUT_S
+                )
+            except TimeoutError:
+                logger.warning("Timed out closing Redis resources during shutdown")
+            except Exception as exc:
+                logger.warning(
+                    "Failed to close Redis resources during shutdown: %s", exc
+                )
 
     async def start_consumer(self) -> None:
         """Démarre le consommateur en mode bloquant (utilisé par le worker)."""
@@ -466,7 +419,7 @@ class BaseConsumer(ABC, Generic[T]):
     async def _de_init_consumer(self) -> None:
         logger.info("Consumer %s stopping...", self.consumer_name)
         await self._release_execution_resources()
-        if self.close_redis_on_stop:
+        if self.close_redis_on_stop and self._custom_redis_manager is None:
             self.redis = None
             try:
                 await asyncio.wait_for(
@@ -587,10 +540,8 @@ class BaseConsumer(ABC, Generic[T]):
                 read_count = min(self.batch_size, free_slots)
 
                 try:
-                    response = await redis_conn.xreadgroup(
-                        self.consumer_group,
-                        self.consumer_name,
-                        {self.stream_name: ">"},
+                    response = await self.delivery.read(
+                        redis_conn,
                         count=read_count,
                         block=current_block_time,
                     )
@@ -798,119 +749,24 @@ class BaseConsumer(ABC, Generic[T]):
         redis_connection: Redis,
     ) -> None:
         """Gestionnaire de résultat d'une tâche terminée (ACK / Requeue / DLQ)."""
-        try:
-            fut.result()
-            try:
-                await redis_connection.xack(
-                    self.stream_name, self.consumer_group, msg_id
-                )
-            except Exception:
-                logger.error("ACK failed for success %s", msg_id)
-
-        except asyncio.CancelledError:
-            logger.warning(
-                "Processing cancelled for message %s; leaving entry pending in PEL",
-                msg_id,
-            )
-
-        except RetryableException as retry_exc:
-            logger.warning("Retryable failure for %s: %s", msg_id, retry_exc)
-            try:
-                retry_count = self._parse_retry_count(fields)
-            except Exception as parse_err:
-                logger.error(
-                    "Invalid retries metadata for message %s: %s", msg_id, parse_err
-                )
-                if await self._send_to_dlq(
-                    redis_connection,
-                    msg_id,
-                    fields,
-                    "decode_error",
-                    str(parse_err),
-                ):
-                    try:
-                        await redis_connection.xack(
-                            self.stream_name, self.consumer_group, msg_id
-                        )
-                    except Exception:
-                        logger.error("ACK failed for decode_error %s", msg_id)
-                return
-
-            if retry_count < self.max_retry_number - 1:
-                try:
-                    await self._requeue_once(
-                        redis_connection, msg_id, fields, retry_count + 1
-                    )
-                    try:
-                        await redis_connection.xack(
-                            self.stream_name, self.consumer_group, msg_id
-                        )
-                    except Exception:
-                        logger.error("ACK failed after requeue %s", msg_id)
-                except Exception as requeue_err:
-                    logger.error("Requeue failed %s: %s", msg_id, requeue_err)
-                    if await self._send_to_dlq(
-                        redis_connection,
-                        msg_id,
-                        fields,
-                        "error_requeueing_message",
-                        str(requeue_err),
-                    ):
-                        try:
-                            await redis_connection.xack(
-                                self.stream_name, self.consumer_group, msg_id
-                            )
-                        except Exception:
-                            logger.error("ACK failed after requeue failure %s", msg_id)
-            else:
-                logger.error("Max retries exceeded %s", msg_id)
-                if await self._send_to_dlq(
-                    redis_connection,
-                    msg_id,
-                    fields,
-                    "max_retries_exceeded",
-                    str(retry_exc),
-                ):
-                    try:
-                        await redis_connection.xack(
-                            self.stream_name, self.consumer_group, msg_id
-                        )
-                    except Exception:
-                        logger.error("ACK failed for max_retries_exceeded %s", msg_id)
-
-        except Exception as proc_err:
-            logger.error("Fatal error message %s: %s", msg_id, proc_err)
-            if await self._send_to_dlq(
-                redis_connection, msg_id, fields, "not_retryable_error", str(proc_err)
-            ):
-                try:
-                    await redis_connection.xack(
-                        self.stream_name, self.consumer_group, msg_id
-                    )
-                except Exception:
-                    logger.error("ACK failed for not_retryable_error %s", msg_id)
+        await self.error_policy.finish(
+            fut,
+            msg_id,
+            fields,
+            redis_connection,
+            self.delivery,
+            self._requeue_once,
+            self._send_to_dlq,
+        )
 
     async def _ensure_consumer_group(self, redis_connection: Redis) -> None:
-        try:
-            await redis_connection.xgroup_create(
-                name=self.stream_name,
-                groupname=self.consumer_group,
-                id=self.start_from,
-                mkstream=True,
-            )
-            logger.info(
-                "Consumer group created stream=%s, group=%s, start_from=%s",
-                self.stream_name,
-                self.consumer_group,
-                self.start_from,
-            )
-        except ResponseError as e:
-            if "BUSYGROUP" in str(e):
-                logger.info(
-                    "Consumer group already exists, group=%s", self.consumer_group
-                )
-            else:
-                raise
+        await self.delivery.ensure_group(redis_connection, self.start_from)
+        logger.info(
+            "Consumer group ready stream=%s, group=%s, start_from=%s",
+            self.stream_name,
+            self.consumer_group,
+            self.start_from,
+        )
 
     async def _get_safe_redis_connection(self) -> Redis:
         self.redis = await self._redis_manager.get_connection()
@@ -941,8 +797,8 @@ class BaseConsumer(ABC, Generic[T]):
     @classmethod
     def _build_requeue_fields(
         cls, fields: dict[str, Any], original_id: str, attempts: int
-    ) -> dict[FieldT, EncodableT]:
-        requeued: dict[FieldT, EncodableT] = {}
+    ) -> dict[str, Any]:
+        requeued: dict[str, Any] = {}
         for key, value in fields.items():
             if value is not None:
                 requeued[str(key)] = str(value)
@@ -1036,7 +892,7 @@ class BaseConsumer(ABC, Generic[T]):
                 )
                 return False
 
-        dlq_fields: dict[FieldT, EncodableT] = {
+        dlq_fields: dict[str, Any] = {
             "data": str(fields.get("data", "")),
             "retries": str(fields.get("retries", "0")),
             "original_id": str(msg_id),
@@ -1050,33 +906,8 @@ class BaseConsumer(ABC, Generic[T]):
         if orig_ts is not None:
             dlq_fields["original_timestamp"] = str(orig_ts)
 
-        argv: list[str] = [str(msg_id), str(self.dlq_maxlen or 0)]
-        for key, value in dlq_fields.items():
-            argv.append(str(key))
-            argv.append(str(value))
         try:
-            res = await redis_connection.eval(
-                _RETAIN_DLQ_LUA, 1, self.dlq_stream_name, *argv
-            )
-            if isinstance(res, (list, tuple)) and res:
-                created = bool(res[0])
-                dlq_id = str(res[1])
-                if created:
-                    logger.info(
-                        "Pushed message %s to DLQ stream '%s' with id %s (reason=%s)",
-                        msg_id,
-                        self.dlq_stream_name,
-                        dlq_id,
-                        reason,
-                    )
-                else:
-                    logger.info(
-                        "Message %s already retained in DLQ stream '%s' (id %s); skipping duplicate write",
-                        msg_id,
-                        self.dlq_stream_name,
-                        dlq_id,
-                    )
-            return True
+            return await self.delivery.retain(redis_connection, msg_id, dlq_fields)
         except Exception as dlq_err:
             logger.error(
                 "Failed to retain message %s in DLQ '%s': %s; leaving entry pending",
@@ -1102,35 +933,13 @@ class BaseConsumer(ABC, Generic[T]):
         if isinstance(data_or_fields, str):
             fields: dict[str, Any] = {
                 "data": data_or_fields,
-                "retries": str(attempts - 1),
             }
         else:
             fields = data_or_fields
         requeued_fields = self._build_requeue_fields(fields, msg_id, attempts)
-        argv: list[str] = [str(msg_id), str(self.stream_maxlen or 0)]
-        for key, value in requeued_fields.items():
-            argv.append(str(key))
-            argv.append(str(value))
-        res = await redis_connection.eval(_REQUEUE_LUA, 1, self.stream_name, *argv)
-        if isinstance(res, (list, tuple)) and res:
-            created = bool(res[0])
-            new_id = str(res[1])
-            if created:
-                logger.info(
-                    "Requeued message %s on stream '%s' with id %s (attempt %d)",
-                    msg_id,
-                    self.stream_name,
-                    new_id,
-                    attempts,
-                )
-            else:
-                logger.info(
-                    "Message %s already requeued on stream '%s' (id %s); retrying ACK only",
-                    msg_id,
-                    self.stream_name,
-                    new_id,
-                )
-        return True
+        return await self.delivery.requeue(
+            redis_connection, msg_id, requeued_fields, attempts
+        )
 
     def _worker_tasks_done(self) -> bool:
         listener_done = self.listener_task is None or (
@@ -1181,14 +990,7 @@ class BaseConsumer(ABC, Generic[T]):
                 redis_conn = await self._ensure_connection()
                 if redis_conn is None:
                     continue
-                await redis_conn.xclaim(
-                    self.stream_name,
-                    self.consumer_group,
-                    self.consumer_name,
-                    min_idle_time=0,
-                    message_ids=list(ids),
-                    justid=True,
-                )
+                await self.delivery.refresh(redis_conn, ids)
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -1215,10 +1017,8 @@ class BaseConsumer(ABC, Generic[T]):
                         await self._ensure_consumer_group(redis_conn)
                         self._needs_group_init = False
 
-                    next_start, claimed, _ = await redis_conn.xautoclaim(
-                        self.stream_name,
-                        self.consumer_group,
-                        self.consumer_name,
+                    next_start, claimed, _ = await self.delivery.claim(
+                        redis_conn,
                         self.reclaim_idle_ms,
                         start,
                         count=self.reclaim_batch_size,
@@ -1243,13 +1043,8 @@ class BaseConsumer(ABC, Generic[T]):
                             len(own_in_flight_ids),
                         )
                         try:
-                            await redis_conn.xclaim(
-                                self.stream_name,
-                                self.consumer_group,
-                                self.consumer_name,
-                                min_idle_time=0,
-                                message_ids=cast(list[Any], own_in_flight_ids),
-                                justid=True,
+                            await self.delivery.refresh(
+                                redis_conn, set(own_in_flight_ids)
                             )
                         except Exception as claim_err:
                             logger.warning(
@@ -1302,11 +1097,11 @@ class BaseConsumer(ABC, Generic[T]):
 
     async def _reclaim_entry(
         self,
-        redis_or_id: Any,
-        msg_id_or_fields: Any = None,
-        fields_opt: Any = None,
+        redis_or_id: Redis | str | None = None,
+        msg_id_or_fields: str | dict[str, Any] | None = None,
+        fields_opt: dict[str, Any] | None = None,
         *,
-        redis_connection: Any = None,
+        redis_connection: Redis | None = None,
         msg_id: str | None = None,
         fields: dict[str, Any] | None = None,
     ) -> None:
@@ -1317,23 +1112,22 @@ class BaseConsumer(ABC, Generic[T]):
             actual_msg_id = msg_id or (
                 redis_or_id if isinstance(redis_or_id, str) else None
             )
-            actual_fields = fields or (
-                msg_id_or_fields if isinstance(msg_id_or_fields, dict) else {}
-            )
+            if fields is not None:
+                actual_fields = fields
+            elif isinstance(msg_id_or_fields, dict):
+                actual_fields = msg_id_or_fields
+            else:
+                actual_fields = {}
         elif isinstance(redis_or_id, str):
             actual_redis = self.redis or await self._ensure_connection()
             actual_msg_id = redis_or_id
             actual_fields = (
-                cast(dict[str, Any], msg_id_or_fields)
-                if isinstance(msg_id_or_fields, dict)
-                else {}
+                msg_id_or_fields if isinstance(msg_id_or_fields, dict) else {}
             )
         else:
             actual_redis = redis_or_id
             actual_msg_id = cast(str, msg_id_or_fields)
-            actual_fields = (
-                cast(dict[str, Any], fields_opt) if isinstance(fields_opt, dict) else {}
-            )
+            actual_fields = fields_opt if isinstance(fields_opt, dict) else {}
 
         if actual_redis is None or actual_msg_id is None:
             return
@@ -1405,9 +1199,7 @@ class BaseConsumer(ABC, Generic[T]):
                     self.dlq_stream_name,
                 )
                 try:
-                    await redis_connection.xack(
-                        self.stream_name, self.consumer_group, msg_id
-                    )
+                    await self.delivery.ack(redis_connection, msg_id)
                     logger.info("Acknowledged reclaimed DLQ message %s", msg_id)
                 except Exception:
                     logger.error("ACK failed for reclaimed DLQ message %s", msg_id)
@@ -1424,9 +1216,7 @@ class BaseConsumer(ABC, Generic[T]):
         try:
             await self._requeue_once(redis_connection, msg_id, fields, attempts)
             try:
-                await redis_connection.xack(
-                    self.stream_name, self.consumer_group, msg_id
-                )
+                await self.delivery.ack(redis_connection, msg_id)
                 logger.info("Acknowledged reclaimed message %s", msg_id)
             except Exception:
                 logger.error("ACK failed for reclaimed %s", msg_id)
@@ -1457,9 +1247,12 @@ class BaseConsumer(ABC, Generic[T]):
             actual_msg_id = msg_id or (
                 redis_or_id if isinstance(redis_or_id, str) else None
             )
-            actual_fields = fields or (
-                msg_id_or_fields if isinstance(msg_id_or_fields, dict) else {}
-            )
+            if fields is not None:
+                actual_fields = fields
+            elif isinstance(msg_id_or_fields, dict):
+                actual_fields = msg_id_or_fields
+            else:
+                actual_fields = {}
             actual_reason = reason or (
                 fields_or_reason if isinstance(fields_or_reason, str) else "unknown"
             )
@@ -1496,8 +1289,6 @@ class BaseConsumer(ABC, Generic[T]):
             )
             return
         try:
-            await actual_redis.xack(
-                self.stream_name, self.consumer_group, actual_msg_id
-            )
+            await self.delivery.ack(actual_redis, actual_msg_id)
         except Exception:
             logger.error("ACK failed for reclaimed DLQ message %s", actual_msg_id)

@@ -16,7 +16,13 @@ from document_ia_infra.redis.base_consumer import (
     BaseConsumer,
     build_instance_consumer_name,
 )
+from document_ia_infra.redis.handler_execution import (
+    HandlerExecution,
+    run_handler_in_thread,
+)
+from document_ia_infra.redis.stream_delivery import StreamDelivery
 from document_ia_infra.redis.thread_consumer import ThreadConsumer
+from document_ia_infra.redis.worker_error_policy import WorkerErrorPolicy
 
 Consumer = ThreadConsumer
 
@@ -25,7 +31,11 @@ __all__ = [
     "BaseConsumer",
     "Consumer",
     "DLQ_SCAN_BATCH_SIZE",
+    "HandlerExecution",
     "RECLAIM_IDLE_MS",
+    "StreamDelivery",
     "ThreadConsumer",
+    "WorkerErrorPolicy",
     "build_instance_consumer_name",
+    "run_handler_in_thread",
 ]
