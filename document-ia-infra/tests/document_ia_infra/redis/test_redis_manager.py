@@ -105,11 +105,28 @@ class TestRedisManager:
     async def test_close(self):
         manager = RedisManager()
         mock_redis = MagicMock()
-        mock_redis.close = AsyncMock()
+        mock_redis.aclose = AsyncMock()
         manager.redis = mock_redis
+        manager.connection_attempts = 2
 
         await manager.close()
-        mock_redis.close.assert_awaited_once()
+        await manager.close()  # Idempotent owner shutdown.
+        mock_redis.aclose.assert_awaited_once_with(close_connection_pool=True)
+        assert manager.redis is None
+        assert manager.connection_attempts == 0
+
+    @pytest.mark.asyncio
+    async def test_failed_close_keeps_resource_for_owner_retry(self):
+        manager = RedisManager()
+        client = MagicMock()
+        client.aclose = AsyncMock(side_effect=[ConnectionError("close failed"), None])
+        manager.redis = client
+        with pytest.raises(ConnectionError, match="close failed"):
+            await manager.close()
+        assert manager.redis is client
+        await manager.close()
+        assert manager.redis is None
+        assert client.aclose.await_count == 2
 
     @pytest.mark.asyncio
     async def test_close_sans_connexion(self):

@@ -1,4 +1,5 @@
 import argparse
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -31,6 +32,7 @@ from document_ia_api.infra.webhook_notification_service import (
 from document_ia_infra.data.database import database_manager
 from document_ia_infra.redis.model.webhook_message import WebHookMessage
 from document_ia_infra.redis.redis_settings import redis_settings
+from document_ia_infra.redis.redis_manager import redis_manager
 from infra.database.migration_service import migration_service
 from infra.redis_service import redis_service
 from infra.s3_service import s3_service
@@ -84,6 +86,13 @@ async def lifespan(app: FastAPI):
                 await wc.stop()
         except Exception as e:
             logger.error("Error stopping webhook consumer: %s", e)
+        finally:
+            # All stream consumers/publishers borrow the application manager.
+            # Close its pool only after consumer work/heartbeat have stopped.
+            try:
+                await asyncio.wait_for(redis_manager.close(), timeout=5)
+            except Exception as e:
+                logger.error("Error closing application Redis manager: %s", e)
 
 
 # Create FastAPI application

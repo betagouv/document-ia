@@ -99,6 +99,43 @@ async def test_signal_forces_exit_if_handler_thread_is_still_running(monkeypatch
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["success", "error", "cancel"])
+async def test_runtime_closes_owned_redis_manager(monkeypatch, outcome):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    owner = SimpleNamespace(close=AsyncMock())
+    passed_managers = []
+
+    class Consumer:
+        @classmethod
+        def __class_getitem__(cls, _item):
+            return cls
+
+        def __init__(self, **kwargs):
+            passed_managers.append(kwargs["current_redis_manager"])
+
+        async def start_consumer(self):
+            if outcome == "error":
+                raise RuntimeError("handler failed")
+            if outcome == "cancel":
+                raise asyncio.CancelledError
+
+    monkeypatch.setattr(worker_main, "_consumer", None)
+    monkeypatch.setattr(worker_main, "_prewarm_models", lambda: None)
+    monkeypatch.setattr(worker_main, "RedisManager", lambda: owner)
+    monkeypatch.setattr(worker_main, "Consumer", Consumer)
+    if outcome == "success":
+        await worker_main.run_consumer()
+    else:
+        exception = RuntimeError if outcome == "error" else asyncio.CancelledError
+        with pytest.raises(exception):
+            await worker_main.run_consumer()
+    assert passed_managers == [owner]
+    owner.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_consumer_crash_forces_exit_if_handler_thread_is_still_running(
     monkeypatch,
 ):

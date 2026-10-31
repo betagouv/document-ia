@@ -76,6 +76,14 @@ OpenAPI documentation:
 - Swagger UI: `http://localhost:8000/docs`
 - ReDoc: `http://localhost:8000/redoc`
 
+## Redis webhook consumer ownership
+
+`SimpleStreamConsumer` keeps its sequential async handler and simple `XREAD` cursor mode, or grouped `XREADGROUP`/ACK/recovery mode. It shares infra `StreamDelivery` group/read/claim/heartbeat and atomic copy-before-ACK primitives with the worker, **not** a universal base consumer or worker thread executor. Grouped delivery protects the entire fetched batch (up to `count`) plus claimed work with heartbeat refresh, including shutdown drain. Decode/unexpected handler errors remain pending in grouped mode; simple mode advances its cursor as before. With `auto_ack=False`, grouped reads do not start recovery/heartbeat tasks.
+
+`WebhookErrorPolicy` alone implements inline HTTP retries/backoff: 400/401/403/422 are terminal; other 4xx/5xx can retry. HTTP `max_retries` counts extra inline attempts, while reclaimed Redis entries use the separate total-attempt budget. Terminal HTTP failures ACK only after confirmed DLQ retention; uncertain scan/write state stays pending. Atomic shared writes prevent competing reclaimers from creating duplicate copies after a lost reply or failed ACK. Existing scan preflights are fail-closed; retained history must not be trimmed before pending recovery completes.
+
+Consumers and publishers borrow the process's `RedisManager`; stopping a consumer never closes that shared pool. FastAPI lifespan stops the webhook consumer (including recovery/heartbeat), then closes the application manager/client/pool. Workflow CPU/blocking operations stay in the worker's bounded thread executor; see its README for the PDF/PIL/model/boto/database blocking inventory. This refactor preserves current bounded shutdown behavior and does not add no-progress deadlines or exactly-once business-side-effect guarantees.
+
 ## Database migrations
 
 ```bash

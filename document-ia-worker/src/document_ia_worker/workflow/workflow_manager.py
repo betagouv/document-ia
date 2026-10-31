@@ -86,8 +86,9 @@ class WorkflowManager:
         self._agg_token_started_at = start_time_var.set(datetime.now(UTC))
 
         # noinspection PyTypeChecker
+        self._webhook_redis_manager = RedisManager()
         self._webhook_producer: Publisher[WebHookMessage] = Publisher(
-            redis_settings.WEBHOOK_STREAM_NAME, RedisManager()
+            redis_settings.WEBHOOK_STREAM_NAME, self._webhook_redis_manager
         )
 
     async def start(self):
@@ -201,6 +202,11 @@ class WorkflowManager:
                 await local_database_manager.dispose_async()
             except Exception as e:
                 logger.error(f"Error while disposing local database manager: {e}")
+            finally:
+                try:
+                    await self._webhook_redis_manager.close()
+                except Exception as e:
+                    logger.error(f"Error while closing workflow Redis manager: {e}")
 
     async def _prepare_workflow(self, session: AsyncSession) -> bool:
         try:

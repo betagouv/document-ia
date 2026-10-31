@@ -1,3 +1,16 @@
 # Document IA Infrastructure
 
 This project contains shared code about infrastructure components for documentIA projects.
+
+## Redis delivery and execution responsibilities
+
+- `redis/stream_delivery.py`: concrete group/read/claim/ACK/idle-refresh operations and atomic, idempotent copy-before-ACK primitives shared by the worker and API. A failed or cancelled copy is **not** confirmation: do not ACK on that evidence alone (the worker failure policy may instead confirm terminal DLQ retention); a lost successful response is safe to retry. DLQ scans cover the whole target stream because source and target IDs have independent sequences.
+- `redis/handler_execution.py`: owns the worker thread pool and per-message `asyncio.Runner`. Reads are bounded by `min(batch_size, worker_number - active_handlers)`; no reads when full. Both values must be positive. This is not an async-only handler runner: workflow CPU/blocking work must remain off the delivery loop.
+- `redis/worker_error_policy.py`: worker retryable failures create Redis copies, with `retries` counting consumed attempts and `max_retry_number` the total attempt budget. Fatal/exhausted/decode failures require confirmed DLQ retention before ACK. API HTTP backoff remains a distinct policy in the API package, not a universal consumer base class.
+- `redis/consumer.py`: orchestration of listener, reclaimer, heartbeat and bounded drain. The heartbeat refreshes tracked in-flight/claimed work, including the existing shutdown drain. Worker handler IDs leave tracking before result handling/retention; this refactor preserves that boundary rather than extending heartbeat coverage. Running native/thread work cannot be interrupted by cancelling a Future; the worker process owner enforces its existing final shutdown deadline and leaves unfinished entries pending.
+
+`StreamDelivery`, consumers and publishers **borrow** Redis clients/managers. The creator owns closure on the same event loop: worker runtime closes its main-loop manager; API lifespan closes its shared application manager after stopping consumers; each workflow closes its own webhook-publisher manager. `RedisManager.close()` closes both client and explicitly created connection pool, then resets state, and is idempotent. Stopping one consumer must not close another consumer/publisher's borrowed manager.
+
+`OpenAIManager` creates a request-scoped `AsyncOpenAI` client on the request's loop and closes it with an async context manager on success, errors and cancellation. Merely constructing a manager/unused LLM step opens no client. HTTP download/OCR clients already use async context managers; workflow database sessions/engines are scoped and disposed by the workflow owner. Thread-loop teardown does not call `gc.collect()` to schedule client destructors.
+
+Delivery is at-least-once, not exactly-once business execution. Atomic copy guards scan retained stream history; trimming away pending sources/copies invalidates that guard. Current publisher MAXLEN retention and no-progress deadlines need separate operational policies; this refactor does not redesign them. Heartbeats protect live handlers but are not fencing/leases against process pauses. See the worker README for the blocking-operation inventory.

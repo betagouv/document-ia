@@ -59,8 +59,11 @@ class RedisManager:
         return None
 
     async def close(self):
+        """Close client AND the explicitly constructed pool on the owning loop."""
         if self.redis is not None:
-            await self.redis.close()
+            await self.redis.aclose(close_connection_pool=True)
+            self.redis = None
+            self.connection_attempts = 0
 
 
 redis_manager = RedisManager()
