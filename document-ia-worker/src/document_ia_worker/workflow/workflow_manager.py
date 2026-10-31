@@ -7,7 +7,7 @@ from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.repository.event import EventRepository
 from document_ia_infra.data.event.schema.mappers.event_mapper import (
-    convert_inner_event_dto,
+    decode_event_dto,
 )
 from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import (
     WorkflowExecutionStartedEvent,
@@ -315,12 +315,16 @@ class WorkflowManager:
         try:
             if self.event_dto is None:
                 raise Exception("Event not prepared")
-            event = convert_inner_event_dto(
-                self.event_dto.event, self.event_dto.event_type
-            )
-            if not isinstance(event, WorkflowExecutionStartedEvent):
-                raise ValueError("Expected a workflow execution started event")
-            return event
+            try:
+                event = decode_event_dto(self.event_dto)
+                if not isinstance(event, WorkflowExecutionStartedEvent):
+                    raise ValueError("Expected a workflow execution started event")
+                return event
+            except Exception as e:
+                logger.error(
+                    f"Failed to parse start event for execution {self.message.workflow_execution_id}: {e}"
+                )
+                raise
         except Exception as e:
             logger.error(
                 f"Failed to parse start event for execution {self.message.workflow_execution_id}: {e}"
