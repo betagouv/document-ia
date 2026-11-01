@@ -9,15 +9,28 @@ decoder for the four persisted workflow event types. `convert_event_dto` adds th
 store envelope; the worker and API also use the decoder directly. Pydantic event
 schemas retain responsibility for nested extraction and barcode decoding. API
 response projection and debug filtering remain in `ExecutionService`, also used
-by webhook notifications. No storage schema or accepted payload rules change.
+by webhook notifications.
+
+`decode_event_dto` is the entry point for persisted DTOs in the store service,
+API/webhooks and worker. It checks that execution, workflow and organization IDs
+agree between envelope and payload (organization IDs are compared as UUIDs).
+Each concrete schema fixes its event type with `Literal`; an explicit payload
+type must match the envelope. An omitted payload type still defaults to the
+envelope-selected schema for legacy compatibility. Store row IDs and timestamps
+are independent of payload event IDs and timestamps and are not compared.
+Decoder errors identify mismatched field names, never their values; schema
+errors use a generic message to avoid logging document contents.
 
 For malformed persisted start parameters, validation now occurs with the full
 start event: worker failure records identify `parse_start_event` instead of
-`prepare_workflow`, with the nested parameter path in the validation error.
+`prepare_workflow`, without including the invalid parameter value.
 
 Synthetic historical-shape fixtures live in `tests/fixtures/persisted_events.json`.
 API golden payloads were captured from parent commit `e54d117`, before migrating
-callers, and cover normal/debug output and webhook JSON.
+callers, and cover normal/debug output and webhook JSON. These fixtures are
+synthetic, not a production-data audit. Before deploying stricter rejection,
+check representative historical rows in the target environment for envelope/type
+and identifier consistency; no production database was accessed for these tests.
 
 ## Redis delivery and execution responsibilities
 

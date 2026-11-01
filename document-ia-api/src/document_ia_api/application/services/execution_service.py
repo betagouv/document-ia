@@ -30,7 +30,7 @@ from document_ia_infra.data.document.schema.document_extraction import (
 from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.schema.mappers.event_mapper import (
-    convert_inner_event_dto,
+    decode_event_dto,
 )
 from document_ia_infra.data.event.schema.workflow.workflow_execution_completed_event import (
     WorkflowExecutionCompletedEvent,
@@ -66,7 +66,7 @@ class ExecutionService:
         ):
             raise HTTPException(status_code=400, detail="Event type not supported")
 
-        event_data = convert_inner_event_dto(event_dto.event, event_dto.event_type)
+        event_data = decode_event_dto(event_dto)
         if isinstance(event_data, WorkflowExecutionStartedEvent):
             file_info: Optional[S3FileInfo] = None
             if event_data.s3_file_info is not None:

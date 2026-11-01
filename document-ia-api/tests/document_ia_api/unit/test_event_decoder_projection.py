@@ -10,7 +10,6 @@ from uuid import UUID
 
 import pytest
 from fastapi import HTTPException
-from pydantic import ValidationError
 
 from document_ia_api.application.services.execution_service import ExecutionService
 from document_ia_api.infra.webhook_notification_service import (
@@ -48,15 +47,15 @@ def event_dto(name):
 @pytest.mark.parametrize("name", EXPECTED)
 @pytest.mark.parametrize("debug", [False, True])
 def test_response_matches_pre_refactor_payload(name, debug, monkeypatch):
-    decoder = MagicMock(wraps=event_mapper.convert_inner_event_dto)
+    decoder = MagicMock(wraps=event_mapper.decode_event_dto)
     monkeypatch.setattr(
-        "document_ia_api.application.services.execution_service.convert_inner_event_dto",
+        "document_ia_api.application.services.execution_service.decode_event_dto",
         decoder,
     )
     dto = event_dto(name)
     response = ExecutionService().get_event_model(dto, dto.execution_id, debug)
     assert response.model_dump(mode="json") == EXPECTED[name][str(debug).lower()]
-    decoder.assert_called_once_with(dto.event, dto.event_type)
+    decoder.assert_called_once_with(dto)
 
 
 @pytest.mark.parametrize("name", EXPECTED)
@@ -95,8 +94,21 @@ def test_step_event_is_still_rejected_before_payload_validation():
 
 
 @pytest.mark.parametrize("name", ["started_v1", "completed_v1", "failed_v1"])
-def test_invalid_supported_payload_keeps_pydantic_validation_error(name):
+def test_invalid_supported_payload_has_safe_validation_error(name):
     dto = event_dto(name)
     dto.event = {}
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValueError, match="Invalid persisted workflow event payload"):
+        ExecutionService().get_event_model(dto, dto.execution_id, False)
+
+
+@pytest.mark.parametrize("field", ["execution_id", "workflow_id", "organization_id"])
+@pytest.mark.parametrize("name", EXPECTED)
+def test_api_projection_rejects_inconsistent_envelope(name, field):
+    dto = event_dto(name)
+    dto.event[field] = (
+        "44444444-4444-4444-8444-444444444444"
+        if field == "organization_id"
+        else "other-identifier"
+    )
+    with pytest.raises(ValueError, match=f"mismatch: {field}"):
         ExecutionService().get_event_model(dto, dto.execution_id, False)
