@@ -98,6 +98,12 @@ async def test_successful_request_still_parses_response(
 
     def handler(request):
         assert request.url.path == "/v1/ocr"
+        assert request.extensions["timeout"] == {
+            "connect": 60,
+            "read": 60,
+            "write": 60,
+            "pool": 60,
+        }
         return httpx.Response(
             200,
             json={
@@ -111,6 +117,40 @@ async def test_successful_request_still_parses_response(
     assert result.success is True
     assert "recognized text" in result.content
     assert "HTTP OCR call failed" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_live_success_test_extends_timeout_without_changing_connect(
+    ocr_service, monkeypatch
+):
+    import test_mistral_ocr_service as live_tests
+
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        assert request.extensions["timeout"] == {
+            "connect": 60,
+            "read": 120,
+            "write": 120,
+            "pool": 120,
+        }
+        return httpx.Response(
+            200,
+            json={
+                "pages": [{"index": 0, "markdown": "recognized text", "tables": []}],
+                "model": "mistral-ocr-2512",
+            },
+        )
+
+    def service(**kwargs):
+        return MistralHttpOcrService(config=ocr_service.config, **kwargs)
+
+    install_transport(monkeypatch, handler)
+    monkeypatch.setattr(live_tests, "mistral_ocr_settings", ocr_service.config)
+    monkeypatch.setattr(live_tests, "MistralHttpOcrService", service)
+    await live_tests.test_extract_text_from_image_e2e_success()
+    assert len(requests) == 1
 
 
 @pytest.mark.asyncio
