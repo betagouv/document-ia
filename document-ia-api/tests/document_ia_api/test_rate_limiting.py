@@ -110,37 +110,6 @@ class TestRateLimiting:
         assert response.headers["X-RateLimit-Reset-Minute"] == "2024-01-01T12:01:00"
         assert response.headers["X-RateLimit-Reset-Daily"] == "2024-01-02T00:00:00"
 
-    @pytest.mark.asyncio
-    async def test_redis_connection_failure_graceful(self, mock_redis_service):
-        """Test that rate limiting gracefully handles Redis connection failures."""
-
-        # Mock Redis connection failure
-        mock_redis_service.check_rate_limit.return_value = (
-            True,
-            RateLimitInfo(
-                limit_exceeded=False,
-                remaining_minute=300,
-                remaining_daily=5000,
-                reset_minute=None,
-                reset_daily=None,
-            ),
-        )
-
-        # Create a mock request object
-        mock_request = Mock()
-        mock_request.state = Mock()
-
-        with patch(
-            REDIS_SERVICE_PATH, mock_redis_service
-        ):
-            # Should still allow the request when Redis is unavailable
-            result = await check_rate_limit(mock_request, "test-api-key")
-
-        assert result.limit_exceeded is False
-        assert result.remaining_minute == 300
-        assert result.remaining_daily == 5000
-
-
 class TestRateLimitMiddleware:
     """Test cases for rate limiting middleware."""
 

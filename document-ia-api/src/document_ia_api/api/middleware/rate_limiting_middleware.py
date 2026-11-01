@@ -1,4 +1,6 @@
 import logging
+import math
+from datetime import datetime
 from typing import cast
 
 from fastapi import Depends, Request
@@ -38,12 +40,22 @@ async def check_rate_limit(
         # TODO: sanitize the api key in the logging service
         logger.warning(f"Rate limit exceeded for API key {api_key[:8]}...")
 
+        now = datetime.now()
+        resets: list[datetime] = []
+        if rate_limit_info.remaining_minute == 0 and rate_limit_info.reset_minute:
+            resets.append(datetime.fromisoformat(rate_limit_info.reset_minute))
+        if rate_limit_info.remaining_daily == 0 and rate_limit_info.reset_daily:
+            resets.append(datetime.fromisoformat(rate_limit_info.reset_daily))
+        retry_after = (
+            max(1, math.ceil((max(resets) - now).total_seconds())) if resets else 60
+        )
         raise RateLimitException(
             detail={
                 "error": "Rate limit exceeded",
                 "message": "Too many requests. Please try again later.",
                 "rate_limit_info": rate_limit_info.model_dump(),
-            }
+            },
+            headers={"Retry-After": str(retry_after)},
         )
 
     return rate_limit_info
