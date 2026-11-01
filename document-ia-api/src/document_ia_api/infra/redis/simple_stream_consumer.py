@@ -314,9 +314,7 @@ class SimpleStreamConsumer(Generic[T]):
                                     and self._auto_ack
                                 ):
                                     try:
-                                        await redis.xack(
-                                            self._stream, self._group, entry_id
-                                        )
+                                        await self._delivery.ack(redis, entry_id)
                                     except Exception as ack_err:
                                         logger.error(
                                             "ACK error for stream=%s id=%s: %s",
@@ -479,16 +477,15 @@ class SimpleStreamConsumer(Generic[T]):
             # que de re-réclamer la même entrée indéfiniment.
             logger.error(
                 "Malformed retries field for reclaimed entry stream=%s id=%s: "
-                "%r. Moving to DLQ.",
+                "Moving to DLQ.",
                 self._stream,
                 entry_id,
-                fields.get("retries"),
             )
             await self._retain_in_dlq_and_ack(
                 redis,
                 entry_id,
                 fields,
-                f"Malformed retries field: {fields.get('retries')!r}",
+                "Malformed retries field",
             )
             return
         if attempts >= self._max_retries:

@@ -65,7 +65,7 @@ and identifier consistency; no production database was accessed for these tests.
 
 `OpenAIManager` creates a request-scoped `AsyncOpenAI` client on the request's loop and closes it with an async context manager on success, errors and cancellation. Merely constructing a manager/unused LLM step opens no client. HTTP download/OCR clients already use async context managers; workflow database sessions/engines are scoped and disposed by the workflow owner. Thread-loop teardown does not call `gc.collect()` to schedule client destructors.
 
-Delivery is at-least-once, not exactly-once business execution. Atomic copy guards scan retained stream history; trimming away pending sources/copies invalidates that guard. Publishers no longer use MAXLEN; safe retention and no-progress deadlines remain separate operational policies (#122). Heartbeats protect live handlers but are not fencing/leases against process pauses. See the worker README for the blocking-operation inventory.
+Delivery is at-least-once, not exactly-once business execution. Atomic copy guards scan retained stream history; trimming away pending sources/copies invalidates that guard. Publishers never use MAXLEN; use the completion-aware retention procedure below. Heartbeats protect live handlers but are not fencing/leases against process pauses. See the worker README for the blocking-operation inventory.
 
 ## New-execution admission
 
@@ -92,8 +92,10 @@ The same configurable thresholds apply independently to each queue:
 | `ADMISSION_RESUME_OUTSTANDING` | 800 | Reopen only at or below this count |
 | `ADMISSION_MAX_AGE_SECONDS` | 300 | Stop when the oldest queue entry reaches this age |
 | `ADMISSION_RESUME_AGE_SECONDS` | 120 | Reopen only at or below this age |
+| `ADMISSION_MAX_RETAINED` | 10000 | Stop at this combined source + DLQ entry count, per queue |
+| `ADMISSION_RESUME_RETAINED` | 8000 | Reopen only at or below this retained count |
 
-Once a queue closes admission, both its count and age must fall to their resume
+Once a queue closes admission, its outstanding count, age and retained count must fall to their resume
 thresholds. The closed state is shared in `<stream>:admission`, without a TTL
 that might reopen admission during an outage. ACKs reduce outstanding work;
 there are no expiring leases that can forget an accepted job. A webhook backlog
@@ -106,6 +108,133 @@ dependency quotas, acceptable wait times and storage/memory headroom. A stalled
 OCR, LLM, download, database write or webhook delivery is reflected by unfinished
 queue work; this is not an active health probe or provider-specific circuit
 breaker. Queue age is the age of the current delivery entry, not total execution
-age across retries. DLQs, completed history, retained uploads and per-document
-byte budgets need the retention/storage policy in #122. Do not use MAXLEN as an
+age across retries. Retained counts are a soft entry budget, not a byte limit:
+retries and notifications of accepted work can still increase them. Retained
+uploads and per-document byte budgets are separate storage policies. Do not use MAXLEN as an
 admission limit or trim pending entries to reopen admission.
+
+## Completion-aware retention
+
+`STREAM_COMPLETED_RETENTION_SECONDS` defaults to one day and
+`STREAM_DLQ_RETENTION_SECONDS` to seven days. They are minimum retention ages,
+not guaranteed deletion deadlines. `EVENT_STREAM_EXPIRATION` and
+`EVENT_STREAM_MAXLEN` remain legacy configuration only; never EXPIRE the stream.
+
+Run from a deployed API/worker environment containing `document-ia-infra`, with
+the same Redis settings as the consumers:
+
+```bash
+python -m document_ia_infra.redis.maintenance
+python -m document_ia_infra.redis.maintenance --apply
+```
+
+The first command is read-only. The second deletes at most
+`STREAM_CLEANUP_BATCH_SIZE` entries (default 100, maximum 1000) from each source
+and each DLQ. Schedule that second command once per minute in the deployment's
+scheduler, capture its JSON output and alert on a nonzero exit code. This PR
+does not configure the production scheduler or enable cleanup automatically.
+Use a shorter interval or larger batch only after measuring Redis latency and
+the eligible backlog; do not loop unboundedly in a request or consumer handler.
+
+Deletion and group checks are one Lua operation. A source entry is eligible only
+before every group's last-delivered ID and oldest pending ID, and before its
+age cutoff. Without a group there is no evidence of completion, so nothing is
+deleted. Unknown lag or Redis errors stop cleanup. DLQ expiration also requires
+the original to be in that safe completed prefix. A failed source ACK therefore
+protects the DLQ copy used by the idempotence guard, even past seven days.
+If the DLQ has consumer groups, their pending/undelivered boundary is protected
+too. Old DLQ rows without an `original_id` require manual reconciliation.
+
+Cleanup deliberately keeps the boundary row and can retain acknowledged history
+behind an old pending entry. Each DLQ pass inspects only its oldest eligible-age
+batch; protected rows can delay later cleanup. Alert on retained count and
+oldest outstanding age instead of assuming an age setting bounds memory.
+Do not destroy/reset groups or use manual XDEL/XTRIM to bypass this guard.
+
+## Incident recovery and DLQ replay
+
+1. Stop new traffic at the ingress while diagnosing the incident. Keep the
+   shared admission state intact. Record queue counts/ages with the read-only
+   command above, without copying document payloads into logs or tickets.
+2. Repair Redis or the dependency. Before restarting **all** workflow and webhook
+   consumers, set `STREAM_RECOVERY_INTERVAL_MS=1000`. Each stream then permits at
+   most one new delivery and one pending claim per second across all instances;
+   each returned batch contains one entry. This is a dispatch limit, not a limit
+   on inline webhook retries or already-running handlers. Keep worker counts and
+   webhook backoff consistent with the provider's quotas.
+3. Let already accepted work drain. New workflow requests remain subject to
+   outstanding-count, age and retained-history hysteresis. Recovery does not
+   clear those thresholds. Run safe cleanup if completed history is the blocker.
+4. Inspect a failed execution through the authorized API/Event Store. Determine
+   whether repeating its external effects is safe and whether its uploaded
+   object still exists. Fix permanent failures before considering replay.
+   The DLQ is not a complete workflow backup and cannot restore deleted objects.
+5. Replay **one chosen** DLQ entry from a restricted operator terminal:
+
+```bash
+python -m document_ia_infra.redis.maintenance --apply --stream event_stream --replay-id '<dlq-entry-id>'
+```
+
+Use the configured workflow or webhook stream name, not a DLQ name. Replay
+requires the original to be delivered and no longer pending in every group.
+DLQs with consumer groups need separate reconciliation and are refused.
+The same admission check as new executions applies to both replay types.
+Insertion and deletion of the DLQ row are atomic: retrying after a lost reply
+cannot create another copy from that row. Global manual replay is limited to
+one per stream per second (or the larger recovery interval). Attempt count
+resets to zero; `replayed_from` records the DLQ ID. There is no bulk-replay flag.
+Replay does not undo terminal PostgreSQL state or guarantee exactly-once effects.
+
+6. Check counts, ages, failure rates and dependency latency after each small
+   sample. Increase throughput by lowering the recovery interval only after
+   observing stability; restore zero and restart all consumers when normal
+   capacity is demonstrated. Stop the sample if failure/retention errors rise.
+
+### Failure classes and monitoring
+
+`classify_failure` labels known transport failures, timeouts, HTTP 408/425/429
+and 5xx, and explicit `RetryableException` as temporary. HTTP 4xx outside that
+set, known authentication errors and invalid values are permanent. Other
+exceptions are internal: they are not retried blindly. Worker automatic retries
+remain restricted to explicit `RetryableException`, using the existing attempt
+budget and WorkflowManager's notification contract. Raw dependency exceptions
+can be labelled temporary but still require operator replay; classification
+does not silently change terminal workflow decisions. Other worker failures
+require DLQ retention before ACK. Webhook HTTP retries use the same status classification;
+non-HTTP webhook errors still remain pending for Redis recovery. Existing steps
+that wrap an error in `RetryableException` explicitly retain their retry contract;
+classification cannot recover a status or cause discarded by those steps.
+
+The maintenance JSON exposes `pending`, `lag`, `oldest_outstanding_ms`,
+`retained`, `dlq`, `completed_eligible` and `dlq_eligible` for each queue.
+The last two count deletions on an apply pass and candidates on a read-only pass.
+For several groups, pending/lag are summed deliveries, not unique jobs.
+The fixed-schema `redis_delivery` log events supply counters by stream,
+operation and outcome: `retry`/`dlq` created/existing/error, `reclaim` success
+(value = claimed entries), `ack` success/error, and worker `failure`
+temporary/permanent/internal. Aggregate these in the existing log collector;
+no Prometheus endpoint or Redis-backed counter is added. Payloads, exception
+messages and document identifiers are not metric labels. Restricted DLQ storage
+still contains messages; do not export it to the log collector.
+
+### Deployment checklist and limits
+
+Before production, record the actual Redis plan/memory, `maxmemory-policy`,
+persistence/replication settings and backup restore test with the operator.
+Use **noeviction**, never a key-eviction policy: losing an entire stream or
+admission key would invalidate accepted-work retention. Configure provider
+memory/disk alerts and reserve headroom for draining already accepted work,
+Lua copy scans, replication and persistence buffers. Size the soft entry
+budgets from measured entry sizes and traffic, with both API and worker using
+identical settings. Counts do not impose a hard byte or tenant quota.
+
+No production configuration was inspected or changed here. A DLQ in the same
+Redis database is **not** an independent fallback if Redis refuses writes or
+loses data. On a failed DLQ write the source stays pending; ACK is not evidence
+of durable replication. Recovery guarantees depend on the deployment's Redis
+durability configuration. For incident triage the proposed policy keeps failures
+in Redis for at least seven days; no long-term document archive is required by
+this change. If the service owner requires longer retention or survival of
+Redis loss, provide an independently durable, access-controlled export with a
+restore test before enabling expiration; simply raising a TTL is insufficient.
+Object-storage retention remains outside this Redis policy.

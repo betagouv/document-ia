@@ -5,6 +5,8 @@ from collections.abc import Awaitable, Callable
 
 import httpx
 
+from document_ia_infra.redis.failure_classification import classify_failure
+
 
 class WebhookErrorPolicy:
     def __init__(self, max_retries: int, initial_delay: float, multiplier: float):
@@ -16,7 +18,7 @@ class WebhookErrorPolicy:
 
     @staticmethod
     def should_retry(status: int) -> bool:
-        return status not in {400, 401, 403, 422} and 400 <= status < 600
+        return status in {408, 425, 429} or 500 <= status < 600
 
     def delay(self, attempt: int) -> float:
         return self.initial_delay * self.multiplier**attempt
@@ -33,7 +35,7 @@ class WebhookErrorPolicy:
                 return True
             except httpx.HTTPStatusError as exc:
                 status = exc.response.status_code
-                if not self.should_retry(status):
+                if classify_failure(exc) != "temporary":
                     return await retain(f"Non retryable HTTP {status}")
                 if attempt >= self.max_retries:
                     return await retain(f"Max retries exceeded (HTTP {status})")

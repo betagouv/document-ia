@@ -26,6 +26,14 @@ class RedisSettings(BaseDocumentIaSettings):
     ADMISSION_RESUME_OUTSTANDING: int = Field(default=800, ge=0)
     ADMISSION_MAX_AGE_SECONDS: int = Field(default=300, ge=2)
     ADMISSION_RESUME_AGE_SECONDS: int = Field(default=120, ge=0)
+    # Includes completed history and DLQ; retries of accepted work may exceed it.
+    ADMISSION_MAX_RETAINED: int = Field(default=10000, ge=2)
+    ADMISSION_RESUME_RETAINED: int = Field(default=8000, ge=0)
+    STREAM_COMPLETED_RETENTION_SECONDS: int = Field(default=86400, ge=1)
+    STREAM_DLQ_RETENTION_SECONDS: int = Field(default=604800, ge=1)
+    STREAM_CLEANUP_BATCH_SIZE: int = Field(default=100, ge=1, le=1000)
+    # Operator-enabled, shared across instances; 0 keeps normal throughput.
+    STREAM_RECOVERY_INTERVAL_MS: int = Field(default=0, ge=0, le=60000)
 
     @model_validator(mode="after")
     def validate_admission_thresholds(self):
@@ -33,6 +41,8 @@ class RedisSettings(BaseDocumentIaSettings):
             raise ValueError("Admission resume count must be below the stop count")
         if self.ADMISSION_RESUME_AGE_SECONDS >= self.ADMISSION_MAX_AGE_SECONDS:
             raise ValueError("Admission resume age must be below the stop age")
+        if self.ADMISSION_RESUME_RETAINED >= self.ADMISSION_MAX_RETAINED:
+            raise ValueError("Admission resume history must be below the stop count")
         if self.EVENT_STREAM_NAME == self.WEBHOOK_STREAM_NAME:
             raise ValueError("Workflow and webhook streams must be distinct")
         return self

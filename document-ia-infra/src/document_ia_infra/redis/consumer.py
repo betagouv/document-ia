@@ -262,18 +262,18 @@ class Consumer(Generic[T]):
                             T, self.message_class.from_json(raw_data)
                         )
                     except Exception as decode_err:
-                        logger.error(f"Erreur décodage message {msg_id}: {decode_err}")
+                        logger.error(
+                            "Message decode failed: %s", type(decode_err).__name__
+                        )
                         if await self._send_to_dlq(
                             redis_connection=self.redis,
                             msg_id=msg_id,
                             fields=fields,
                             reason="decode_error",
-                            error=str(decode_err),
+                            error=type(decode_err).__name__,
                         ):
                             try:
-                                await self.redis.xack(
-                                    self.stream_name, self.consumer_group, msg_id
-                                )
+                                await self.delivery.ack(self.redis, msg_id)
                             except Exception:
                                 logger.error(f"ACK failed for decode_error {msg_id}")
                         # L'entrée est terminée (conservée ou laissée en
@@ -295,7 +295,7 @@ class Consumer(Generic[T]):
                     self._processing_futures.add(fut)
 
         except Exception as e:
-            logger.error(f"Error in consumer loop shutdown: {e}")
+            logger.error("Error in consumer loop shutdown: %s", type(e).__name__)
             self.stop_flag.set()
             raise e
         finally:
@@ -435,6 +435,7 @@ class Consumer(Generic[T]):
             "original_id": str(msg_id),
             "reason": reason,
             "error": error or "",
+            "failure_class": fields.get("failure_class", "internal"),
             "consumer": self.consumer_name,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
@@ -443,7 +444,7 @@ class Consumer(Generic[T]):
         except Exception as dlq_err:
             logger.error(
                 f"Failed to retain message {msg_id} in DLQ "
-                f"'{self.dlq_stream_name}': {dlq_err}; leaving entry pending"
+                f"'{self.dlq_stream_name}': {type(dlq_err).__name__}; leaving entry pending"
             )
             return False
 
@@ -490,14 +491,14 @@ class Consumer(Generic[T]):
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Error reclaiming pending messages: {e}")
+                logger.error("Error reclaiming pending messages: %s", type(e).__name__)
                 await asyncio.sleep(5)
                 continue
         logger.info("Reclaimer task stopped")
 
     async def _reclaim_entry(self, msg_id: str, fields: dict[str, Any]) -> None:
         """Retraite une entrée revendiquée : DLQ si épuisée, sinon remise en file."""
-        logger.info(f"Reclaimed message ID: {msg_id} with fields: {fields}")
+        logger.info("Reclaimed message ID: %s", msg_id)
         assert self.redis is not None
         try:
             attempts = int(fields.get("retries", "0")) + 1
@@ -506,14 +507,13 @@ class Consumer(Generic[T]):
             # ni la remise en file honorée. Conserver en DLQ plutôt que de
             # re-réclamer la même entrée indéfiniment.
             logger.error(
-                f"Malformed retries field for reclaimed message {msg_id}: "
-                f"{fields.get('retries')!r}. Moving to DLQ."
+                f"Malformed retries field for reclaimed message {msg_id}. Moving to DLQ."
             )
             await self._retain_in_dlq_and_ack(
                 msg_id,
                 fields,
                 "max_retries_exceeded",
-                f"Malformed retries field: {fields.get('retries')!r}",
+                "Malformed retries field",
             )
             return
         if attempts >= self.max_retry_number:
@@ -535,12 +535,16 @@ class Consumer(Generic[T]):
             )
             logger.info(f"Requeued reclaimed message {msg_id} (attempt {attempts})")
             try:
-                await self.redis.xack(self.stream_name, self.consumer_group, msg_id)
+                await self.delivery.ack(self.redis, msg_id)
                 logger.info(f"Acknowledged reclaimed message {msg_id}")
             except Exception:
                 logger.error(f"ACK failed for reclaimed {msg_id}")
         except Exception as requeue_err:
-            logger.error(f"Failed to requeue reclaimed message {msg_id}: {requeue_err}")
+            logger.error(
+                "Failed to requeue reclaimed message %s: %s",
+                msg_id,
+                type(requeue_err).__name__,
+            )
 
     async def _retain_in_dlq_and_ack(
         self, msg_id: str, fields: dict[str, Any], reason: str, error: str
@@ -560,7 +564,7 @@ class Consumer(Generic[T]):
             )
             return
         try:
-            await self.redis.xack(self.stream_name, self.consumer_group, msg_id)
+            await self.delivery.ack(self.redis, msg_id)
         except Exception:
             logger.error(f"ACK failed for reclaimed DLQ message {msg_id}")
 
