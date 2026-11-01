@@ -236,7 +236,7 @@ jobs:
           result=0
           for attempt in 1 2 3; do
             echo "OCR diagnostic sample ${attempt}/3"
-            if uv run pytest -q --log-cli-level=ERROR tests/unit/test_mistral_ocr_service.py::test_extract_text_from_image_e2e_success; then
+            if uv run pytest -q --durations=1 --log-cli-level=ERROR tests/unit/test_mistral_ocr_service.py::test_extract_text_from_image_e2e_success; then
               echo "OCR diagnostic sample ${attempt}: PASS"
             else
               echo "OCR diagnostic sample ${attempt}: FAIL"
