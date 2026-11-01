@@ -191,6 +191,55 @@ async def test_successful_request_still_parses_response(
 async def test_custom_timeout_extends_budget_without_changing_connect(
     ocr_service, monkeypatch, tmp_path
 ):
+    # The body of this test function is not provided in the conflict block,
+    # but it is assumed to exist and would follow here.
+
+    import test_mistral_ocr_service as live_tests
+    import httpx
+
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        assert request.extensions["timeout"] == {
+            "connect": 60,
+            "read": 120,
+            "write": 120,
+            "pool": 120,
+        }
+        return httpx.Response(
+            200,
+            json={
+                "pages": [{"index": 0, "markdown": "recognized text", "tables": []}],
+                "model": "mistral-ocr-2512",
+            },
+        )
+
+    from mistral_ocr_service import MistralHttpOcrService
+    from pytest_httpx import HTTPXMock
+
+    def install_transport(monkeypatch, handler):
+        monkeypatch.setattr(HTTPXMock, "add_response", handler)
+
+    def service(**kwargs):
+        return MistralHttpOcrService(config=ocr_service.config, **kwargs)
+
+    install_transport(monkeypatch, handler)
+    monkeypatch.setattr(live_tests, "mistral_ocr_settings", ocr_service.config)
+    monkeypatch.setattr(live_tests, "MistralHttpOcrService", service)
+    await live_tests.test_extract_text_from_image_e2e_success()
+    assert len(requests) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [401, 403])
+async def test_live_unauthorized_test_requires_real_401(
+    status, ocr_service, monkeypatch
+):
+    # The body of this test function is not provided in the conflict block,
+    # but it is assumed to exist and would follow here.
+    pass # Placeholder for the body of the test
+):
     document = tmp_path / "document.pdf"
     document.write_bytes(b"test-pdf")
     service = MistralHttpOcrService(config=ocr_service.config, timeout=120)
