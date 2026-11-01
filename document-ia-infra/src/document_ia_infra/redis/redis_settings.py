@@ -23,6 +23,11 @@ class RedisSettings(BaseDocumentIaSettings):
     DLQ_STREAM_MAXLEN: int = Field(default=100000)
     EVENT_CONSUMER_GROUP: str = Field(default="workflow_execution_consumer")
 
+    # Valeur du header `Retry-After` (en secondes) renvoyé quand une exécution ne
+    # peut pas être programmée. Bornée pour ne pas inviter le client à attendre
+    # indéfiniment une indisponibilité prolongée.
+    PUBLISH_RETRY_AFTER_SECONDS: int = Field(default=5, ge=1, le=120)
+
     def get_redis_url(self) -> str:
         if self.REDIS_URL:
             return self.REDIS_URL
