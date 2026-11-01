@@ -15,6 +15,7 @@ from document_ia_api.api.contracts.workflow import (
     WorkflowExtractionParameterRequest,
 )
 from document_ia_api.api.middleware.rate_limiting_middleware import check_rate_limit
+from document_ia_api.api.middleware.execution_admission import check_execution_admission
 from document_ia_api.application.services.workflow_service import WorkflowService
 from document_ia_api.schemas.rate_limiting import RateLimitInfo
 from document_ia_infra.data.database import database_manager
@@ -27,7 +28,11 @@ router = APIRouter(prefix="/workflows")
 
 @router.post(
     "/{workflow_id}/execute",
-    dependencies=[Depends(verify_api_key), Depends(check_rate_limit)],
+    dependencies=[
+        Depends(verify_api_key),
+        Depends(check_rate_limit),
+        Depends(check_execution_admission),
+    ],
     response_model=WorkflowExecuteResponse,
     summary="Execute Workflow",
     description="Execute a document processing workflow with file upload and metadata",
@@ -367,6 +372,11 @@ async def execute_workflow(
 
 @router.post(
     "/{workflow_id}/execute-sync",
+    dependencies=[
+        Depends(verify_api_key),
+        Depends(check_rate_limit),
+        Depends(check_execution_admission),
+    ],
     response_model=ExecutionResponse,
     summary="Execute Workflow Synchronously",
     description="Execute a workflow and wait for completion (STARTED/SUCCESS/FAILED) within a configurable timeout.",

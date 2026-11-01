@@ -33,6 +33,7 @@ from document_ia_api.api.mapper.workflow_v2_mapper import (
     map_workflow_v2_raw_list_to_contract,
 )
 from document_ia_api.api.middleware.rate_limiting_middleware import check_rate_limit
+from document_ia_api.api.middleware.execution_admission import check_execution_admission
 from document_ia_api.application.services.workflow_service import WorkflowService
 from document_ia_api.application.services.workflow_v2_service import WorkflowV2Service
 from document_ia_api.schemas.workflow import WorkflowExecutionDataV2
@@ -211,7 +212,11 @@ async def list_available_workflows() -> WorkflowV2ListResponse:
 
 @router.post(
     "/{workflow_id}/execute",
-    dependencies=[Depends(verify_api_key), Depends(check_rate_limit)],
+    dependencies=[
+        Depends(verify_api_key),
+        Depends(check_rate_limit),
+        Depends(check_execution_admission),
+    ],
     response_model=WorkflowV2ExecuteResponse,
     summary="Execute Workflow (v2)",
     description=(
@@ -546,7 +551,11 @@ async def execute_workflow_v2(
 
 @router.post(
     "/{workflow_id}/execute-sync",
-    dependencies=[Depends(verify_api_key), Depends(check_rate_limit)],
+    dependencies=[
+        Depends(verify_api_key),
+        Depends(check_rate_limit),
+        Depends(check_execution_admission),
+    ],
     response_model=ExecutionResponse,
     summary="Execute Workflow Synchronously (v2)",
     description=(

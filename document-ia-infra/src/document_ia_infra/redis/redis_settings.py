@@ -1,4 +1,5 @@
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
+from urllib.parse import quote
 
 from document_ia_infra.core.BaseDocumentIaSettings import BaseDocumentIaSettings
 
@@ -17,10 +18,24 @@ class RedisSettings(BaseDocumentIaSettings):
     WEBHOOK_STREAM_NAME: str = Field(default="webhook_stream")
     WEBHOOK_CONSUMER_GROUP: str = Field(default="webhook_consumer")
     EVENT_STREAM_EXPIRATION: int = Field(default=300)
-    EVENT_STREAM_MAXLEN: int = Field(
-        default=100000
-    )  # In production we have 16k messages for a Day.
+    # Kept for configuration compatibility; publishers no longer trim streams.
+    EVENT_STREAM_MAXLEN: int = Field(default=100000)
     EVENT_CONSUMER_GROUP: str = Field(default="workflow_execution_consumer")
+
+    ADMISSION_MAX_OUTSTANDING: int = Field(default=1000, ge=2)
+    ADMISSION_RESUME_OUTSTANDING: int = Field(default=800, ge=0)
+    ADMISSION_MAX_AGE_SECONDS: int = Field(default=300, ge=2)
+    ADMISSION_RESUME_AGE_SECONDS: int = Field(default=120, ge=0)
+
+    @model_validator(mode="after")
+    def validate_admission_thresholds(self):
+        if self.ADMISSION_RESUME_OUTSTANDING >= self.ADMISSION_MAX_OUTSTANDING:
+            raise ValueError("Admission resume count must be below the stop count")
+        if self.ADMISSION_RESUME_AGE_SECONDS >= self.ADMISSION_MAX_AGE_SECONDS:
+            raise ValueError("Admission resume age must be below the stop age")
+        if self.EVENT_STREAM_NAME == self.WEBHOOK_STREAM_NAME:
+            raise ValueError("Workflow and webhook streams must be distinct")
+        return self
 
     # Valeur du header `Retry-After` (en secondes) renvoyé quand une exécution ne
     # peut pas être programmée. Bornée pour ne pas inviter le client à attendre
@@ -30,7 +45,10 @@ class RedisSettings(BaseDocumentIaSettings):
     def get_redis_url(self) -> str:
         if self.REDIS_URL:
             return self.REDIS_URL
-        return f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+        password = quote(self.REDIS_PASSWORD.get_secret_value(), safe="")
+        return (
+            f"redis://:{password}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+        )
 
 
 redis_settings = RedisSettings()

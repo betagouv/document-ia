@@ -101,6 +101,27 @@ Analytics note:
 
 ## Quality and tests
 
+### Saturation responses
+
+All four v1/v2 execution and synchronous-execution routes check admission before
+storing uploads in S3 or writing start events. Publication rechecks and allocates capacity
+atomically, so preflight success is not a reservation. A race that saturates the
+queue after preflight follows the existing #120 compensation: return 503,
+attempt to record terminal scheduling failure and retain any uploaded file.
+
+Client quota exhaustion returns **429** with `Retry-After` until the relevant
+quota reset. Unavailable quota checks, queue saturation or failed admission
+inspection return **503** with bounded `Retry-After` (default 5 seconds). They do
+not disable rate limiting. RFC 7807 responses preserve this header. Result reads
+are not admission- or quota-gated and remain available when Redis/processing is
+degraded, provided their own database/authentication dependencies are available.
+
+See [infra admission policy](../document-ia-infra/README.md#new-execution-admission)
+for thresholds, recovery semantics and deployment limits. Redis connection/ping,
+admission and quota commands have five-second deadlines per attempt; consumer
+blocking reads retain their own longer blocking budget. Later requests retry
+after an exhausted connection budget instead of remaining permanently disconnected.
+
 ```bash
 cd document-ia-api
 uv run pytest

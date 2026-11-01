@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from datetime import datetime, timedelta
 from typing import Tuple
 
@@ -11,11 +12,11 @@ from document_ia_api.infra.redis.redis_connectivity_status import (
     RedisConnectivityStatus,
 )
 from document_ia_api.schemas.rate_limiting import RateLimitInfo
+from document_ia_api.api.exceptions.service_unavailable_exception import (
+    capacity_unavailable,
+)
 
 logger = logging.getLogger(__name__)
-
-
-# TODO: reset self.connection_attempts to 0 otherwise it will never reconnect
 
 
 class RedisService:
@@ -31,21 +32,10 @@ class RedisService:
         Returns:
             Tuple[bool, RateLimitInfo]: (is_allowed, rate_limit_info)
         """
-        connection = await redis_manager.get_connection()
-        if connection is None:
-            # If Redis is unavailable, allow the request but log the issue
-            logger.error(
-                "Redis unavailable - allowing request but rate limiting is disabled"
-            )
-            return True, RateLimitInfo(
-                limit_exceeded=False,
-                remaining_minute=settings.RATE_LIMIT_REQUESTS_PER_MINUTE,
-                remaining_daily=settings.RATE_LIMIT_REQUESTS_PER_DAY,
-                reset_minute=None,
-                reset_daily=None,
-            )
-
         try:
+            connection = await redis_manager.get_connection()
+            if connection is None:
+                raise ConnectionError("Quota connection unavailable")
             now = datetime.now()
 
             # Calculate proper window boundaries for fixed window rate limiting
@@ -72,7 +62,7 @@ class RedisService:
                 await pipe.get(minute_key)
                 await pipe.get(daily_key)
 
-                results = await pipe.execute()
+                results = await asyncio.wait_for(pipe.execute(), timeout=5)
 
                 minute_count = int(results[4])
                 daily_count = int(results[5])
@@ -107,26 +97,9 @@ class RedisService:
                 reset_daily=next_day.isoformat(),
             )
 
-        except (ConnectionError, TimeoutError) as e:
-            logger.error(f"Redis error during rate limit check: {e}")
-            # Allow request if Redis fails
-            return True, RateLimitInfo(
-                limit_exceeded=False,
-                remaining_minute=settings.RATE_LIMIT_REQUESTS_PER_MINUTE,
-                remaining_daily=settings.RATE_LIMIT_REQUESTS_PER_DAY,
-                reset_minute=None,
-                reset_daily=None,
-            )
         except Exception as e:
-            logger.error(f"Unexpected error during rate limit check: {e}")
-            # Allow request on unexpected errors
-            return True, RateLimitInfo(
-                limit_exceeded=False,
-                remaining_minute=settings.RATE_LIMIT_REQUESTS_PER_MINUTE,
-                remaining_daily=settings.RATE_LIMIT_REQUESTS_PER_DAY,
-                reset_minute=None,
-                reset_daily=None,
-            )
+            logger.error("Quota check unavailable: %s", type(e).__name__)
+            raise capacity_unavailable() from e
 
     async def check_connectivity(self) -> RedisConnectivityStatus:
         """
