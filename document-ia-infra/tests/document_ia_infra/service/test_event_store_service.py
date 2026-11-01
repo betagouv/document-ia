@@ -17,13 +17,21 @@ from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.repository.event import EventRepository
 from document_ia_infra.data.event.schema.event import EventStoreRecord
-from document_ia_infra.data.event.schema.workflow.workflow_execution_completed_event import CompletedEventResult, \
-    WorkflowExecutionCompletedEvent
-from document_ia_infra.data.event.schema.workflow.workflow_execution_failed_event import WorkflowExecutionFailedEvent
-from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import WorkflowExecutionStartedEvent, \
-    ClassificationParameters, ExtractionParameters
-from document_ia_infra.data.event.schema.workflow.workflow_execution_step_completed_event import \
-    WorkflowExecutionStepCompletedEvent
+from document_ia_infra.data.event.schema.workflow.workflow_execution_completed_event import (
+    CompletedEventResult,
+    WorkflowExecutionCompletedEvent,
+)
+from document_ia_infra.data.event.schema.workflow.workflow_execution_failed_event import (
+    WorkflowExecutionFailedEvent,
+)
+from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import (
+    WorkflowExecutionStartedEvent,
+    ClassificationParameters,
+    ExtractionParameters,
+)
+from document_ia_infra.data.event.schema.workflow.workflow_execution_step_completed_event import (
+    WorkflowExecutionStepCompletedEvent,
+)
 from document_ia_infra.service.event_store_service import EventStoreService
 
 
@@ -108,7 +116,7 @@ class TestEventStoreService:
     """Test cases for EventStoreService."""
 
     async def test_store_event_success(
-            self, event_store_service, mock_repository, sample_event
+        self, event_store_service, mock_repository, sample_event
     ):
         """Test successful event storage."""
         # Arrange
@@ -134,7 +142,7 @@ class TestEventStoreService:
         mock_repository.put_event.assert_called_once()
 
     async def test_get_events_by_execution_id(
-            self, event_store_service, mock_repository, sample_event_record
+        self, event_store_service, mock_repository, sample_event_record
     ):
         """Test getting events by execution ID."""
         # Arrange
@@ -226,7 +234,7 @@ class TestEventStoreService:
             total_processing_time_ms=5000,
             output_summary={"steps": 3, "success": True},
             steps_completed=3,
-            event_version=2,
+            workflow_version=2,
         )
 
         assert isinstance(event, WorkflowExecutionCompletedEvent)
@@ -257,7 +265,7 @@ class TestEventStoreService:
     # High-level workflow event orchestration method tests
 
     async def test_emit_workflow_started(
-            self, event_store_service, mock_repository, sample_event_record
+        self, event_store_service, mock_repository, sample_event_record
     ):
         """Test emitting workflow started event."""
         # Arrange
@@ -277,7 +285,7 @@ class TestEventStoreService:
         mock_repository.put_event.assert_called_once()
 
     async def test_emit_step_completed(
-            self, event_store_service, mock_repository, sample_event_record
+        self, event_store_service, mock_repository, sample_event_record
     ):
         """Test emitting step completed event."""
         # Arrange
@@ -299,7 +307,7 @@ class TestEventStoreService:
         mock_repository.put_event.assert_called_once()
 
     async def test_emit_workflow_completed(
-            self, event_store_service, mock_repository, sample_event_record
+        self, event_store_service, mock_repository, sample_event_record
     ):
         """Test emitting workflow completed event."""
         # Arrange
@@ -321,7 +329,7 @@ class TestEventStoreService:
         mock_repository.put_event.assert_called_once()
 
     async def test_emit_workflow_failed(
-            self, event_store_service, mock_repository, sample_event_record
+        self, event_store_service, mock_repository, sample_event_record
     ):
         """Test emitting workflow failed event."""
         # Arrange

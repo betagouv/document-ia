@@ -21,6 +21,28 @@ are independent of payload event IDs and timestamps and are not compared.
 Decoder errors identify mismatched field names, never their values; schema
 errors use a generic message to avoid logging document contents.
 
+### Event representations and versions
+
+- `EventEntity` is the SQLAlchemy storage row. Its `id` and `created_at` identify
+  the row and its persistence time. `EventRepository._to_dto` is the single
+  storage-to-transport envelope conversion.
+- `EventDTO` transports that envelope plus the raw JSON payload between the
+  repository and decoders. `EventStoreRecord` combines the same storage envelope
+  with a decoded `BaseEvent`; neither representation aliases payload metadata.
+- `BaseEvent` is the domain representation. Its `event_id` and `created_at` are
+  the domain event ID and occurrence time, which can legitimately differ from
+  the storage row metadata. API response models remain separate projections.
+- The persisted payload key `version` is the **workflow definition version**
+  used to select v1/v2 execution semantics. `workflow_version` names that role
+  in Python without adding a serialized field. It is neither a payload schema
+  version nor an optimistic-concurrency token; no such tokens are merged into
+  it. Schema compatibility remains the decoder and Pydantic models' concern.
+
+`DocumentExtraction` resolves and validates typed extraction properties once.
+`ExecutionService` only projects those decoded properties to `GenericProperty`
+for API responses; it does not resolve the schema or reconstruct the model a
+second time. Historical API and webhook golden fixtures cover this boundary.
+
 For malformed persisted start parameters, validation now occurs with the full
 start event: worker failure records identify `parse_start_event` instead of
 `prepare_workflow`, without including the invalid parameter value.

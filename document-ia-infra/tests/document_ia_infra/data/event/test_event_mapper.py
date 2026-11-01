@@ -49,6 +49,7 @@ def test_persisted_events_decode_without_mutation(name):
     event = convert_inner_event_dto(payload, event_type)
     assert type(event) is EVENT_CLASSES[event_type]
     assert event.version == payload["version"]
+    assert event.workflow_version == payload["version"]
     assert event.execution_id == payload["execution_id"]
     assert payload == original
 
@@ -63,6 +64,7 @@ def test_persisted_events_decode_without_mutation(name):
     )
     record = convert_event_dto(dto)
     assert type(record.event) is type(event)
+    assert "workflow_version" not in record.model_dump(mode="json")["event"]
     # AUTRE uses the existing unparameterized BaseModel fallback, whose
     # equality is not defined by Pydantic. Its API projection is tested separately.
     excluded = {"final_result": {"extraction"}}

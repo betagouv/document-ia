@@ -241,18 +241,18 @@ class WorkflowManager:
 
             self.event_dto = event_dto
 
-            event_version_raw = event_dto.event.get("version")
-            event_version = (
-                event_version_raw if isinstance(event_version_raw, int) else 1
+            workflow_version_raw = event_dto.event.get("version")
+            workflow_version = (
+                workflow_version_raw if isinstance(workflow_version_raw, int) else 1
             )
 
             workflow_v1: Optional[WorkflowDTO] = None
             workflow_v2 = None
-            if event_version == 1:
+            if workflow_version == 1:
                 workflow_v1 = await workflow_repository.get_workflow_by_id(
                     event_dto.workflow_id
                 )
-            elif event_version == 2:
+            elif workflow_version == 2:
                 workflow_v2 = workflow_v2_repository.get_raw_workflow_by_id(
                     event_dto.workflow_id
                 )
@@ -280,13 +280,15 @@ class WorkflowManager:
             ):
                 raise Exception("Workflow or event not prepared")
 
-            self.main_workflow_context.event_version = self.event_data.version
+            self.main_workflow_context.workflow_version = (
+                self.event_data.workflow_version
+            )
 
             # Ensure a fresh step list per workflow execution
             self.step_list = []
 
             # v1 events use the dedicated v1 step factory.
-            if self.event_data.version == 1:
+            if self.event_data.workflow_version == 1:
                 if self.workflow is None:
                     raise Exception("Workflow v1 not prepared")
 
@@ -298,7 +300,7 @@ class WorkflowManager:
                     session=session,
                 )
                 return
-            elif self.event_data.version == 2:
+            elif self.event_data.workflow_version == 2:
                 self.step_list = prepareStepListsV2(
                     event_v2=self.event_data,
                     workflow_context=self.main_workflow_context,
@@ -306,7 +308,9 @@ class WorkflowManager:
                 )
                 return
             else:
-                raise Exception(f"Unsupported event version: {self.event_data.version}")
+                raise Exception(
+                    f"Unsupported workflow version: {self.event_data.workflow_version}"
+                )
 
         except Exception as e:
             raise WorkflowStepException("prepare_executor", e)

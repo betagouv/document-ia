@@ -7,24 +7,43 @@ from uuid import uuid4, UUID
 import pytest
 from pydantic import BaseModel
 
-from document_ia_infra.data.document.schema.document_classification import DocumentClassification
-from document_ia_infra.data.document.schema.document_extraction import DocumentExtraction
-from document_ia_infra.data.event.schema.workflow.workflow_execution_completed_event import CompletedEventResult
+from document_ia_infra.data.document.schema.document_classification import (
+    DocumentClassification,
+)
+from document_ia_infra.data.document.schema.document_extraction import (
+    DocumentExtraction,
+)
+from document_ia_infra.data.event.schema.workflow.workflow_execution_completed_event import (
+    CompletedEventResult,
+)
 from document_ia_schemas import SupportedDocumentType
-from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext, StepMetadata
+from document_ia_worker.workflow.main_workflow_context import (
+    MainWorkflowContext,
+    StepMetadata,
+)
 from document_ia_worker.workflow.step.save_workflow_result.save_workflow_result import (
     SaveWorkflowResultStep,
 )
-from document_ia_worker.workflow.step.step_result.llm_result import LLMClassificationResult, LLMExtractionResult
+from document_ia_worker.workflow.step.step_result.llm_result import (
+    LLMClassificationResult,
+    LLMExtractionResult,
+)
 
 
 class TestSaveWorkflowResult:
-
     @pytest.mark.asyncio
-    async def test_save_workflow_classification_result_persists_event_with_expected_payload(self, monkeypatch):
+    async def test_save_workflow_classification_result_persists_event_with_expected_payload(
+        self, monkeypatch
+    ):
         # Arrange: context with deterministic start_time (timezone-aware to match code using UTC)
         start_time = datetime.now(timezone.utc) - timedelta(seconds=2)
-        ctx = MainWorkflowContext(execution_id="exec-123", start_time=start_time, steps_metadata=[], number_of_step_executed=3,  organization_id=uuid4())
+        ctx = MainWorkflowContext(
+            execution_id="exec-123",
+            start_time=start_time,
+            steps_metadata=[],
+            number_of_step_executed=3,
+            organization_id=uuid4(),
+        )
 
         # Fake DB session
         fake_session = MagicMock()
@@ -35,7 +54,9 @@ class TestSaveWorkflowResult:
             document_type=SupportedDocumentType.CNI,
             confidence=0.97,
         )
-        llm_classification_result = LLMClassificationResult(data=classification, request_tokens=5, response_tokens=7)
+        llm_classification_result = LLMClassificationResult(
+            data=classification, request_tokens=5, response_tokens=7
+        )
 
         # Instantiate step (note: workflow_type removed from constructor)
         step = SaveWorkflowResultStep(
@@ -47,19 +68,31 @@ class TestSaveWorkflowResult:
         # Replace event_service by a stub with the same signature as EventStoreService.emit_workflow_completed
         captured: dict[str, object] = {}
 
-        async def fake_emit(*, workflow_id: str, execution_id: str, organization_id: UUID, final_result, total_processing_time_ms: int,
-                            output_summary: dict, steps_completed: int, workflow_metadata, event_version: int):
-            captured.update({
-                "workflow_id": workflow_id,
-                "organization_id": organization_id,
-                "execution_id": execution_id,
-                "final_result": final_result,
-                "total_processing_time_ms": total_processing_time_ms,
-                "output_summary": output_summary,
-                "steps_completed": steps_completed,
-                "workflow_metadata": workflow_metadata,
-                "event_version": event_version,
-            })
+        async def fake_emit(
+            *,
+            workflow_id: str,
+            execution_id: str,
+            organization_id: UUID,
+            final_result,
+            total_processing_time_ms: int,
+            output_summary: dict,
+            steps_completed: int,
+            workflow_metadata,
+            workflow_version: int,
+        ):
+            captured.update(
+                {
+                    "workflow_id": workflow_id,
+                    "organization_id": organization_id,
+                    "execution_id": execution_id,
+                    "final_result": final_result,
+                    "total_processing_time_ms": total_processing_time_ms,
+                    "output_summary": output_summary,
+                    "steps_completed": steps_completed,
+                    "workflow_metadata": workflow_metadata,
+                    "workflow_version": workflow_version,
+                }
+            )
             return SimpleNamespace(id="evt-42")
 
         step.event_service = SimpleNamespace(
@@ -67,7 +100,9 @@ class TestSaveWorkflowResult:
         )
 
         # Inject workflow context
-        step.inject_workflow_context({LLMClassificationResult.__name__: llm_classification_result})
+        step.inject_workflow_context(
+            {LLMClassificationResult.__name__: llm_classification_result}
+        )
 
         # Act
         await step.execute()
@@ -81,17 +116,28 @@ class TestSaveWorkflowResult:
         assert final_result.classification == classification
         assert final_result.extraction is None
         assert final_result.barcodes == []
-        assert isinstance(captured["total_processing_time_ms"], int) and captured["total_processing_time_ms"] >= 0
+        assert (
+            isinstance(captured["total_processing_time_ms"], int)
+            and captured["total_processing_time_ms"] >= 0
+        )
         assert captured["output_summary"] == {}
         assert captured["steps_completed"] == 4  # number_of_step_executed + 1
         assert captured["workflow_metadata"] == []
-        assert captured["event_version"] == 1
+        assert captured["workflow_version"] == 1
 
     @pytest.mark.asyncio
-    async def test_save_workflow_extraction_result_persists_event_with_expected_payload(self):
+    async def test_save_workflow_extraction_result_persists_event_with_expected_payload(
+        self,
+    ):
         # Arrange
         start_time = datetime.now(timezone.utc) - timedelta(seconds=1)
-        ctx = MainWorkflowContext(execution_id="exec-extr", start_time=start_time, steps_metadata=[], number_of_step_executed=1,  organization_id=uuid4())
+        ctx = MainWorkflowContext(
+            execution_id="exec-extr",
+            start_time=start_time,
+            steps_metadata=[],
+            number_of_step_executed=1,
+            organization_id=uuid4(),
+        )
         fake_session = MagicMock()
 
         # LLMExtractionResult expects a pydantic BaseModel for data; create a minimal one
@@ -105,20 +151,46 @@ class TestSaveWorkflowResult:
             type=SupportedDocumentType.CNI,
             properties=extraction_model,
         )
-        llm_extraction_result = LLMExtractionResult(data=extraction_payload, request_tokens=3, response_tokens=4)
+        llm_extraction_result = LLMExtractionResult(
+            data=extraction_payload, request_tokens=3, response_tokens=4
+        )
 
-        step = SaveWorkflowResultStep(main_workflow_context=ctx, workflow_id="wf-extr", database_session=fake_session)
+        step = SaveWorkflowResultStep(
+            main_workflow_context=ctx,
+            workflow_id="wf-extr",
+            database_session=fake_session,
+        )
 
         captured = {}
 
-        async def fake_emit(*, workflow_id: str, execution_id: str, organization_id: UUID, final_result, total_processing_time_ms: int,
-                            output_summary: dict, steps_completed: int, workflow_metadata, event_version: int):
-            captured.update({"final_result": final_result, "workflow_metadata": workflow_metadata, "event_version": event_version})
+        async def fake_emit(
+            *,
+            workflow_id: str,
+            execution_id: str,
+            organization_id: UUID,
+            final_result,
+            total_processing_time_ms: int,
+            output_summary: dict,
+            steps_completed: int,
+            workflow_metadata,
+            workflow_version: int,
+        ):
+            captured.update(
+                {
+                    "final_result": final_result,
+                    "workflow_metadata": workflow_metadata,
+                    "workflow_version": workflow_version,
+                }
+            )
             return SimpleNamespace(id="evt-99")
 
-        step.event_service = SimpleNamespace(emit_workflow_completed=AsyncMock(side_effect=fake_emit))
+        step.event_service = SimpleNamespace(
+            emit_workflow_completed=AsyncMock(side_effect=fake_emit)
+        )
 
-        step.inject_workflow_context({LLMExtractionResult.__name__: llm_extraction_result})
+        step.inject_workflow_context(
+            {LLMExtractionResult.__name__: llm_extraction_result}
+        )
 
         # Act
         await step.execute()
@@ -129,14 +201,20 @@ class TestSaveWorkflowResult:
         assert final_result.extraction == extraction_payload
         assert final_result.classification is None
         assert captured["workflow_metadata"] == []
-        assert captured["event_version"] == 1
+        assert captured["workflow_version"] == 1
 
     @pytest.mark.asyncio
     async def test_save_workflow_includes_workflow_metadata(self):
         # Arrange: create context with non-empty steps_metadata
         start_time = datetime.now(timezone.utc) - timedelta(seconds=1)
         steps_md = [StepMetadata(step_name="ocr", execution_time=120.5)]
-        ctx = MainWorkflowContext(execution_id="exec-meta", start_time=start_time, steps_metadata=steps_md, number_of_step_executed=2, organization_id=uuid4())
+        ctx = MainWorkflowContext(
+            execution_id="exec-meta",
+            start_time=start_time,
+            steps_metadata=steps_md,
+            number_of_step_executed=2,
+            organization_id=uuid4(),
+        )
         fake_session = MagicMock()
 
         classification = DocumentClassification(
@@ -144,30 +222,55 @@ class TestSaveWorkflowResult:
             document_type=SupportedDocumentType.CNI,
             confidence=0.5,
         )
-        llm_classification_result = LLMClassificationResult(data=classification, request_tokens=2, response_tokens=2)
+        llm_classification_result = LLMClassificationResult(
+            data=classification, request_tokens=2, response_tokens=2
+        )
 
-        step = SaveWorkflowResultStep(main_workflow_context=ctx, workflow_id="wf-meta", database_session=fake_session)
+        step = SaveWorkflowResultStep(
+            main_workflow_context=ctx,
+            workflow_id="wf-meta",
+            database_session=fake_session,
+        )
 
         captured = {}
 
-        async def fake_emit(*, workflow_id: str, execution_id: str, organization_id: UUID, final_result, total_processing_time_ms: int,
-                            output_summary: dict, steps_completed: int, workflow_metadata, event_version: int):
-            captured.update({"workflow_metadata": workflow_metadata, "event_version": event_version})
+        async def fake_emit(
+            *,
+            workflow_id: str,
+            execution_id: str,
+            organization_id: UUID,
+            final_result,
+            total_processing_time_ms: int,
+            output_summary: dict,
+            steps_completed: int,
+            workflow_metadata,
+            workflow_version: int,
+        ):
+            captured.update(
+                {
+                    "workflow_metadata": workflow_metadata,
+                    "workflow_version": workflow_version,
+                }
+            )
             return SimpleNamespace(id="evt-meta")
 
-        step.event_service = SimpleNamespace(emit_workflow_completed=AsyncMock(side_effect=fake_emit))
+        step.event_service = SimpleNamespace(
+            emit_workflow_completed=AsyncMock(side_effect=fake_emit)
+        )
 
-        step.inject_workflow_context({LLMClassificationResult.__name__: llm_classification_result})
+        step.inject_workflow_context(
+            {LLMClassificationResult.__name__: llm_classification_result}
+        )
 
         # Act
         await step.execute()
 
         # Assert the workflow_metadata passed through unchanged
         assert captured["workflow_metadata"] == steps_md
-        assert captured["event_version"] == 1
+        assert captured["workflow_version"] == 1
 
     @pytest.mark.asyncio
-    async def test_save_workflow_uses_v2_event_version(self):
+    async def test_save_workflow_uses_v2_workflow_version(self):
         start_time = datetime.now(timezone.utc) - timedelta(seconds=1)
         ctx = MainWorkflowContext(
             execution_id="exec-v2",
@@ -175,7 +278,7 @@ class TestSaveWorkflowResult:
             steps_metadata=[],
             number_of_step_executed=0,
             organization_id=uuid4(),
-            event_version=2,
+            workflow_version=2,
         )
         fake_session = MagicMock()
         step = SaveWorkflowResultStep(
@@ -186,14 +289,26 @@ class TestSaveWorkflowResult:
 
         captured = {}
 
-        async def fake_emit(*, workflow_id: str, execution_id: str, organization_id: UUID, final_result, total_processing_time_ms: int,
-                            output_summary: dict, steps_completed: int, workflow_metadata, event_version: int):
-            captured.update({"event_version": event_version})
+        async def fake_emit(
+            *,
+            workflow_id: str,
+            execution_id: str,
+            organization_id: UUID,
+            final_result,
+            total_processing_time_ms: int,
+            output_summary: dict,
+            steps_completed: int,
+            workflow_metadata,
+            workflow_version: int,
+        ):
+            captured.update({"workflow_version": workflow_version})
             return SimpleNamespace(id="evt-v2")
 
-        step.event_service = SimpleNamespace(emit_workflow_completed=AsyncMock(side_effect=fake_emit))
+        step.event_service = SimpleNamespace(
+            emit_workflow_completed=AsyncMock(side_effect=fake_emit)
+        )
         step.inject_workflow_context({})
 
         await step.execute()
 
-        assert captured["event_version"] == 2
+        assert captured["workflow_version"] == 2

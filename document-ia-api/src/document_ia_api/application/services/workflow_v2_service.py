@@ -98,7 +98,7 @@ class WorkflowV2Service:
             file_url=file_url,
             metadata=metadata,
             workflow_configuration=resolved_workflow,
-            event_version=2,
+            workflow_version=2,
         )
 
         publish_id = await self.redis_producer.publish_message(

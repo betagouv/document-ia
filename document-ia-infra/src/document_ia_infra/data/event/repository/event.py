@@ -31,6 +31,19 @@ class EventRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
+    @staticmethod
+    def _to_dto(event: EventEntity) -> EventDTO:
+        """Project a storage row without conflating row and payload metadata."""
+        return EventDTO(
+            id=event.id,
+            workflow_id=event.workflow_id,
+            execution_id=event.execution_id,
+            organization_id=event.organization_id,
+            created_at=event.created_at,
+            event_type=EventType.from_str(event.event_type),
+            event=event.event,
+        )
+
     async def put_event(
         self,
         workflow_id: str,
@@ -74,15 +87,7 @@ class EventRepository:
                 f"(workflow: {workflow_id})"
             )
 
-            return EventDTO(
-                id=event_record.id,
-                workflow_id=event_record.workflow_id,
-                execution_id=event_record.execution_id,
-                organization_id=organization_id,
-                created_at=event_record.created_at,
-                event_type=EventType.from_str(event_record.event_type),
-                event=event_record.event,
-            )
+            return self._to_dto(event_record)
 
         except IntegrityError as e:
             logger.error(
@@ -144,15 +149,7 @@ class EventRepository:
                         break
 
             if event:
-                return EventDTO(
-                    id=event.id,
-                    workflow_id=event.workflow_id,
-                    execution_id=event.execution_id,
-                    organization_id=event.organization_id,
-                    created_at=event.created_at,
-                    event_type=EventType.from_str(event.event_type),
-                    event=event.event,
-                )
+                return self._to_dto(event)
             return None
 
         except OSError as e:
@@ -190,15 +187,7 @@ class EventRepository:
             event = result.scalars().first()
 
             if event:
-                return EventDTO(
-                    id=event.id,
-                    workflow_id=event.workflow_id,
-                    execution_id=event.execution_id,
-                    organization_id=event.organization_id,
-                    created_at=event.created_at,
-                    event_type=EventType.from_str(event.event_type),
-                    event=event.event,
-                )
+                return self._to_dto(event)
             return None
 
         except OSError as e:
@@ -246,18 +235,7 @@ class EventRepository:
         result = await self.session.execute(query)
         events = result.scalars().all()
 
-        return [
-            EventDTO(
-                id=event.id,
-                workflow_id=event.workflow_id,
-                execution_id=event.execution_id,
-                organization_id=event.organization_id,
-                created_at=event.created_at,
-                event_type=EventType.from_str(event.event_type),
-                event=event.event,
-            )
-            for event in events
-        ]
+        return [self._to_dto(event) for event in events]
 
     async def get_not_anonymized_events_before(
         self,
