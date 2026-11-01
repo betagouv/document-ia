@@ -6,20 +6,23 @@ import asyncio  # remplacement de threading+sleep
 import contextlib
 import functools
 import logging
-import gc
 from asyncio import Task
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+from document_ia_infra.redis.handler_execution import (
+    HandlerExecution,
+    run_handler_in_thread,
+)
+from document_ia_infra.redis.stream_delivery import StreamDelivery
 from datetime import datetime, timezone
 from typing import TypeVar, Generic, Optional, Any, Coroutine, cast
 
-from redis import ResponseError
 from redis.asyncio import Redis
-from redis.typing import FieldT, EncodableT
+from concurrent.futures import ThreadPoolExecutor
 
-from document_ia_infra.exception.retryable_exception import RetryableException
+from document_ia_infra.redis.worker_error_policy import WorkerErrorPolicy
 from document_ia_infra.redis.redis_manager import (
     redis_manager as redis_manager_main_thread,
+    RedisManager,
 )
 from document_ia_infra.redis.redis_settings import redis_settings
 from document_ia_infra.redis.serializable_message import SerializableMessage
@@ -30,69 +33,6 @@ T = TypeVar("T", bound=SerializableMessage)
 
 RECLAIM_IDLE_MS = 300000
 IN_FLIGHT_SHUTDOWN_TIMEOUT_S = 10
-RESOURCE_CLOSE_TIMEOUT_S = 5
-
-# Script Lua de remise en file atomique et idempotente.
-#
-# Une remise en file crée une copie de l'entrée d'origine (avec le champ
-# « original_id ») puis l'acquitte. Sans garde atomique, un acquittement en
-# échec laisse l'original en attente et chaque récupération crée une copie
-# supplémentaire. La solution naïve — une clé d'index `SET NX` posée avant le
-# XADD — est pire : une réservation orpheline (crash entre la réservation et
-# la copie) fait croire à une copie existante et laisse un autre reclaimer
-# acquitter l'original sans jamais le recopier (perte de message).
-#
-# Le script rend la vérification et la copie atomiques : il recherche une
-# copie portant « original_id » et n'en crée une que si aucune n'existe. Il
-# n'y a donc pas de réservation séparée à orpheliner, et une réponse perdue
-# (le XADD a réussi mais le client n'a pas reçu la réponse) ne crée pas de
-# doublon à la tentative suivante : la copie est retrouvée.
-#
-# Retour : {created_flag, id} — created_flag vaut 1 si une copie a été créée,
-# 0 si une copie existait déjà ; id est l'identifiant de la copie.
-_REQUEUE_LUA = """
-local stream = KEYS[1]
-local orig = ARGV[1]
-local retries = ARGV[2]
-local data = ARGV[3]
-local existing = redis.call('XRANGE', stream, orig, '+')
-for _, e in ipairs(existing) do
-  local f = e[2]
-  for i = 1, #f, 2 do
-    if f[i] == 'original_id' and f[i+1] == orig then
-      return {0, e[1]}
-    end
-  end
-end
-local id = redis.call('XADD', stream, '*', 'data', data, 'retries', retries, 'original_id', orig)
-return {1, id}
-"""
-
-# Script Lua de conservation DLQ atomique et idempotente, même principe :
-# recherche d'une entrée DLQ portant « original_id » puis XADD si absente.
-# Les champs DLQ sont passés en paires clé/valeur après original_id.
-_RETAIN_DLQ_LUA = """
-local dlq = KEYS[1]
-local orig = ARGV[1]
--- L'identifiant de l'entrée DLQ est indépendant de celui de l'entrée source
--- (flux différents, séquences indépendantes) : le parcours part de 0-0 pour
--- ne jamais manquer une copie déjà conservée, quelle que soit sa position.
-local existing = redis.call('XRANGE', dlq, '0-0', '+')
-for _, e in ipairs(existing) do
-  local f = e[2]
-  for i = 1, #f, 2 do
-    if f[i] == 'original_id' and f[i+1] == orig then
-      return {0, e[1]}
-    end
-  end
-end
-local args = {}
-for i = 2, #ARGV do
-  table.insert(args, ARGV[i])
-end
-local id = redis.call('XADD', dlq, '*', unpack(args))
-return {1, id}
-"""
 
 
 class Consumer(Generic[T]):
@@ -107,7 +47,10 @@ class Consumer(Generic[T]):
         process_message_callable: Callable[[T, int, bool], Coroutine[Any, Any, None]],
         worker_number: int = redis_settings.REDIS_WORKER_NUMBER,
         max_retry_number: int = 3,
+        current_redis_manager: RedisManager = redis_manager_main_thread,
     ):
+        # Borrowed manager: only its application/workflow owner closes it.
+        self.redis_manager = current_redis_manager
         self.redis: Optional[Redis] = None
         self.reclaimer_task: Optional[Task[Any]] = None
         self.heartbeat_task: Optional[Task[Any]] = None
@@ -132,11 +75,21 @@ class Consumer(Generic[T]):
         self.block_time = block_time  # en ms pour xreadgroup
         self.worker_number = worker_number
         self.max_retry_number = max_retry_number
+        self.error_policy = WorkerErrorPolicy(max_retry_number)
 
         # DLQ stream
         self.dlq_stream_name = f"{self.stream_name}:dlq"
 
-        self.executor = ThreadPoolExecutor(max_workers=self.worker_number)
+        self.delivery = StreamDelivery(stream_name, consumer_group, consumer_name)
+        self.execution = HandlerExecution(worker_number, batch_size)
+
+    @property
+    def executor(self):
+        return self.execution.executor
+
+    @executor.setter
+    def executor(self, executor: ThreadPoolExecutor):
+        self.execution.executor = executor
 
     @property
     def has_running_handlers(self) -> bool:
@@ -217,15 +170,7 @@ class Consumer(Generic[T]):
         logger.info(f"Consumer {self.consumer_name} stopping...")
         if self.reclaimer_task and not self.reclaimer_task.done():
             self.reclaimer_task.cancel()
-        self.executor.shutdown(wait=False, cancel_futures=True)
-        try:
-            await asyncio.wait_for(
-                redis_manager_main_thread.close(), timeout=RESOURCE_CLOSE_TIMEOUT_S
-            )
-        except asyncio.TimeoutError:
-            logger.warning("Timed out closing Redis resources during shutdown")
-        except Exception as exc:
-            logger.warning("Failed to close Redis resources during shutdown: %s", exc)
+        self.execution.close()
 
     async def _start_listening_messages(self):
         self.redis = await self._get_safe_redis_connection()
@@ -276,11 +221,9 @@ class Consumer(Generic[T]):
                 current_block_time = 1000 if running_count > 0 else self.block_time
 
                 try:
-                    response = await self.redis.xreadgroup(
-                        self.consumer_group,
-                        self.consumer_name,
-                        streams={self.stream_name: ">"},
-                        count=free_slots,
+                    response = await self.delivery.read(
+                        self.redis,
+                        count=self.execution.read_capacity(running_count),
                         block=current_block_time,
                     )
                 except Exception as e:
@@ -413,150 +356,32 @@ class Consumer(Generic[T]):
         fields: dict[str, Any],
         redis_connection: Redis,
     ) -> None:
-        """Gestionnaire de résultat extrait de la boucle principale pour lisibilité"""
-        try:
-            fut.result()
-            # Succès
-            try:
-                await redis_connection.xack(
-                    self.stream_name, self.consumer_group, msg_id
-                )
-            except Exception:
-                # Ne pas crash si ACK échoue
-                logger.error(f"ACK failed for success {msg_id}")
-
-        except RetryableException as retry_exc:
-            logger.warning(f"Retryable failure for {msg_id}: {retry_exc}")
-            retry_count = int(fields.get("retries", "0"))
-            data = fields.get("data", "")
-
-            if retry_count < self.max_retry_number - 1:
-                try:
-                    # Copie atomique et idempotente : créée si absente,
-                    # retrouvée sinon. L'acquittement n'a lieu que si la
-                    # copie existe.
-                    await self._requeue_once(
-                        redis_connection, msg_id, str(data), retry_count + 1
-                    )
-                    try:
-                        await redis_connection.xack(
-                            self.stream_name, self.consumer_group, msg_id
-                        )
-                    except Exception:
-                        logger.error(f"ACK failed after requeue {msg_id}")
-                except Exception as requeue_err:
-                    logger.error(f"Requeue failed {msg_id}: {requeue_err}")
-                    if await self._send_to_dlq(
-                        redis_connection,
-                        msg_id,
-                        fields,
-                        "error_requeueing_message",
-                        str(requeue_err),
-                    ):
-                        try:
-                            await redis_connection.xack(
-                                self.stream_name, self.consumer_group, msg_id
-                            )
-                        except Exception:
-                            logger.error(f"ACK failed after requeue failure {msg_id}")
-            else:
-                logger.error(f"Max retries exceeded {msg_id}")
-                if await self._send_to_dlq(
-                    redis_connection,
-                    msg_id,
-                    fields,
-                    "max_retries_exceeded",
-                    str(retry_exc),
-                ):
-                    try:
-                        await redis_connection.xack(
-                            self.stream_name, self.consumer_group, msg_id
-                        )
-                    except Exception:
-                        logger.error(f"ACK failed for max_retries_exceeded {msg_id}")
-
-        except Exception as proc_err:
-            logger.error(f"Fatal error message {msg_id}: {proc_err}")
-            if await self._send_to_dlq(
-                redis_connection, msg_id, fields, "not_retryable_error", str(proc_err)
-            ):
-                try:
-                    await redis_connection.xack(
-                        self.stream_name, self.consumer_group, msg_id
-                    )
-                except Exception:
-                    logger.error(f"ACK failed for not_retryable_error {msg_id}")
+        await self.error_policy.finish(
+            fut,
+            msg_id,
+            fields,
+            redis_connection,
+            self.delivery,
+            self._requeue_once,
+            self._send_to_dlq,
+        )
 
     def _process_message_sync_wrapper(self, message: T, retry_count: int) -> None:
-        """Fonction exécutée dans un thread.
-        Crée un nouvel event loop pour exécuter la coroutine process_message_callable.
-        ATTENTION : si process_message_callable accède à des objets liés à l'évent loop principal
-        (ex : connexion Redis asynchrone déjà créée), cela peut poser un problème. Dans ce cas, il
-        faudrait refactorer pour ne déplacer dans le thread que la partie CPU-bound.
-        """
-        loop = asyncio.new_event_loop()
-        try:
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(
-                self.process_message_callable(
-                    message, retry_count, retry_count >= self.max_retry_number - 1
-                )
+        """Keep blocking workflow operations off the Redis/event-loop thread."""
+        run_handler_in_thread(
+            functools.partial(
+                self.process_message_callable,
+                message,
+                retry_count,
+                retry_count >= self.max_retry_number - 1,
             )
-        finally:
-            try:
-                # 1. Déclencher la garbage collection pour appeler les destructeurs __del__ des objets non fermés
-                # (comme les clients HTTPX/OpenAI créés dans ce thread) et enregistrer leurs tâches de fermeture.
-                gc.collect()
-
-                # 2. Récupérer toutes les tâches restantes (y compris les aclose() créés par la GC)
-                # et les laisser s'exécuter jusqu'à la fin avant de fermer la boucle.
-                pending_tasks = asyncio.all_tasks(loop)
-                if pending_tasks:
-                    try:
-                        loop.run_until_complete(
-                            asyncio.wait_for(
-                                asyncio.gather(*pending_tasks, return_exceptions=True),
-                                timeout=5.0,
-                            )
-                        )
-                    except asyncio.TimeoutError:
-                        logger.warning(
-                            "Timeout waiting for pending tasks to finish during thread loop shutdown"
-                        )
-                    except Exception as shutdown_err:
-                        logger.error(
-                            f"Error executing pending tasks during thread loop shutdown: {shutdown_err}"
-                        )
-
-                # 3. Arrêter les générateurs asynchrones
-                loop.run_until_complete(loop.shutdown_asyncgens())
-            except Exception as e:
-                logger.error(f"Error during thread loop cleanup: {e}")
-                pass
-            finally:
-                loop.close()
+        )
 
     async def _ensure_consumer_group(self, redis_connection: Redis):
-        try:
-            await redis_connection.xgroup_create(
-                name=self.stream_name,
-                groupname=self.consumer_group,
-                id="$",
-                mkstream=True,
-            )
-            logger.info(
-                f"Consumer group created stream = {self.stream_name}, group= {self.consumer_group}"
-            )
-        except ResponseError as e:
-            if "BUSYGROUP" in str(e):
-                logger.info(
-                    f"Consumer group already exists, group = {self.consumer_group}"
-                )
-            else:
-                raise
+        await self.delivery.ensure_group(redis_connection, "$")
 
     async def _get_safe_redis_connection(self) -> Redis:
-        self.redis = await redis_manager_main_thread.get_connection()
+        self.redis = await self.redis_manager.get_connection()
         if self.redis is None:
             logger.error("❌ No Redis connection available, cannot start consumer")
             raise ConnectionError("No Redis connection available")
@@ -580,10 +405,9 @@ class Consumer(Generic[T]):
         réservation séparée à orpheliner (crash entre réserve et copie =
         perte de message), pas de doublon après une réponse perdue.
         """
-        await redis_connection.eval(
-            _REQUEUE_LUA, 1, self.stream_name, msg_id, str(retries), data
+        return await self.delivery.requeue(
+            redis_connection, msg_id, {"data": data}, retries
         )
-        return True
 
     async def _send_to_dlq(
         self,
@@ -605,7 +429,7 @@ class Consumer(Generic[T]):
         une exception est convertie en False pour que l'appelant laisse
         l'entrée en attente et retente à la passe suivante.
         """
-        dlq_fields: dict[FieldT, EncodableT] = {
+        dlq_fields: dict[str, Any] = {
             "data": str(fields.get("data", "")),
             "retries": str(fields.get("retries", "0")),
             "original_id": str(msg_id),
@@ -614,14 +438,8 @@ class Consumer(Generic[T]):
             "consumer": self.consumer_name,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-        # Paires clé/valeur après original_id pour le script Lua.
-        argv: list[str] = [str(msg_id)]
-        for key, value in dlq_fields.items():
-            argv.append(str(key))
-            argv.append(str(value))
         try:
-            await redis_connection.eval(_RETAIN_DLQ_LUA, 1, self.dlq_stream_name, *argv)
-            return True
+            return await self.delivery.retain(redis_connection, msg_id, dlq_fields)
         except Exception as dlq_err:
             logger.error(
                 f"Failed to retain message {msg_id} in DLQ "
@@ -645,10 +463,8 @@ class Consumer(Generic[T]):
         # Boucle continue jusqu'à stop_flag
         while not self.stop_flag.is_set():
             try:
-                next_start, claimed, _ = await self.redis.xautoclaim(
-                    self.stream_name,
-                    self.consumer_group,
-                    self.consumer_name,
+                next_start, claimed, _ = await self.delivery.claim(
+                    self.redis,
                     RECLAIM_IDLE_MS,
                     start,
                     count=1,
@@ -682,6 +498,7 @@ class Consumer(Generic[T]):
     async def _reclaim_entry(self, msg_id: str, fields: dict[str, Any]) -> None:
         """Retraite une entrée revendiquée : DLQ si épuisée, sinon remise en file."""
         logger.info(f"Reclaimed message ID: {msg_id} with fields: {fields}")
+        assert self.redis is not None
         try:
             attempts = int(fields.get("retries", "0")) + 1
         except (TypeError, ValueError):
@@ -729,6 +546,7 @@ class Consumer(Generic[T]):
         self, msg_id: str, fields: dict[str, Any], reason: str, error: str
     ) -> None:
         """Conserve l'entrée en DLQ puis l'acquitte après conservation confirmée."""
+        assert self.redis is not None
         retained = await self._send_to_dlq(
             redis_connection=self.redis,
             msg_id=msg_id,
@@ -790,14 +608,8 @@ class Consumer(Generic[T]):
             if not ids:
                 continue
             try:
-                await self.redis.xclaim(
-                    self.stream_name,
-                    self.consumer_group,
-                    self.consumer_name,
-                    min_idle_time=0,
-                    message_ids=list(ids),
-                    justid=True,
-                )
+                if self.redis is not None:
+                    await self.delivery.refresh(self.redis, ids)
             except asyncio.CancelledError:
                 break
             except Exception as e:

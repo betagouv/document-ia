@@ -77,7 +77,7 @@ On failure:
   - `retry_count` = how many attempts were already made for this message.
 
 On the consumer side (`infra/redis/consumer.py`):
-- If processing raises `RetryableException`, the message is re‑queued on the stream with `retries = retries + 1` while `retries < max_retry_number`.
+- If processing raises `RetryableException`, the message is re‑queued on the stream with `retries = retries + 1` while `retries < max_retry_number - 1`.
 - If a non‑retryable error occurs, the message is sent to the DLQ stream.
 - If re‑queuing itself fails, the message is sent to the DLQ stream.
 - The DLQ stream is named `"<stream>:dlq"` and stores fields such as: `data`, `retries`, `original_id`, `reason`, `error`, `consumer`, `timestamp`.
@@ -86,7 +86,7 @@ Reclaiming pending messages:
 - A background “reclaimer” task uses `XAUTOCLAIM` to recover idle messages (idle > RECLAIM_IDLE_MS), increments `retries`, and attempts to re‑queue them; if retry limits are exceeded, the message is routed to DLQ.
 
 ACKs/NACKs:
-- All code paths (success, non‑retryable error, DLQ) eventually `XACK` the original message to avoid infinite loops.
+- Success is ACKed. Retry/DLQ paths ACK only after confirmed idempotent copy/retention; a failed write or ACK leaves the original pending for recovery.
 
 ---
 
@@ -100,8 +100,25 @@ Key points:
 
 Concurrency knobs:
 - `worker_number`: thread pool size (per message). Start with 1 in debug.
-- `batch_size`, `block_time`: batching and blocking timeout for `XREADGROUP`.
-- `max_retry_number`: retry limit before DLQ.
+- `batch_size`, `block_time`: maximum batch and blocking timeout for `XREADGROUP`. Each read requests `min(batch_size, free_worker_slots)`; it does not prefetch while all workers are busy. `batch_size` and `worker_number` must be positive.
+- `max_retry_number`: total attempt budget before DLQ (`retries` counts consumed attempts).
+
+### Resource ownership and blocking-operation inventory
+
+The consumer orchestrates delivery while infra `StreamDelivery`, `HandlerExecution`, and `WorkerErrorPolicy` separately implement delivery primitives, bounded execution, and workflow error decisions. Each message runs inside an `asyncio.Runner` on a pool thread, **not** as a coroutine on the Redis event loop. Keep this boundary until every synchronous operation is explicitly offloaded:
+
+| Operation | Current execution boundary / ownership |
+|---|---|
+| PyMuPDF PDF open/render, PIL decode/resize/crop/save | Workflow pool thread; PDF/image handles are closed by preprocessing/step cleanup. Existing PDF lock remains. |
+| YOLO-World, QRDet, OpenCV, barcode parsing and local OCR | Workflow pool thread; process-cached models and existing model locks remain. Boot pre-warming happens before stream consumption. |
+| Sync boto3 S3 download/upload/delete and synchronous database/file helpers | Workflow pool thread; never move the whole workflow onto the delivery loop merely because its entrypoint is `async`. |
+| Async SQLAlchemy session/engine | Created per workflow on its thread loop; session context closes and workflow `finally` disposes the engine. |
+| Webhook publisher Redis pool | Created per workflow; publisher borrows it and workflow `finally` closes it on the same thread loop. |
+| HTTP downloads/OCR | Request-scoped `httpx.AsyncClient` context managers on the thread loop. |
+| LLM OpenAI calls | `OpenAIManager` creates a request-scoped `AsyncOpenAI` context; closes on success/error/cancel, and creates no client for skipped/unstarted steps. |
+| Main Redis delivery client/pool | Worker runtime owns and closes it after consumer shutdown; consumers/delivery primitives borrow it. |
+
+Loop teardown cancels leftover tasks and closes async generators via `Runner`; it does not rely on `gc.collect()` or HTTP client destructors. Threads/native inference cannot be cancelled by cancelling their asyncio Future. The existing bounded drain, heartbeat protection during drain, and final process-exit deadline remain; unfinished messages stay pending for recovery. New no-progress/fencing policies are outside this refactor.
 
 ---
 

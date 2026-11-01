@@ -22,6 +22,7 @@ from document_ia_infra.redis.serializable_message import SerializableMessage
 # Test helpers
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class TestWebhookMessage(SerializableMessage):
     workflow_execution_id: str
@@ -42,7 +43,12 @@ class TestWebhookMessage(SerializableMessage):
         )
 
 
-async def _wait_until(predicate: Callable[[], Awaitable[bool]] | Callable[[], bool], *, timeout: float = 5.0, interval: float = 0.05) -> None:
+async def _wait_until(
+    predicate: Callable[[], Awaitable[bool]] | Callable[[], bool],
+    *,
+    timeout: float = 5.0,
+    interval: float = 0.05,
+) -> None:
     start = monotonic()
     while True:
         result = predicate()
@@ -55,21 +61,27 @@ async def _wait_until(predicate: Callable[[], Awaitable[bool]] | Callable[[], bo
         await asyncio.sleep(interval)
 
 
-def _pending_is_zero_pred(redis: Redis, stream: str, group: str) -> Callable[[], Awaitable[bool]]:
+def _pending_is_zero_pred(
+    redis: Redis, stream: str, group: str
+) -> Callable[[], Awaitable[bool]]:
     async def _predicate() -> bool:
         return (await _pending_count(redis, stream, group)) == 0
 
     return _predicate
 
 
-def _dlq_len_is_pred(redis: Redis, stream: str, expected: int) -> Callable[[], Awaitable[bool]]:
+def _dlq_len_is_pred(
+    redis: Redis, stream: str, expected: int
+) -> Callable[[], Awaitable[bool]]:
     async def _predicate() -> bool:
         return (await _dlq_len(redis, stream)) == expected
 
     return _predicate
 
 
-async def _append_message(redis: Redis, stream: str, message: TestWebhookMessage) -> None:
+async def _append_message(
+    redis: Redis, stream: str, message: TestWebhookMessage
+) -> None:
     await redis.xadd(stream, {"data": json.dumps(message.to_dict())})
 
 
@@ -90,7 +102,9 @@ def _webhook_handler_factory() -> Callable[[TestWebhookMessage], Awaitable[None]
             "payload": {"execution_id": message.workflow_execution_id},
         }
         async with httpx.AsyncClient() as client:
-            response = await client.post(dto["url"], headers=dto["headers"], json=dto["payload"])
+            response = await client.post(
+                dto["url"], headers=dto["headers"], json=dto["payload"]
+            )
             response.raise_for_status()
 
     return _handler
@@ -146,6 +160,7 @@ def mockserver_base_url() -> str:
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_consumer_acknowledges_success(
@@ -263,9 +278,7 @@ async def test_consumer_leaves_database_failure_pending(
 
     def fail_database_session() -> None:
         handler_called.set()
-        raise OperationalError(
-            "connect", {}, ConnectionError("database unavailable")
-        )
+        raise OperationalError("connect", {}, ConnectionError("database unavailable"))
 
     monkeypatch.setattr(
         service_module.database_manager, "local_session", fail_database_session
@@ -378,23 +391,25 @@ async def test_consumer_terminal_http_error_requires_dlq_before_ack(
         consumer_name=f"consumer-terminal-{uuid4()}",
         block_ms=10,
     )
-    original_xadd = redis_client.xadd
+    original_eval = redis_client.eval
     operations: list[str] = []
 
-    async def record_dlq_attempt(stream_name: str, fields: dict[str, str]) -> str:
-        operations.append(f"xadd:{stream_name}")
+    async def record_dlq_attempt(script: str, numkeys: int, *args: Any) -> Any:
+        # Retention is now a shared atomic scan+XADD Lua operation.
+        stream_name = args[0]
+        operations.append(f"retain:{stream_name}")
         if stream_name == f"{stream}:dlq":
             dlq_attempted.set()
             if not dlq_available:
                 raise ConnectionError("DLQ unavailable")
-        return await original_xadd(stream_name, fields)
+        return await original_eval(script, numkeys, *args)
 
     message = TestWebhookMessage(
         workflow_execution_id=str(uuid4()),
         webhook_url="http://localhost:1080/webhook",
     )
     await _append_message(redis_client, stream, message)
-    monkeypatch.setattr(redis_client, "xadd", record_dlq_attempt)
+    monkeypatch.setattr(redis_client, "eval", record_dlq_attempt)
     original_xack = redis_client.xack
 
     async def record_ack(stream_name: str, group_name: str, entry_id: str) -> int:
@@ -428,21 +443,21 @@ async def test_consumer_terminal_http_error_requires_dlq_before_ack(
 
         await _wait_until(reached_expected_state)
         if dlq_available:
-            assert operations == [f"xadd:{stream}:dlq", f"xack:{stream}"]
+            assert operations == [f"retain:{stream}:dlq", f"xack:{stream}"]
         else:
-            assert operations == [f"xadd:{stream}:dlq"]
+            assert operations == [f"retain:{stream}:dlq"]
     finally:
         await consumer.stop()
         await redis_client.delete(stream, f"{stream}:dlq")
 
 
 @pytest.mark.asyncio
-async def test_consumer_retries_then_dlq_on_429(redis_client: Redis, mockserver_base_url: str) -> None:
+async def test_consumer_retries_then_dlq_on_429(
+    redis_client: Redis, mockserver_base_url: str
+) -> None:
     stream = f"test_webhook_stream_ko:{uuid4()}"
     group = f"group-ko-{uuid4()}"
-    consumer = SimpleStreamConsumer[
-        TestWebhookMessage
-    ](
+    consumer = SimpleStreamConsumer[TestWebhookMessage](
         stream_name=stream,
         handler=_webhook_handler_factory(),
         message_class=TestWebhookMessage,
@@ -475,12 +490,12 @@ async def test_consumer_retries_then_dlq_on_429(redis_client: Redis, mockserver_
 
 
 @pytest.mark.asyncio
-async def test_consumer_immediate_dlq_on_401(redis_client: Redis, mockserver_base_url: str) -> None:
+async def test_consumer_immediate_dlq_on_401(
+    redis_client: Redis, mockserver_base_url: str
+) -> None:
     stream = f"test_webhook_stream_unauthorized:{uuid4()}"
     group = f"group-unauth-{uuid4()}"
-    consumer = SimpleStreamConsumer[
-        TestWebhookMessage
-    ](
+    consumer = SimpleStreamConsumer[TestWebhookMessage](
         stream_name=stream,
         handler=_webhook_handler_factory(),
         message_class=TestWebhookMessage,

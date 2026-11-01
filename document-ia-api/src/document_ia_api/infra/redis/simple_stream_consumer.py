@@ -5,9 +5,11 @@ import socket
 from typing import Any, Awaitable, Callable, Optional, TypeVar, Generic, cast
 
 from redis.asyncio import Redis
-from redis.exceptions import ResponseError
 
-import httpx
+import functools
+
+from document_ia_api.infra.redis.webhook_error_policy import WebhookErrorPolicy
+from document_ia_infra.redis.stream_delivery import StreamDelivery
 
 from document_ia_infra.redis.redis_manager import redis_manager
 from document_ia_infra.redis.serializable_message import SerializableMessage
@@ -91,8 +93,12 @@ class SimpleStreamConsumer(Generic[T]):
         self._consumer = consumer_name
         self._auto_ack = auto_ack
         self._max_retries = max_retries
-        self._retry_initial_delay_seconds = retry_initial_delay_seconds
-        self._retry_backoff_multiplier = retry_backoff_multiplier
+        self._delivery = StreamDelivery(
+            stream_name, consumer_group or "", consumer_name or ""
+        )
+        self._error_policy = WebhookErrorPolicy(
+            max_retries, retry_initial_delay_seconds, retry_backoff_multiplier
+        )
 
     async def start(self) -> None:
         if self._task and not self._task.done():
@@ -144,39 +150,7 @@ class SimpleStreamConsumer(Generic[T]):
         redis = await self._ensure_connection()
         if redis is None:
             return
-        try:
-            await redis.xgroup_create(
-                name=self._stream,
-                groupname=self._group or "",
-                id=self._last_id,
-                mkstream=True,
-            )
-            logger.info(
-                "Created consumer group '%s' on stream '%s' (start id=%s)",
-                self._group,
-                self._stream,
-                self._last_id,
-            )
-        except ResponseError as e:
-            # Groupe déjà existant => ok
-            if "BUSYGROUP" in str(e):
-                logger.info(
-                    "Consumer group '%s' already exists on stream '%s'",
-                    self._group,
-                    self._stream,
-                )
-            else:
-                raise
-
-    def _should_retry_http(self, status_code: int) -> bool:
-        if status_code in {400, 401, 403, 422}:
-            return False
-        return 400 <= status_code < 600
-
-    def _compute_backoff_delay(self, attempt: int) -> float:
-        return self._retry_initial_delay_seconds * (
-            self._retry_backoff_multiplier**attempt
-        )
+        await self._delivery.ensure_group(redis, self._last_id)
 
     async def _send_to_dlq(
         self,
@@ -213,11 +187,12 @@ class SimpleStreamConsumer(Generic[T]):
             )
             return True
         try:
-            await redis.xadd(
+            await self._delivery.copy_once(
+                redis,
                 dlq_stream,
+                entry_id,
                 {
                     "original_stream": stream_name,
-                    "original_id": str(entry_id),
                     "error": error_message,
                     "data": payload or "",
                 },
@@ -273,47 +248,10 @@ class SimpleStreamConsumer(Generic[T]):
         fields: dict[str, Any],
         message_data: T,
     ) -> bool:
-        attempt = 0
-        while True:
-            try:
-                await self._handler(message_data)
-                return True
-            except httpx.HTTPStatusError as exc:
-                status = exc.response.status_code
-                if not self._should_retry_http(status):
-                    logger.warning(
-                        "HTTP %s is not retryable for stream=%s id=%s",
-                        status,
-                        stream_name,
-                        entry_id,
-                    )
-                    return await self._send_to_dlq(
-                        redis,
-                        stream_name,
-                        entry_id,
-                        fields,
-                        f"Non retryable HTTP {status}",
-                    )
-                if attempt >= self._max_retries:
-                    return await self._send_to_dlq(
-                        redis,
-                        stream_name,
-                        entry_id,
-                        fields,
-                        f"Max retries exceeded (HTTP {status})",
-                    )
-                delay = self._compute_backoff_delay(attempt)
-                attempt += 1
-                logger.warning(
-                    "HTTP error %s on stream=%s id=%s (attempt %d/%d). Retry in %.1fs",
-                    status,
-                    stream_name,
-                    entry_id,
-                    attempt,
-                    self._max_retries,
-                    delay,
-                )
-                await asyncio.sleep(delay)
+        return await self._error_policy.handle(
+            functools.partial(self._handler, message_data),
+            functools.partial(self._send_to_dlq, redis, stream_name, entry_id, fields),
+        )
 
     async def _run(self) -> None:
         while not self._stop_event.is_set():
@@ -325,10 +263,8 @@ class SimpleStreamConsumer(Generic[T]):
 
                 if self._group and self._consumer:
                     # Mode groupé: lire et ack
-                    response = await redis.xreadgroup(
-                        groupname=self._group,
-                        consumername=self._consumer,
-                        streams={self._stream: ">"},
+                    response = await self._delivery.read(
+                        redis,
                         count=self._count,
                         block=self._block_ms,
                     )
@@ -454,14 +390,7 @@ class SimpleStreamConsumer(Generic[T]):
                 redis = await self._ensure_connection()
                 if redis is None:
                     continue
-                await redis.xclaim(
-                    self._stream,
-                    self._group or "",
-                    self._consumer or "",
-                    min_idle_time=0,
-                    message_ids=list(ids),
-                    justid=True,
-                )
+                await self._delivery.refresh(redis, ids)
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -507,10 +436,8 @@ class SimpleStreamConsumer(Generic[T]):
                     await asyncio.sleep(2)
                     continue
 
-                next_start, claimed, _ = await redis.xautoclaim(
-                    self._stream,
-                    self._group,
-                    self._consumer,
+                next_start, claimed, _ = await self._delivery.claim(
+                    redis,
                     self._reclaim_idle_ms,
                     start,
                     count=self._count,
@@ -589,9 +516,7 @@ class SimpleStreamConsumer(Generic[T]):
                     entry_id,
                 )
             else:
-                fields["retries"] = str(attempts)
-                fields["original_id"] = str(entry_id)
-                await redis.xadd(self._stream, fields)
+                await self._delivery.requeue(redis, entry_id, fields, attempts)
                 logger.info(
                     "Requeued reclaimed entry stream=%s id=%s (attempt %d/%d)",
                     self._stream,
@@ -600,7 +525,7 @@ class SimpleStreamConsumer(Generic[T]):
                     self._max_retries,
                 )
             try:
-                await redis.xack(self._stream, self._group, entry_id)
+                await self._delivery.ack(redis, entry_id)
                 logger.info(
                     "Acknowledged reclaimed entry stream=%s id=%s",
                     self._stream,
@@ -640,7 +565,7 @@ class SimpleStreamConsumer(Generic[T]):
             )
             return
         try:
-            await redis.xack(self._stream, self._group, entry_id)
+            await self._delivery.ack(redis, entry_id)
         except Exception as ack_err:
             logger.error(
                 "ACK failed for reclaimed DLQ entry stream=%s id=%s: %s",

@@ -13,6 +13,7 @@ from document_ia_infra.redis.model.workflow_execution_message import (
     WorkflowExecutionMessage,
 )
 from document_ia_infra.redis.redis_settings import redis_settings
+from document_ia_infra.redis.redis_manager import RedisManager
 from document_ia_worker.config.logging import setup_logging
 from document_ia_worker.workflow.message_handler import process_message
 
@@ -80,6 +81,8 @@ async def run_consumer(stop_event: asyncio.Event | None = None) -> None:
     _prewarm_models()
     logger.info("Register redis stream consumer for workflow execution")
 
+    # This runtime owns the main-loop Redis pool; the consumer borrows it.
+    redis_manager = RedisManager()
     _consumer = Consumer[WorkflowExecutionMessage](
         consumer_name=f"document-ia-worker:{os.getpid()}:{int(time.time()) % 10000}",
         consumer_group=redis_settings.EVENT_CONSUMER_GROUP,
@@ -88,12 +91,19 @@ async def run_consumer(stop_event: asyncio.Event | None = None) -> None:
         block_time=10000,
         message_class=WorkflowExecutionMessage,
         process_message_callable=process_message,
+        current_redis_manager=redis_manager,
     )
 
     if stop_event is not None and stop_event.is_set():
         _consumer.stop_flag.set()
 
-    await _consumer.start_consumer()
+    try:
+        await _consumer.start_consumer()
+    finally:
+        try:
+            await asyncio.wait_for(redis_manager.close(), timeout=5)
+        except Exception as exc:
+            logger.warning("Failed to close worker Redis resources: %s", exc)
 
 
 def _register_signal_handlers(
