@@ -7,6 +7,7 @@ import logging
 from datetime import datetime
 from typing import TypeVar, Generic
 
+from redis.exceptions import RedisError
 from redis.typing import EncodableT
 
 from document_ia_infra.redis.redis_manager import redis_manager, RedisManager
@@ -18,6 +19,19 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=SerializableMessage)
 
 
+class PublishFailedError(Exception):
+    """The message could not be scheduled on the Redis stream.
+
+    Raised instead of returning ``None`` so callers can distinguish a scheduling
+    failure from a successful publication and must decide the resulting state.
+    """
+
+    def __init__(self, stream_name: str, reason: str):
+        self.stream_name = stream_name
+        self.reason = reason
+        super().__init__(f"Publication on Redis stream {stream_name} failed: {reason}")
+
+
 class Publisher(Generic[T]):
     def __init__(
         self, stream_name: str, current_redis_manager: RedisManager = redis_manager
@@ -27,13 +41,26 @@ class Publisher(Generic[T]):
         self.current_redis_manager = current_redis_manager
 
     async def publish_message(self, message: T):
-        """Publie une tâche dans le stream Redis"""
+        """Publie une tâche dans le stream Redis.
+
+        Returns the Redis message id on success.
+
+        Raises:
+            PublishFailedError: when no connection is available or Redis refuses
+                the write (including ``maxlen`` saturation). The exception message
+                never embeds the published payload.
+        """
         try:
             connection = await self.current_redis_manager.get_connection()
-            if connection is None:
-                logger.error("❌ No Redis connection available")
-                return None
+        except RedisError as e:
+            logger.error("❌ Redis connection failed: %s", e)
+            raise PublishFailedError(self.stream_name, type(e).__name__) from e
 
+        if connection is None:
+            logger.error("❌ No Redis connection available")
+            raise PublishFailedError(self.stream_name, "no_connection")
+
+        try:
             # Convertir les données en format approprié pour Redis
             stream_data: dict[EncodableT, EncodableT] = {
                 "data": json.dumps(message.to_dict()),
@@ -54,4 +81,4 @@ class Publisher(Generic[T]):
             return message_id
         except Exception as e:
             logger.error(f"❌ Error publishing message in Redis stream: {e}")
-            return None
+            raise PublishFailedError(self.stream_name, type(e).__name__) from e

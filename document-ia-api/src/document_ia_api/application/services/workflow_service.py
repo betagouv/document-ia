@@ -18,6 +18,11 @@ from document_ia_api.api.contracts.workflow import (
 from document_ia_api.api.exceptions.entity_not_found_exception import (
     HttpEntityNotFoundException,
 )
+from document_ia_api.application.services.execution_acceptance import (
+    fail_unscheduled_execution,
+    scheduling_log_context,
+    scheduling_unavailable,
+)
 from document_ia_api.application.services.execution_service import ExecutionService
 from document_ia_api.core.config import workflow_settings
 from document_ia_api.core.file_validator import validate_uploaded_file
@@ -32,7 +37,7 @@ from document_ia_infra.data.workflow.repository.workflow import workflow_reposit
 from document_ia_infra.redis.model.workflow_execution_message import (
     WorkflowExecutionMessage,
 )
-from document_ia_infra.redis.publisher import Publisher
+from document_ia_infra.redis.publisher import PublishFailedError, Publisher
 from document_ia_infra.redis.redis_settings import redis_settings
 from document_ia_infra.service.event_store_service import EventStoreService
 from document_ia_infra.exception.entity_not_found_exception import (
@@ -158,13 +163,26 @@ class WorkflowService:
                 logger.error(f"Failed to emit workflow started event: {e}")
                 # Don't fail the workflow execution if event emission fails
 
-            publish_id = await self.redis_producer.publish_message(
-                WorkflowExecutionMessage(workflow_execution_id=execution_id)
-            )
-            if not publish_id:
-                logger.warning(
-                    f"Workflow execution {execution_id}: message not published to Redis stream {self.redis_producer.stream_name}"
+            try:
+                await self.redis_producer.publish_message(
+                    WorkflowExecutionMessage(workflow_execution_id=execution_id)
                 )
+            except PublishFailedError as publish_error:
+                # Aucun message ne programme le traitement : ne pas annoncer une
+                # exécution acceptée en `processing` (issue #120).
+                logger.error(
+                    "Workflow execution %s: scheduling failed",
+                    execution_id,
+                    extra=scheduling_log_context(publish_error),
+                )
+                await fail_unscheduled_execution(
+                    self.db_session,
+                    execution_id=execution_id,
+                    workflow_id=workflow_id,
+                    organization_id=organization_id,
+                    error=publish_error,
+                )
+                raise scheduling_unavailable(execution_id) from publish_error
 
             return WorkflowExecutionData(
                 execution_id=execution_id,
