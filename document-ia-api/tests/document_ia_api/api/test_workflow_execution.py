@@ -15,6 +15,21 @@ valid_workflow_id = "document-classification-v1"
 class TestWorkflowExecution:
     """Test cases for workflow execution endpoint."""
 
+    @pytest.fixture(autouse=True)
+    def scheduled_publication(self):
+        """Programmation simulée pour les tests de succès de l'endpoint.
+
+        Depuis #120, une publication Redis en échec produit un `503` au lieu
+        d'une exécution `processing` non programmée : ces tests ne doivent donc
+        plus dépendre d'une connexion Redis réelle pour vérifier le contrat de
+        succès. Les échecs de programmation sont couverts séparément.
+        """
+        with patch(
+            "document_ia_api.application.services.workflow_service.Publisher.publish_message",
+            new=AsyncMock(return_value="1-0"),
+        ):
+            yield
+
     @pytest.fixture
     def valid_metadata(self):
         """Valid metadata for testing."""

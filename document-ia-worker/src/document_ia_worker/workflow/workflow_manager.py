@@ -25,7 +25,7 @@ from document_ia_infra.redis.model.webhook_message import WebHookMessage
 from document_ia_infra.redis.model.workflow_execution_message import (
     WorkflowExecutionMessage,
 )
-from document_ia_infra.redis.publisher import Publisher
+from document_ia_infra.redis.publisher import PublishFailedError, Publisher
 from document_ia_infra.redis.redis_manager import RedisManager
 from document_ia_infra.redis.redis_settings import redis_settings
 from document_ia_infra.service.event_store_service import EventStoreService
@@ -352,12 +352,21 @@ class WorkflowManager:
             )
 
             for webhook in webhooks:
-                await self._webhook_producer.publish_message(
-                    WebHookMessage(
-                        webhook_id=webhook.id,
-                        workflow_execution_id=self.main_workflow_context.execution_id,
+                try:
+                    await self._webhook_producer.publish_message(
+                        WebHookMessage(
+                            webhook_id=webhook.id,
+                            workflow_execution_id=self.main_workflow_context.execution_id,
+                        )
                     )
-                )
+                except PublishFailedError as e:
+                    # Isoler l'échec de chaque webhook : le publisher lève
+                    # désormais au lieu de renvoyer `None`, et une indisponibilité
+                    # ne doit pas interrompre les notifications suivantes.
+                    logger.error(
+                        f"Failed to publish webhook notification {webhook.id} "
+                        f"for execution {self.main_workflow_context.execution_id}: {e}"
+                    )
         except Exception as e:
             logger.error(
                 f"Failed to notify webhook for finished execution {self.main_workflow_context.execution_id}: {e}"
