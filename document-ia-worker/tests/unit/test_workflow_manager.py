@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, AsyncMock, patch
 
 import pytest
 
+from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.exception.retryable_exception import RetryableException
 from document_ia_infra.redis.model.workflow_execution_message import WorkflowExecutionMessage
 from document_ia_worker.exception.workflow_step_exception import WorkflowStepException
@@ -147,6 +148,7 @@ class TestWorkflowManager:
 
             # Handle finish log
             mock_dependencies["handle_finish"].assert_called_once()
+
             args, _ = mock_dependencies["handle_finish"].call_args
             assert args[3] is False
             assert args[9] == "ValueError"
@@ -200,3 +202,44 @@ class TestWorkflowManager:
 
             # Handle finish log
             mock_dependencies["handle_finish"].assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_completed_duplicate_returns_normally_without_execution(
+        self, mock_workflow_message, mock_db_manager, mock_dependencies
+    ):
+        manager = WorkflowManager(mock_workflow_message, retry_count=0)
+        repository = MagicMock()
+        repository.get_created_event_if_execution_not_completed_or_failed = AsyncMock(
+            return_value=None
+        )
+        repository.get_last_event_by_execution_id = AsyncMock(
+            return_value=MagicMock(
+                event_type=EventType.WORKFLOW_EXECUTION_COMPLETED
+            )
+        )
+
+        with patch(
+            "document_ia_worker.workflow.workflow_manager.EventRepository",
+            return_value=repository,
+        ), patch.object(manager, "_parse_start_event") as mock_parse, patch.object(
+            manager, "_prepare_executor"
+        ) as mock_prepare_executor, patch.object(
+            manager, "_execute_workflow", new_callable=AsyncMock
+        ) as mock_execute, patch.object(
+            manager, "_save_failure_event", new_callable=AsyncMock
+        ) as mock_save_failure, patch.object(
+            manager, "_notify_webhook_execution_finished", new_callable=AsyncMock
+        ) as mock_notify:
+            await manager.start()
+
+        repository.get_created_event_if_execution_not_completed_or_failed.assert_awaited_once_with(
+            "exec-12345"
+        )
+        repository.get_last_event_by_execution_id.assert_awaited_once_with("exec-12345")
+        mock_parse.assert_not_called()
+        mock_prepare_executor.assert_not_called()
+        mock_execute.assert_not_awaited()
+        mock_save_failure.assert_not_awaited()
+        mock_notify.assert_not_awaited()
+        mock_dependencies["handle_finish"].assert_not_called()
+        mock_db_manager.return_value.dispose_async.assert_awaited_once()

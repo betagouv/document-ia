@@ -125,7 +125,7 @@ class EventRepository:
             if not events:
                 return None
 
-            last_event = events[-1]
+            last_event = events[0]
             # If last_event for an execution is Completed return None no need to reexecute the process
             if last_event.event_type == EventType.WORKFLOW_EXECUTION_COMPLETED:
                 event = None
@@ -138,7 +138,7 @@ class EventRepository:
                 last_event.event_type == EventType.WORKFLOW_EXECUTION_FAILED
                 and last_event.event.get("error_type") == RetryableException.__name__
             ):
-                for e in reversed(events):
+                for e in events[1:]:
                     if e.event_type == EventType.WORKFLOW_EXECUTION_STARTED:
                         event = e
                         break
