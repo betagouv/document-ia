@@ -198,22 +198,24 @@ async def get_execution(
         )
         if last_event.organization_id != organization.id:
             raise HTTPException(status_code=403, detail="Forbidden access to execution")
-        event_version_raw = last_event.event.get("version")
-        event_version = event_version_raw if isinstance(event_version_raw, int) else 1
+        workflow_version_raw = last_event.event.get("version")
+        workflow_version = (
+            workflow_version_raw if isinstance(workflow_version_raw, int) else 1
+        )
 
         workflow_exists = False
-        if event_version == 2:
+        if workflow_version == 2:
             workflow_exists = (
                 workflow_v2_repository.get_raw_workflow_by_id(last_event.workflow_id)
                 is not None
             )
-        elif event_version == 1:
+        elif workflow_version == 1:
             workflow_exists = (
                 await workflow_repository.get_workflow_by_id(last_event.workflow_id)
                 is not None
             )
         else:
-            raise ValueError(f"Unsupported event version: {event_version}")
+            raise ValueError(f"Unsupported workflow version: {workflow_version}")
 
         if not workflow_exists:
             raise EntityNotFoundException("Workflow", last_event.workflow_id)

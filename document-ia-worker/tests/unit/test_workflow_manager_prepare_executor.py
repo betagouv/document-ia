@@ -118,7 +118,7 @@ def test_prepare_executor_uses_v1_factory_for_event_v1():
 
     assert manager.step_list == ["from_factory"]
     mock_factory.assert_called_once()
-    assert manager.main_workflow_context.event_version == 1
+    assert manager.main_workflow_context.workflow_version == 1
     assert (
         manager.main_workflow_context.classification_parameters
         == manager.event_data.classification_parameters
@@ -155,7 +155,7 @@ def test_prepare_executor_uses_v2_factory_for_event_v2():
         session=session,
     )
     assert manager.step_list == ["from_v2_factory"]
-    assert manager.main_workflow_context.event_version == 2
+    assert manager.main_workflow_context.workflow_version == 2
     assert (
         manager.main_workflow_context.classification_parameters
         == manager.event_data.classification_parameters

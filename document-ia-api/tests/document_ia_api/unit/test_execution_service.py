@@ -10,17 +10,29 @@ from unittest.mock import AsyncMock, MagicMock
 from document_ia_api.application.services.execution_service import ExecutionService
 from document_ia_api.api.contracts.execution.types import ExecutionStatus
 from document_ia_infra.core.model.file_info import FileInfo
-from document_ia_infra.data.document.schema.document_classification import DocumentClassification
-from document_ia_infra.data.document.schema.document_extraction import DocumentExtraction
+from document_ia_infra.core.model.typed_generic_model import GenericProperty
+from document_ia_infra.data.document.schema.document_classification import (
+    DocumentClassification,
+)
+from document_ia_infra.data.document.schema.document_extraction import (
+    DocumentExtraction,
+)
 from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_schemas import SupportedDocumentType
 
-from document_ia_infra.data.event.schema.workflow.workflow_execution_completed_event import \
-    WorkflowExecutionCompletedEvent, CompletedEventResult
-from document_ia_infra.data.event.schema.workflow.workflow_execution_failed_event import WorkflowExecutionFailedEvent
-from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import WorkflowExecutionStartedEvent, \
-    ClassificationParameters, ExtractionParameters
+from document_ia_infra.data.event.schema.workflow.workflow_execution_completed_event import (
+    WorkflowExecutionCompletedEvent,
+    CompletedEventResult,
+)
+from document_ia_infra.data.event.schema.workflow.workflow_execution_failed_event import (
+    WorkflowExecutionFailedEvent,
+)
+from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import (
+    WorkflowExecutionStartedEvent,
+    ClassificationParameters,
+    ExtractionParameters,
+)
 
 
 class SampleProps(BaseModel):
@@ -67,12 +79,14 @@ def test_get_event_model_started(service: ExecutionService):
         organization_id=start_evt.organization_id,
         workflow_id="wf",
         execution_id="exec",
-        created_at=datetime.now(UTC),
+        created_at=start_evt.created_at.replace(year=start_evt.created_at.year + 1),
         event_type=EventType.WORKFLOW_EXECUTION_STARTED,
         event=start_evt.model_dump(mode="json"),
     )
     res = service.get_event_model(dto, execution_id="exec", is_debug_mode=False)
     assert res.status == ExecutionStatus.STARTED
+    assert res.data.created_at == dto.created_at
+    assert res.data.created_at != start_evt.created_at
     assert res.data.s3_file_info.file_name == "doc.pdf"
 
 
@@ -103,7 +117,9 @@ def test_get_event_model_failed(service: ExecutionService):
     assert res.data.error_type == "X"
 
 
-def test_get_event_model_completed_with_extraction_and_classification(service: ExecutionService, monkeypatch: pytest.MonkeyPatch):
+def test_get_event_model_completed_with_extraction_and_classification(
+    service: ExecutionService, monkeypatch: pytest.MonkeyPatch
+):
     props = SampleProps(first_name="Alice", age=None)
     extraction = DocumentExtraction[SampleProps](
         title="t",
@@ -137,8 +153,10 @@ def test_get_event_model_completed_with_extraction_and_classification(service: E
     class DummySchema:
         document_model = SampleProps
 
-    monkeypatch.setattr("document_ia_api.application.services.execution_service.resolve_extract_schema", lambda name: DummySchema())
-    monkeypatch.setattr("document_ia_infra.data.document.schema.document_extraction.resolve_extract_schema", lambda name: DummySchema())
+    monkeypatch.setattr(
+        "document_ia_infra.data.document.schema.document_extraction.resolve_extract_schema",
+        lambda name: DummySchema(),
+    )
 
     dto = EventDTO(
         id=uuid4(),
@@ -162,22 +180,27 @@ def test_get_event_model_completed_with_extraction_and_classification(service: E
     assert res.data.result.workflow_metadata == [{"step": 1}]
 
 
-def test__convert_extraction_result_unit(service: ExecutionService, monkeypatch: pytest.MonkeyPatch):
+def test_convert_extraction_result_uses_decoded_properties(
+    service: ExecutionService, monkeypatch: pytest.MonkeyPatch
+):
     props = SampleProps(first_name="Bob", age=42)
     extraction = DocumentExtraction[SampleProps](
         title="t",
         type=SupportedDocumentType.CNI,
         properties=props,
     )
+    convert = MagicMock(wraps=GenericProperty.convert_pydantic_model)
+    monkeypatch.setattr(
+        "document_ia_api.application.services.execution_service.GenericProperty.convert_pydantic_model",
+        convert,
+    )
 
-    class DummySchema:
-        document_model = SampleProps
+    result = service._convert_extraction_result(extraction)
 
-    result = service._convert_extraction_result(extraction, DummySchema())
+    convert.assert_called_once_with(props)
     assert result.type == SupportedDocumentType.CNI
     names = [p.name for p in result.properties]
     assert "first_name" in names and "age" in names
-    # type inference
     types = {p.name: p.type for p in result.properties}
     assert types["first_name"] == "string"
     assert types["age"] == "number"
@@ -210,7 +233,7 @@ def test_get_event_model_completed_with_other_extraction_skips_schema_resolution
 
     resolve_extract_schema_mock = MagicMock()
     monkeypatch.setattr(
-        "document_ia_api.application.services.execution_service.resolve_extract_schema",
+        "document_ia_infra.data.document.schema.document_extraction.resolve_extract_schema",
         resolve_extract_schema_mock,
     )
 

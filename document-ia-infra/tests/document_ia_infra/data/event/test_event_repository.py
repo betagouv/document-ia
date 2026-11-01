@@ -88,6 +88,26 @@ class TestEventRepository:
         mock_session.flush.assert_called_once()
         mock_session.refresh.assert_called_once()
 
+    def test_storage_projection_keeps_row_metadata_distinct(self):
+        row = MagicMock()
+        row.id = uuid4()
+        row.workflow_id = "test_workflow_001"
+        row.execution_id = "test_execution_001"
+        row.organization_id = uuid4()
+        row.created_at = datetime.now(UTC)
+        row.event_type = EventType.WORKFLOW_EXECUTION_STARTED.value
+        row.event = {
+            "event_id": str(uuid4()),
+            "created_at": "2020-01-01T00:00:00Z",
+        }
+
+        result = EventRepository._to_dto(row)
+
+        assert result.id == row.id
+        assert result.created_at == row.created_at
+        assert result.event["event_id"] != str(result.id)
+        assert result.event["created_at"] != result.created_at.isoformat()
+
     async def test_get_events_by_execution_id(self, event_repository, mock_session):
         """Test retrieving events by execution ID."""
         # Arrange
