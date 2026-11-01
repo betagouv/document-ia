@@ -11,6 +11,11 @@ from document_ia_api.api.contracts.workflow_v2 import WorkflowV2OverridePayload
 from document_ia_api.api.exceptions.entity_not_found_exception import (
     HttpEntityNotFoundException,
 )
+from document_ia_api.application.services.execution_acceptance import (
+    fail_unscheduled_execution,
+    scheduling_log_context,
+    scheduling_unavailable,
+)
 from document_ia_api.core.file_validator import validate_uploaded_file
 from document_ia_api.infra.s3_service import s3_service
 from document_ia_api.schemas.workflow import WorkflowExecutionDataV2
@@ -22,7 +27,7 @@ from document_ia_infra.data.workflow.dto.workflow_v2_dto import WorkflowV2Dto
 from document_ia_infra.redis.model.workflow_execution_message import (
     WorkflowExecutionMessage,
 )
-from document_ia_infra.redis.publisher import Publisher
+from document_ia_infra.redis.publisher import PublishFailedError, Publisher
 from document_ia_infra.redis.redis_settings import redis_settings
 from document_ia_infra.service.event_store_service import EventStoreService
 
@@ -101,15 +106,30 @@ class WorkflowV2Service:
             workflow_version=2,
         )
 
-        publish_id = await self.redis_producer.publish_message(
-            WorkflowExecutionMessage(workflow_execution_id=execution_id)
-        )
-        if not publish_id:
-            logger.warning(
-                "Workflow v2 execution %s: message not published to stream %s",
-                execution_id,
-                self.redis_producer.stream_name,
+        try:
+            await self.redis_producer.publish_message(
+                WorkflowExecutionMessage(workflow_execution_id=execution_id)
             )
+        except PublishFailedError as publish_error:
+            # Le fichier et l'événement de démarrage existent déjà : l'exécution
+            # est clôturée explicitement plutôt qu'annoncée en `processing`
+            # sans traitement programmé (issue #120).
+            logger.error(
+                "Workflow v2 execution %s: scheduling failed",
+                execution_id,
+                extra=scheduling_log_context(publish_error),
+            )
+            await fail_unscheduled_execution(
+                self.db_session,
+                execution_id=execution_id,
+                workflow_id=workflow_id,
+                organization_id=organization_id,
+                error=publish_error,
+                # Conserver la version du démarrage : sans elle, la consultation
+                # de l'exécution chercherait le workflow dans le dépôt v1.
+                workflow_version=2,
+            )
+            raise scheduling_unavailable(execution_id) from publish_error
 
         return WorkflowExecutionDataV2(
             execution_id=execution_id,

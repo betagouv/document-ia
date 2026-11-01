@@ -166,6 +166,34 @@ router = APIRouter(prefix="/workflows")
                 }
             },
         },
+        503: {
+            "model": ProblemDetail,
+            "description": (
+                "Service Unavailable (ProblemDetail) — the execution could not be "
+                "scheduled on the processing stream. No processing is pending and "
+                "the execution is recorded as FAILED. The response carries a "
+                "`Retry-After` header; retrying creates a new execution."
+            ),
+            "content": {
+                "application/json": {
+                    "example": {
+                        "type": "about:blank",
+                        "title": "Service Unavailable",
+                        "status": 503,
+                        "code": "http.error",
+                        "instance": "/api/v1/workflows/{workflow_id}/execute",
+                        "errors": {
+                            "error": "execution_scheduling_unavailable",
+                            "execution_id": "exec_123456789",
+                            "message": (
+                                "The execution could not be scheduled. "
+                                "No processing is pending; retry the request."
+                            ),
+                        },
+                    }
+                }
+            },
+        },
     },
     tags=["Workflows"],
     openapi_extra={
