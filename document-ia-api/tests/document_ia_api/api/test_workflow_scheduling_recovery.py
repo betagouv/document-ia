@@ -13,6 +13,7 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
+from document_ia_api.api.middleware.execution_admission import check_execution_admission
 from document_ia_infra.redis.publisher import PublishFailedError
 from document_ia_api.api.contracts.execution.types import ExecutionStatus
 from document_ia_infra.data.database import database_manager  # noqa: F401
@@ -20,7 +21,7 @@ from tests.document_ia_api.conftest import create_test_app
 
 
 @pytest.fixture(autouse=True)
-def db_client(isolated_database_manager, mock_redis_service):
+def db_client(isolated_database_manager, mock_redis_service, monkeypatch):
     """Client de test dont les sessions proviennent du manager isolé.
 
     Les routes reçoivent leur session via `Depends(database_manager.async_get_db)`,
@@ -33,10 +34,21 @@ def db_client(isolated_database_manager, mock_redis_service):
     original = rl_mod.redis_service
     rl_mod.redis_service = mock_redis_service
     app = create_test_app()
+    # This test exercises publication compensation on real PostgreSQL, not
+    # admission. Inject capacity just like the standard route-client fixtures.
+    app.dependency_overrides[check_execution_admission] = lambda: None
+    redis_connection = AsyncMock(
+        side_effect=AssertionError("Redis is outside this test boundary")
+    )
+    monkeypatch.setattr(
+        "document_ia_api.api.middleware.execution_admission.redis_manager.get_connection",
+        redis_connection,
+    )
     app.dependency_overrides[database_manager.async_get_db] = (
         isolated_database_manager.async_get_db
     )
     yield TestClient(app)
+    redis_connection.assert_not_awaited()
     rl_mod.redis_service = original
 
 
@@ -66,6 +78,7 @@ async def test_unscheduled_execution_is_persisted_as_failed(
 
     assert response.status_code == 503
     assert response.headers["Retry-After"]
+    assert response.json()["errors"]["error"] == "execution_scheduling_unavailable"
     execution_id = response.json()["errors"]["execution_id"]
 
     # Redis a récupéré : une nouvelle tentative du client est acceptée et crée

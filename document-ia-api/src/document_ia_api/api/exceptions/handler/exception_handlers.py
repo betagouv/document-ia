@@ -25,6 +25,7 @@ HTTP_CODE_MAP = {
     405: "http.method_not_allowed",
     413: "http.payload_too_large",
     429: "http.rate_limited",
+    503: "http.service_unavailable",
 }
 
 

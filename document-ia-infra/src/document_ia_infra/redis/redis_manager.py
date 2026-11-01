@@ -27,7 +27,8 @@ class RedisManager:
 
     async def get_connection(self) -> Redis | None:
         """Ensure Redis connection with retry logic."""
-        while self.connection_attempts < self.max_retries:
+        # A previous outage must not disable recovery on every future request.
+        for attempt in range(self.max_retries):
             try:
                 if self.redis is None:
                     # Create connection pool
@@ -35,10 +36,11 @@ class RedisManager:
                         redis_settings.get_redis_url(),
                         decode_responses=True,
                         max_connections=20,
+                        socket_connect_timeout=5,
                     )
                     self.redis = Redis(connection_pool=pool)
 
-                await self.redis.ping()  # type: ignore
+                await asyncio.wait_for(self.redis.ping(), timeout=5)  # type: ignore
                 if self.connection_attempts > 0:
                     logger.info(
                         f"Redis connection restored after {self.connection_attempts} attempts"
@@ -47,7 +49,7 @@ class RedisManager:
                 return self.redis
 
             except (ConnectionError, TimeoutError, Exception) as e:
-                self.connection_attempts += 1
+                self.connection_attempts = attempt + 1
                 delay = await self._get_retry_delay()
                 logger.warning(
                     f"Redis connection failed (attempt {self.connection_attempts}/{self.max_retries}): {e}. "

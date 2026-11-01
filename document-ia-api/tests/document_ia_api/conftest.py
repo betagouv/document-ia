@@ -186,6 +186,10 @@ def _build_client(mock_redis_service) -> TestClient:
     original = rl_mod.redis_service
     rl_mod.redis_service = mock_redis_service
     client = TestClient(create_test_app())
+    from document_ia_api.api.middleware.execution_admission import check_execution_admission
+    # Route business tests inject capacity just as they inject client quotas.
+    # Admission boundary tests explicitly remove this override.
+    client.app.dependency_overrides[check_execution_admission] = lambda: None
 
     def _finalizer():
         rl_mod.redis_service = original

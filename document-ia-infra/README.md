@@ -65,4 +65,47 @@ and identifier consistency; no production database was accessed for these tests.
 
 `OpenAIManager` creates a request-scoped `AsyncOpenAI` client on the request's loop and closes it with an async context manager on success, errors and cancellation. Merely constructing a manager/unused LLM step opens no client. HTTP download/OCR clients already use async context managers; workflow database sessions/engines are scoped and disposed by the workflow owner. Thread-loop teardown does not call `gc.collect()` to schedule client destructors.
 
-Delivery is at-least-once, not exactly-once business execution. Atomic copy guards scan retained stream history; trimming away pending sources/copies invalidates that guard. Current publisher MAXLEN retention and no-progress deadlines need separate operational policies; this refactor does not redesign them. Heartbeats protect live handlers but are not fencing/leases against process pauses. See the worker README for the blocking-operation inventory.
+Delivery is at-least-once, not exactly-once business execution. Atomic copy guards scan retained stream history; trimming away pending sources/copies invalidates that guard. Publishers no longer use MAXLEN; safe retention and no-progress deadlines remain separate operational policies (#122). Heartbeats protect live handlers but are not fencing/leases against process pauses. See the worker README for the blocking-operation inventory.
+
+## New-execution admission
+
+`redis/admission.py` uses one Redis Lua operation to inspect both workflow and
+webhook queues, check hysteresis and allocate a workflow slot by XADD. There is
+no per-process counter or check/write gap between API instances. Retries and
+webhook publications for already accepted work bypass new-execution admission
+so they can drain. Both API and worker must use the same Redis database, stream
+names and group names. Redis 7 or newer is required for consumer-group lag.
+
+Each queue counts consumer-group lag plus pending (unacknowledged) entries, not
+XLEN, which includes retained completed history. Before group creation all stream
+entries count. The oldest pending or undelivered Redis entry supplies queue age,
+using Redis's clock. An unknown lag, wrong key type or failed Redis operation
+refuses new work; it never guesses that capacity is available. A lost XADD reply
+remains an ambiguous publication, under the existing #120 contract, not a
+cross-store transaction or exactly-once guarantee.
+
+The same configurable thresholds apply independently to each queue:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `ADMISSION_MAX_OUTSTANDING` | 1000 | Stop new executions at this outstanding count |
+| `ADMISSION_RESUME_OUTSTANDING` | 800 | Reopen only at or below this count |
+| `ADMISSION_MAX_AGE_SECONDS` | 300 | Stop when the oldest queue entry reaches this age |
+| `ADMISSION_RESUME_AGE_SECONDS` | 120 | Reopen only at or below this age |
+
+Once a queue closes admission, both its count and age must fall to their resume
+thresholds. The closed state is shared in `<stream>:admission`, without a TTL
+that might reopen admission during an outage. ACKs reduce outstanding work;
+there are no expiring leases that can forget an accepted job. A webhook backlog
+can exceed its stop threshold while previously accepted workflows finish: their
+notifications must not be discarded to enforce the new-work limit.
+
+These are conservative starting values, not production-sized budgets. Before
+deployment, choose counts/ages from measured peak traffic, worker latency,
+dependency quotas, acceptable wait times and storage/memory headroom. A stalled
+OCR, LLM, download, database write or webhook delivery is reflected by unfinished
+queue work; this is not an active health probe or provider-specific circuit
+breaker. Queue age is the age of the current delivery entry, not total execution
+age across retries. DLQs, completed history, retained uploads and per-document
+byte budgets need the retention/storage policy in #122. Do not use MAXLEN as an
+admission limit or trim pending entries to reopen admission.
