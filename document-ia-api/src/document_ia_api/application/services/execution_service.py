@@ -1,8 +1,7 @@
 import logging
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 from fastapi import HTTPException
-from pydantic import BaseModel
 
 from document_ia_api.api.contracts.execution.failed import (
     ExecutionFailedModel,
@@ -41,11 +40,7 @@ from document_ia_infra.data.event.schema.workflow.workflow_execution_failed_even
 from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import (
     WorkflowExecutionStartedEvent,
 )
-from document_ia_schemas import (
-    resolve_extract_schema,
-    BaseDocumentTypeSchema,
-    SupportedDocumentType,
-)
+from document_ia_schemas import SupportedDocumentType
 
 logger = logging.getLogger(__name__)
 
@@ -125,11 +120,8 @@ class ExecutionService:
                     properties=[],
                 )
             else:
-                extraction_class = resolve_extract_schema(
-                    event_data.final_result.extraction.type.value
-                )
                 success_result.extraction = self._convert_extraction_result(
-                    event_data.final_result.extraction, extraction_class
+                    event_data.final_result.extraction
                 )
 
         success_result.barcodes = event_data.final_result.barcodes
@@ -146,44 +138,14 @@ class ExecutionService:
             id=execution_id, status=ExecutionStatus.SUCCESS, data=success_data
         )
 
-    def _infer_value_type(
-        self, value: Any
-    ) -> Literal["string", "number", "boolean", "object"]:
-        if isinstance(value, bool):
-            return "boolean"
-        if isinstance(value, int):
-            return "number"
-        if isinstance(value, float):
-            return "number"
-        if isinstance(value, str):
-            return "string"
-        return "object"
-
     def _convert_extraction_result(
         self,
         extraction_data: DocumentExtraction[Any],
-        extraction_class: BaseDocumentTypeSchema[BaseModel],
     ) -> ExtractionResult:
-        model_cls: type[BaseModel] = extraction_class.document_model
-
-        # On récupère les propriétés brutes (souvent une instance Pydantic)
-        props_raw: Any = extraction_data.properties
-
-        # Si ce n'est pas déjà une instance de `model_cls`, on tente de l'instancier
-        model_instance: BaseModel
-        if isinstance(props_raw, BaseModel):
-            model_instance = props_raw
-        elif isinstance(props_raw, dict):
-            model_instance = model_cls(**props_raw)
-        else:
-            model_instance = model_cls(**getattr(props_raw, "__dict__", {}))
-
-        # Utilisation centrale de `GenericProperty`
-        generic_properties: list[GenericProperty] = (
-            GenericProperty.convert_pydantic_model(model_instance)
-        )
-
+        """Project the already-decoded domain extraction into the API contract."""
         return ExtractionResult(
             type=extraction_data.type,
-            properties=generic_properties,
+            properties=GenericProperty.convert_pydantic_model(
+                extraction_data.properties
+            ),
         )

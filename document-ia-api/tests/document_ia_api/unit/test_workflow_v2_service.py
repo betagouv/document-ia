@@ -47,7 +47,10 @@ def _workflow_with_rules() -> dict[str, Any]:
                             {"type": "string", "enum": ["all"]},
                             {
                                 "type": "array",
-                                "items": {"type": "string", "enum": ["cni", "passeport"]},
+                                "items": {
+                                    "type": "string",
+                                    "enum": ["cni", "passeport"],
+                                },
                             },
                         ],
                     }
@@ -83,9 +86,9 @@ def test_resolve_workflow_configuration_merges_defaults_and_overrides(
     extract = next(s for s in resolved.steps if isinstance(s, LlmExtractDataStepDto))
     assert isinstance(classify.params.document_types, list)
     assert extract.params.document_type is not None
-    assert [document_type.value for document_type in classify.params.document_types] == [
-        "cni"
-    ]
+    assert [
+        document_type.value for document_type in classify.params.document_types
+    ] == ["cni"]
     assert extract.params.model.value == "openweight-medium"
     assert extract.params.document_type.value == "passeport"
 
@@ -179,7 +182,7 @@ async def test_execute_workflow_emits_started_event_with_workflow_configuration(
     _, kwargs = event_store_instance.emit_workflow_started.call_args
     assert kwargs["workflow_configuration"].id == "document-extraction-v2"
     assert kwargs["workflow_configuration"].steps
-    assert kwargs["event_version"] == 2
+    assert kwargs["workflow_version"] == 2
 
 
 def _workflow_with_defaults_only() -> dict[str, Any]:
@@ -209,7 +212,9 @@ def _workflow_with_defaults_only() -> dict[str, Any]:
     }
 
 
-def test_validate_workflow_success(monkeypatch: pytest.MonkeyPatch, service: WorkflowV2Service):
+def test_validate_workflow_success(
+    monkeypatch: pytest.MonkeyPatch, service: WorkflowV2Service
+):
     monkeypatch.setattr(
         "document_ia_api.application.services.workflow_v2_service.workflow_v2_repository.get_raw_workflow_by_id",
         lambda _: _workflow_with_rules(),
@@ -308,7 +313,9 @@ def test_validate_workflow_raises_when_one_of_value_is_invalid(
     payload = WorkflowV2OverridePayload.model_validate(
         {
             "llm_extract_data": [{"param": "document_type", "value": "cni"}],
-            "llm_classify_document": [{"param": "document_types", "value": ["cni", "foo"]}],
+            "llm_classify_document": [
+                {"param": "document_types", "value": ["cni", "foo"]}
+            ],
         }
     )
 

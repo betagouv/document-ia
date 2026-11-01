@@ -9,6 +9,12 @@ from document_ia_infra.data.event.dto.event_type_enum import EventType
 
 @dataclass
 class EventDTO:
+    """Transport envelope between the repository and domain-event decoders.
+
+    ``id`` and ``created_at`` belong to the database row. They are deliberately
+    independent of the payload's ``event_id`` and ``created_at`` fields.
+    """
+
     id: UUID
     workflow_id: str
     organization_id: UUID
