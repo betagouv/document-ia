@@ -5,11 +5,15 @@ Copy-before-ACK is atomic and idempotent even when a successful reply is lost.
 Source entries and their copies must not be trimmed before pending recovery.
 """
 
+import asyncio
 from collections.abc import Awaitable
 from typing import Any, cast
 
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
+
+from document_ia_infra.redis.delivery_metrics import delivery_metric
+from document_ia_infra.redis.redis_settings import redis_settings
 
 _COPY_ONCE_LUA = """
 local target = KEYS[1]
@@ -47,7 +51,15 @@ class StreamDelivery:
             if "BUSYGROUP" not in str(exc):
                 raise
 
-    async def read(self, redis: Redis, count: int, block: int):
+    async def read(self, redis: Redis, count: int, block: int) -> Any:
+        if not await self._recovery_slot(redis, "read"):
+            await asyncio.sleep(
+                min(redis_settings.STREAM_RECOVERY_INTERVAL_MS / 1000, 1)
+            )
+            return []
+        if redis_settings.STREAM_RECOVERY_INTERVAL_MS:
+            count = 1
+            block = min(block, 1000)
         return await redis.xreadgroup(
             self.group,
             self.consumer,
@@ -56,8 +68,12 @@ class StreamDelivery:
             block=block,
         )
 
-    async def claim(self, redis: Redis, idle_ms: int, start: str, count: int):
-        return await redis.xautoclaim(
+    async def claim(self, redis: Redis, idle_ms: int, start: str, count: int) -> Any:
+        if not await self._recovery_slot(redis, "claim"):
+            return start, [], []
+        if redis_settings.STREAM_RECOVERY_INTERVAL_MS:
+            count = 1
+        result = await redis.xautoclaim(
             self.stream,
             self.group,
             self.consumer,
@@ -65,9 +81,27 @@ class StreamDelivery:
             start,
             count=count,
         )
+        delivery_metric(self.stream, "reclaim", "success", len(result[1]))
+        return result
+
+    async def _recovery_slot(self, redis: Redis, operation: str) -> bool:
+        interval = redis_settings.STREAM_RECOVERY_INTERVAL_MS
+        if not interval:
+            return True
+        # Shared per stream and operation, not multiplied by instance count.
+        return bool(
+            await redis.set(
+                f"{self.stream}:recovery:{operation}", "1", nx=True, px=interval
+            )
+        )
 
     async def ack(self, redis: Redis, entry_id: str) -> None:
-        await redis.xack(self.stream, self.group, entry_id)
+        try:
+            await redis.xack(self.stream, self.group, entry_id)
+        except Exception:
+            delivery_metric(self.stream, "ack", "error")
+            raise
+        delivery_metric(self.stream, "ack", "success")
 
     async def refresh(self, redis: Redis, ids: set[Any]) -> None:
         if ids:
@@ -94,7 +128,15 @@ class StreamDelivery:
         for key, value in payload.items():
             argv.extend((str(key), str(value)))
         # redis-py's shared command mixin also types the synchronous client.
-        await cast(Awaitable[Any], redis.eval(_COPY_ONCE_LUA, 1, target, *argv))
+        operation = "dlq" if target == f"{self.stream}:dlq" else "retry"
+        try:
+            result = await cast(
+                Awaitable[Any], redis.eval(_COPY_ONCE_LUA, 1, target, *argv)
+            )
+        except Exception:
+            delivery_metric(self.stream, operation, "error")
+            raise
+        delivery_metric(self.stream, operation, "created" if result[0] else "existing")
         return True
 
     async def requeue(

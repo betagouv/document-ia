@@ -136,7 +136,9 @@ class SimpleStreamConsumer(Generic[T]):
             except asyncio.TimeoutError:
                 logger.warning("Timeout waiting for SimpleStreamConsumer task to stop")
             except Exception as e:
-                logger.error("Error stopping SimpleStreamConsumer task: %s", e)
+                logger.error(
+                    "Error stopping SimpleStreamConsumer task: %s", type(e).__name__
+                )
 
     async def _ensure_connection(self) -> Optional[Redis]:
         if self._redis is not None:
@@ -176,7 +178,7 @@ class SimpleStreamConsumer(Generic[T]):
                 "leaving entry pending",
                 entry_id,
                 dlq_stream,
-                scan_err,
+                type(scan_err).__name__,
             )
             return False
         if already_retained:
@@ -198,10 +200,9 @@ class SimpleStreamConsumer(Generic[T]):
                 },
             )
             logger.warning(
-                "Message %s moved to DLQ '%s' due to: %s",
+                "Message %s moved to DLQ '%s'",
                 entry_id,
                 dlq_stream,
-                error_message,
             )
             return True
         except Exception as dlq_err:
@@ -209,7 +210,7 @@ class SimpleStreamConsumer(Generic[T]):
                 "Unable to push message %s to DLQ '%s': %s",
                 entry_id,
                 dlq_stream,
-                dlq_err,
+                type(dlq_err).__name__,
             )
             return False
 
@@ -304,7 +305,7 @@ class SimpleStreamConsumer(Generic[T]):
                                     "Handler error for stream=%s id=%s: %s",
                                     stream_name,
                                     entry_id,
-                                    h_err,
+                                    type(h_err).__name__,
                                 )
                             finally:
                                 if (
@@ -314,15 +315,13 @@ class SimpleStreamConsumer(Generic[T]):
                                     and self._auto_ack
                                 ):
                                     try:
-                                        await redis.xack(
-                                            self._stream, self._group, entry_id
-                                        )
+                                        await self._delivery.ack(redis, entry_id)
                                     except Exception as ack_err:
                                         logger.error(
                                             "ACK error for stream=%s id=%s: %s",
                                             stream_name,
                                             entry_id,
-                                            ack_err,
+                                            type(ack_err).__name__,
                                         )
                                 else:
                                     if not (self._group and self._consumer):
@@ -334,7 +333,7 @@ class SimpleStreamConsumer(Generic[T]):
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error("SimpleStreamConsumer loop error: %s", e)
+                logger.error("SimpleStreamConsumer loop error: %s", type(e).__name__)
                 await asyncio.sleep(1)
         logger.info(
             "SimpleStreamConsumer loop stopped (stream='%s', mode=%s)",
@@ -394,7 +393,9 @@ class SimpleStreamConsumer(Generic[T]):
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.warning("Heartbeat failed for stream=%s: %s", self._stream, e)
+                logger.warning(
+                    "Heartbeat failed for stream=%s: %s", self._stream, type(e).__name__
+                )
         logger.info("Heartbeat task stopped (stream='%s')", self._stream)
 
     def _worker_tasks_done(self) -> bool:
@@ -461,7 +462,11 @@ class SimpleStreamConsumer(Generic[T]):
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error("Reclaimer loop error for stream=%s: %s", self._stream, e)
+                logger.error(
+                    "Reclaimer loop error for stream=%s: %s",
+                    self._stream,
+                    type(e).__name__,
+                )
                 await asyncio.sleep(5)
         logger.info("Reclaimer task stopped (stream='%s')", self._stream)
 
@@ -479,16 +484,15 @@ class SimpleStreamConsumer(Generic[T]):
             # que de re-réclamer la même entrée indéfiniment.
             logger.error(
                 "Malformed retries field for reclaimed entry stream=%s id=%s: "
-                "%r. Moving to DLQ.",
+                "Moving to DLQ.",
                 self._stream,
                 entry_id,
-                fields.get("retries"),
             )
             await self._retain_in_dlq_and_ack(
                 redis,
                 entry_id,
                 fields,
-                f"Malformed retries field: {fields.get('retries')!r}",
+                "Malformed retries field",
             )
             return
         if attempts >= self._max_retries:
@@ -536,14 +540,14 @@ class SimpleStreamConsumer(Generic[T]):
                     "ACK failed for reclaimed entry stream=%s id=%s: %s",
                     self._stream,
                     entry_id,
-                    ack_err,
+                    type(ack_err).__name__,
                 )
         except Exception as requeue_err:
             logger.error(
                 "Failed to requeue reclaimed entry stream=%s id=%s: %s",
                 self._stream,
                 entry_id,
-                requeue_err,
+                type(requeue_err).__name__,
             )
 
     async def _retain_in_dlq_and_ack(
@@ -571,7 +575,7 @@ class SimpleStreamConsumer(Generic[T]):
                 "ACK failed for reclaimed DLQ entry stream=%s id=%s: %s",
                 self._stream,
                 entry_id,
-                ack_err,
+                type(ack_err).__name__,
             )
 
     async def _already_requeued(
