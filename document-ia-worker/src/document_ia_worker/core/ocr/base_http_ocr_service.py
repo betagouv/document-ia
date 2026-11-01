@@ -1,6 +1,8 @@
 import logging
 import os
 from abc import ABC, abstractmethod
+from time import monotonic
+from traceback import walk_tb
 from typing import TypeVar
 
 import httpx
@@ -28,14 +30,32 @@ class BaseHttpOCRService[C](ABC):
                 content="",
             )
 
+        started = monotonic()
         try:
             timeout = httpx.Timeout(self.timeout, connect=self.connection_timeout)
             async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await self.make_request(client, file_path, mime_type)
                 return self.parse_response(response)
 
-        except Exception as e:
-            logger.error(f"Unexpected error during HTTP OCR call: {e}")
+        except Exception as exc:
+            # Exception messages and source lines can contain URLs or payloads.
+            frames = " > ".join(
+                f"{os.path.basename(frame.f_code.co_filename)}:{line}:{frame.f_code.co_name}"
+                for frame, line in walk_tb(exc.__traceback__)
+            )
+            status = (
+                exc.response.status_code
+                if isinstance(exc, httpx.HTTPStatusError)
+                else None
+            )
+            logger.error(
+                "HTTP OCR call failed: exception=%s elapsed_seconds=%.3f "
+                "status_code=%s traceback=%s",
+                type(exc).__name__,
+                monotonic() - started,
+                status,
+                frames,
+            )
             return HttpOcrResult(
                 success=False,
                 content="",
