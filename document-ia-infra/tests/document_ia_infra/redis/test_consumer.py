@@ -1,6 +1,5 @@
 import asyncio
 import json
-import logging
 import time
 from collections.abc import Callable
 from typing import Any
@@ -131,6 +130,29 @@ class MockRedis:
             return self._xautoclaim_queue.pop(0)
         await asyncio.sleep(0.01)
         return (start, [], [])
+
+    async def eval(self, script: str, numkeys: int, *args: Any):
+        # Émule les scripts Lua de remise en file et de conservation DLQ :
+        # recherche d'une copie portant « original_id » puis XADD si absente,
+        # de façon atomique. Le flux cible est args[0].
+        stream = args[0]
+        orig = args[1]
+        # Recherche d'une copie existante avec original_id == orig.
+        for (recorded_stream, fields), msg_id in zip(self.xadd_calls, self.xadd_ids):
+            if recorded_stream == stream and str(fields.get("original_id", "")) == str(orig):
+                return [0, msg_id]
+        if stream == self.stream_name:
+            # Remise en file : data, retries, original_id.
+            fields = {"data": args[3], "retries": args[2], "original_id": orig}
+        else:
+            # Conservation DLQ : paires clé/valeur après original_id.
+            fields = {}
+            rest = args[2:]
+            for i in range(0, len(rest), 2):
+                fields[rest[i]] = rest[i + 1]
+            fields["original_id"] = orig
+        new_id = await self.xadd(stream, fields)
+        return [1, new_id]
 
 
 @pytest.mark.asyncio
@@ -377,8 +399,22 @@ async def test_reclaimer_reclaim_consumes_single_attempt(monkeypatch):
 
     requeues = [call for call in mock_redis.xadd_calls if call[0] == stream]
     assert requeues == [
-        (stream, {"data": json.dumps({"a": 1}), "retries": "1"}),
-        (stream, {"data": json.dumps({"a": 2}), "retries": "2"}),
+        (
+            stream,
+            {
+                "data": json.dumps({"a": 1}),
+                "retries": "1",
+                "original_id": "1700000000000-0",
+            },
+        ),
+        (
+            stream,
+            {
+                "data": json.dumps({"a": 2}),
+                "retries": "2",
+                "original_id": "1700000000001-0",
+            },
+        ),
     ]
     assert (stream, "1700000000000-0") in mock_redis.acks
     assert (stream, "1700000000001-0") in mock_redis.acks
@@ -479,10 +515,9 @@ async def test_dlq_retention_is_idempotent_per_message(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_dlq_retention_scan_is_bounded_to_original_id():
-    """La détection d'entrée déjà conservée ne parcourt que les entrées DLQ
-    postérieures au message d'origine : l'historique antérieur de la DLQ
-    n'est pas chargé à chaque échec terminal."""
+async def test_dlq_retention_dedup_per_original_id():
+    """Une deuxième conservation pour le même « original_id » ne crée pas de
+    doublon ; une conservation pour un autre message est indépendante."""
     stream = "test-stream"
     mock_redis = MockRedis(stream)
 
@@ -498,29 +533,21 @@ async def test_dlq_retention_scan_is_bounded_to_original_id():
         max_retry_number=3,
     )
 
-    # une entrée DLQ existe déjà (identifiant généré à l'instant)
     retained_id = "1700000000000-0"
     fields = {"data": json.dumps({"a": 1}), "retries": "2"}
-    await c._send_to_dlq(mock_redis, retained_id, fields, "max_retries_exceeded")
+    assert await c._send_to_dlq(mock_redis, retained_id, fields, "max_retries_exceeded")
+    # deuxième conservation du même message : aucune nouvelle ligne
+    assert await c._send_to_dlq(mock_redis, retained_id, fields, "max_retries_exceeded")
+    # un autre message est conservé indépendamment
+    assert await c._send_to_dlq(mock_redis, "1700000000001-0", fields, "max_retries_exceeded")
 
-    # un message créé après cette entrée la retrouve : borne inclusive
-    assert await c._already_retained_in_dlq(mock_redis, retained_id) is True
-    # un message créé avant toute entrée DLQ ne la voit pas : le parcours
-    # démarre après son propre identifiant
-    assert await c._already_retained_in_dlq(mock_redis, "9999999999999-0") is False
-
-    dlq_scans = [call for call in mock_redis.xrange_calls if call[0] == f"{stream}:dlq"]
-    assert len(dlq_scans) == 3
-    assert all(scan[1] != "-" for scan in dlq_scans)
-    assert [scan[1] for scan in dlq_scans] == [
-        retained_id,
-        retained_id,
-        "9999999999999-0",
-    ]
+    dlqs = [call for call in mock_redis.xadd_calls if call[0] == f"{stream}:dlq"]
+    originals = sorted(call[1]["original_id"] for call in dlqs)
+    assert originals == ["1700000000000-0", "1700000000001-0"]
 
 
 @pytest.mark.asyncio
-async def test_dlq_retention_scan_covers_source_millisecond():
+async def test_dlq_retention_detects_same_millisecond_copy():
     """Séquences indépendantes par flux : une copie DLQ créée dans la même
     milliseconde que le message d'origine peut précéder son identifiant
     (source T-5, DLQ T-0) et doit rester détectée."""
@@ -554,16 +581,17 @@ async def test_dlq_retention_scan_covers_source_millisecond():
     # son identifiant précède celui du message d'origine
     assert mock_redis.xadd_ids[-1] == "12345-0"
 
-    # la détection doit retrouver l'entrée malgré l'inversion de séquence
-    assert await c._already_retained_in_dlq(mock_redis, source_id) is True
+    # une nouvelle conservation retrouve l'entrée : pas de doublon
+    assert await c._send_to_dlq(mock_redis, source_id, fields, "decode_error")
+    dlqs = [call for call in mock_redis.xadd_calls if call[0] == f"{stream}:dlq"]
+    assert len(dlqs) == 1
 
 
 @pytest.mark.asyncio
-async def test_reclaimer_after_dlq_retention_does_not_duplicate(monkeypatch, caplog):
+async def test_reclaimer_after_dlq_retention_does_not_duplicate(monkeypatch):
     """Conservation DLQ confirmée puis ACK en échec : l'entrée d'origine
     reste en attente et subit une nouvelle récupération, qui ne doit pas
     conserver une deuxième copie (issue #111)."""
-    caplog.set_level(logging.INFO)
     stream = "test-stream"
     group = "g1"
     msg_id = "1700000000000-0"
@@ -602,16 +630,18 @@ async def test_reclaimer_after_dlq_retention_does_not_duplicate(monkeypatch, cap
 
     task = asyncio.create_task(c._reclaim_pending_messages())
     try:
-        # le second cycle doit passer par la détection d'entrée existante
+        # le second cycle doit retrouver l'entrée déjà conservée (dédup
+        # atomique dans le script Lua) : aucune seconde ligne DLQ.
         for _ in range(100):
-            if "skipping duplicate write" in caplog.text:
+            if mock_redis.xadd_calls:
                 break
             await asyncio.sleep(0.05)
+        # laisser le second cycle se dérouler
+        await asyncio.sleep(0.3)
     finally:
         c.stop_flag.set()
         await asyncio.wait_for(task, timeout=5)
 
-    assert "skipping duplicate write" in caplog.text
     dlqs = [call for call in mock_redis.xadd_calls if call[0] == f"{stream}:dlq"]
     assert len(dlqs) == 1
 

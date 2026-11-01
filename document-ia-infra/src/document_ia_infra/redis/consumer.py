@@ -29,6 +29,68 @@ T = TypeVar("T", bound=SerializableMessage)
 
 RECLAIM_IDLE_MS = 300000
 
+# Script Lua de remise en file atomique et idempotente.
+#
+# Une remise en file crée une copie de l'entrée d'origine (avec le champ
+# « original_id ») puis l'acquitte. Sans garde atomique, un acquittement en
+# échec laisse l'original en attente et chaque récupération crée une copie
+# supplémentaire. La solution naïve — une clé d'index `SET NX` posée avant le
+# XADD — est pire : une réservation orpheline (crash entre la réservation et
+# la copie) fait croire à une copie existante et laisse un autre reclaimer
+# acquitter l'original sans jamais le recopier (perte de message).
+#
+# Le script rend la vérification et la copie atomiques : il recherche une
+# copie portant « original_id » et n'en crée une que si aucune n'existe. Il
+# n'y a donc pas de réservation séparée à orpheliner, et une réponse perdue
+# (le XADD a réussi mais le client n'a pas reçu la réponse) ne crée pas de
+# doublon à la tentative suivante : la copie est retrouvée.
+#
+# Retour : {created_flag, id} — created_flag vaut 1 si une copie a été créée,
+# 0 si une copie existait déjà ; id est l'identifiant de la copie.
+_REQUEUE_LUA = """
+local stream = KEYS[1]
+local orig = ARGV[1]
+local retries = ARGV[2]
+local data = ARGV[3]
+local existing = redis.call('XRANGE', stream, orig, '+')
+for _, e in ipairs(existing) do
+  local f = e[2]
+  for i = 1, #f, 2 do
+    if f[i] == 'original_id' and f[i+1] == orig then
+      return {0, e[1]}
+    end
+  end
+end
+local id = redis.call('XADD', stream, '*', 'data', data, 'retries', retries, 'original_id', orig)
+return {1, id}
+"""
+
+# Script Lua de conservation DLQ atomique et idempotente, même principe :
+# recherche d'une entrée DLQ portant « original_id » puis XADD si absente.
+# Les champs DLQ sont passés en paires clé/valeur après original_id.
+_RETAIN_DLQ_LUA = """
+local dlq = KEYS[1]
+local orig = ARGV[1]
+-- L'identifiant de l'entrée DLQ est indépendant de celui de l'entrée source
+-- (flux différents, séquences indépendantes) : le parcours part de 0-0 pour
+-- ne jamais manquer une copie déjà conservée, quelle que soit sa position.
+local existing = redis.call('XRANGE', dlq, '0-0', '+')
+for _, e in ipairs(existing) do
+  local f = e[2]
+  for i = 1, #f, 2 do
+    if f[i] == 'original_id' and f[i+1] == orig then
+      return {0, e[1]}
+    end
+  end
+end
+local args = {}
+for i = 2, #ARGV do
+  table.insert(args, ARGV[i])
+end
+local id = redis.call('XADD', dlq, '*', unpack(args))
+return {1, id}
+"""
+
 
 class Consumer(Generic[T]):
     def __init__(
@@ -45,12 +107,21 @@ class Consumer(Generic[T]):
     ):
         self.redis: Optional[Redis] = None
         self.reclaimer_task: Optional[Task[Any]] = None
+        self.heartbeat_task: Optional[Task[Any]] = None
         self.stop_flag = asyncio.Event()
         self.consumer_name = consumer_name
         self.stream_name = stream_name
         self.consumer_group = consumer_group
         self.message_class = message_class
         self.process_message_callable = process_message_callable
+        # Battement d'inactivité : XAUTOCLAIM mesure l'inactivité depuis la
+        # livraison, pas l'activité du handler. Ces ensembles suivent les
+        # entrées en cours de traitement pour les rafraîchir.
+        self._heartbeat_interval_s = max(RECLAIM_IDLE_MS / 3, 10) / 1000.0
+        self._in_flight_ids: set[str] = set()
+        self._reclaiming_ids: set[str] = set()
+        self._listener_done = asyncio.Event()
+        self._draining = False
 
         # Configuration du consumer
         self.batch_size = batch_size
@@ -71,6 +142,15 @@ class Consumer(Generic[T]):
 
         try:
             await self._init_consumer()
+            # Le battement est créé hors du TaskGroup : une annulation de
+            # start_consumer() (par exemple à l'arrêt du worker sur signal)
+            # annule le listener et le reclaimer, mais PAS le battement.
+            # Celui-ci doit continuer de protéger les entrées tant que des
+            # handlers tournent, et n'est arrêté qu'après la vidange (finally).
+            self.heartbeat_task = asyncio.create_task(
+                self._heartbeat_in_flight_entries(),
+                name=f"heartbeat-{self.consumer_name}",
+            )
             async with asyncio.TaskGroup() as tg:
                 self.reclaimer_task = tg.create_task(
                     self._reclaim_pending_messages(),
@@ -80,10 +160,41 @@ class Consumer(Generic[T]):
                     self._start_listening_messages(),
                     name=f"listener-{self.consumer_name}",
                 )
-        except Exception as e:
+        except (asyncio.CancelledError, Exception) as e:
             raise e
         finally:
-            await self._de_init_consumer()
+            await self._shutdown_after_cancel()
+
+    async def _shutdown_after_cancel(self):
+        """Vidange les handlers puis arrête le battement, même sur annulation.
+
+        Appelé dans le finally de start_consumer : que la sortie soit normale
+        ou due à une annulation, on laisse la boucle principale finir sa
+        vidange, on attend les handlers restants, et seulement ensuite on
+        arrête le battement. Sans cela, une annulation tuerait le battement
+        pendant que des handlers tournent encore.
+        """
+        self.stop_flag.set()
+        # Attendre que la boucle principale signale la fin de sa vidange.
+        # Si elle a déjà spawné une tâche de vidange (_drain_pending), celle-ci
+        # lèvera _listener_done à l'achèvement des handlers. On réessaie en
+        # cas d'annulation pour ne pas abandonner la protection trop tôt.
+        for _ in range(3):
+            try:
+                await asyncio.wait_for(self._listener_done.wait(), timeout=15)
+                break
+            except asyncio.TimeoutError:
+                break
+            except asyncio.CancelledError:
+                continue
+        # Arrêter le battement maintenant que les handlers sont vidangés.
+        if self.heartbeat_task is not None and not self.heartbeat_task.done():
+            self.heartbeat_task.cancel()
+            try:
+                await self.heartbeat_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        await self._de_init_consumer()
 
     async def _init_consumer(self):
         try:
@@ -124,6 +235,7 @@ class Consumer(Generic[T]):
 
                 for fut in done_futures:
                     msg_id, fields = active_futures.pop(fut)
+                    self._in_flight_ids.discard(msg_id)
                     await self._handle_finished_future(fut, msg_id, fields, self.redis)
 
                 # 2. Calcul de la capacité restante
@@ -166,7 +278,13 @@ class Consumer(Generic[T]):
                 if not entries:
                     continue
 
-                # 4. Soumission des nouveaux messages
+                # 4. Soumission des nouveaux messages.
+                # Enregistrer TOUTES les entrées livrées avant le premier
+                # await : une entrée en erreur de décodage peut bloquer sur
+                # sa conservation DLQ, et les entrées suivantes du lot
+                # resteraient non protégées contre une récupération.
+                for msg_id, _fields in entries:
+                    self._in_flight_ids.add(msg_id)
                 for msg_id, fields in entries:
                     raw_data = fields.get("data")
                     retry_count = int(fields.get("retries", "0"))
@@ -190,6 +308,10 @@ class Consumer(Generic[T]):
                                 )
                             except Exception:
                                 logger.error(f"ACK failed for decode_error {msg_id}")
+                        # L'entrée est terminée (conservée ou laissée en
+                        # attente pour une prochaine récupération) : cesser
+                        # de la protéger pour ne pas la garder indéfiniment.
+                        self._in_flight_ids.discard(msg_id)
                         continue
 
                     func = functools.partial(
@@ -207,7 +329,7 @@ class Consumer(Generic[T]):
             # Attendre la fin des tâches restantes à l'arrêt si nécessaire
             if active_futures:
                 logger.info(f"Waiting for {len(active_futures)} tasks to finish...")
-                done, _ = await asyncio.wait(active_futures.keys(), timeout=10)
+                done, pending = await asyncio.wait(active_futures.keys(), timeout=10)
                 # Traiter les futures terminées pour ACK/DLQ
                 for fut in done:
                     msg_id, fields = active_futures.pop(fut, (None, None))  # type: ignore
@@ -215,6 +337,40 @@ class Consumer(Generic[T]):
                         await self._handle_finished_future(
                             fut, msg_id, fields, self.redis
                         )
+                if pending:
+                    # Des handlers tournent encore : leurs entrées doivent
+                    # rester protégées contre une récupération tant qu'ils
+                    # ne sont pas terminés. On les suit dans une tâche de
+                    # vidange qui ne lèvera la protection qu'à leur achèvement,
+                    # au lieu de tout effacer maintenant (fenêtre de double
+                    # livraison) ni de bloquer la boucle événement.
+                    pending_ids = {
+                        active_futures[f][0] for f in pending if f in active_futures
+                    }
+                    asyncio.create_task(self._drain_pending(pending, pending_ids))
+                    # Ne pas marquer la vidange comme terminée ici : la tâche
+                    # de vidange le fera. Le battement continue donc de
+                    # protéger ces entrées pendant leur exécution.
+                    self._draining = True
+                    return
+            # Signale au battement que la boucle principale est terminée :
+            # celui-ci ne doit sortir qu'après la vidange complète du lot.
+            self._listener_done.set()
+            self._in_flight_ids.clear()
+
+    async def _drain_pending(
+        self, pending: set[asyncio.Future[Any]], pending_ids: set[str]
+    ) -> None:
+        """Achève les handlers restants puis lève la protection du battement."""
+        try:
+            if pending:
+                await asyncio.wait(pending)
+        except Exception:
+            pass
+        finally:
+            self._in_flight_ids.difference_update(pending_ids)
+            self._draining = False
+            self._listener_done.set()
 
     async def _handle_finished_future(
         self,
@@ -242,9 +398,11 @@ class Consumer(Generic[T]):
 
             if retry_count < self.max_retry_number - 1:
                 try:
-                    await redis_connection.xadd(
-                        self.stream_name,
-                        {"data": data, "retries": str(retry_count + 1)},
+                    # Copie atomique et idempotente : créée si absente,
+                    # retrouvée sinon. L'acquittement n'a lieu que si la
+                    # copie existe.
+                    await self._requeue_once(
+                        redis_connection, msg_id, str(data), retry_count + 1
                     )
                     try:
                         await redis_connection.xack(
@@ -370,32 +528,28 @@ class Consumer(Generic[T]):
             raise ConnectionError("No Redis connection available")
         return self.redis
 
-    async def _already_retained_in_dlq(
-        self, redis_connection: Redis, msg_id: str
+    async def _requeue_once(
+        self,
+        redis_connection: Redis,
+        msg_id: str,
+        data: str,
+        retries: int,
     ) -> bool:
-        """Vérifie si le message d'origine est déjà conservé dans la DLQ.
+        """Crée la copie de remise en file si absente, de façon atomique.
 
-        Une conservation DLQ réussie suivie d'un ACK en échec laisse l'entrée
-        d'origine en attente : une nouvelle récupération ne doit pas la
-        conserver une deuxième fois. L'entrée DLQ d'un message ne peut exister
-        qu'à partir de sa milliseconde de création ; les numéros de séquence
-        sont indépendants par flux, le parcours couvre donc toute la
-        milliseconde d'origine et ignore l'historique antérieur de la DLQ.
+        Retourne True si la copie existe (créée par cet appel ou déjà
+        présente), et laisse l'appelant acquitter l'original. Une exception
+        remonte à l'appelant, qui laisse l'entrée en attente et retente à la
+        passe suivante (échec fermé).
+
+        Le script Lua rend la vérification et la copie atomiques : pas de
+        réservation séparée à orpheliner (crash entre réserve et copie =
+        perte de message), pas de doublon après une réponse perdue.
         """
-        try:
-            source_ms = msg_id.split("-")[0]
-            entries = await redis_connection.xrange(
-                self.dlq_stream_name, min=f"{source_ms}-0"
-            )
-        except Exception as scan_err:
-            logger.error(
-                f"Failed to scan DLQ stream '{self.dlq_stream_name}' for {msg_id}: {scan_err}"
-            )
-            return False
-        for _entry_id, entry_fields in entries:
-            if str(entry_fields.get("original_id", "")) == str(msg_id):
-                return True
-        return False
+        await redis_connection.eval(
+            _REQUEUE_LUA, 1, self.stream_name, msg_id, str(retries), data
+        )
+        return True
 
     async def _send_to_dlq(
         self,
@@ -405,19 +559,18 @@ class Consumer(Generic[T]):
         reason: str,
         error: Optional[str] = None,
     ) -> bool:
-        """Push a message to the Dead Letter Queue (DLQ) stream.
+        """Conserve le message dans la DLQ de façon atomique et idempotente.
 
-        Args:
-            msg_id: original message id in the source stream
-            fields: original message fields (from Redis XREADGROUP)
-            reason: short code describing why it was sent to DLQ (e.g., 'decode_error')
-            error: optional error string/details
+        Le script Lua recherche une entrée DLQ portant « original_id » et
+        n'en crée une que si aucune n'existe. Conservation et dédup sont
+        atomiques : pas de seconde ligne après un ACK en échec, pas de
+        doublon entre rédacteurs DLQ concurrents, pas de résultat tronqué
+        qui déclarerait « absent » une entrée présente plus loin.
+
+        Retourne True si l'entrée est conservée (créée ou déjà présente) ;
+        une exception est convertie en False pour que l'appelant laisse
+        l'entrée en attente et retente à la passe suivante.
         """
-        if await self._already_retained_in_dlq(redis_connection, msg_id):
-            logger.info(
-                f"Message {msg_id} already retained in DLQ stream '{self.dlq_stream_name}'; skipping duplicate write"
-            )
-            return True
         dlq_fields: dict[FieldT, EncodableT] = {
             "data": str(fields.get("data", "")),
             "retries": str(fields.get("retries", "0")),
@@ -427,14 +580,19 @@ class Consumer(Generic[T]):
             "consumer": self.consumer_name,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+        # Paires clé/valeur après original_id pour le script Lua.
+        argv: list[str] = [str(msg_id)]
+        for key, value in dlq_fields.items():
+            argv.append(str(key))
+            argv.append(str(value))
         try:
-            dlq_id = await redis_connection.xadd(self.dlq_stream_name, dlq_fields)
-            logger.info(
-                f"Pushed message {msg_id} to DLQ stream '{self.dlq_stream_name}' with id {dlq_id} (reason={reason})"
-            )
+            await redis_connection.eval(_RETAIN_DLQ_LUA, 1, self.dlq_stream_name, *argv)
             return True
         except Exception as dlq_err:
-            logger.error(f"Failed to push message {msg_id} to DLQ: {dlq_err}")
+            logger.error(
+                f"Failed to retain message {msg_id} in DLQ "
+                f"'{self.dlq_stream_name}': {dlq_err}; leaving entry pending"
+            )
             return False
 
     # Récupère les messages en attente inactifs depuis plus de RECLAIM_IDLE_MS
@@ -461,44 +619,19 @@ class Consumer(Generic[T]):
                     start,
                     count=1,
                 )
-                for msg_id, fields in claimed:
-                    logger.info(f"Reclaimed message ID: {msg_id} with fields: {fields}")
-                    attempts = int(fields.get("retries", "0")) + 1
-                    if attempts >= self.max_retry_number:
-                        logger.error(
-                            f"Max attempts exceeded for reclaimed message {msg_id}. Moving to DLQ."
-                        )
-                        if await self._send_to_dlq(
-                            redis_connection=self.redis,
-                            msg_id=msg_id,
-                            fields=fields,
-                            reason="max_retries_exceeded",
-                            error="Exceeded max retry count during reclaim",
-                        ):
-                            try:
-                                await self.redis.xack(
-                                    self.stream_name, self.consumer_group, msg_id
-                                )
-                            except Exception:
-                                logger.error(
-                                    f"ACK failed for reclaimed DLQ message {msg_id}"
-                                )
-                        continue
-                    try:
-                        fields["retries"] = str(attempts)
-                        await self.redis.xadd(self.stream_name, fields)
-                        logger.info(f"Add new message with fields: {fields}")
+                claimed_ids = {msg_id for msg_id, _ in claimed}
+                self._reclaiming_ids.update(claimed_ids)
+                # Nettoyage par lot : une exception ou une annulation qui
+                # interrompt le parcours ne doit laisser aucune entrée non
+                # visitée protégée indéfiniment par le battement.
+                try:
+                    for msg_id, fields in claimed:
                         try:
-                            await self.redis.xack(
-                                self.stream_name, self.consumer_group, msg_id
-                            )
-                            logger.info(f"Acknowledged reclaimed message {msg_id}")
-                        except Exception:
-                            logger.error(f"ACK failed for reclaimed {msg_id}")
-                    except Exception as ack_err:
-                        logger.error(
-                            f"Failed to requeue reclaimed message {msg_id}: {ack_err}"
-                        )
+                            await self._reclaim_entry(msg_id, fields)
+                        finally:
+                            self._reclaiming_ids.discard(msg_id)
+                finally:
+                    self._reclaiming_ids.difference_update(claimed_ids)
                 start = next_start or "0-0"
                 # Petit sleep coopératif
                 await asyncio.sleep(1)
@@ -509,3 +642,128 @@ class Consumer(Generic[T]):
                 await asyncio.sleep(5)
                 continue
         logger.info("Reclaimer task stopped")
+
+    async def _reclaim_entry(self, msg_id: str, fields: dict[str, Any]) -> None:
+        """Retraite une entrée revendiquée : DLQ si épuisée, sinon remise en file."""
+        logger.info(f"Reclaimed message ID: {msg_id} with fields: {fields}")
+        try:
+            attempts = int(fields.get("retries", "0")) + 1
+        except (TypeError, ValueError):
+            # Champ « retries » illisible : la tentative ne peut être comptée
+            # ni la remise en file honorée. Conserver en DLQ plutôt que de
+            # re-réclamer la même entrée indéfiniment.
+            logger.error(
+                f"Malformed retries field for reclaimed message {msg_id}: "
+                f"{fields.get('retries')!r}. Moving to DLQ."
+            )
+            await self._retain_in_dlq_and_ack(
+                msg_id,
+                fields,
+                "max_retries_exceeded",
+                f"Malformed retries field: {fields.get('retries')!r}",
+            )
+            return
+        if attempts >= self.max_retry_number:
+            logger.error(
+                f"Max attempts exceeded for reclaimed message {msg_id}. Moving to DLQ."
+            )
+            await self._retain_in_dlq_and_ack(
+                msg_id,
+                fields,
+                "max_retries_exceeded",
+                "Exceeded max retry count during reclaim",
+            )
+            return
+        try:
+            # Copie atomique et idempotente : créée si absente, retrouvée
+            # sinon. L'acquittement n'a lieu que si la copie existe.
+            await self._requeue_once(
+                self.redis, msg_id, str(fields.get("data", "")), attempts
+            )
+            logger.info(f"Requeued reclaimed message {msg_id} (attempt {attempts})")
+            try:
+                await self.redis.xack(self.stream_name, self.consumer_group, msg_id)
+                logger.info(f"Acknowledged reclaimed message {msg_id}")
+            except Exception:
+                logger.error(f"ACK failed for reclaimed {msg_id}")
+        except Exception as requeue_err:
+            logger.error(f"Failed to requeue reclaimed message {msg_id}: {requeue_err}")
+
+    async def _retain_in_dlq_and_ack(
+        self, msg_id: str, fields: dict[str, Any], reason: str, error: str
+    ) -> None:
+        """Conserve l'entrée en DLQ puis l'acquitte après conservation confirmée."""
+        retained = await self._send_to_dlq(
+            redis_connection=self.redis,
+            msg_id=msg_id,
+            fields=fields,
+            reason=reason,
+            error=error,
+        )
+        if not retained:
+            logger.warning(
+                f"Reclaimed message {msg_id} left pending: DLQ retention unconfirmed"
+            )
+            return
+        try:
+            await self.redis.xack(self.stream_name, self.consumer_group, msg_id)
+        except Exception:
+            logger.error(f"ACK failed for reclaimed DLQ message {msg_id}")
+
+    async def _heartbeat_in_flight_entries(self) -> None:
+        """Rafraîchit l'inactivité des entrées en cours de traitement.
+
+        XAUTOCLAIM mesure le temps depuis la livraison, pas l'activité du
+        handler : un message sain dont le traitement dépasse RECLAIM_IDLE_MS
+        serait revendiqué par le reclaimer de sa propre instance pendant son
+        traitement, puis remis en file — livraison en double. Un battement
+        XCLAIM (justid) remet le compteur d'inactivité à zéro toutes les
+        RECLAIM_IDLE_MS / 3, marge de 3 au seuil de récupération. Les entrées
+        acquittées ne sont plus dans la PEL et sont ignorées sans erreur.
+
+        Le battement couvre le lot de la boucle principale et les entrées
+        revendiquées en cours de retraitement. À l'arrêt, il ne sort que
+        lorsque la boucle principale et le reclaimer sont terminés : une
+        lecture bloquée peut encore livrer un lot après la demande d'arrêt,
+        et sortir plus tôt exposerait ce lot à une récupération pendant
+        l'arrêt gracieux.
+        """
+        logger.info(
+            f"Heartbeat task started interval={self._heartbeat_interval_s:.3f}s"
+        )
+        while True:
+            if self.stop_flag.is_set():
+                # Ne sortir que lorsque les tâches qui peuvent remplir les
+                # ensembles sont terminées. Des ensembles vides ne prouvent
+                # rien — une lecture bloquée peut encore livrer après.
+                listener_done = self._listener_done.is_set()
+                reclaimer_done = (
+                    self.reclaimer_task is None or self.reclaimer_task.done()
+                )
+                if listener_done and reclaimer_done:
+                    break
+                await asyncio.sleep(min(self._heartbeat_interval_s, 1.0))
+            else:
+                try:
+                    await asyncio.wait_for(
+                        self.stop_flag.wait(), timeout=self._heartbeat_interval_s
+                    )
+                except asyncio.TimeoutError:
+                    pass
+            ids = self._in_flight_ids | self._reclaiming_ids
+            if not ids:
+                continue
+            try:
+                await self.redis.xclaim(
+                    self.stream_name,
+                    self.consumer_group,
+                    self.consumer_name,
+                    min_idle_time=0,
+                    message_ids=list(ids),
+                    justid=True,
+                )
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"Heartbeat failed: {e}")
+        logger.info("Heartbeat task stopped")

@@ -138,20 +138,21 @@ async def test_worker_terminal_failure_requires_dlq_before_ack(
         error = RetryableException("last attempt failed")
     future.set_exception(error)
     operations: list[str] = []
-    original_xadd = redis_client.xadd
+    original_eval = redis_client.eval
     original_xack = redis_client.xack
 
-    async def record_xadd(stream_name: str, fields: dict[str, Any]) -> Any:
-        operations.append(f"xadd:{stream_name}")
+    async def record_eval(script: str, numkeys: int, *args: Any) -> Any:
+        # DLQ retention targets the DLQ stream as its single key.
+        operations.append(f"xadd:{args[0]}")
         if not dlq_available:
             raise ConnectionError("DLQ unavailable")
-        return await original_xadd(stream_name, fields)
+        return await original_eval(script, numkeys, *args)
 
     async def record_xack(stream_name: str, group_name: str, msg_id: str) -> Any:
         operations.append(f"xack:{stream_name}")
         return await original_xack(stream_name, group_name, msg_id)
 
-    monkeypatch.setattr(redis_client, "xadd", record_xadd)
+    monkeypatch.setattr(redis_client, "eval", record_eval)
     monkeypatch.setattr(redis_client, "xack", record_xack)
 
     await consumer._handle_finished_future(future, msg_id, fields, redis_client)
@@ -177,15 +178,16 @@ async def test_worker_requeue_and_dlq_failures_leave_message_pending(
     future.set_exception(RetryableException("temporary failure"))
     operations: list[str] = []
 
-    async def fail_requeue(stream_name: str, fields: dict[str, Any]) -> Any:
-        operations.append(f"xadd:{stream_name}")
-        raise ConnectionError(f"Redis write unavailable for {stream_name}")
+    async def fail_eval(script: str, numkeys: int, *args: Any) -> Any:
+        # Both the requeue (stream) and DLQ retention (dlq stream) go via eval.
+        operations.append(f"xadd:{args[0]}")
+        raise ConnectionError(f"Redis write unavailable for {args[0]}")
 
     async def record_ack(stream_name: str, group_name: str, msg_id: str) -> Any:
         operations.append(f"xack:{stream_name}")
         return 1
 
-    monkeypatch.setattr(redis_client, "xadd", fail_requeue)
+    monkeypatch.setattr(redis_client, "eval", fail_eval)
     monkeypatch.setattr(redis_client, "xack", record_ack)
 
     await consumer._handle_finished_future(future, msg_id, fields, redis_client)
@@ -219,16 +221,16 @@ async def test_worker_decode_failure_requires_dlq_before_ack(
         redis_manager_module.redis_manager, "get_connection", get_connection
     )
     dlq_attempted = asyncio.Event()
-    original_xadd = redis_client.xadd
+    original_eval = redis_client.eval
 
-    async def record_dlq_attempt(stream_name: str, fields: dict[str, Any]) -> Any:
-        if stream_name == f"{stream}:dlq":
+    async def record_dlq_attempt(script: str, numkeys: int, *args: Any) -> Any:
+        if args and args[0] == f"{stream}:dlq":
             dlq_attempted.set()
             if not dlq_available:
                 raise ConnectionError("DLQ unavailable")
-        return await original_xadd(stream_name, fields)
+        return await original_eval(script, numkeys, *args)
 
-    monkeypatch.setattr(redis_client, "xadd", record_dlq_attempt)
+    monkeypatch.setattr(redis_client, "eval", record_dlq_attempt)
     original_xreadgroup = redis_client.xreadgroup
     next_read_started = asyncio.Event()
     read_count = 0
@@ -291,16 +293,16 @@ async def test_worker_reclaimed_message_requires_dlq_before_ack(
         0,
     )
     dlq_attempted = asyncio.Event()
-    original_xadd = redis_client.xadd
+    original_eval = redis_client.eval
 
-    async def record_dlq_attempt(stream_name: str, fields: dict[str, Any]) -> Any:
-        if stream_name == f"{stream}:dlq":
+    async def record_dlq_attempt(script: str, numkeys: int, *args: Any) -> Any:
+        if args and args[0] == f"{stream}:dlq":
             dlq_attempted.set()
             if not dlq_available:
                 raise ConnectionError("DLQ unavailable")
-        return await original_xadd(stream_name, fields)
+        return await original_eval(script, numkeys, *args)
 
-    monkeypatch.setattr(redis_client, "xadd", record_dlq_attempt)
+    monkeypatch.setattr(redis_client, "eval", record_dlq_attempt)
     original_xautoclaim = redis_client.xautoclaim
     next_claim_started = asyncio.Event()
     claim_count = 0
@@ -469,17 +471,16 @@ async def test_reclaim_after_dlq_retention_terminates_without_duplicate(
 
 
 @pytest.mark.asyncio
-async def test_dlq_retention_scan_skips_history_older_than_original(
+async def test_dlq_retention_is_idempotent_despite_history(
     redis_client: Redis, stream: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """La détection d'entrée déjà conservée démarre à l'identifiant du message
-    d'origine : l'historique antérieur de la DLQ n'est pas chargé, et la
-    conservation reste idempotente via ce parcours borné."""
+    """La conservation DLQ est exactement-une-fois même avec un historique
+    important : une deuxième conservation pour le même « original_id » ne
+    crée pas de doublon, quel que soit le nombre d'entrées antérieures."""
     group = "worker-group"
     dlq = f"{stream}:dlq"
 
-    # 200 entrées DLQ antérieures au message d'origine (identifiants explicites
-    # pour garantir un ordre strict indépendant de l'horloge)
+    # 200 entrées DLQ antérieures au message d'origine
     for index in range(200):
         await redis_client.xadd(
             dlq, {"original_id": f"stale-{index}", "data": "x"}, id=f"{index + 1}-0"
@@ -488,37 +489,21 @@ async def test_dlq_retention_scan_skips_history_older_than_original(
     msg_id = await redis_client.xadd(stream, {"data": json.dumps({"payload": "scan"})})
     consumer = make_consumer(stream, group)
 
-    scans: list[tuple[str, int]] = []
-    original_xrange = redis_client.xrange
-
-    async def spying_xrange(
-        name: str, min: str = "-", max: str = "+", count: int | None = None
-    ) -> Any:
-        result = await original_xrange(name, min, max, count)
-        if name == dlq:
-            scans.append((str(min), len(result)))
-        return result
-
-    monkeypatch.setattr(redis_client, "xrange", spying_xrange)
-
     fields = {"data": json.dumps({"payload": "scan"}), "retries": "2"}
     assert await consumer._send_to_dlq(
         redis_client, msg_id, fields, "max_retries_exceeded"
     )
-    # deuxième conservation : détectée comme doublon par le parcours borné
+    # deuxième conservation : détectée comme doublon, aucune nouvelle ligne
     assert await consumer._send_to_dlq(
         redis_client, msg_id, fields, "max_retries_exceeded"
     )
 
-    # chaque parcours démarre à l'identifiant d'origine et ignore les 200
-    # entrées antérieures ; le second retrouve la seule entrée du message
-    assert scans == [(msg_id, 0), (msg_id, 1)]
     assert await redis_client.xlen(dlq) == 201
     consumer.executor.shutdown(wait=True)
 
 
 @pytest.mark.asyncio
-async def test_dlq_retention_scan_includes_source_millisecond(
+async def test_dlq_retention_detects_same_millisecond_entry(
     redis_client: Redis, stream: str
 ) -> None:
     """Séquences indépendantes par flux : une conservation DLQ de la même
