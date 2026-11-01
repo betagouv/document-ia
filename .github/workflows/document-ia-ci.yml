@@ -226,6 +226,25 @@ jobs:
           # Le script est à la racine du repo; on remonte et on l'exécute dans le venv courant
           uv run python ../scripts/init-s3-bucket.py
 
+      - name: Diagnostic - Three independent live OCR calls
+        if: ${{ matrix.name == 'worker' && env.OPENAI_API_KEY != '' && env.OPENAI_BASE_URL != '' }}
+        continue-on-error: true
+        env:
+          LOKI_LOGGING_ENABLED: false
+        run: |
+          cd document-ia-worker
+          result=0
+          for attempt in 1 2 3; do
+            echo "OCR diagnostic sample ${attempt}/3"
+            if uv run pytest -q --durations=1 --log-cli-level=ERROR tests/unit/test_mistral_ocr_service.py::test_extract_text_from_image_e2e_success; then
+              echo "OCR diagnostic sample ${attempt}: PASS"
+            else
+              echo "OCR diagnostic sample ${attempt}: FAIL"
+              result=1
+            fi
+          done
+          exit "$result"
+
       - name: Pytest - Tests (matrix project)
         run: |
           cd ${{ matrix.project }}
