@@ -3,6 +3,7 @@ Classe Consumer commune pour les consumers Redis Stream
 """
 
 import asyncio  # remplacement de threading+sleep
+import contextlib
 import functools
 import logging
 import gc
@@ -28,6 +29,8 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=SerializableMessage)
 
 RECLAIM_IDLE_MS = 300000
+IN_FLIGHT_SHUTDOWN_TIMEOUT_S = 10
+RESOURCE_CLOSE_TIMEOUT_S = 5
 
 # Script Lua de remise en file atomique et idempotente.
 #
@@ -120,6 +123,7 @@ class Consumer(Generic[T]):
         self._heartbeat_interval_s = max(RECLAIM_IDLE_MS / 3, 10) / 1000.0
         self._in_flight_ids: set[str] = set()
         self._reclaiming_ids: set[str] = set()
+        self._processing_futures: set[asyncio.Future[Any]] = set()
         self._listener_done = asyncio.Event()
         self._draining = False
 
@@ -133,6 +137,10 @@ class Consumer(Generic[T]):
         self.dlq_stream_name = f"{self.stream_name}:dlq"
 
         self.executor = ThreadPoolExecutor(max_workers=self.worker_number)
+
+    @property
+    def has_running_handlers(self) -> bool:
+        return any(not future.done() for future in self._processing_futures)
 
     async def start_consumer(self):
         logger.info(
@@ -175,18 +183,16 @@ class Consumer(Generic[T]):
         pendant que des handlers tournent encore.
         """
         self.stop_flag.set()
-        # Attendre que la boucle principale signale la fin de sa vidange.
-        # Si elle a déjà spawné une tâche de vidange (_drain_pending), celle-ci
-        # lèvera _listener_done à l'achèvement des handlers. On réessaie en
-        # cas d'annulation pour ne pas abandonner la protection trop tôt.
-        for _ in range(3):
-            try:
-                await asyncio.wait_for(self._listener_done.wait(), timeout=15)
-                break
-            except asyncio.TimeoutError:
-                break
-            except asyncio.CancelledError:
-                continue
+        # Keep the heartbeat alive during a bounded drain. The worker forces
+        # process exit if a handler is still running after this deadline.
+        try:
+            await asyncio.wait_for(
+                self._listener_done.wait(), timeout=IN_FLIGHT_SHUTDOWN_TIMEOUT_S
+            )
+        except asyncio.TimeoutError:
+            logger.warning("Timed out waiting for in-flight handlers to drain")
+        except asyncio.CancelledError:
+            pass
         # Arrêter le battement maintenant que les handlers sont vidangés.
         if self.heartbeat_task is not None and not self.heartbeat_task.done():
             self.heartbeat_task.cancel()
@@ -209,13 +215,17 @@ class Consumer(Generic[T]):
 
     async def _de_init_consumer(self):
         logger.info(f"Consumer {self.consumer_name} stopping...")
-        if self.reclaimer_task:
-            try:
-                await asyncio.wait_for(self.reclaimer_task, timeout=10)
-            except Exception:
-                pass
-        self.executor.shutdown(wait=True)
-        await redis_manager_main_thread.close()
+        if self.reclaimer_task and not self.reclaimer_task.done():
+            self.reclaimer_task.cancel()
+        self.executor.shutdown(wait=False, cancel_futures=True)
+        try:
+            await asyncio.wait_for(
+                redis_manager_main_thread.close(), timeout=RESOURCE_CLOSE_TIMEOUT_S
+            )
+        except asyncio.TimeoutError:
+            logger.warning("Timed out closing Redis resources during shutdown")
+        except Exception as exc:
+            logger.warning("Failed to close Redis resources during shutdown: %s", exc)
 
     async def _start_listening_messages(self):
         self.redis = await self._get_safe_redis_connection()
@@ -235,6 +245,7 @@ class Consumer(Generic[T]):
 
                 for fut in done_futures:
                     msg_id, fields = active_futures.pop(fut)
+                    self._processing_futures.discard(fut)
                     self._in_flight_ids.discard(msg_id)
                     await self._handle_finished_future(fut, msg_id, fields, self.redis)
 
@@ -247,9 +258,15 @@ class Consumer(Generic[T]):
                     # CAS A: On est PLEIN.
                     # On ne lit rien sur Redis. On attend obligatoirement qu'une tâche se finisse.
                     if active_futures:
-                        _, _ = await asyncio.wait(
-                            active_futures.keys(), return_when=asyncio.FIRST_COMPLETED
+                        stop_wait = asyncio.create_task(self.stop_flag.wait())
+                        _, pending = await asyncio.wait(
+                            {*active_futures.keys(), stop_wait},
+                            return_when=asyncio.FIRST_COMPLETED,
                         )
+                        if stop_wait in pending:
+                            stop_wait.cancel()
+                            with contextlib.suppress(asyncio.CancelledError):
+                                await stop_wait
                     continue
 
                 # CAS B: Il reste de la place.
@@ -277,6 +294,8 @@ class Consumer(Generic[T]):
                 _, entries = response[0]
                 if not entries:
                     continue
+                if self.stop_flag.is_set():
+                    break
 
                 # 4. Soumission des nouveaux messages.
                 # Enregistrer TOUTES les entrées livrées avant le premier
@@ -286,6 +305,12 @@ class Consumer(Generic[T]):
                 for msg_id, _fields in entries:
                     self._in_flight_ids.add(msg_id)
                 for msg_id, fields in entries:
+                    if self.stop_flag.is_set():
+                        active_ids = {
+                            active_id for active_id, _ in active_futures.values()
+                        }
+                        self._in_flight_ids.intersection_update(active_ids)
+                        break
                     raw_data = fields.get("data")
                     retry_count = int(fields.get("retries", "0"))
 
@@ -314,12 +339,17 @@ class Consumer(Generic[T]):
                         self._in_flight_ids.discard(msg_id)
                         continue
 
+                    if self.stop_flag.is_set():
+                        self._in_flight_ids.discard(msg_id)
+                        continue
+
                     func = functools.partial(
                         self._process_message_sync_wrapper, message_data, retry_count
                     )
 
                     fut = loop.run_in_executor(self.executor, func)
                     active_futures[fut] = (msg_id, fields)
+                    self._processing_futures.add(fut)
 
         except Exception as e:
             logger.error(f"Error in consumer loop shutdown: {e}")
@@ -329,11 +359,14 @@ class Consumer(Generic[T]):
             # Attendre la fin des tâches restantes à l'arrêt si nécessaire
             if active_futures:
                 logger.info(f"Waiting for {len(active_futures)} tasks to finish...")
-                done, pending = await asyncio.wait(active_futures.keys(), timeout=10)
+                done, pending = await asyncio.wait(
+                    active_futures.keys(), timeout=IN_FLIGHT_SHUTDOWN_TIMEOUT_S
+                )
                 # Traiter les futures terminées pour ACK/DLQ
                 for fut in done:
                     msg_id, fields = active_futures.pop(fut, (None, None))  # type: ignore
                     if msg_id is not None and fields is not None:
+                        self._processing_futures.discard(fut)
                         await self._handle_finished_future(
                             fut, msg_id, fields, self.redis
                         )
@@ -369,6 +402,7 @@ class Consumer(Generic[T]):
             pass
         finally:
             self._in_flight_ids.difference_update(pending_ids)
+            self._processing_futures.difference_update(pending)
             self._draining = False
             self._listener_done.set()
 
@@ -619,6 +653,8 @@ class Consumer(Generic[T]):
                     start,
                     count=1,
                 )
+                if self.stop_flag.is_set():
+                    break
                 claimed_ids = {msg_id for msg_id, _ in claimed}
                 self._reclaiming_ids.update(claimed_ids)
                 # Nettoyage par lot : une exception ou une annulation qui
