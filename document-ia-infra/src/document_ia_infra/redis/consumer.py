@@ -177,20 +177,19 @@ class Consumer(Generic[T]):
                         )
                     except Exception as decode_err:
                         logger.error(f"Erreur décodage message {msg_id}: {decode_err}")
-                        try:
-                            await self.redis.xack(
-                                self.stream_name, self.consumer_group, msg_id
-                            )
-                        except Exception:
-                            # Ne pas crash si ACK échoue
-                            logger.error(f"ACK failed for decode_error {msg_id}")
-                        await self._send_to_dlq(
+                        if await self._send_to_dlq(
                             redis_connection=self.redis,
                             msg_id=msg_id,
                             fields=fields,
                             reason="decode_error",
                             error=str(decode_err),
-                        )
+                        ):
+                            try:
+                                await self.redis.xack(
+                                    self.stream_name, self.consumer_group, msg_id
+                                )
+                            except Exception:
+                                logger.error(f"ACK failed for decode_error {msg_id}")
                         continue
 
                     func = functools.partial(
@@ -255,40 +254,46 @@ class Consumer(Generic[T]):
                         logger.error(f"ACK failed after requeue {msg_id}")
                 except Exception as requeue_err:
                     logger.error(f"Requeue failed {msg_id}: {requeue_err}")
-                    await self._send_to_dlq(
+                    if await self._send_to_dlq(
                         redis_connection,
                         msg_id,
                         fields,
                         "error_requeueing_message",
                         str(requeue_err),
-                    )
+                    ):
+                        try:
+                            await redis_connection.xack(
+                                self.stream_name, self.consumer_group, msg_id
+                            )
+                        except Exception:
+                            logger.error(f"ACK failed after requeue failure {msg_id}")
             else:
                 logger.error(f"Max retries exceeded {msg_id}")
-                await self._send_to_dlq(
+                if await self._send_to_dlq(
                     redis_connection,
                     msg_id,
                     fields,
                     "max_retries_exceeded",
                     str(retry_exc),
-                )
+                ):
+                    try:
+                        await redis_connection.xack(
+                            self.stream_name, self.consumer_group, msg_id
+                        )
+                    except Exception:
+                        logger.error(f"ACK failed for max_retries_exceeded {msg_id}")
+
+        except Exception as proc_err:
+            logger.error(f"Fatal error message {msg_id}: {proc_err}")
+            if await self._send_to_dlq(
+                redis_connection, msg_id, fields, "not_retryable_error", str(proc_err)
+            ):
                 try:
                     await redis_connection.xack(
                         self.stream_name, self.consumer_group, msg_id
                     )
                 except Exception:
-                    logger.error(f"ACK failed for max_retries_exceeded {msg_id}")
-
-        except Exception as proc_err:
-            logger.error(f"Fatal error message {msg_id}: {proc_err}")
-            await self._send_to_dlq(
-                redis_connection, msg_id, fields, "not_retryable_error", str(proc_err)
-            )
-            try:
-                await redis_connection.xack(
-                    self.stream_name, self.consumer_group, msg_id
-                )
-            except Exception:
-                logger.error(f"ACK failed for not_retryable_error {msg_id}")
+                    logger.error(f"ACK failed for not_retryable_error {msg_id}")
 
     def _process_message_sync_wrapper(self, message: T, retry_count: int) -> None:
         """Fonction exécutée dans un thread.
@@ -365,6 +370,33 @@ class Consumer(Generic[T]):
             raise ConnectionError("No Redis connection available")
         return self.redis
 
+    async def _already_retained_in_dlq(
+        self, redis_connection: Redis, msg_id: str
+    ) -> bool:
+        """Vérifie si le message d'origine est déjà conservé dans la DLQ.
+
+        Une conservation DLQ réussie suivie d'un ACK en échec laisse l'entrée
+        d'origine en attente : une nouvelle récupération ne doit pas la
+        conserver une deuxième fois. L'entrée DLQ d'un message ne peut exister
+        qu'à partir de sa milliseconde de création ; les numéros de séquence
+        sont indépendants par flux, le parcours couvre donc toute la
+        milliseconde d'origine et ignore l'historique antérieur de la DLQ.
+        """
+        try:
+            source_ms = msg_id.split("-")[0]
+            entries = await redis_connection.xrange(
+                self.dlq_stream_name, min=f"{source_ms}-0"
+            )
+        except Exception as scan_err:
+            logger.error(
+                f"Failed to scan DLQ stream '{self.dlq_stream_name}' for {msg_id}: {scan_err}"
+            )
+            return False
+        for _entry_id, entry_fields in entries:
+            if str(entry_fields.get("original_id", "")) == str(msg_id):
+                return True
+        return False
+
     async def _send_to_dlq(
         self,
         redis_connection: Redis,
@@ -372,7 +404,7 @@ class Consumer(Generic[T]):
         fields: dict[str, Any],
         reason: str,
         error: Optional[str] = None,
-    ) -> None:
+    ) -> bool:
         """Push a message to the Dead Letter Queue (DLQ) stream.
 
         Args:
@@ -381,6 +413,11 @@ class Consumer(Generic[T]):
             reason: short code describing why it was sent to DLQ (e.g., 'decode_error')
             error: optional error string/details
         """
+        if await self._already_retained_in_dlq(redis_connection, msg_id):
+            logger.info(
+                f"Message {msg_id} already retained in DLQ stream '{self.dlq_stream_name}'; skipping duplicate write"
+            )
+            return True
         dlq_fields: dict[FieldT, EncodableT] = {
             "data": str(fields.get("data", "")),
             "retries": str(fields.get("retries", "0")),
@@ -395,16 +432,18 @@ class Consumer(Generic[T]):
             logger.info(
                 f"Pushed message {msg_id} to DLQ stream '{self.dlq_stream_name}' with id {dlq_id} (reason={reason})"
             )
+            return True
         except Exception as dlq_err:
-            logger.error(
-                f"Failed to push message {msg_id} to DLQ after requeue failure: {dlq_err}"
-            )
+            logger.error(f"Failed to push message {msg_id} to DLQ: {dlq_err}")
+            return False
 
-    # It reclaims pending messages that have been idle for more than RECLAIM_IDLE_MS
-    # and re-queues them for processing
-    # It uses xautoclaim to claim messages and xadd to re-queue them
-    # It also increments a "retries" field in the message to track how many times it has been retried
-    # If the retries exceed a certain threshold, it could be sent to a dead-letter queue (not implemented here)
+    # Récupère les messages en attente inactifs depuis plus de RECLAIM_IDLE_MS
+    # et les remet en file pour traitement (xautoclaim puis xadd).
+    # Convention partagée avec le chemin d'erreur du worker : le champ « retries »
+    # compte les tentatives déjà consommées et max_retry_number est le nombre total
+    # de tentatives autorisées. Une récupération consomme une seule tentative ;
+    # une entrée épuisée est conservée dans la DLQ puis acquittée uniquement
+    # après conservation confirmée.
     async def _reclaim_pending_messages(self):
         logger.info(f"Reclaimer task started idle_ms = {RECLAIM_IDLE_MS}")
         start = "0-0"
@@ -424,21 +463,29 @@ class Consumer(Generic[T]):
                 )
                 for msg_id, fields in claimed:
                     logger.info(f"Reclaimed message ID: {msg_id} with fields: {fields}")
-                    retry_count = int(fields.get("retries", "0")) + 1
-                    if retry_count > self.max_retry_number:
+                    attempts = int(fields.get("retries", "0")) + 1
+                    if attempts >= self.max_retry_number:
                         logger.error(
-                            f"Max retry count exceeded for reclaimed message {msg_id}. Moving to DLQ."
+                            f"Max attempts exceeded for reclaimed message {msg_id}. Moving to DLQ."
                         )
-                        await self._send_to_dlq(
+                        if await self._send_to_dlq(
                             redis_connection=self.redis,
                             msg_id=msg_id,
                             fields=fields,
                             reason="max_retries_exceeded",
                             error="Exceeded max retry count during reclaim",
-                        )
+                        ):
+                            try:
+                                await self.redis.xack(
+                                    self.stream_name, self.consumer_group, msg_id
+                                )
+                            except Exception:
+                                logger.error(
+                                    f"ACK failed for reclaimed DLQ message {msg_id}"
+                                )
                         continue
                     try:
-                        fields["retries"] = str(retry_count + 1)
+                        fields["retries"] = str(attempts)
                         await self.redis.xadd(self.stream_name, fields)
                         logger.info(f"Add new message with fields: {fields}")
                         try:
