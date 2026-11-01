@@ -26,7 +26,7 @@ class WebhookNotificationService:
         async with database_manager.local_session() as session:
             webhook_repo = WebHookRepository(session)
             event_repo = EventRepository(session)
-            logger.info("Handling webhook notification: %s", webhook_message)
+            logger.info("Handling webhook notification")
             try:
                 current_web_hook = await webhook_repo.get_by_id(
                     webhook_message.webhook_id
@@ -46,18 +46,16 @@ class WebhookNotificationService:
                     )
                 await self._call_webhook_notification(current_web_hook, event_dto)
             except Exception as e:
-                logger.error("Error handling webhook notification: %s", e)
+                logger.error(
+                    "Error handling webhook notification: %s", type(e).__name__
+                )
                 raise e
             return
 
     async def _call_webhook_notification(
         self, webhook_dto: WebHookDTO, event_dto: EventDTO
     ):
-        logger.info(
-            "Sending webhook notification to %s for event %s",
-            webhook_dto.url,
-            event_dto.id,
-        )
+        logger.info("Sending webhook notification")
         execution_service = ExecutionService()
 
         # Préparer le body avec les données de l'événement
@@ -79,8 +77,7 @@ class WebhookNotificationService:
             )
             response.raise_for_status()
             logger.info(
-                "Webhook notification sent successfully to %s with status %d",
-                webhook_dto.url,
+                "Webhook notification sent successfully with status %d",
                 response.status_code,
             )
 

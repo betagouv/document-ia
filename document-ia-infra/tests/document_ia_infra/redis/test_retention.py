@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from redis.exceptions import ResponseError
 
 from document_ia_infra.redis.admission import AdmissionUnavailableError, admit_execution
-from document_ia_infra.redis.maintenance import maintain, replay
+from document_ia_infra.redis.maintenance import main, maintain, replay
 from document_ia_infra.redis.redis_settings import RedisSettings, redis_settings
 from document_ia_infra.redis.stream_delivery import StreamDelivery
 from document_ia_infra.redis.failure_classification import classify_failure
@@ -145,6 +145,24 @@ async def test_old_unidentified_dlq_is_not_silently_deleted(queues, retention):
     assert await queues.xlen(f"{stream}:dlq") == 4
 
 
+async def test_lowest_valid_retained_resume_reopens_after_cleanup(
+    queues, retention, monkeypatch
+):
+    stream, group = (
+        redis_settings.EVENT_STREAM_NAME,
+        redis_settings.EVENT_CONSUMER_GROUP,
+    )
+    monkeypatch.setattr(redis_settings, "ADMISSION_MAX_RETAINED", 2)
+    monkeypatch.setattr(redis_settings, "ADMISSION_RESUME_RETAINED", 1)
+    ids = await add_old(queues, stream, count=2)
+    await queues.xreadgroup(group, "worker", {stream: ">"}, count=2)
+    await queues.xack(stream, group, *ids)
+    with pytest.raises(AdmissionUnavailableError):
+        await admit_execution(queues)
+    assert (await maintain(queues, stream, apply=True))["retained"] == 1
+    await admit_execution(queues)
+
+
 @pytest.mark.parametrize("queue", ["EVENT_STREAM_NAME", "WEBHOOK_STREAM_NAME"])
 async def test_retained_budget_closes_admission_until_low_watermark(
     queues, monkeypatch, queue
@@ -164,8 +182,8 @@ async def test_retained_budget_closes_admission_until_low_watermark(
 
 async def test_replay_requires_source_ack_and_checks_admission(queues, monkeypatch):
     stream, group = (
-        redis_settings.EVENT_STREAM_NAME,
-        redis_settings.EVENT_CONSUMER_GROUP,
+        redis_settings.WEBHOOK_STREAM_NAME,
+        redis_settings.WEBHOOK_CONSUMER_GROUP,
     )
     source = await queues.xadd(stream, {"data": "private"})
     await queues.xreadgroup(group, "worker", {stream: ">"}, count=1)
@@ -187,6 +205,46 @@ async def test_replay_requires_source_ack_and_checks_admission(queues, monkeypat
     with pytest.raises(ResponseError, match="DLQ entry absent"):
         await replay(queues, stream, dlq)
     assert await queues.xlen(stream) == 2
+
+
+async def test_workflow_replay_is_refused_without_deleting_dlq(queues):
+    stream, group = (
+        redis_settings.EVENT_STREAM_NAME,
+        redis_settings.EVENT_CONSUMER_GROUP,
+    )
+    source = await queues.xadd(stream, {"data": '{"workflow_execution_id":"terminal"}'})
+    await queues.xreadgroup(group, "worker", {stream: ">"}, count=1)
+    await queues.xack(stream, group, source)
+    dlq = await queues.xadd(
+        f"{stream}:dlq",
+        {
+            "data": '{"workflow_execution_id":"terminal"}',
+            "original_id": source,
+        },
+    )
+    before = await queues.xrange(f"{stream}:dlq")
+    with pytest.raises(ValueError, match="Workflow replay requires a new execution"):
+        await replay(queues, stream, dlq)
+    assert await queues.xlen(stream) == 1
+    assert await queues.xrange(f"{stream}:dlq") == before
+
+
+async def test_cli_refuses_workflow_replay_before_connecting(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "maintenance",
+            "--apply",
+            "--stream",
+            redis_settings.EVENT_STREAM_NAME,
+            "--replay-id",
+            "1-0",
+        ],
+    )
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert exc.value.code == 2
+    assert "Workflow replay requires a new execution" in capsys.readouterr().err
 
 
 async def test_concurrent_replay_is_once_and_rate_limited(queues):
@@ -256,6 +314,7 @@ async def test_metrics_do_not_include_document_or_error_contents(queues, caplog)
     "values",
     [
         {"ADMISSION_MAX_RETAINED": 4, "ADMISSION_RESUME_RETAINED": 4},
+        {"ADMISSION_RESUME_RETAINED": 0},
         {"STREAM_COMPLETED_RETENTION_SECONDS": 0},
         {"STREAM_DLQ_RETENTION_SECONDS": 0},
         {"STREAM_CLEANUP_BATCH_SIZE": 1001},

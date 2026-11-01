@@ -93,7 +93,7 @@ The same configurable thresholds apply independently to each queue:
 | `ADMISSION_MAX_AGE_SECONDS` | 300 | Stop when the oldest queue entry reaches this age |
 | `ADMISSION_RESUME_AGE_SECONDS` | 120 | Reopen only at or below this age |
 | `ADMISSION_MAX_RETAINED` | 10000 | Stop at this combined source + DLQ entry count, per queue |
-| `ADMISSION_RESUME_RETAINED` | 8000 | Reopen only at or below this retained count |
+| `ADMISSION_RESUME_RETAINED` | 8000 | Reopen only at or below this retained count (minimum 1: cleanup keeps the last-delivered row) |
 
 Once a queue closes admission, its outstanding count, age and retained count must fall to their resume
 thresholds. The closed state is shared in `<stream>:admission`, without a TTL
@@ -169,21 +169,31 @@ Do not destroy/reset groups or use manual XDEL/XTRIM to bypass this guard.
    whether repeating its external effects is safe and whether its uploaded
    object still exists. Fix permanent failures before considering replay.
    The DLQ is not a complete workflow backup and cannot restore deleted objects.
-5. Replay **one chosen** DLQ entry from a restricted operator terminal:
+5. For a failed **workflow**, do not replay its Redis entry: the latest
+   PostgreSQL event may be terminal and the worker would refuse to run its steps.
+   After the service owner authorizes a new attempt and checks duplicate effects,
+   submit a **new execution** through the authenticated API, using the original
+   document and workflow parameters obtained through authorized access. A new
+   upload may be necessary; the DLQ cannot reconstruct a deleted object. Keep
+   the original DLQ row for investigation under the configured retention policy.
+   The CLI and Python replay entry point explicitly refuse workflow streams
+   without inserting a retry or deleting the DLQ row.
+
+   For a **webhook**, replay one chosen DLQ entry from a restricted terminal:
 
 ```bash
-python -m document_ia_infra.redis.maintenance --apply --stream event_stream --replay-id '<dlq-entry-id>'
+python -m document_ia_infra.redis.maintenance --apply --stream webhook_stream --replay-id '<dlq-entry-id>'
 ```
 
-Use the configured workflow or webhook stream name, not a DLQ name. Replay
+Use the configured webhook stream name, not a DLQ name. Replay
 requires the original to be delivered and no longer pending in every group.
 DLQs with consumer groups need separate reconciliation and are refused.
-The same admission check as new executions applies to both replay types.
+The same admission check as new executions applies to webhook replay.
 Insertion and deletion of the DLQ row are atomic: retrying after a lost reply
 cannot create another copy from that row. Global manual replay is limited to
 one per stream per second (or the larger recovery interval). Attempt count
 resets to zero; `replayed_from` records the DLQ ID. There is no bulk-replay flag.
-Replay does not undo terminal PostgreSQL state or guarantee exactly-once effects.
+Webhook replay does not guarantee exactly-once notification effects.
 
 6. Check counts, ages, failure rates and dependency latency after each small
    sample. Increase throughput by lowering the recovery interval only after
@@ -198,7 +208,7 @@ set, known authentication errors and invalid values are permanent. Other
 exceptions are internal: they are not retried blindly. Worker automatic retries
 remain restricted to explicit `RetryableException`, using the existing attempt
 budget and WorkflowManager's notification contract. Raw dependency exceptions
-can be labelled temporary but still require operator replay; classification
+can be labelled temporary but still require a new authorized execution; classification
 does not silently change terminal workflow decisions. Other worker failures
 require DLQ retention before ACK. Webhook HTTP retries use the same status classification;
 non-HTTP webhook errors still remain pending for Redis recovery. Existing steps

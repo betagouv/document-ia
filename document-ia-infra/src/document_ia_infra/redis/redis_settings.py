@@ -28,7 +28,8 @@ class RedisSettings(BaseDocumentIaSettings):
     ADMISSION_RESUME_AGE_SECONDS: int = Field(default=120, ge=0)
     # Includes completed history and DLQ; retries of accepted work may exceed it.
     ADMISSION_MAX_RETAINED: int = Field(default=10000, ge=2)
-    ADMISSION_RESUME_RETAINED: int = Field(default=8000, ge=0)
+    # Cleanup preserves at least one last-delivered row for lag tracking.
+    ADMISSION_RESUME_RETAINED: int = Field(default=8000, ge=1)
     STREAM_COMPLETED_RETENTION_SECONDS: int = Field(default=86400, ge=1)
     STREAM_DLQ_RETENTION_SECONDS: int = Field(default=604800, ge=1)
     STREAM_CLEANUP_BATCH_SIZE: int = Field(default=100, ge=1, le=1000)
