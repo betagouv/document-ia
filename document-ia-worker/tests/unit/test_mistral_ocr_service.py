@@ -46,7 +46,7 @@ async def test_extract_text_from_image_e2e_success():
 
 @pytest.mark.asyncio
 @pytest.mark.e2e
-async def test_extract_text_from_image_e2e_unauthorized():
+async def test_extract_text_from_image_e2e_unauthorized(monkeypatch):
     """Test e2e d'échec avec une clé invalide (401 attendu côté service).
     On force une mauvaise clé sur l'instance du service.
     """
@@ -60,15 +60,21 @@ async def test_extract_text_from_image_e2e_unauthorized():
     )
     service = MistralHttpOcrService()
 
-    # Forcer une clé invalide et conserver la base_url valide
-    service.get_api_key = "invalid-key-for-test"
-    service.base_url = mistral_ocr_settings.MISTRAL_OCR_BASE_URL
+    monkeypatch.setattr(service, "get_api_key", lambda: "invalid-key-for-test")
+    statuses = []
+    parse_response = service.parse_response
+
+    def record_response(response):
+        statuses.append(response.status_code)
+        return parse_response(response)
+
+    monkeypatch.setattr(service, "parse_response", record_response)
 
     result = await service.extract_text_from_image(
         str(fixture_path), mime_type="application/pdf"
     )
 
-    # Avec une clé invalide, on s'attend à un échec (le service renvoie une erreur HTTP ou un JSON vide)
+    assert statuses == [401], "Expected an HTTP 401 response, not a local failure"
     assert result is not None
     assert result.success is False
     assert result.content == ""

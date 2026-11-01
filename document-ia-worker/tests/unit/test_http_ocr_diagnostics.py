@@ -111,3 +111,28 @@ async def test_successful_request_still_parses_response(
     assert result.success is True
     assert "recognized text" in result.content
     assert "HTTP OCR call failed" not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [401, 403])
+async def test_live_unauthorized_test_requires_real_401(
+    status, ocr_service, monkeypatch
+):
+    import test_mistral_ocr_service as live_tests
+
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(status, text="unauthorized")
+
+    install_transport(monkeypatch, handler)
+    monkeypatch.setattr(live_tests, "mistral_ocr_settings", ocr_service.config)
+    monkeypatch.setattr(live_tests, "MistralHttpOcrService", lambda: ocr_service)
+    if status == 401:
+        await live_tests.test_extract_text_from_image_e2e_unauthorized(monkeypatch)
+    else:
+        with pytest.raises(AssertionError, match="Expected an HTTP 401"):
+            await live_tests.test_extract_text_from_image_e2e_unauthorized(monkeypatch)
+    assert len(requests) == 1
+    assert requests[0].headers["Authorization"] == "Bearer invalid-key-for-test"
