@@ -125,6 +125,9 @@ class WorkflowV2Service:
                 workflow_id=workflow_id,
                 organization_id=organization_id,
                 error=publish_error,
+                # Conserver la version du démarrage : sans elle, la consultation
+                # de l'exécution chercherait le workflow dans le dépôt v1.
+                workflow_version=2,
             )
             raise scheduling_unavailable(execution_id) from publish_error
 

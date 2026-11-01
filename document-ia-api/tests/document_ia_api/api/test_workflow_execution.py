@@ -15,6 +15,21 @@ valid_workflow_id = "document-classification-v1"
 class TestWorkflowExecution:
     """Test cases for workflow execution endpoint."""
 
+    @pytest.fixture(autouse=True)
+    def scheduled_publication(self):
+        """Programmation simulée pour les tests de succès de l'endpoint.
+
+        Depuis #120, une publication Redis en échec produit un `503` au lieu
+        d'une exécution `processing` non programmée : ces tests ne doivent donc
+        plus dépendre d'une connexion Redis réelle pour vérifier le contrat de
+        succès. Les échecs de programmation sont couverts séparément.
+        """
+        with patch(
+            "document_ia_api.application.services.workflow_service.Publisher.publish_message",
+            new=AsyncMock(return_value="1-0"),
+        ):
+            yield
+
     @pytest.fixture
     def valid_metadata(self):
         """Valid metadata for testing."""
@@ -44,7 +59,11 @@ class TestWorkflowExecution:
         return io.BytesIO(png_content)
 
     def test_execute_workflow_success_pdf(
-            self, client_with_api_key_standard, standard_api_key_value, valid_metadata, mock_pdf_file
+        self,
+        client_with_api_key_standard,
+        standard_api_key_value,
+        valid_metadata,
+        mock_pdf_file,
     ):
         """Test successful workflow execution with PDF file."""
 
@@ -64,7 +83,11 @@ class TestWorkflowExecution:
         assert "file_info" in data["data"]
 
     def test_execute_workflow_success_image(
-            self, client_with_api_key_standard, standard_api_key_value, valid_metadata, mock_image_file
+        self,
+        client_with_api_key_standard,
+        standard_api_key_value,
+        valid_metadata,
+        mock_image_file,
     ):
         """Test successful workflow execution with image file."""
         response = client_with_api_key_standard.post(
@@ -80,7 +103,7 @@ class TestWorkflowExecution:
         assert data["data"]["file_info"]["filename"] == "test.png"
 
     def test_execute_workflow_missing_api_key(
-            self, client_without_api_key, valid_metadata, mock_pdf_file
+        self, client_without_api_key, valid_metadata, mock_pdf_file
     ):
         """Test workflow execution without API key."""
         response = client_without_api_key.post(
@@ -92,7 +115,11 @@ class TestWorkflowExecution:
         assert response.status_code == 401
 
     def test_execute_workflow_invalid_api_key(
-            self, client_with_api_key_invalid, invalid_api_key_value, valid_metadata, mock_pdf_file
+        self,
+        client_with_api_key_invalid,
+        invalid_api_key_value,
+        valid_metadata,
+        mock_pdf_file,
     ):
         """Test workflow execution with invalid API key."""
         response = client_with_api_key_invalid.post(
@@ -105,7 +132,7 @@ class TestWorkflowExecution:
         assert response.status_code == 401
 
     def test_execute_workflow_missing_file(
-            self, client_with_api_key_standard, standard_api_key_value, valid_metadata
+        self, client_with_api_key_standard, standard_api_key_value, valid_metadata
     ):
         """Test workflow execution without file."""
         response = client_with_api_key_standard.post(
@@ -117,7 +144,7 @@ class TestWorkflowExecution:
         assert response.status_code == 422  # Validation error
 
     def test_execute_workflow_missing_metadata(
-            self, client_with_api_key_standard, standard_api_key_value, mock_pdf_file
+        self, client_with_api_key_standard, standard_api_key_value, mock_pdf_file
     ):
         """Test workflow execution without metadata."""
         response = client_with_api_key_standard.post(
@@ -129,7 +156,7 @@ class TestWorkflowExecution:
         assert response.status_code == 200  # Validation error
 
     def test_execute_workflow_invalid_metadata_json(
-            self, client_with_api_key_standard, standard_api_key_value, mock_pdf_file
+        self, client_with_api_key_standard, standard_api_key_value, mock_pdf_file
     ):
         """Test workflow execution with invalid JSON metadata."""
         response = client_with_api_key_standard.post(
@@ -144,7 +171,7 @@ class TestWorkflowExecution:
         assert data["errors"]["error"] == "invalid_metadata"
 
     def test_execute_workflow_empty_metadata(
-            self, client_with_api_key_standard, standard_api_key_value, mock_pdf_file
+        self, client_with_api_key_standard, standard_api_key_value, mock_pdf_file
     ):
         """Test workflow execution with empty metadata."""
         response = client_with_api_key_standard.post(
@@ -159,7 +186,11 @@ class TestWorkflowExecution:
         assert data["errors"]["error"] == "invalid_metadata"
 
     def test_execute_workflow_invalid_workflow_id(
-            self, client_with_api_key_standard, standard_api_key_value, valid_metadata, mock_pdf_file
+        self,
+        client_with_api_key_standard,
+        standard_api_key_value,
+        valid_metadata,
+        mock_pdf_file,
     ):
         response = client_with_api_key_standard.post(
             "/api/v1/workflows/document-analysis-v99/execute",  # Use a valid route pattern
@@ -173,11 +204,15 @@ class TestWorkflowExecution:
         assert data["errors"]["error"] == "entity_not_found"
 
     def test_execute_workflow_s3_upload_failure(
-            self, client_with_api_key_standard, standard_api_key_value, valid_metadata, mock_pdf_file
+        self,
+        client_with_api_key_standard,
+        standard_api_key_value,
+        valid_metadata,
+        mock_pdf_file,
     ):
         """Test workflow execution when S3 upload fails."""
         with patch(
-                "document_ia_api.application.services.workflow_service.s3_service.upload_file"
+            "document_ia_api.application.services.workflow_service.s3_service.upload_file"
         ) as mock_upload:
             mock_upload.side_effect = Exception("S3 upload failed")
 
@@ -193,7 +228,7 @@ class TestWorkflowExecution:
             assert data["errors"]["error"] == "s3_upload_error"
 
     def test_execute_workflow_unsupported_file_type(
-            self, client_with_api_key_standard, standard_api_key_value, valid_metadata
+        self, client_with_api_key_standard, standard_api_key_value, valid_metadata
     ):
         """Test workflow execution with unsupported file type."""
         # Create a mock text file
@@ -212,7 +247,7 @@ class TestWorkflowExecution:
         assert data["errors"]["error"] == "file_validation_error"
 
     def test_execute_workflow_file_too_large(
-            self, client_with_api_key_standard, standard_api_key_value, valid_metadata
+        self, client_with_api_key_standard, standard_api_key_value, valid_metadata
     ):
         """Test workflow execution with file too large."""
         # Create a mock large file (simulate > 25MB)
@@ -232,7 +267,11 @@ class TestWorkflowExecution:
         assert "exceeds maximum limit" in data["errors"]["message"]
 
     def test_execute_workflow_malicious_filename(
-            self, client_with_api_key_standard, standard_api_key_value, valid_metadata, mock_pdf_file
+        self,
+        client_with_api_key_standard,
+        standard_api_key_value,
+        valid_metadata,
+        mock_pdf_file,
     ):
         """Test workflow execution with potentially malicious filename."""
         response = client_with_api_key_standard.post(
@@ -248,11 +287,17 @@ class TestWorkflowExecution:
         assert data["errors"]["error"] == "file_validation_error"
 
     def test_execute_workflow_rate_limit_exceeded(
-            self, client_with_api_key_standard, standard_api_key_value, valid_metadata, mock_pdf_file
+        self,
+        client_with_api_key_standard,
+        standard_api_key_value,
+        valid_metadata,
+        mock_pdf_file,
     ):
         """Test workflow execution when rate limit is exceeded."""
         # Mock the redis service to return rate limit exceeded
-        with patch("document_ia_api.api.middleware.rate_limiting_middleware.redis_service") as mock_redis:
+        with patch(
+            "document_ia_api.api.middleware.rate_limiting_middleware.redis_service"
+        ) as mock_redis:
             from document_ia_api.schemas.rate_limiting import RateLimitInfo
             from unittest.mock import AsyncMock
 
@@ -298,21 +343,27 @@ class TestWorkflowExecution:
             },
         )
 
-        with patch(
-            "document_ia_api.application.services.workflow_service.WorkflowService.wait_for_execution_result",
-            new=AsyncMock(return_value=success_model),
-        ), patch(
-            "document_ia_api.application.services.workflow_service.workflow_repository.get_workflow_by_id",
-            new=AsyncMock(return_value=True),
-        ), patch(
-            "document_ia_api.application.services.workflow_service.s3_service.upload_file",
-            new=AsyncMock(return_value={"s3_key": "k", "presigned_url": "u"}),
-        ), patch(
-            "document_ia_api.application.services.workflow_service.EventStoreService.emit_workflow_started",
-            new=AsyncMock(),
-        ), patch(
-            "document_ia_api.application.services.workflow_service.Publisher.publish_message",
-            new=AsyncMock(return_value="1"),
+        with (
+            patch(
+                "document_ia_api.application.services.workflow_service.WorkflowService.wait_for_execution_result",
+                new=AsyncMock(return_value=success_model),
+            ),
+            patch(
+                "document_ia_api.application.services.workflow_service.workflow_repository.get_workflow_by_id",
+                new=AsyncMock(return_value=True),
+            ),
+            patch(
+                "document_ia_api.application.services.workflow_service.s3_service.upload_file",
+                new=AsyncMock(return_value={"s3_key": "k", "presigned_url": "u"}),
+            ),
+            patch(
+                "document_ia_api.application.services.workflow_service.EventStoreService.emit_workflow_started",
+                new=AsyncMock(),
+            ),
+            patch(
+                "document_ia_api.application.services.workflow_service.Publisher.publish_message",
+                new=AsyncMock(return_value="1"),
+            ),
         ):
             response = client_with_api_key_standard.post(
                 f"/api/v1/workflows/{valid_workflow_id}/execute-sync",
@@ -326,7 +377,11 @@ class TestWorkflowExecution:
         assert payload["status"] == ExecutionStatus.SUCCESS
 
     def test_execute_workflow_with_classification_document_types(
-        self, client_with_api_key_standard, standard_api_key_value, valid_metadata, mock_pdf_file
+        self,
+        client_with_api_key_standard,
+        standard_api_key_value,
+        valid_metadata,
+        mock_pdf_file,
     ):
         """Test that classification-parameters with document-types is accepted and returns 200."""
         classification_params = json.dumps({"document-types": ["cni", "passeport"]})
@@ -347,7 +402,11 @@ class TestWorkflowExecution:
         assert data["data"]["execution_id"] is not None
 
     def test_execute_workflow_with_invalid_classification_document_type(
-        self, client_with_api_key_standard, standard_api_key_value, valid_metadata, mock_pdf_file
+        self,
+        client_with_api_key_standard,
+        standard_api_key_value,
+        valid_metadata,
+        mock_pdf_file,
     ):
         """Test that an invalid document type in document-types returns 422."""
         classification_params = json.dumps({"document-types": ["not_a_valid_type"]})
@@ -373,21 +432,31 @@ class TestWorkflowExecution:
     ):
         """Sync endpoint returns 408 when wait_for_execution_result times out."""
 
-        with patch(
-            "document_ia_api.application.services.workflow_service.WorkflowService.wait_for_execution_result",
-            new=AsyncMock(side_effect=HTTPException(status_code=408, detail={"error": "sync_execution_timeout"})),
-        ), patch(
-            "document_ia_api.application.services.workflow_service.workflow_repository.get_workflow_by_id",
-            new=AsyncMock(return_value=True),
-        ), patch(
-            "document_ia_api.application.services.workflow_service.s3_service.upload_file",
-            new=AsyncMock(return_value={"s3_key": "k", "presigned_url": "u"}),
-        ), patch(
-            "document_ia_api.application.services.workflow_service.EventStoreService.emit_workflow_started",
-            new=AsyncMock(),
-        ), patch(
-            "document_ia_api.application.services.workflow_service.Publisher.publish_message",
-            new=AsyncMock(return_value="1"),
+        with (
+            patch(
+                "document_ia_api.application.services.workflow_service.WorkflowService.wait_for_execution_result",
+                new=AsyncMock(
+                    side_effect=HTTPException(
+                        status_code=408, detail={"error": "sync_execution_timeout"}
+                    )
+                ),
+            ),
+            patch(
+                "document_ia_api.application.services.workflow_service.workflow_repository.get_workflow_by_id",
+                new=AsyncMock(return_value=True),
+            ),
+            patch(
+                "document_ia_api.application.services.workflow_service.s3_service.upload_file",
+                new=AsyncMock(return_value={"s3_key": "k", "presigned_url": "u"}),
+            ),
+            patch(
+                "document_ia_api.application.services.workflow_service.EventStoreService.emit_workflow_started",
+                new=AsyncMock(),
+            ),
+            patch(
+                "document_ia_api.application.services.workflow_service.Publisher.publish_message",
+                new=AsyncMock(return_value="1"),
+            ),
         ):
             response = client_with_api_key_standard.post(
                 f"/api/v1/workflows/{valid_workflow_id}/execute-sync",

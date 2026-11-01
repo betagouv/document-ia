@@ -56,7 +56,9 @@ async def test_publish_fails_when_redis_is_unreachable(monkeypatch):
     )
 
     with pytest.raises(PublishFailedError) as exc_info:
-        await publisher.publish_message(WorkflowExecutionMessage(workflow_execution_id="exec-down"))
+        await publisher.publish_message(
+            WorkflowExecutionMessage(workflow_execution_id="exec-down")
+        )
 
     assert exc_info.value.stream_name == STREAM
     # Le message ne transporte ni charge utile ni contenu de document.

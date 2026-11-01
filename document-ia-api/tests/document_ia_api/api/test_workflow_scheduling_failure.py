@@ -36,21 +36,29 @@ class TestWorkflowExecutionSchedulingFailure:
     def test_v1_execute_returns_503_when_scheduling_fails(
         self, client_with_api_key_standard, standard_api_key_value
     ):
-        with patch(
-            "document_ia_api.application.services.workflow_service.workflow_repository.get_workflow_by_id",
-            new=AsyncMock(return_value={"id": "document-classification-v1"}),
-        ), patch(
-            "document_ia_api.application.services.workflow_service.s3_service.upload_file",
-            new=AsyncMock(return_value={"s3_key": "k", "presigned_url": "u"}),
-        ), patch(
-            "document_ia_api.application.services.workflow_service.EventStoreService.emit_workflow_started",
-            new=AsyncMock(),
-        ), patch(
-            "document_ia_api.application.services.execution_acceptance.EventStoreService.emit_workflow_failed",
-            new=AsyncMock(),
-        ) as close_execution, patch(
-            "document_ia_api.application.services.workflow_service.Publisher.publish_message",
-            new=AsyncMock(side_effect=PublishFailedError("event_stream", "no_connection")),
+        with (
+            patch(
+                "document_ia_api.application.services.workflow_service.workflow_repository.get_workflow_by_id",
+                new=AsyncMock(return_value={"id": "document-classification-v1"}),
+            ),
+            patch(
+                "document_ia_api.application.services.workflow_service.s3_service.upload_file",
+                new=AsyncMock(return_value={"s3_key": "k", "presigned_url": "u"}),
+            ),
+            patch(
+                "document_ia_api.application.services.workflow_service.EventStoreService.emit_workflow_started",
+                new=AsyncMock(),
+            ),
+            patch(
+                "document_ia_api.application.services.execution_acceptance.EventStoreService.emit_workflow_failed",
+                new=AsyncMock(),
+            ) as close_execution,
+            patch(
+                "document_ia_api.application.services.workflow_service.Publisher.publish_message",
+                new=AsyncMock(
+                    side_effect=PublishFailedError("event_stream", "no_connection")
+                ),
+            ),
         ):
             response = client_with_api_key_standard.post(
                 "/api/v1/workflows/document-classification-v1/execute",
@@ -66,32 +74,41 @@ class TestWorkflowExecutionSchedulingFailure:
     def test_v2_execute_returns_503_when_scheduling_fails(
         self, client_with_api_key_standard, standard_api_key_value
     ):
-        with patch(
-            "document_ia_api.application.services.workflow_v2_service.WorkflowV2Service.validateWorkflow",
-            return_value=True,
-        ), patch(
-            "document_ia_api.application.services.workflow_v2_service.workflow_v2_repository.get_raw_workflow_by_id",
-            return_value={
-                "id": "document-extraction-v2",
-                "steps": [
-                    {
-                        "action": "llm_classify_document",
-                        "params": {"document_types": {"default": "all"}},
-                    }
-                ],
-            },
-        ), patch(
-            "document_ia_api.application.services.workflow_v2_service.s3_service.upload_file",
-            new=AsyncMock(return_value={"s3_key": "k", "presigned_url": "u"}),
-        ), patch(
-            "document_ia_api.application.services.workflow_v2_service.EventStoreService.emit_workflow_started",
-            new=AsyncMock(),
-        ), patch(
-            "document_ia_api.application.services.execution_acceptance.EventStoreService.emit_workflow_failed",
-            new=AsyncMock(),
-        ) as close_execution, patch(
-            "document_ia_api.application.services.workflow_v2_service.Publisher.publish_message",
-            new=AsyncMock(side_effect=PublishFailedError("event_stream", "no_connection")),
+        with (
+            patch(
+                "document_ia_api.application.services.workflow_v2_service.WorkflowV2Service.validateWorkflow",
+                return_value=True,
+            ),
+            patch(
+                "document_ia_api.application.services.workflow_v2_service.workflow_v2_repository.get_raw_workflow_by_id",
+                return_value={
+                    "id": "document-extraction-v2",
+                    "steps": [
+                        {
+                            "action": "llm_classify_document",
+                            "params": {"document_types": {"default": "all"}},
+                        }
+                    ],
+                },
+            ),
+            patch(
+                "document_ia_api.application.services.workflow_v2_service.s3_service.upload_file",
+                new=AsyncMock(return_value={"s3_key": "k", "presigned_url": "u"}),
+            ),
+            patch(
+                "document_ia_api.application.services.workflow_v2_service.EventStoreService.emit_workflow_started",
+                new=AsyncMock(),
+            ),
+            patch(
+                "document_ia_api.application.services.execution_acceptance.EventStoreService.emit_workflow_failed",
+                new=AsyncMock(),
+            ) as close_execution,
+            patch(
+                "document_ia_api.application.services.workflow_v2_service.Publisher.publish_message",
+                new=AsyncMock(
+                    side_effect=PublishFailedError("event_stream", "no_connection")
+                ),
+            ),
         ):
             response = client_with_api_key_standard.post(
                 "/api/v2/workflows/document-extraction-v2/execute",

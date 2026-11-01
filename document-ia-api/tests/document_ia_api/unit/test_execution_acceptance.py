@@ -107,7 +107,9 @@ async def test_v1_publish_failure_returns_503_and_closes_execution(monkeypatch):
         AsyncMock(return_value={"id": V1_WORKFLOW_ID}),
     )
     monkeypatch.setattr(
-        service.redis_producer, "publish_message", AsyncMock(side_effect=_publish_failure())
+        service.redis_producer,
+        "publish_message",
+        AsyncMock(side_effect=_publish_failure()),
     )
 
     organization_id = uuid4()
@@ -143,7 +145,9 @@ async def test_v2_publish_failure_returns_503_and_closes_execution(monkeypatch):
         lambda _: _v2_raw_workflow(),
     )
     monkeypatch.setattr(
-        service.redis_producer, "publish_message", AsyncMock(side_effect=_publish_failure())
+        service.redis_producer,
+        "publish_message",
+        AsyncMock(side_effect=_publish_failure()),
     )
 
     organization_id = uuid4()
@@ -241,7 +245,9 @@ async def test_v1_close_failure_does_not_mask_the_503(monkeypatch):
         AsyncMock(return_value={"id": V1_WORKFLOW_ID}),
     )
     monkeypatch.setattr(
-        service.redis_producer, "publish_message", AsyncMock(side_effect=_publish_failure())
+        service.redis_producer,
+        "publish_message",
+        AsyncMock(side_effect=_publish_failure()),
     )
 
     with pytest.raises(HTTPException) as exc_info:

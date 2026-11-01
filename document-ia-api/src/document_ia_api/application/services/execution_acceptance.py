@@ -52,12 +52,18 @@ async def fail_unscheduled_execution(
     workflow_id: str,
     organization_id: UUID,
     error: PublishFailedError,
+    workflow_version: int = 1,
 ) -> None:
     """Clôturer une exécution dont le traitement n'a pas pu être programmé.
 
     L'événement de démarrage ayant déjà été persisté, on écrit un événement
     d'échec terminal : les lectures d'exécution doivent refléter l'absence de
     traitement programmé plutôt qu'un `STARTED` qui ne progressera jamais.
+
+    `workflow_version` reprend la version de l'événement de démarrage : la
+    consultation d'une exécution sélectionne le dépôt de définitions de
+    workflows d'après la version du dernier événement. Une clôture annoncée en
+    v1 pour une exécution v2 la rendrait illisible.
 
     L'échec de cette écriture est journalisé et ne masque pas l'erreur de
     programmation initiale : la réponse `503` reste la vérité du contrat.
@@ -74,6 +80,7 @@ async def fail_unscheduled_execution(
                 "no processing is pending."
             ),
             failed_step="schedule",
+            workflow_version=workflow_version,
         )
     except Exception:
         logger.exception(

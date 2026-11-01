@@ -47,8 +47,13 @@ class Publisher(Generic[T]):
 
         Raises:
             PublishFailedError: when no connection is available or Redis refuses
-                the write (including ``maxlen`` saturation). The exception message
-                never embeds the published payload.
+                the write. The exception message never embeds the published
+                payload.
+
+        Note:
+            ``maxlen`` truncation is not a saturation error: Redis accepts the
+            write and drops the oldest entries. Admission control on stream
+            capacity is a separate concern and is not detected here.
         """
         try:
             connection = await self.current_redis_manager.get_connection()

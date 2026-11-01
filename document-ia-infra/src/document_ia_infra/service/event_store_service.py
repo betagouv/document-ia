@@ -269,15 +269,21 @@ class EventStoreService:
         error_message: str,
         failed_step: Optional[str] = None,
         retry_count: int = 0,
+        workflow_version: int = 1,
     ) -> WorkflowExecutionFailedEvent:
-        """Create a WorkflowExecutionFailedEvent."""
+        """Create a WorkflowExecutionFailedEvent.
+
+        `workflow_version` doit correspondre à celui de l'événement de démarrage :
+        la consultation d'une exécution choisit le dépôt de définitions de
+        workflows à partir de la version du dernier événement.
+        """
         return WorkflowExecutionFailedEvent(
             event_id=uuid4(),
             workflow_id=workflow_id,
             organization_id=organization_id,
             execution_id=execution_id,
             created_at=datetime.now(UTC),
-            version=1,
+            version=workflow_version,
             error_type=error_type,
             error_message=error_message,
             failed_step=failed_step,
@@ -371,6 +377,7 @@ class EventStoreService:
         error_message: str,
         failed_step: Optional[str] = None,
         retry_count: int = 0,
+        workflow_version: int = 1,
     ) -> EventStoreRecord:
         """Emit and store a workflow failed event."""
         event = self.create_workflow_failed_event(
@@ -381,5 +388,6 @@ class EventStoreService:
             error_message=error_message,
             failed_step=failed_step,
             retry_count=retry_count,
+            workflow_version=workflow_version,
         )
         return await self.store_event(event)

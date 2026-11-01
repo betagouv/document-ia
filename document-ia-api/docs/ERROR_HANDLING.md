@@ -52,9 +52,16 @@ and v2 execution endpoints return `503` with a bounded `Retry-After` header
 ```
 
 The started event is kept as the record of the request, and a terminal failure
-event closes the execution: reading that execution returns `FAILED`, never a
-`STARTED` that would never progress. An uploaded file is likewise kept; storage,
-PostgreSQL and Redis are deliberately not made atomic here.
+event closes the execution: reading that execution returns `FAILED` instead of a
+`STARTED` that would never progress. The closure keeps the workflow version of
+the started event, so v2 executions stay readable. An uploaded file is likewise
+kept; storage, PostgreSQL and Redis are deliberately not made atomic here.
+
+If writing that failure event itself fails, the error is logged and the `503` is
+still returned: the response remains the contract, but such an execution can stay
+`STARTED` until it is reconciled. Separately, Redis `maxlen` truncation is not a
+saturation error — the write is accepted and the oldest entries are dropped — so
+stream-capacity admission control is not covered by this behaviour.
 
 Retrying the request creates a new execution with a new `execution_id`. Because
 the failed attempt scheduled no work, no execution is left processing the same
