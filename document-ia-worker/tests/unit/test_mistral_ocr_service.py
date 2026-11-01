@@ -31,7 +31,7 @@ async def test_extract_text_from_image_e2e_success():
         / "fixtures"
         / "test_download_file.pdf"
     )
-    service = MistralHttpOcrService()
+    service = MistralHttpOcrService(timeout=120)
 
     # Le service Mistral nécessite le mime_type pour construire l'URL data
     result = await service.extract_text_from_image(
