@@ -586,9 +586,7 @@ class Consumer(Generic[T]):
             argv.append(str(key))
             argv.append(str(value))
         try:
-            await redis_connection.eval(
-                _RETAIN_DLQ_LUA, 1, self.dlq_stream_name, *argv
-            )
+            await redis_connection.eval(_RETAIN_DLQ_LUA, 1, self.dlq_stream_name, *argv)
             return True
         except Exception as dlq_err:
             logger.error(
