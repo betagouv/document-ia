@@ -5,7 +5,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from document_ia_evals.metrics.json_schema_extra.metric import json_schema_extra_metric
-from document_ia_evals.metrics.json_schema_extra.models import JsonSchemaExtraObservation
+from document_ia_evals.metrics.json_schema_extra.models import (
+    JsonSchemaExtraObservation,
+)
 from document_ia_evals.metrics.utils.pydantic_helpers import get_field_metrics
 from document_ia_schemas import SupportedDocumentType, resolve_extract_schema
 
@@ -133,7 +135,9 @@ def find_error_documents(
             document_type=document_type,
         )
         try:
-            observation = JsonSchemaExtraObservation.model_validate_json(observation_json)
+            observation = JsonSchemaExtraObservation.model_validate_json(
+                observation_json
+            )
         except (json.JSONDecodeError, TypeError, ValueError):
             continue
         if observation.error:
@@ -146,7 +150,9 @@ def find_error_documents(
             if (
                 score is None
                 or score in (1.0, -1.0)
-                or (details.get("expected") is None and details.get("predicted") is None)
+                or (
+                    details.get("expected") is None and details.get("predicted") is None
+                )
             ):
                 continue
             errors.append(
@@ -169,7 +175,9 @@ def find_error_documents(
                     prediction_id=prediction.get("id", "Unknown"),
                     model_version=model_version,
                     document_url=get_document_url(task),
-                    errors=tuple(sorted(errors, key=lambda error: (error.field, error.metric))),
+                    errors=tuple(
+                        sorted(errors, key=lambda error: (error.field, error.metric))
+                    ),
                 )
             )
 

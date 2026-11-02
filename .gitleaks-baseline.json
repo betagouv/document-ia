@@ -1,0 +1,40 @@
+[
+  {
+    "RuleID": "generic-api-key",
+    "Description": "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
+    "StartLine": 55,
+    "EndLine": 55,
+    "StartColumn": 7,
+    "EndColumn": 81,
+    "File": ".github/workflows/document-ia-ci.yml",
+    "SymlinkFile": "",
+    "Commit": "e97f180fef487112272dfd3df4adf4a13de2b3e3",
+    "Link": "https://github.com/betagouv/document-ia/blob/e97f180fef487112272dfd3df4adf4a13de2b3e3/.github/workflows/document-ia-ci.yml#L55",
+    "Entropy": 4.788755,
+    "Author": "nicolasSagon",
+    "Email": "sagon.nicolas@gmail.com",
+    "Date": "2025-11-14T09:26:24Z",
+    "Message": "feat: Add webhook routes and publisher to redis",
+    "Tags": [],
+    "Fingerprint": "e97f180fef487112272dfd3df4adf4a13de2b3e3:.github/workflows/document-ia-ci.yml:generic-api-key:55"
+  },
+  {
+    "RuleID": "document-ia-token",
+    "Description": "Détection des tokens d'environnement DocumentIA (dia_...)",
+    "StartLine": 75,
+    "EndLine": 75,
+    "StartColumn": 28,
+    "EndColumn": 103,
+    "File": ".github/workflows/document-ia-ci.yml",
+    "SymlinkFile": "",
+    "Commit": "35f258277c8fc310938aa24f7d30e9c487a7ba1c",
+    "Link": "https://github.com/betagouv/document-ia/blob/35f258277c8fc310938aa24f7d30e9c487a7ba1c/.github/workflows/document-ia-ci.yml#L75",
+    "Entropy": 1.9938288,
+    "Author": "nicolasSagon",
+    "Email": "sagon.nicolas@gmail.com",
+    "Date": "2025-11-10T14:59:08Z",
+    "Message": "feat: add organization_id on execution entity",
+    "Tags": [],
+    "Fingerprint": "35f258277c8fc310938aa24f7d30e9c487a7ba1c:.github/workflows/document-ia-ci.yml:document-ia-token:75"
+  }
+]

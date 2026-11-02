@@ -14,16 +14,12 @@ class BulletinSalaireModel(BaseModel):
     nom_employeur: Optional[str] = Field(
         description="Nom ou raison sociale de l'employeur. Dans le texte, c'est généralement la **TOUTE PREMIÈRE personne ou entité** mentionnée au début du document. Si l'employeur est un particulier, son nom apparaîtra avant celui du salarié. Les informations de l'employeur sont souvent situées juste à côté du numéro SIRET ou du code NAF/APE.",
         default=None,
-        json_schema_extra={
-            "metrics": Metric.LEVENSHTEIN_DISTANCE
-        }
+        json_schema_extra={"metrics": Metric.LEVENSHTEIN_DISTANCE},
     )
     siret: Optional[str] = Field(
         description="Numéro SIRET de l'employeur (14 chiffres)",
         default=None,
-        json_schema_extra={
-            "metrics": Metric.COMPARE_NUMBER
-        }
+        json_schema_extra={"metrics": Metric.COMPARE_NUMBER},
     )
 
     # --- Identité Salarié ---
@@ -35,58 +31,44 @@ class BulletinSalaireModel(BaseModel):
                 Metric.TOKEN_SET_EQUALITY,
                 Metric.LEVENSHTEIN_DISTANCE,
             ]
-        }
+        },
     )
     adresse_salarie: Optional[str] = Field(
         description="Adresse postale complète du salarié",
         default=None,
-        json_schema_extra={
-            "metrics": Metric.LEVENSHTEIN_DISTANCE
-        }
+        json_schema_extra={"metrics": Metric.LEVENSHTEIN_DISTANCE},
     )
 
     # --- Détails du contrat ---
     periode_debut: FuzzyDate = Field(
         description="Date de début de la période de paie concernée (format JJ/MM/AAAA)",
         default=None,
-        json_schema_extra={
-            "metrics": Metric.STRING_DATE_EQUALITY
-        }
+        json_schema_extra={"metrics": Metric.STRING_DATE_EQUALITY},
     )
     periode_fin: FuzzyDate = Field(
         description="Date de fin de la période de paie concernée (format JJ/MM/AAAA)",
         default=None,
-        json_schema_extra={
-            "metrics": Metric.STRING_DATE_EQUALITY
-        }
+        json_schema_extra={"metrics": Metric.STRING_DATE_EQUALITY},
     )
     date_paiement: FuzzyDate = Field(
         description="Date de mise en paiement du salaire (format JJ/MM/AAAA)",
         default=None,
-        json_schema_extra={
-            "metrics": Metric.STRING_DATE_EQUALITY
-        }
+        json_schema_extra={"metrics": Metric.STRING_DATE_EQUALITY},
     )
     date_debut_contrat: FuzzyDate = Field(
         description="Date d'ancienneté ou d'entrée dans l'entreprise (format JJ/MM/AAAA), si absente, renseigner `null`.",
         default=None,
-        json_schema_extra={
-            "metrics": Metric.STRING_DATE_EQUALITY
-        }
+        json_schema_extra={"metrics": Metric.STRING_DATE_EQUALITY},
     )
     net_imposable: Optional[float] = Field(
         description="Montant du Net Imposable (base pour les impôts)",
         default=None,
-        json_schema_extra={
-            "metrics": Metric.COMPARE_NUMBER
-        }
+        json_schema_extra={"metrics": Metric.COMPARE_NUMBER},
     )
     cumul_net_imposable: Optional[float] = Field(
         description="Cumul annuel du Net Imposable (souvent en bas de page), si absente, renseigner `null`.",
         default=None,
-        json_schema_extra={
-            "metrics": Metric.COMPARE_NUMBER
-        }
+        json_schema_extra={"metrics": Metric.COMPARE_NUMBER},
     )
 
 
@@ -135,7 +117,7 @@ class BulletinSalaireExtractSchema(BaseDocumentTypeSchema[BulletinSalaireModel])
             date_paiement=date(2026, 3, 2),
             date_debut_contrat=date(2023, 9, 1),
             net_imposable=1850.50,
-            cumul_net_imposable=3701.00
-        )
+            cumul_net_imposable=3701.00,
+        ),
     ]
     document_model: Type[BulletinSalaireModel] = BulletinSalaireModel

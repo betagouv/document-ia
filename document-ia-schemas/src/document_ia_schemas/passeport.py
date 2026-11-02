@@ -11,70 +11,52 @@ class PasseportModel(BaseModel):
     numero_document: str = Field(
         description="Identifiant unique / Numéro du passeport (format alphanumérique)",
         examples=["123456789012"],
-        json_schema_extra={
-            "metrics": Metric.COMPARE_NUMBER
-        }
+        json_schema_extra={"metrics": Metric.COMPARE_NUMBER},
     )
     nom: str = Field(
         description="Nom de famille du titulaire (en majuscules sur le document)",
         examples=["DUPONT"],
-        json_schema_extra={
-            "metrics": Metric.LEVENSHTEIN_DISTANCE
-        }
+        json_schema_extra={"metrics": Metric.LEVENSHTEIN_DISTANCE},
     )
     prenom: str = Field(
         description="Prénom du titulaire (premier prénom)",
         examples=["JEAN"],
-        json_schema_extra={
-            "metrics": Metric.LEVENSHTEIN_DISTANCE
-        }
+        json_schema_extra={"metrics": Metric.LEVENSHTEIN_DISTANCE},
     )
     lieu_naissance: str = Field(
         description="Lieu de naissance du titulaire (ville)",
         examples=["PARIS 15e"],
-        json_schema_extra={
-            "metrics": Metric.LEVENSHTEIN_DISTANCE
-        }
+        json_schema_extra={"metrics": Metric.LEVENSHTEIN_DISTANCE},
     )
     nationalite: str = Field(
         description="Nationalité du titulaire",
         examples=["Française"],
-        json_schema_extra={
-            "metrics": Metric.LEVENSHTEIN_DISTANCE
-        }
+        json_schema_extra={"metrics": Metric.LEVENSHTEIN_DISTANCE},
     )
     bande_mrz: str = Field(
         description="Bande MRZ du passeport",
         examples=[
             "P<FRADUPONT<<JEAN<ROBIN<ADRIEN<<<><><<<<<>>>123456789012FRA0002152F2809160<<<<<<<<<<<<<<00"
         ],
-        json_schema_extra={
-            "metrics": Metric.MRZ_EQUALITY
-        }
+        json_schema_extra={"metrics": Metric.MRZ_EQUALITY},
     )
     date_delivrance: FuzzyDate = Field(
         default=None,
         description="Date d'émission du passeport (format JJ/MM/AAAA). Si absente, renseigner `null`.",
         examples=["2010-01-01"],
-        json_schema_extra={
-            "metrics": Metric.STRING_DATE_EQUALITY
-        }
+        json_schema_extra={"metrics": Metric.STRING_DATE_EQUALITY},
     )
     date_expiration: FuzzyDate = Field(
         default=None,
         description="Date limite de validité du passeport (format JJ/MM/AAAA). Si absente, renseigner `null`.",
         examples=["2020-01-01"],
-        json_schema_extra={
-            "metrics": Metric.STRING_DATE_EQUALITY
-        }
+        json_schema_extra={"metrics": Metric.STRING_DATE_EQUALITY},
     )
     date_naissance: FuzzyDate = Field(
         default=None,
         description="Date de naissance du titulaire (format JJ/MM/AAAA). Si absente, renseigner `null`.",
         examples=["1990-01-01"],
-        json_schema_extra={
-            "metrics": Metric.STRING_DATE_EQUALITY
-        }
+        json_schema_extra={"metrics": Metric.STRING_DATE_EQUALITY},
     )
 
 

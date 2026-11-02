@@ -35,7 +35,7 @@ Main API variables:
 | `API_KEY_VERSION` | `1` | API key format version |
 | `API_KEY_PEPPER_HASH` | `default_pepper_hash_value` | Pepper used to hash API keys |
 | `API_KEY_PEPPER_CHK` | `default_pepper_chk_value` | Pepper used for API key checksum |
-| `DOCUMENT_IA_API_KEY` | `""` | Internal/service API key |
+| `DOCUMENT_IA_API_KEY` | `""` | Initial `PlatformAdmin` organization API key (seeded during Alembic migration) |
 | `RATE_LIMIT_REQUESTS_PER_MINUTE` | `300` | Per-minute limit per API key |
 | `RATE_LIMIT_REQUESTS_PER_DAY` | `5000` | Per-day limit per API key |
 | `SYNC_EXECUTION_TIMEOUT_SECONDS` | `30` | Soft timeout for sync endpoints |
@@ -45,7 +45,32 @@ Main API variables:
 | `LOKI_LOGGING_ENABLED` | `true` | Enable Loki log ingestion |
 | `LOKI_BEARER_TOKEN` | unset | Optional Bearer token for Loki push. Use the raw token only, without the `Bearer ` prefix. Leave empty to push without authentication. |
 
-The API also depends on shared monorepo settings (PostgreSQL, Redis, S3, logging). Use the repository root `env.example` as reference.
+The API also depends on shared monorepo settings (PostgreSQL, Redis, S3, logging, `WEBHOOK_SECRET_ENCRYPTION_KEY`). Use the repository root `env.example` and [document-ia-infra/README.md](../document-ia-infra/README.md) as references.
+
+### Generating the initial Admin API key (`DOCUMENT_IA_API_KEY`)
+
+During the initial Alembic migration, the API reads `DOCUMENT_IA_API_KEY` to seed the default `PlatformAdmin` organization (`Document IA Default Organization`) and its active API key in PostgreSQL.
+
+> **Important:** Make sure `APP_ENV` (`dev`, `staging`, `sandbox`, or `prod`), `API_KEY_PEPPER_CHK`, and `API_KEY_PEPPER_HASH` are already set to their target environment values in your `.env` (or shell environment) **before** running the script, otherwise checksum verification will fail during migration or authentication.
+
+Generate a valid API key from the repository root:
+
+```bash
+uv run --directory document-ia-api python scripts/generate_api_key.py
+```
+
+Or for a specific target environment/pepper without modifying your local `.env`:
+
+```bash
+APP_ENV=prod API_KEY_PEPPER_CHK="<target-chk-pepper>" API_KEY_PEPPER_HASH="<target-hash-pepper>" \
+  uv run --directory document-ia-api python scripts/generate_api_key.py
+```
+
+Copy the `API key (presented)` value (`dia_<env>_<version>_<prefix>_<body>_<checksum>`) into your `.env` file (or deployment environment variables) before running migrations:
+
+```dotenv
+DOCUMENT_IA_API_KEY=<presented-api-key>
+```
 
 ## Run
 

@@ -23,15 +23,28 @@ paths = [
     '''Cargo\.lock$''',
     '''package-lock\.json$''',
 
-    # Fichiers de tests ou documents mockés (pour les tests d'OCR par exemple)
-    '''^tests/.*mock.*$''',
-    '''^.*\.pdf$'''
+    # PDF de fixtures OCR : limité aux répertoires de fixtures de test, pas tous les PDF
+    '''^[^/]+/tests/fixtures/.*\.pdf$''',
+
+    # Snippet d'exemple evals : commande curl avec API_KEY_PLACEHOLDER littéral.
+    '''document-ia-evals/src/document_ia_evals/assets/snippets/example\.sh$'''
 ]
 
 # Ignorer des faux positifs récurrents directement dans le code
 regexes = [
     '''gitleaks:allow''',
-    '''example_token_for_tests'''
+    '''example_token_for_tests''',
+    # Clé factice d'exemple OpenAPI (schéma de réponse de l'endpoint admin api_key).
+    # Valeur de documentation, jamais un secret réel ; présente dans l'historique.
+    '''dia_dev_v1_ABCD1234_ABCDEFGHIJKLMNOPQRSTUVWX1234567890YZ12_IFZS''',
+    # Clés factices des tests unitaires de l'API (fixtures, jamais des secrets réels).
+    '''dia_dev_v1_TESTKEY1_ABCDEFGHIJKLMNOPQRSTUVWX1234567890YZ12_IFZS''',
+    '''dia_dev_1_WMBUIIAK_WMBUIIAK2QQFKWQ5S7YPQZIUTFHQ2KKNFKPESOLLCQVME2NJFZUQ_BYMQ''',
+    '''dia_dev_1_WMBUIIAK_WMBUIIAK2AAFKWQ5S7YPQZIUTFHQ2KKNFKPESOLLCQVME2NJFZUQ_BYMQ''',
+    '''dia_dev_1_ID5RKLRX_ID5RKLRXQZM52XFUNGUHOBL7MAU3XQDRYN3R4HZH24DGGTFROBLA_5YTN''',
+    # Placeholders des exemples curl de la documentation (README, docs).
+    '''YOUR_API_KEY''',
+    '''your-api-key-here'''
 ]
 
 # ---------------------------------------------------------

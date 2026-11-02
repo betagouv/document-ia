@@ -113,12 +113,13 @@ Start here depending on what you need:
 
 | Need | Read |
 |---|---|
-| API setup, environment variables, run commands | [document-ia-api/README.md](./document-ia-api/README.md) |
+| API setup, environment variables, initial admin API key (`DOCUMENT_IA_API_KEY`), run commands | [document-ia-api/README.md](./document-ia-api/README.md) |
 | API architecture, routes, auth, error handling, workflow docs | [document-ia-api/docs/API_SUMMARY.md](./document-ia-api/docs/API_SUMMARY.md) |
 | Database migration workflow | [document-ia-api/alembic/README.md](./document-ia-api/alembic/README.md) |
 | Bruno API collection | [document-ia-api/bruno-api/README.md](./document-ia-api/bruno-api/README.md) |
 | API test organization | [document-ia-api/tests/README.md](./document-ia-api/tests/README.md) |
 | Worker execution flow, retries, DLQ, scheduler | [document-ia-worker/README.md](./document-ia-worker/README.md) |
+| Shared infrastructure & `WEBHOOK_SECRET_ENCRYPTION_KEY` generation | [document-ia-infra/README.md](./document-ia-infra/README.md) |
 | Document schema package and supported document types | [document-ia-schemas/README.md](./document-ia-schemas/README.md) |
 | Evaluation app | [document-ia-evals/README.md](./document-ia-evals/README.md) |
 | Evaluation metrics | [document-ia-evals/METRICS.md](./document-ia-evals/METRICS.md) |
@@ -231,6 +232,22 @@ uv sync
 ```
 
 When developing against shared local packages, they are already configured in `pyproject.toml` and installed in editable mode by default when running `uv sync`.
+
+### Git Hooks
+
+The repository ships a [pre-commit](https://pre-commit.com/) configuration. Install the hooks once per clone:
+
+```bash
+pre-commit install
+bash scripts/pre-push
+```
+
+Two hook types are installed:
+
+- `pre-commit`: gitleaks scans staged changes.
+- `pre-push`: a native wrapper scans the commits introduced by every pushed ref, including multi-ref pushes and secrets added then removed across intermediate commits.
+
+The pre-push hook requires the `gitleaks` binary (v8.30.1) on your `PATH`; install it from the [gitleaks releases](https://github.com/gitleaks/gitleaks/releases). If it is missing, pushes are blocked. Run `bash scripts/pre-push` again after switching worktrees: Git hooks are local to each clone or worktree.
 
 ## Production & Deployment (Scalingo)
 
