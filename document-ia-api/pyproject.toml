@@ -17,7 +17,7 @@ dependencies = [
     "python-multipart == 0.0.6",
     "asyncpg == 0.30.0",
     "greenlet == 3.5.1",
-    "alembic == 1.18.4",
+    "alembic==1.20.1",
     "psycopg2-binary == 2.9.12",
     "document-ia-infra",
     "document-ia-schemas",
