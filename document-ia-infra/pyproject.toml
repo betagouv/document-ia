@@ -13,7 +13,7 @@ dependencies = [
     "openai == 1.109.1",
     "tiktoken == 0.11.0",
     "sqlalchemy == 2.0.50",
-    "asyncpg == 0.30.0",
+    "asyncpg==0.32.0",
     "mypy-boto3-s3 == 1.43.14",
     "python-logging-loki == 0.3.1",
     "document-ia-schemas",
