@@ -6,6 +6,30 @@ import pytest
 from pydantic import BaseModel, Field
 
 from document_ia_infra.core.model.typed_generic_model import GenericProperty
+from document_ia_schemas.base_document_type_schema import FuzzyDate
+
+
+def test_nested_date_anomaly_is_not_flattened_into_a_valid_date():
+    class Item(BaseModel):
+        value: FuzzyDate = None
+
+    class Container(BaseModel):
+        items: list[Item]
+
+    result = GenericProperty.convert_pydantic_model(
+        Container(items=[Item(value="31/04/2026"), Item(value="30/04/2026")])
+    )
+    payload = result[0].model_dump(mode="json")
+    invalid, valid = [item["value"][0] for item in payload["value"]]
+    assert invalid["value"] is None
+    assert invalid["type"] == "date"
+    assert invalid["anomaly"]["raw_value"] == "31/04/2026"
+    assert invalid["anomaly"]["suggested_value"] == "2026-04-30"
+    assert valid == {"name": "value", "value": "2026-04-30", "type": "date"}
+
+
+def test_date_anomaly_is_masked_like_other_extracted_values():
+    assert GenericProperty.model_fields["anomaly"].json_schema_extra == {"x-mask": True}
 
 
 class SimpleModel(BaseModel):

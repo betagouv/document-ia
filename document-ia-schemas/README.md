@@ -93,6 +93,37 @@ Tous les schémas héritent de `BaseDocumentTypeSchema` et exposent:
 Utilitaires fournis:
 - `resolve_extract_schema(name: str) -> BaseDocumentTypeSchema`: importe le module du type et retourne l’instance du schéma `*ExtractSchema` correspondant.
 
+### Dates impossibles et suggestions de correction
+
+`FuzzyDate` conserve les dates valides et les valeurs absentes. Les formats
+`AAAA-MM-JJ`, `JJ/MM/AAAA`, `JJ-MM-AAAA` et `JJ.MM.AAAA` restent acceptés,
+y compris avec un jour ou un mois sur un chiffre.
+
+Une date impossible ne remplace plus la valeur extraite par le dernier jour du
+mois. Le champ contient un objet `InvalidDate`, conservé lors de la sérialisation :
+
+```json
+{
+  "code": "invalid_date",
+  "raw_value": "31/04/2026",
+  "suggested_value": "2026-04-30"
+}
+```
+
+`raw_value` est la valeur candidate reçue. `suggested_value` est une proposition,
+pas une date extraite ni une correction validée. Elle vaut `null` lorsque le jour,
+le mois ou l'année ne permet pas de proposer le dernier jour du mois.
+Les autres champs du document restent disponibles.
+
+Dans les résultats de l'API v1 et v2, la propriété garde `type: "date"`, avec
+`value: null` et cet objet dans `anomaly`. Les dates valides gardent leur valeur
+ISO habituelle ; les valeurs absentes restent à `null`, sans champ `anomaly`.
+Le consommateur peut ainsi demander une vérification avant d'utiliser la suggestion.
+
+**Limites :** un texte qui ne correspond à aucun format accepté reste une erreur
+de validation. Les anciennes valeurs déjà corrigées et enregistrées sans leur
+candidate d'origine ne peuvent pas être reconstituées.
+
 
 ## 🗂️ Structure du projet
 

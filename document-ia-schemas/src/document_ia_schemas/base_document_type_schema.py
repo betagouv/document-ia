@@ -1,14 +1,12 @@
 import calendar
-import logging
 import re
 from abc import ABC
 from datetime import date
-from typing import TypeVar, Generic, Type, Any, Optional, Annotated
+from typing import TypeVar, Generic, Type, Any, Optional, Annotated, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, BeforeValidator
 
 T = TypeVar("T", bound=BaseModel)
-logger = logging.getLogger(__name__)
 
 DATE_FORMAT_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^(?P<year>\d{4})-(?P<month>\d{1,2})-(?P<day>\d{1,2})$"),
@@ -18,7 +16,15 @@ DATE_FORMAT_PATTERNS: list[re.Pattern[str]] = [
 ]
 
 
-def _parse_date_with_day_clamp(raw_value: str) -> Optional[date]:
+class InvalidDate(BaseModel):
+    """An extracted candidate that is not a calendar date, not a corrected value."""
+
+    code: Literal["invalid_date"] = "invalid_date"
+    raw_value: str
+    suggested_value: Optional[date] = None
+
+
+def _parse_date_candidate(raw_value: str) -> date | InvalidDate | None:
     for pattern in DATE_FORMAT_PATTERNS:
         match = pattern.fullmatch(raw_value)
         if match is None:
@@ -28,26 +34,19 @@ def _parse_date_with_day_clamp(raw_value: str) -> Optional[date]:
         month = int(match.group("month"))
         day = int(match.group("day"))
 
-        if month < 1 or month > 12 or day < 1:
-            raise ValueError(f"Format de date non reconnu : {raw_value}")
-
-        max_day = calendar.monthrange(year, month)[1]
-        normalized_day = min(day, max_day)
-        normalized_date = date(year, month, normalized_day)
-
-        if normalized_day != day:
-            logger.warning(
-                "Corrected invalid date value during extraction normalization: input=%s corrected=%s",
-                raw_value,
-                normalized_date.isoformat(),
-            )
-
-        return normalized_date
+        try:
+            return date(year, month, day)
+        except ValueError:
+            suggestion = None
+            if 1 <= year <= 9999 and 1 <= month <= 12 and day > 0:
+                max_day = calendar.monthrange(year, month)[1]
+                suggestion = date(year, month, min(day, max_day))
+            return InvalidDate(raw_value=raw_value, suggested_value=suggestion)
 
     return None
 
 
-def parse_flexible_date(value: Any) -> Optional[date]:
+def parse_flexible_date(value: Any) -> date | InvalidDate | None:
     """
     Tente de convertir une chaîne en date en essayant plusieurs formats.
     Gère aussi les cas où le LLM renvoie 'null' ou 'None' en string.
@@ -59,14 +58,25 @@ def parse_flexible_date(value: Any) -> Optional[date]:
     if isinstance(value, date):
         return value
 
+    # Recompute anomalies on deserialization rather than trusting a supplied correction.
+    if isinstance(value, InvalidDate):
+        value = value.raw_value
+    elif isinstance(value, dict):
+        anomaly_data = cast(dict[str, Any], value)
+        if anomaly_data.get("code") == "invalid_date":
+            value = anomaly_data.get("raw_value")
+
     if isinstance(value, str):
+        raw_value = value
         value = value.strip()
         # Gestion des cas où le LLM écrit littéralement "null" ou "None"
         if value.lower() in ["null", "none", ""]:
             return None
 
-        parsed_date = _parse_date_with_day_clamp(value)
+        parsed_date = _parse_date_candidate(value)
         if parsed_date is not None:
+            if isinstance(parsed_date, InvalidDate):
+                parsed_date.raw_value = raw_value
             return parsed_date
 
     # Si rien n'a marché, on laisse Pydantic lever l'erreur ou on renvoie None selon ta politique
@@ -74,7 +84,15 @@ def parse_flexible_date(value: Any) -> Optional[date]:
     raise ValueError(f"Format de date non reconnu : {value}")
 
 
-FuzzyDate = Annotated[Optional[date], BeforeValidator(parse_flexible_date)]
+def _validate_fuzzy_date(value: Any) -> date | dict[str, Any] | None:
+    parsed = parse_flexible_date(value)
+    # The OpenAI adapter rebuilds nested models; a dict works for both model classes.
+    return parsed.model_dump() if isinstance(parsed, InvalidDate) else parsed
+
+
+FuzzyDate = Annotated[
+    Optional[date | InvalidDate], BeforeValidator(_validate_fuzzy_date)
+]
 
 
 class BaseDocumentTypeSchema(BaseModel, Generic[T], ABC):

@@ -3,6 +3,7 @@ from decimal import Decimal
 from typing import Any, Literal, Optional, Union, get_args, get_origin, Dict, cast
 
 from pydantic import BaseModel, Field
+from document_ia_schemas.base_document_type_schema import InvalidDate
 
 
 class GenericProperty(BaseModel):
@@ -22,6 +23,11 @@ class GenericProperty(BaseModel):
         json_schema_extra={"x-mask": True},
     )
     type: Literal["string", "number", "boolean", "object", "date", "list"]
+    anomaly: Optional[InvalidDate] = Field(
+        default=None,
+        exclude_if=lambda v: v is None,
+        json_schema_extra={"x-mask": True},
+    )
 
     @classmethod
     def convert_pydantic_model(
@@ -45,9 +51,14 @@ class GenericProperty(BaseModel):
             # Infer the UI type from annotation and runtime value.
             ui_type = cls._infer_ui_type(annotation, field_value)
             final_value: Any = field_value
+            anomaly = None
 
             # Normalize the value based on its runtime type.
-            if isinstance(field_value, BaseModel):
+            if isinstance(field_value, InvalidDate):
+                final_value = None
+                ui_type = "date"
+                anomaly = field_value
+            elif isinstance(field_value, BaseModel):
                 final_value = cls.convert_pydantic_model(field_value)
                 ui_type = "object"
             elif (
@@ -85,7 +96,9 @@ class GenericProperty(BaseModel):
                 final_value = float(field_value)
 
             properties.append(
-                GenericProperty(name=field_name, value=final_value, type=ui_type)
+                GenericProperty(
+                    name=field_name, value=final_value, type=ui_type, anomaly=anomaly
+                )
             )
 
         return properties
