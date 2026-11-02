@@ -14,7 +14,7 @@ dependencies = [
     "tiktoken == 0.11.0",
     "sqlalchemy == 2.0.50",
     "asyncpg == 0.30.0",
-    "mypy-boto3-s3 == 1.43.14",
+    "mypy-boto3-s3==1.43.106",
     "python-logging-loki == 0.3.1",
     "document-ia-schemas",
     "cryptography == 50.0.2",
