@@ -58,16 +58,14 @@ class MistralHttpOcrService(BaseHttpOCRService[MistralOcrSettings]):
             "document": document_content,
         }
 
-        timeout = httpx.Timeout(self.timeout, connect=self.connection_timeout)
         headers = {
             "Authorization": f"Bearer {self.get_api_key()}",
             "Content-Type": "application/json",
         }
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            return await client.post(
-                f"{self.get_base_url()}/ocr", headers=headers, json=payload
-            )
+        return await client.post(
+            f"{self.get_base_url()}/ocr", headers=headers, json=payload
+        )
 
     def parse_response(self, response: httpx.Response) -> HttpOcrResult:
         response.raise_for_status()

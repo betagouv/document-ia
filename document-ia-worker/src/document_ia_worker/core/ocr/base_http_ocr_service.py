@@ -1,7 +1,7 @@
 import logging
 import os
+import time
 from abc import ABC, abstractmethod
-from time import monotonic
 from traceback import walk_tb
 from typing import TypeVar
 
@@ -30,7 +30,7 @@ class BaseHttpOCRService[C](ABC):
                 content="",
             )
 
-        started = monotonic()
+        started = time.perf_counter()
         try:
             timeout = httpx.Timeout(self.timeout, connect=self.connection_timeout)
             async with httpx.AsyncClient(timeout=timeout) as client:
@@ -52,7 +52,7 @@ class BaseHttpOCRService[C](ABC):
                 "HTTP OCR call failed: exception=%s elapsed_seconds=%.3f "
                 "status_code=%s traceback=%s",
                 type(exc).__name__,
-                monotonic() - started,
+                time.perf_counter() - started,
                 status,
                 frames,
             )
