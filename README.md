@@ -113,12 +113,13 @@ Start here depending on what you need:
 
 | Need | Read |
 |---|---|
-| API setup, environment variables, run commands | [document-ia-api/README.md](./document-ia-api/README.md) |
+| API setup, environment variables, initial admin API key (`DOCUMENT_IA_API_KEY`), run commands | [document-ia-api/README.md](./document-ia-api/README.md) |
 | API architecture, routes, auth, error handling, workflow docs | [document-ia-api/docs/API_SUMMARY.md](./document-ia-api/docs/API_SUMMARY.md) |
 | Database migration workflow | [document-ia-api/alembic/README.md](./document-ia-api/alembic/README.md) |
 | Bruno API collection | [document-ia-api/bruno-api/README.md](./document-ia-api/bruno-api/README.md) |
 | API test organization | [document-ia-api/tests/README.md](./document-ia-api/tests/README.md) |
 | Worker execution flow, retries, DLQ, scheduler | [document-ia-worker/README.md](./document-ia-worker/README.md) |
+| Shared infrastructure & `WEBHOOK_SECRET_ENCRYPTION_KEY` generation | [document-ia-infra/README.md](./document-ia-infra/README.md) |
 | Document schema package and supported document types | [document-ia-schemas/README.md](./document-ia-schemas/README.md) |
 | Evaluation app | [document-ia-evals/README.md](./document-ia-evals/README.md) |
 | Evaluation metrics | [document-ia-evals/METRICS.md](./document-ia-evals/METRICS.md) |
