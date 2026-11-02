@@ -15,6 +15,11 @@ from document_ia_worker.workflow.step.step_result.ocr_result import (
 FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures"
 SNAPSHOT_PATH = FIXTURES_DIR / "ocr_result_cni.json"
 
+pytestmark = pytest.mark.skipif(
+    not os.getenv("OPENAI_API_KEY") or not os.getenv("OPENAI_BASE_URL"),
+    reason="Albert credentials are not available",
+)
+
 
 class TestLLMClassificationIntegration:
     """Integration tests for LLM-based document classification using OCR results."""

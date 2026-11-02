@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import os
 from pathlib import Path
 from uuid import uuid4
 
@@ -19,6 +20,11 @@ from document_ia_worker.workflow.workflow_manager import WorkflowManager
 
 FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures"
 PDF_FIXTURE = FIXTURES_DIR / "test_download_file.pdf"
+
+pytestmark = pytest.mark.skipif(
+    not os.getenv("OPENAI_API_KEY") or not os.getenv("OPENAI_BASE_URL"),
+    reason="Albert credentials are not available",
+)
 
 
 @pytest.mark.asyncio
