@@ -86,7 +86,7 @@ class BaseConsumer(ABC, Generic[T]):
         max_retry_number: int = 3,
         *,
         max_in_flight: int,
-        start_from: str = "$",
+        start_from: str = "0-0",
         reclaim_idle_ms: int | None = None,
         reclaim_batch_size: int | None = None,
         reclaim_poll_interval_s: float = 1.0,

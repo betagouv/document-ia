@@ -84,6 +84,13 @@ refuses new work; it never guesses that capacity is available. A lost XADD reply
 remains an ambiguous publication, under the existing #120 contract, not a
 cross-store transaction or exactly-once guarantee.
 
+New worker groups start at `0-0`, so executions admitted before worker startup
+remain deliverable and counted after group creation. Concurrent startup and
+restarts preserve an existing group's cursor and pending entries; they do not
+rewind acknowledged work. This change does not repair groups already created
+with the previous `$` policy: reconcile any stranded executions before resetting
+such a group, since resetting can replay retained history.
+
 The same configurable thresholds apply independently to each queue:
 
 | Setting | Default | Meaning |

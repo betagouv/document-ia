@@ -11,6 +11,7 @@ from redis.asyncio import Redis
 from redis.exceptions import AuthenticationError
 
 from document_ia_infra.redis.admission import AdmissionUnavailableError, admit_execution
+from document_ia_infra.redis.consumer import Consumer
 from document_ia_infra.redis.model.workflow_execution_message import (
     WorkflowExecutionMessage,
 )
@@ -172,6 +173,64 @@ async def test_group_not_created_yet_counts_all_entries(queues):
         await publish(queues)
     with pytest.raises(PublishFailedError):
         await publish(queues)
+
+
+@pytest.mark.parametrize("stream_exists", [False, True])
+async def test_worker_startup_delivers_previously_admitted_work(queues, stream_exists):
+    stream = redis_settings.EVENT_STREAM_NAME
+    group = redis_settings.EVENT_CONSUMER_GROUP
+    await queues.xgroup_destroy(stream, group)
+    if not stream_exists:
+        await queues.delete(stream)
+    admitted = [await publish(queues) for _ in range(4)]
+    with pytest.raises(AdmissionUnavailableError):
+        await admit_execution(queues)
+
+    workers = [
+        Consumer(
+            consumer_name=f"startup-worker-{index}",
+            consumer_group=group,
+            stream_name=stream,
+            batch_size=2,
+            block_time=1,
+            message_class=WorkflowExecutionMessage,
+            process_message_callable=AsyncMock(),
+            worker_number=1,
+        )
+        for index in range(2)
+    ]
+    try:
+        # Exercise actual worker group initialization, including competing starts.
+        await asyncio.gather(
+            *(worker._ensure_consumer_group(queues) for worker in workers)
+        )
+        info = (await queues.xinfo_groups(stream))[0]
+        assert info["lag"] == 4
+        assert info["pending"] == 0
+        with pytest.raises(AdmissionUnavailableError):
+            await admit_execution(queues)
+
+        first = await workers[0].delivery.read(queues, count=2, block=1)
+        assert [entry[0] for entry in first[0][1]] == admitted[:2]
+        await queues.xack(stream, group, admitted[0])
+
+        # Restart must preserve both the delivered cursor and pending ownership.
+        await workers[1]._ensure_consumer_group(queues)
+        info = (await queues.xinfo_groups(stream))[0]
+        assert info["lag"] == 2
+        assert info["pending"] == 1
+        second = await workers[1].delivery.read(queues, count=2, block=1)
+        assert [entry[0] for entry in second[0][1]] == admitted[2:]
+        with pytest.raises(AdmissionUnavailableError):
+            await admit_execution(queues)
+
+        await queues.xack(stream, group, *admitted[1:])
+        await admit_execution(queues)
+        assert await workers[0].delivery.read(queues, count=1, block=1) == []
+    finally:
+        for worker in workers:
+            if worker.executor is not None:
+                worker.executor.shutdown(wait=True)
 
 
 async def test_unknown_group_lag_refuses_publication(queues):
