@@ -70,10 +70,12 @@ for i = 1, 2 do
     local low = tonumber(ARGV[4])
     local age_high = tonumber(ARGV[5]) * 1000
     local age_low = tonumber(ARGV[6]) * 1000
+    local retained = redis.call('XLEN', stream) + redis.call('XLEN', stream .. ':dlq')
     local closed = redis.call('GET', state) == 'closed'
-    if count >= high or age >= age_high then
+    if count >= high or age >= age_high or retained >= tonumber(ARGV[10]) then
         closed = true
-    elseif closed and count <= low and age <= age_low then
+    elseif closed and count <= low and age <= age_low and
+        retained <= tonumber(ARGV[11]) then
         closed = false
     end
     if closed then
@@ -123,6 +125,8 @@ async def admit_execution(
                 "publish" if data is not None else "check",
                 data or "",
                 timestamp,
+                str(redis_settings.ADMISSION_MAX_RETAINED),
+                str(redis_settings.ADMISSION_RESUME_RETAINED),
             ),
         ),
         timeout=5,
