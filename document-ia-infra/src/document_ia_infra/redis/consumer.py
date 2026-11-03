@@ -12,8 +12,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import TypeVar, Generic, Optional, Any, Coroutine, cast
 
-from redis import ResponseError
 from redis.asyncio import Redis
+from redis.exceptions import ResponseError
 from redis.typing import FieldT, EncodableT
 
 from document_ia_infra.exception.retryable_exception import RetryableException
@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=SerializableMessage)
 
 RECLAIM_IDLE_MS = 300000
+DLQ_SCAN_BATCH_SIZE = 200
 
 
 class Consumer(Generic[T]):
@@ -43,6 +44,8 @@ class Consumer(Generic[T]):
         worker_number: int = redis_settings.REDIS_WORKER_NUMBER,
         max_retry_number: int = 3,
     ):
+        if max_retry_number < 1:
+            raise ValueError("max_retry_number must be >= 1")
         self.redis: Optional[Redis] = None
         self.reclaimer_task: Optional[Task[Any]] = None
         self.stop_flag = asyncio.Event()
@@ -169,9 +172,9 @@ class Consumer(Generic[T]):
                 # 4. Soumission des nouveaux messages
                 for msg_id, fields in entries:
                     raw_data = fields.get("data")
-                    retry_count = int(fields.get("retries", "0"))
 
                     try:
+                        retry_count = self._parse_retry_count(fields)
                         message_data: T = cast(
                             T, self.message_class.from_json(raw_data)
                         )
@@ -237,7 +240,26 @@ class Consumer(Generic[T]):
 
         except RetryableException as retry_exc:
             logger.warning(f"Retryable failure for {msg_id}: {retry_exc}")
-            retry_count = int(fields.get("retries", "0"))
+            try:
+                retry_count = self._parse_retry_count(fields)
+            except Exception as parse_err:
+                logger.error(
+                    f"Invalid retries metadata for message {msg_id}: {parse_err}"
+                )
+                if await self._send_to_dlq(
+                    redis_connection,
+                    msg_id,
+                    fields,
+                    "decode_error",
+                    str(parse_err),
+                ):
+                    try:
+                        await redis_connection.xack(
+                            self.stream_name, self.consumer_group, msg_id
+                        )
+                    except Exception:
+                        logger.error(f"ACK failed for decode_error {msg_id}")
+                return
             data = fields.get("data", "")
 
             if retry_count < self.max_retry_number - 1:
@@ -370,6 +392,54 @@ class Consumer(Generic[T]):
             raise ConnectionError("No Redis connection available")
         return self.redis
 
+    @staticmethod
+    def _parse_retry_count(fields: dict[str, Any]) -> int:
+        if "retries" not in fields:
+            return 0
+        raw_retries = fields["retries"]
+        if isinstance(raw_retries, bool) or raw_retries is None:
+            raise ValueError(f"Invalid retries value: {raw_retries!r}")
+        retry_count = int(raw_retries)
+        if retry_count < 0:
+            raise ValueError(f"Negative retries value: {retry_count}")
+        return retry_count
+
+    @staticmethod
+    def _dlq_scan_start_id(msg_id: str) -> str:
+        source_ms, sep, _seq = msg_id.partition("-")
+        if sep and source_ms.isdigit():
+            return f"{source_ms}-0"
+        return "-"
+
+    async def _already_retained_in_dlq(
+        self, redis_connection: Redis, msg_id: str
+    ) -> bool:
+        """Vérifie si le message d'origine est déjà conservé dans la DLQ.
+
+        Une conservation DLQ réussie suivie d'un ACK en échec laisse l'entrée
+        d'origine en attente : une nouvelle récupération ne doit pas la
+        conserver une deuxième fois. L'entrée DLQ d'un message ne peut exister
+        qu'à partir de sa milliseconde de création ; les numéros de séquence
+        sont indépendants par flux, le parcours démarre donc à <source_ms>-0
+        par lots bornés et ignore l'historique antérieur de la DLQ.
+
+        Lève toute erreur Redis afin que les appelants échouent en mode fermé
+        (pas d'écriture DLQ en doublon ni d'ACK prématuré si la lecture échoue).
+        """
+        cursor = self._dlq_scan_start_id(msg_id)
+        target_id = str(msg_id)
+        while True:
+            entries = await redis_connection.xrange(
+                self.dlq_stream_name, min=cursor, count=DLQ_SCAN_BATCH_SIZE
+            )
+            for _entry_id, entry_fields in entries:
+                if str(entry_fields.get("original_id", "")) == target_id:
+                    return True
+            if len(entries) < DLQ_SCAN_BATCH_SIZE:
+                return False
+            # Borne exclusive native Redis "(<id>" : lot suivant strictement après la dernière entrée lue
+            cursor = f"({entries[-1][0]}"
+
     async def _send_to_dlq(
         self,
         redis_connection: Redis,
@@ -377,6 +447,8 @@ class Consumer(Generic[T]):
         fields: dict[str, Any],
         reason: str,
         error: Optional[str] = None,
+        *,
+        skip_retention_check: bool = False,
     ) -> bool:
         """Push a message to the Dead Letter Queue (DLQ) stream.
 
@@ -385,7 +457,20 @@ class Consumer(Generic[T]):
             fields: original message fields (from Redis XREADGROUP)
             reason: short code describing why it was sent to DLQ (e.g., 'decode_error')
             error: optional error string/details
+            skip_retention_check: true when the caller already verified DLQ retention
         """
+        if not skip_retention_check:
+            try:
+                if await self._already_retained_in_dlq(redis_connection, msg_id):
+                    logger.info(
+                        f"Message {msg_id} already retained in DLQ stream '{self.dlq_stream_name}'; skipping duplicate write"
+                    )
+                    return True
+            except Exception as scan_err:
+                logger.error(
+                    f"Failed to scan DLQ stream '{self.dlq_stream_name}' for {msg_id}: {scan_err}"
+                )
+                return False
         dlq_fields: dict[FieldT, EncodableT] = {
             "data": str(fields.get("data", "")),
             "retries": str(fields.get("retries", "0")),
@@ -405,12 +490,16 @@ class Consumer(Generic[T]):
             logger.error(f"Failed to push message {msg_id} to DLQ: {dlq_err}")
             return False
 
-    # It reclaims pending messages that have been idle for more than RECLAIM_IDLE_MS
-    # and re-queues them for processing
-    # It uses xautoclaim to claim messages and xadd to re-queue them
-    # It also increments a "retries" field in the message to track how many times it has been retried
-    # If the retries exceed a certain threshold, it could be sent to a dead-letter queue (not implemented here)
-    async def _reclaim_pending_messages(self):
+    # Récupère les messages en attente inactifs depuis plus de RECLAIM_IDLE_MS
+    # et les remet en file pour traitement (xautoclaim puis xadd).
+    # Convention partagée avec le chemin d'erreur du worker : le champ « retries »
+    # compte les tentatives déjà consommées et max_retry_number est le nombre total
+    # de tentatives autorisées. Une récupération consomme une seule tentative ;
+    # toute entrée déjà conservée dans la DLQ (quel que soit son nombre de
+    # tentatives) est immédiatement acquittée sans remise en file, et une entrée
+    # épuisée ou invalide est conservée dans la DLQ puis acquittée uniquement
+    # après conservation confirmée.
+    async def _reclaim_pending_messages(self) -> None:
         logger.info(f"Reclaimer task started idle_ms = {RECLAIM_IDLE_MS}")
         start = "0-0"
 
@@ -429,10 +518,80 @@ class Consumer(Generic[T]):
                 )
                 for msg_id, fields in claimed:
                     logger.info(f"Reclaimed message ID: {msg_id} with fields: {fields}")
-                    retry_count = int(fields.get("retries", "0")) + 1
-                    if retry_count > self.max_retry_number:
+                    try:
+                        already_retained = await self._already_retained_in_dlq(
+                            self.redis, msg_id
+                        )
+                    except Exception as scan_err:
                         logger.error(
-                            f"Max retry count exceeded for reclaimed message {msg_id}. Moving to DLQ."
+                            f"Failed to scan DLQ stream '{self.dlq_stream_name}' for reclaimed message {msg_id}: {scan_err}"
+                        )
+                        continue
+
+                    if already_retained:
+                        logger.info(
+                            f"Message {msg_id} already retained in DLQ stream '{self.dlq_stream_name}'; skipping duplicate write"
+                        )
+                        try:
+                            await self.redis.xack(
+                                self.stream_name, self.consumer_group, msg_id
+                            )
+                        except Exception:
+                            logger.error(
+                                f"ACK failed for reclaimed DLQ message {msg_id}"
+                            )
+                        continue
+
+                    if not fields or "data" not in fields:
+                        logger.error(
+                            f"Missing 'data' field for reclaimed message {msg_id}. Moving to DLQ."
+                        )
+                        if await self._send_to_dlq(
+                            redis_connection=self.redis,
+                            msg_id=msg_id,
+                            fields=fields or {},
+                            reason="decode_error",
+                            error="Missing 'data' field in reclaimed message",
+                            skip_retention_check=True,
+                        ):
+                            try:
+                                await self.redis.xack(
+                                    self.stream_name, self.consumer_group, msg_id
+                                )
+                            except Exception:
+                                logger.error(
+                                    f"ACK failed for reclaimed decode_error message {msg_id}"
+                                )
+                        continue
+
+                    try:
+                        retry_count = self._parse_retry_count(fields)
+                    except Exception as parse_err:
+                        logger.error(
+                            f"Invalid retries metadata for reclaimed message {msg_id}: {parse_err}. Moving to DLQ."
+                        )
+                        if await self._send_to_dlq(
+                            redis_connection=self.redis,
+                            msg_id=msg_id,
+                            fields=fields,
+                            reason="decode_error",
+                            error=str(parse_err),
+                            skip_retention_check=True,
+                        ):
+                            try:
+                                await self.redis.xack(
+                                    self.stream_name, self.consumer_group, msg_id
+                                )
+                            except Exception:
+                                logger.error(
+                                    f"ACK failed for reclaimed decode_error message {msg_id}"
+                                )
+                        continue
+
+                    attempts = retry_count + 1
+                    if attempts >= self.max_retry_number:
+                        logger.error(
+                            f"Max attempts exceeded for reclaimed message {msg_id}. Moving to DLQ."
                         )
                         if await self._send_to_dlq(
                             redis_connection=self.redis,
@@ -440,6 +599,7 @@ class Consumer(Generic[T]):
                             fields=fields,
                             reason="max_retries_exceeded",
                             error="Exceeded max retry count during reclaim",
+                            skip_retention_check=True,
                         ):
                             try:
                                 await self.redis.xack(
@@ -450,10 +610,11 @@ class Consumer(Generic[T]):
                                     f"ACK failed for reclaimed DLQ message {msg_id}"
                                 )
                         continue
+
                     try:
-                        fields["retries"] = str(retry_count + 1)
-                        await self.redis.xadd(self.stream_name, fields)
-                        logger.info(f"Add new message with fields: {fields}")
+                        requeued_fields = {**fields, "retries": str(attempts)}
+                        await self.redis.xadd(self.stream_name, requeued_fields)
+                        logger.info(f"Add new message with fields: {requeued_fields}")
                         try:
                             await self.redis.xack(
                                 self.stream_name, self.consumer_group, msg_id
@@ -461,9 +622,9 @@ class Consumer(Generic[T]):
                             logger.info(f"Acknowledged reclaimed message {msg_id}")
                         except Exception:
                             logger.error(f"ACK failed for reclaimed {msg_id}")
-                    except Exception as ack_err:
+                    except Exception as requeue_err:
                         logger.error(
-                            f"Failed to requeue reclaimed message {msg_id}: {ack_err}"
+                            f"Failed to requeue reclaimed message {msg_id}: {requeue_err}"
                         )
                 start = next_start or "0-0"
                 # Petit sleep coopératif

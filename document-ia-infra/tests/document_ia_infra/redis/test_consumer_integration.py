@@ -200,7 +200,10 @@ async def test_worker_requeue_and_dlq_failures_leave_message_pending(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("dlq_available", [True, False])
 async def test_worker_decode_failure_requires_dlq_before_ack(
-    redis_client: Redis, stream: str, monkeypatch: pytest.MonkeyPatch, dlq_available: bool
+    redis_client: Redis,
+    stream: str,
+    monkeypatch: pytest.MonkeyPatch,
+    dlq_available: bool,
 ) -> None:
     group = "worker-group"
     await redis_client.xgroup_create(stream, group, id="$", mkstream=True)
@@ -260,7 +263,10 @@ async def test_worker_decode_failure_requires_dlq_before_ack(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("dlq_available", [True, False])
 async def test_worker_reclaimed_message_requires_dlq_before_ack(
-    redis_client: Redis, stream: str, monkeypatch: pytest.MonkeyPatch, dlq_available: bool
+    redis_client: Redis,
+    stream: str,
+    monkeypatch: pytest.MonkeyPatch,
+    dlq_available: bool,
 ) -> None:
     group = "worker-group"
     await read_message(
@@ -268,7 +274,7 @@ async def test_worker_reclaimed_message_requires_dlq_before_ack(
         stream,
         group,
         json.dumps({"payload": "reclaimed"}),
-        retries="3",
+        retries="2",
     )
     consumer = make_consumer(stream, group)
 
@@ -320,7 +326,462 @@ async def test_worker_reclaimed_message_requires_dlq_before_ack(
             return pending == 1 and dlq_length == 0
 
         await wait_until(reached_expected_state)
+        if dlq_available:
+            dlq_entries = await redis_client.xrange(f"{stream}:dlq")
+            assert dlq_entries[0][1]["retries"] == "2"
     finally:
         consumer.stop_flag.set()
         await asyncio.wait_for(reclaimer, timeout=2)
+        consumer.executor.shutdown(wait=True)
+
+
+@pytest.mark.asyncio
+async def test_reclaim_succession_consumes_one_attempt_per_step(
+    redis_client: Redis, stream: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Succession traitement initial, récupération puis épuisement (issue #111) :
+    chaque étape consomme exactement une tentative et le seuil d'épuisement
+    est le même que celui du chemin d'erreur du worker."""
+    group = "worker-group"
+    consumer = make_consumer(stream, group)
+    try:
+        # Étape 1 : traitement initial (retries=0), échec réessayable -> requeue retries=1
+        first_id, first_fields = await read_message(
+            redis_client, stream, group, json.dumps({"payload": "succession"})
+        )
+        future = asyncio.get_running_loop().create_future()
+        future.set_exception(RetryableException("initial attempt failed"))
+        await consumer._handle_finished_future(
+            future, first_id, first_fields, redis_client
+        )
+        assert await pending_count(redis_client, stream, group) == 0
+
+        # Étape 2 : un worker relit la nouvelle entrée puis s'arrête sans ACK ;
+        # la récupération consomme une seule tentative -> requeue retries=2
+        response = await redis_client.xreadgroup(
+            groupname=group,
+            consumername="original-worker",
+            streams={stream: ">"},
+            count=1,
+        )
+        _second_id, second_fields = response[0][1][0]
+        assert second_fields["retries"] == "1"
+
+        async def get_connection() -> Redis:
+            return redis_client
+
+        from document_ia_infra.redis import redis_manager as redis_manager_module
+
+        monkeypatch.setattr(
+            redis_manager_module.redis_manager, "get_connection", get_connection
+        )
+        monkeypatch.setattr("document_ia_infra.redis.consumer.RECLAIM_IDLE_MS", 0)
+
+        reclaimer = asyncio.create_task(consumer._reclaim_pending_messages())
+        try:
+
+            async def reclaimed() -> bool:
+                return await pending_count(redis_client, stream, group) == 0
+
+            await wait_until(reclaimed)
+        finally:
+            consumer.stop_flag.set()
+            await asyncio.wait_for(reclaimer, timeout=2)
+
+        # Étape 3 : traitement de la dernière tentative (retries=2), échec
+        # réessayable -> épuisement -> DLQ après conservation confirmée
+        response = await redis_client.xreadgroup(
+            groupname=group,
+            consumername="original-worker",
+            streams={stream: ">"},
+            count=1,
+        )
+        third_id, third_fields = response[0][1][0]
+        assert third_fields["retries"] == "2"
+
+        future = asyncio.get_running_loop().create_future()
+        future.set_exception(RetryableException("last attempt failed"))
+        await consumer._handle_finished_future(
+            future, third_id, third_fields, redis_client
+        )
+
+        assert await pending_count(redis_client, stream, group) == 0
+        assert await redis_client.xlen(f"{stream}:dlq") == 1
+        dlq_entries = await redis_client.xrange(f"{stream}:dlq")
+        assert dlq_entries[0][1]["original_id"] == third_id
+        assert dlq_entries[0][1]["reason"] == "max_retries_exceeded"
+        assert dlq_entries[0][1]["retries"] == "2"
+
+        # l'escalade des tentatives est strictement unitaire sur toute la succession
+        stream_entries = await redis_client.xrange(stream)
+        retries_sequence = [
+            entry_fields["retries"] for _id, entry_fields in stream_entries
+        ]
+        assert retries_sequence == ["0", "1", "2"]
+    finally:
+        consumer.executor.shutdown(wait=True)
+
+
+@pytest.mark.asyncio
+async def test_reclaim_after_dlq_retention_terminates_without_duplicate(
+    redis_client: Redis, stream: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Conservation DLQ confirmée puis ACK en échec : une nouvelle récupération
+    termine l'entrée d'origine sans conserver une deuxième copie (issue #111)."""
+    group = "worker-group"
+    msg_id, _fields = await read_message(
+        redis_client,
+        stream,
+        group,
+        json.dumps({"payload": "reclaim-after-retention"}),
+        retries="2",
+    )
+    consumer = make_consumer(stream, group)
+    try:
+
+        async def get_connection() -> Redis:
+            return redis_client
+
+        from document_ia_infra.redis import redis_manager as redis_manager_module
+
+        monkeypatch.setattr(
+            redis_manager_module.redis_manager, "get_connection", get_connection
+        )
+        monkeypatch.setattr("document_ia_infra.redis.consumer.RECLAIM_IDLE_MS", 0)
+
+        # le premier ACK échoue : la conservation DLQ est confirmée mais
+        # l'entrée d'origine reste en attente et subit une nouvelle récupération
+        ack_failures = 1
+        original_xack = redis_client.xack
+
+        async def flaky_xack(stream_name: str, group_name: str, mid: str) -> Any:
+            nonlocal ack_failures
+            if ack_failures > 0:
+                ack_failures -= 1
+                raise ConnectionError("ack unavailable")
+            return await original_xack(stream_name, group_name, mid)
+
+        monkeypatch.setattr(redis_client, "xack", flaky_xack)
+
+        reclaimer = asyncio.create_task(consumer._reclaim_pending_messages())
+        try:
+
+            async def terminated() -> bool:
+                return await pending_count(redis_client, stream, group) == 0
+
+            await wait_until(terminated, timeout=5.0)
+        finally:
+            consumer.stop_flag.set()
+            await asyncio.wait_for(reclaimer, timeout=5)
+
+        assert await redis_client.xlen(f"{stream}:dlq") == 1
+        dlq_entries = await redis_client.xrange(f"{stream}:dlq")
+        assert dlq_entries[0][1]["original_id"] == msg_id
+        assert dlq_entries[0][1]["retries"] == "2"
+    finally:
+        consumer.executor.shutdown(wait=True)
+
+
+@pytest.mark.asyncio
+async def test_reclaim_after_zero_retry_dlq_retention_terminates_without_requeue(
+    redis_client: Redis, stream: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Échec terminal dès retries=0 (ex: not_retryable_error), conservation DLQ
+    confirmée puis ACK en échec : le reclaimer acquitte l'entrée sans la remettre
+    dans le flux principal ni la dupliquer dans la DLQ."""
+    group = "worker-group"
+    msg_id, fields = await read_message(
+        redis_client,
+        stream,
+        group,
+        json.dumps({"payload": "fatal-on-first-attempt"}),
+        retries="0",
+    )
+    consumer = make_consumer(stream, group)
+    try:
+        original_xack = redis_client.xack
+        ack_failures = 1
+
+        async def fail_first_ack(stream_name: str, group_name: str, mid: str) -> Any:
+            nonlocal ack_failures
+            if ack_failures > 0:
+                ack_failures -= 1
+                raise ConnectionError("ack failed after terminal DLQ write")
+            return await original_xack(stream_name, group_name, mid)
+
+        monkeypatch.setattr(redis_client, "xack", fail_first_ack)
+
+        # Le worker échoue sur une erreur non réessayable : DLQ écrite mais ACK en échec
+        future = asyncio.get_running_loop().create_future()
+        future.set_exception(ValueError("fatal business error"))
+        await consumer._handle_finished_future(future, msg_id, fields, redis_client)
+
+        assert await pending_count(redis_client, stream, group) == 1
+        assert await redis_client.xlen(f"{stream}:dlq") == 1
+
+        async def get_connection() -> Redis:
+            return redis_client
+
+        from document_ia_infra.redis import redis_manager as redis_manager_module
+
+        monkeypatch.setattr(
+            redis_manager_module.redis_manager, "get_connection", get_connection
+        )
+        monkeypatch.setattr("document_ia_infra.redis.consumer.RECLAIM_IDLE_MS", 0)
+
+        reclaimer = asyncio.create_task(consumer._reclaim_pending_messages())
+        try:
+
+            async def terminated() -> bool:
+                return await pending_count(redis_client, stream, group) == 0
+
+            await wait_until(terminated, timeout=5.0)
+        finally:
+            consumer.stop_flag.set()
+            await asyncio.wait_for(reclaimer, timeout=5)
+
+        # aucune remise en file sur le flux source et aucune copie supplémentaire en DLQ
+        assert await redis_client.xlen(stream) == 1
+        assert await redis_client.xlen(f"{stream}:dlq") == 1
+        dlq_entries = await redis_client.xrange(f"{stream}:dlq")
+        assert dlq_entries[0][1]["original_id"] == msg_id
+        assert dlq_entries[0][1]["reason"] == "not_retryable_error"
+    finally:
+        consumer.executor.shutdown(wait=True)
+
+
+@pytest.mark.asyncio
+async def test_dlq_retention_scan_skips_history_older_than_original(
+    redis_client: Redis, stream: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """La détection d'entrée déjà conservée démarre au début de la milliseconde
+    du message d'origine (<source_ms>-0) : l'historique antérieur de la DLQ
+    n'est pas chargé, même lorsque la séquence du message source est > 0."""
+    group = "worker-group"
+    dlq = f"{stream}:dlq"
+
+    # 200 entrées DLQ antérieures au message d'origine (identifiants explicites
+    # pour garantir un ordre strict indépendant de l'horloge)
+    for index in range(200):
+        await redis_client.xadd(
+            dlq, {"original_id": f"stale-{index}", "data": "x"}, id=f"{index + 1}-0"
+        )
+
+    # Deux messages dans la même milliseconde sur le flux source afin d'avoir seq > 0
+    first_id = await redis_client.xadd(
+        stream, {"data": json.dumps({"payload": "warmup"})}
+    )
+    source_ms = first_id.split("-")[0]
+    msg_id = await redis_client.xadd(
+        stream,
+        {"data": json.dumps({"payload": "scan"})},
+        id=f"{source_ms}-3",
+    )
+    consumer = make_consumer(stream, group)
+    try:
+        scans: list[tuple[str, int]] = []
+        original_xrange = redis_client.xrange
+
+        async def spying_xrange(
+            name: str, min: str = "-", max: str = "+", count: int | None = None
+        ) -> Any:
+            result = await original_xrange(name, min, max, count)
+            if name == dlq:
+                scans.append((str(min), len(result)))
+            return result
+
+        monkeypatch.setattr(redis_client, "xrange", spying_xrange)
+
+        fields = {"data": json.dumps({"payload": "scan"}), "retries": "2"}
+        assert await consumer._send_to_dlq(
+            redis_client, msg_id, fields, "max_retries_exceeded"
+        )
+        # deuxième conservation : détectée comme doublon par le parcours borné
+        assert await consumer._send_to_dlq(
+            redis_client, msg_id, fields, "max_retries_exceeded"
+        )
+
+        # chaque parcours démarre à <source_ms>-0 et ignore les 200 entrées antérieures
+        expected_min = f"{source_ms}-0"
+        assert scans == [(expected_min, 0), (expected_min, 1)]
+        assert await redis_client.xlen(dlq) == 201
+    finally:
+        consumer.executor.shutdown(wait=True)
+
+
+@pytest.mark.asyncio
+async def test_dlq_retention_scan_includes_source_millisecond(
+    redis_client: Redis, stream: str
+) -> None:
+    """Séquences indépendantes par flux : une conservation DLQ de la même
+    milliseconde que le message d'origine peut précéder son identifiant
+    (source T-5, DLQ T-0) ; elle doit rester détectée après un ACK en échec."""
+    group = "worker-group"
+    dlq = f"{stream}:dlq"
+
+    # six entrées source dans la même milliseconde ; la dernière porte T-5
+    for seq in range(6):
+        await redis_client.xadd(stream, {"data": "x"}, id=f"12345-{seq}")
+    msg_id = "12345-5"
+
+    # conservation DLQ de la même milliseconde, séquence indépendante
+    await redis_client.xadd(
+        dlq,
+        {"original_id": msg_id, "data": "x", "reason": "decode_error"},
+        id="12345-0",
+    )
+
+    consumer = make_consumer(stream, group)
+    try:
+        # la conservation existante est détectée malgré l'inversion de séquence :
+        # aucune nouvelle écriture DLQ
+        assert await consumer._send_to_dlq(
+            redis_client, msg_id, {"data": "x", "retries": "0"}, "decode_error"
+        )
+        assert await redis_client.xlen(dlq) == 1
+    finally:
+        consumer.executor.shutdown(wait=True)
+
+
+@pytest.mark.asyncio
+async def test_dlq_scan_failure_fails_closed_against_real_redis(
+    redis_client: Redis, stream: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Si xrange sur la DLQ échoue temporairement alors que l'entrée est déjà
+    conservée, le consumer échoue en mode fermé : pas de doublon DLQ ni d'ACK."""
+    group = "worker-group"
+    msg_id, fields = await read_message(
+        redis_client,
+        stream,
+        group,
+        json.dumps({"payload": "fail-closed"}),
+        retries="0",
+    )
+    consumer = make_consumer(stream, group)
+    try:
+        # L'entrée est déjà présente en DLQ (suite à un ACK précédemment échoué)
+        assert await consumer._send_to_dlq(
+            redis_client, msg_id, fields, "not_retryable_error", "initial"
+        )
+        assert await redis_client.xlen(f"{stream}:dlq") == 1
+
+        original_xrange = redis_client.xrange
+
+        async def failing_dlq_xrange(
+            name: str, min: str = "-", max: str = "+", count: int | None = None
+        ) -> Any:
+            if name == f"{stream}:dlq":
+                raise ConnectionError("DLQ scan unavailable")
+            return await original_xrange(name, min, max, count)
+
+        monkeypatch.setattr(redis_client, "xrange", failing_dlq_xrange)
+
+        # _send_to_dlq refuse d'écrire à l'aveugle : aucun doublon ajouté
+        assert (
+            await consumer._send_to_dlq(
+                redis_client, msg_id, fields, "not_retryable_error", "retry"
+            )
+            is False
+        )
+        assert await redis_client.xlen(f"{stream}:dlq") == 1
+        assert await pending_count(redis_client, stream, group) == 1
+    finally:
+        consumer.executor.shutdown(wait=True)
+
+
+@pytest.mark.asyncio
+async def test_reclaim_corrupted_retries_routes_to_dlq_and_advances_cursor(
+    redis_client: Redis, stream: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Une entrée en attente avec un champ retries corrompu part en DLQ
+    (decode_error), est acquittée et ne bloque pas la récupération des messages
+    suivants dans la PEL."""
+    group = "worker-group"
+    await redis_client.xgroup_create(stream, group, id="0-0", mkstream=True)
+    poison_id = await redis_client.xadd(
+        stream, {"data": json.dumps({"payload": "poison"}), "retries": "not-an-int"}
+    )
+    valid_id = await redis_client.xadd(
+        stream, {"data": json.dumps({"payload": "valid"}), "retries": "0"}
+    )
+    # Les deux messages sont lus sans ACK
+    response = await redis_client.xreadgroup(
+        groupname=group,
+        consumername="crashed-worker",
+        streams={stream: ">"},
+        count=2,
+    )
+    assert len(response[0][1]) == 2
+    assert await pending_count(redis_client, stream, group) == 2
+
+    consumer = make_consumer(stream, group)
+    try:
+
+        async def get_connection() -> Redis:
+            return redis_client
+
+        from document_ia_infra.redis import redis_manager as redis_manager_module
+
+        monkeypatch.setattr(
+            redis_manager_module.redis_manager, "get_connection", get_connection
+        )
+        monkeypatch.setattr("document_ia_infra.redis.consumer.RECLAIM_IDLE_MS", 0)
+
+        reclaimer = asyncio.create_task(consumer._reclaim_pending_messages())
+        try:
+
+            async def drained() -> bool:
+                return await pending_count(redis_client, stream, group) == 0
+
+            await wait_until(drained, timeout=5.0)
+        finally:
+            consumer.stop_flag.set()
+            await asyncio.wait_for(reclaimer, timeout=5)
+
+        dlq_entries = await redis_client.xrange(f"{stream}:dlq")
+        assert len(dlq_entries) == 1
+        assert dlq_entries[0][1]["original_id"] == poison_id
+        assert dlq_entries[0][1]["reason"] == "decode_error"
+
+        stream_entries = await redis_client.xrange(stream)
+        assert len(stream_entries) == 3
+        assert stream_entries[-1][0] != valid_id
+        assert stream_entries[-1][1]["retries"] == "1"
+    finally:
+        consumer.executor.shutdown(wait=True)
+
+
+@pytest.mark.asyncio
+async def test_dlq_retention_scan_paginates_on_real_redis(
+    redis_client: Redis, stream: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pagination réelle avec Redis : retrouve une entrée DLQ au-delà de plusieurs
+    pages bornées par DLQ_SCAN_BATCH_SIZE."""
+    group = "worker-group"
+    dlq = f"{stream}:dlq"
+    monkeypatch.setattr("document_ia_infra.redis.consumer.DLQ_SCAN_BATCH_SIZE", 5)
+
+    msg_id = await redis_client.xadd(stream, {"data": json.dumps({"payload": "paged"})})
+    for idx in range(12):
+        await redis_client.xadd(dlq, {"original_id": f"other-{idx}", "data": "x"})
+    await redis_client.xadd(dlq, {"original_id": msg_id, "data": "target"})
+
+    consumer = make_consumer(stream, group)
+    try:
+        batch_sizes: list[int] = []
+        original_xrange = redis_client.xrange
+
+        async def spying_xrange(
+            name: str, min: str = "-", max: str = "+", count: int | None = None
+        ) -> Any:
+            result = await original_xrange(name, min, max, count)
+            if name == dlq:
+                batch_sizes.append(len(result))
+            return result
+
+        monkeypatch.setattr(redis_client, "xrange", spying_xrange)
+
+        assert await consumer._already_retained_in_dlq(redis_client, msg_id) is True
+        assert batch_sizes == [5, 5, 3]
+    finally:
         consumer.executor.shutdown(wait=True)

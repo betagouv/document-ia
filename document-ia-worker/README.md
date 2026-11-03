@@ -77,16 +77,17 @@ On failure:
   - `retry_count` = how many attempts were already made for this message.
 
 On the consumer side (`infra/redis/consumer.py`):
-- If processing raises `RetryableException`, the message is re‑queued on the stream with `retries = retries + 1` while `retries < max_retry_number`.
-- If a non‑retryable error occurs, the message is sent to the DLQ stream.
+- `retries` tracks how many attempts were already consumed (`0` on the initial delivery) and `max_retry_number` is the **total number of allowed attempts** (e.g., `max_retry_number = 3` allows `retries` values `0`, `1`, `2`).
+- If processing raises `RetryableException`, the message is re‑queued on the stream with `retries = retries + 1` while `retries < max_retry_number - 1`; once exhausted, it is routed to the DLQ (`max_retries_exceeded`).
+- If a decode error, invalid `retries` metadata, or non‑retryable error occurs, the message is sent directly to the DLQ stream.
 - If re‑queuing itself fails, the message is sent to the DLQ stream.
-- The DLQ stream is named `"<stream>:dlq"` and stores fields such as: `data`, `retries`, `original_id`, `reason`, `error`, `consumer`, `timestamp`.
+- The DLQ stream is named `"<stream>:dlq"` and stores fields such as: `data`, `retries`, `original_id`, `reason`, `error`, `consumer`, `timestamp`. DLQ retention is idempotent per `original_id` (bounded paginated scan from `<source_ms>-0`, fail-closed on scan error).
 
 Reclaiming pending messages:
-- A background “reclaimer” task uses `XAUTOCLAIM` to recover idle messages (idle > RECLAIM_IDLE_MS), increments `retries`, and attempts to re‑queue them; if retry limits are exceeded, the message is routed to DLQ.
+- A background “reclaimer” task uses `XAUTOCLAIM` to recover idle messages (`idle > RECLAIM_IDLE_MS`). Any message already retained in the DLQ (e.g., after a prior `XACK` failure) is acknowledged immediately without re‑queuing. Otherwise, a reclaim consumes a single attempt (`attempts = retries + 1`): while `attempts < max_retry_number`, the message is re‑queued; once `attempts >= max_retry_number`, it is routed to the DLQ.
 
 ACKs/NACKs:
-- All code paths (success, non‑retryable error, DLQ) eventually `XACK` the original message to avoid infinite loops.
+- `XACK` is only sent after a confirmed terminal outcome (processing success, confirmed re‑queue, or confirmed DLQ retention); otherwise, the message remains pending in the PEL for recovery.
 
 ---
 
