@@ -236,8 +236,11 @@ class WorkflowV2Service:
             resolved_params: dict[str, Any] = {}
             for param_name, rule in params.items():
                 if param_name in override_map:
-                    configured_value = (
-                        rule.get("default") if isinstance(rule, dict) else None
+                    rule_dict = (
+                        cast(dict[str, Any], rule) if isinstance(rule, dict) else None
+                    )
+                    configured_value: Any = (
+                        rule_dict.get("default") if rule_dict is not None else None
                     )
                     resolved_params[param_name] = self._merge_override_value(
                         configured_value,
@@ -333,10 +336,12 @@ class WorkflowV2Service:
         if not isinstance(configured, dict) or not isinstance(override, dict):
             return override
 
-        merged = dict(configured)
-        for key, value in override.items():
+        configured_dict = cast(dict[str, Any], configured)
+        override_dict = cast(dict[str, Any], override)
+        merged: dict[str, Any] = dict(configured_dict)
+        for key, value in override_dict.items():
             merged[key] = WorkflowV2Service._merge_override_value(
-                configured.get(key), value
+                configured_dict.get(key), value
             )
         return merged
 

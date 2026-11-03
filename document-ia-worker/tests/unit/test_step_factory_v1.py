@@ -92,10 +92,10 @@ def test_prepare_step_lists_v1_creates_all_supported_steps():
     ) as mock_download, patch(
         "document_ia_worker.workflow.step_factory_v1.PreprocessFileStep",
         return_value="preprocess",
-    ) as mock_preprocess, patch(
+    ), patch(
         "document_ia_worker.workflow.step_factory_v1.ExtractContentOcrStep",
         return_value="extract_ocr",
-    ) as mock_extract_ocr, patch(
+    ), patch(
         "document_ia_worker.workflow.step_factory_v1.MistralHttpOcrService",
         return_value="mistral_service",
     ), patch(

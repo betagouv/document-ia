@@ -20,6 +20,7 @@ class RedisSettings(BaseDocumentIaSettings):
     EVENT_STREAM_MAXLEN: int = Field(
         default=100000
     )  # In production we have 16k messages for a Day.
+    DLQ_STREAM_MAXLEN: int = Field(default=100000)
     EVENT_CONSUMER_GROUP: str = Field(default="workflow_execution_consumer")
 
     def get_redis_url(self) -> str:

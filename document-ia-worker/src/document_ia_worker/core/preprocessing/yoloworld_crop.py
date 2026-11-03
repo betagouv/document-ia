@@ -3,7 +3,7 @@ import os
 import threading
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from PIL import Image
 
@@ -27,10 +27,10 @@ _MODEL_CACHE: Any = None
 def get_yoloworld_model() -> Any:
     global _MODEL_CACHE
     if _MODEL_CACHE is None:
-        from ultralytics import YOLOWorld
+        from ultralytics import YOLOWorld  # pyright: ignore [reportPrivateImportUsage]
 
         model_path = os.environ.get("YOLOWORLD_PATH", YOLO_WORLD_MODEL)
-        _MODEL_CACHE = YOLOWorld(model_path)
+        _MODEL_CACHE = YOLOWorld(model_path)  # pyright: ignore [reportConstantRedefinition]
     return _MODEL_CACHE
 
 
@@ -153,11 +153,11 @@ def _to_list(value: Any) -> list[Any]:
         value = value.cpu()
     if hasattr(value, "tolist"):
         parsed = value.tolist()
-        return parsed if isinstance(parsed, list) else [parsed]
+        return cast(list[Any], parsed) if isinstance(parsed, list) else [parsed]
     if isinstance(value, list):
-        return value
+        return cast(list[Any], value)
     if isinstance(value, tuple):
-        return list(value)
+        return list(cast(tuple[Any, ...], value))
     if isinstance(value, Iterable):
-        return list(value)
+        return list(cast(Iterable[Any], value))
     return []

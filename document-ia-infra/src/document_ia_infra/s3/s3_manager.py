@@ -21,13 +21,16 @@ class S3Manager:
         # Disable checksum because outscale do not support them
         os.environ["AWS_REQUEST_CHECKSUM_CALCULATION"] = "WHEN_REQUIRED"
         os.environ["AWS_RESPONSE_CHECKSUM_VALIDATION"] = "WHEN_REQUIRED"
-        self.s3_client: S3Client = boto3.client(  # pyright: ignore [reportUnknownMemberType]
-            "s3",
-            endpoint_url=s3_settings.S3_ENDPOINT_URL,
-            aws_access_key_id=s3_settings.S3_ACCESS_KEY_ID.get_secret_value(),
-            aws_secret_access_key=s3_settings.S3_SECRET_ACCESS_KEY.get_secret_value(),
-            region_name=s3_settings.S3_REGION_NAME,
-            use_ssl=s3_settings.S3_USE_SSL,
+        self.s3_client: S3Client = cast(
+            S3Client,
+            boto3.client(  # pyright: ignore [reportUnknownMemberType]
+                "s3",
+                endpoint_url=s3_settings.S3_ENDPOINT_URL,
+                aws_access_key_id=s3_settings.S3_ACCESS_KEY_ID.get_secret_value(),
+                aws_secret_access_key=s3_settings.S3_SECRET_ACCESS_KEY.get_secret_value(),
+                region_name=s3_settings.S3_REGION_NAME,
+                use_ssl=s3_settings.S3_USE_SSL,
+            ),
         )
         self.bucket_name = s3_settings.S3_BUCKET_NAME
 
