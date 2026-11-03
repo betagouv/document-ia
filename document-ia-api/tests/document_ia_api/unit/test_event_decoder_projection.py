@@ -60,21 +60,16 @@ def test_response_matches_pre_refactor_payload(name, debug, monkeypatch):
 
 
 @pytest.mark.parametrize("name", EXPECTED)
-async def test_notification_matches_pre_refactor_non_debug_payload(name, monkeypatch):
+async def test_notification_matches_pre_refactor_non_debug_payload(name):
     dto = event_dto(name)
     client = MagicMock()
+    client.is_closed = False
     client.post = AsyncMock(return_value=MagicMock(status_code=200))
-    context = MagicMock()
-    context.__aenter__ = AsyncMock(return_value=client)
-    context.__aexit__ = AsyncMock(return_value=None)
-    monkeypatch.setattr(
-        "document_ia_api.infra.webhook_notification_service.httpx.AsyncClient",
-        MagicMock(return_value=context),
-    )
     webhook = SimpleNamespace(
         url="https://example.com/webhook", headers={"X-Test": "fixture"}
     )
-    await WebhookNotificationService()._call_webhook_notification(webhook, dto)
+    service = WebhookNotificationService(http_client=client)
+    await service._call_webhook_notification(webhook, dto)
     client.post.assert_awaited_once()
     args, kwargs = client.post.call_args
     assert args == (webhook.url,)

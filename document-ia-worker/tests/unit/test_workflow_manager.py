@@ -3,30 +3,31 @@ from unittest.mock import MagicMock, AsyncMock, patch
 import pytest
 
 from document_ia_infra.data.event.dto.event_type_enum import EventType
-from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import (
-    ClassificationParameters,
-    ExtractionParameters,
-)
 from document_ia_infra.exception.retryable_exception import RetryableException
-from document_ia_infra.redis.model.workflow_execution_message import WorkflowExecutionMessage
+from document_ia_infra.redis.model.workflow_execution_message import (
+    WorkflowExecutionMessage,
+)
 from document_ia_worker.exception.workflow_step_exception import WorkflowStepException
 from document_ia_worker.workflow.workflow_manager import WorkflowManager
 
 
 class TestWorkflowManager:
-
     @pytest.fixture
     def mock_workflow_message(self):
         return WorkflowExecutionMessage(workflow_execution_id="exec-12345")
 
     @pytest.fixture
     def mock_db_manager(self):
-        with patch("document_ia_worker.workflow.workflow_manager.DatabaseManager") as MockDBManager:
+        with patch(
+            "document_ia_worker.workflow.workflow_manager.DatabaseManager"
+        ) as MockDBManager:
             mock_instance = MockDBManager.return_value
             mock_session = AsyncMock()
 
             # Setup async context manager for local_session
-            mock_instance.local_session.return_value.__aenter__.return_value = mock_session
+            mock_instance.local_session.return_value.__aenter__.return_value = (
+                mock_session
+            )
             mock_instance.local_session.return_value.__aexit__.return_value = None
 
             mock_instance.dispose_async = AsyncMock()
@@ -76,14 +77,13 @@ class TestWorkflowManager:
             mock_redis_manager.return_value.close.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_start_success(self, mock_workflow_message, mock_db_manager, mock_dependencies):
+    async def test_start_success(
+        self, mock_workflow_message, mock_db_manager, mock_dependencies
+    ):
         """Test nominal : tout se passe bien."""
 
         manager = WorkflowManager(mock_workflow_message, retry_count=0)
-        parsed_event = MagicMock(
-            classification_parameters=ClassificationParameters(document_types=["cni"]),
-            extraction_parameters=ExtractionParameters(document_type="cni"),
-        )
+        parsed_event = MagicMock(version=1)
 
         # Mock internal methods to simulate success without going into details
         # We want to test start() orchestration
@@ -112,12 +112,7 @@ class TestWorkflowManager:
             mock_parse.assert_called_once()
             mock_prepare_exec.assert_called_once()
             mock_execute.assert_called_once()
-            assert manager.main_workflow_context.classification_parameters is (
-                parsed_event.classification_parameters
-            )
-            assert manager.main_workflow_context.extraction_parameters is (
-                parsed_event.extraction_parameters
-            )
+            assert manager.event_data is parsed_event
 
             # Commit should be called
             mock_session = mock_db_manager.return_value.local_session.return_value.__aenter__.return_value
@@ -141,13 +136,23 @@ class TestWorkflowManager:
             mock_save_fail.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_start_generic_exception(self, mock_workflow_message, mock_db_manager, mock_dependencies):
+    async def test_start_generic_exception(
+        self, mock_workflow_message, mock_db_manager, mock_dependencies
+    ):
         """Test avec une exception générique non gérée (TypeError par ex)."""
         manager = WorkflowManager(mock_workflow_message, retry_count=0)
 
-        with patch.object(manager, '_prepare_workflow', side_effect=TypeError("Generic Error")), \
-                patch.object(manager, '_save_failure_event', new_callable=AsyncMock) as mock_save_fail, \
-                patch.object(manager, '_notify_webhook_execution_finished', new_callable=AsyncMock) as mock_notify:
+        with (
+            patch.object(
+                manager, "_prepare_workflow", side_effect=TypeError("Generic Error")
+            ),
+            patch.object(
+                manager, "_save_failure_event", new_callable=AsyncMock
+            ) as mock_save_fail,
+            patch.object(
+                manager, "_notify_webhook_execution_finished", new_callable=AsyncMock
+            ) as mock_notify,
+        ):
             with pytest.raises(TypeError, match="Generic Error"):
                 await manager.start()
 
@@ -171,17 +176,24 @@ class TestWorkflowManager:
             mock_db_manager.return_value.dispose_async.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_start_workflow_step_exception_non_retryable(self, mock_workflow_message, mock_db_manager,
-                                                               mock_dependencies):
+    async def test_start_workflow_step_exception_non_retryable(
+        self, mock_workflow_message, mock_db_manager, mock_dependencies
+    ):
         """Test avec une WorkflowStepException (non retryable inner exception)."""
         manager = WorkflowManager(mock_workflow_message, retry_count=0)
 
         inner_error = ValueError("Bad value")
         step_error = WorkflowStepException("step_x", inner_error)
 
-        with patch.object(manager, '_prepare_workflow', side_effect=step_error), \
-                patch.object(manager, '_save_failure_event', new_callable=AsyncMock) as mock_save_fail, \
-                patch.object(manager, '_notify_webhook_execution_finished', new_callable=AsyncMock) as mock_notify:
+        with (
+            patch.object(manager, "_prepare_workflow", side_effect=step_error),
+            patch.object(
+                manager, "_save_failure_event", new_callable=AsyncMock
+            ) as mock_save_fail,
+            patch.object(
+                manager, "_notify_webhook_execution_finished", new_callable=AsyncMock
+            ) as mock_notify,
+        ):
             # Should raise the inner exception
             with pytest.raises(ValueError, match="Bad value"):
                 await manager.start()
@@ -191,7 +203,9 @@ class TestWorkflowManager:
 
             # Save failure with inner details
             mock_save_fail.assert_called_once_with(
-                mock_db_manager.return_value.local_session.return_value.__aenter__.return_value, step_error)
+                mock_db_manager.return_value.local_session.return_value.__aenter__.return_value,
+                step_error,
+            )
 
             # Handle finish log
             mock_dependencies["handle_finish"].assert_called_once()
@@ -202,17 +216,26 @@ class TestWorkflowManager:
             assert args[11] == "step_x"  # failed_step
 
     @pytest.mark.asyncio
-    async def test_start_workflow_step_exception_retryable_not_last_retry(self, mock_workflow_message, mock_db_manager,
-                                                                          mock_dependencies):
+    async def test_start_workflow_step_exception_retryable_not_last_retry(
+        self, mock_workflow_message, mock_db_manager, mock_dependencies
+    ):
         """Test avec une WorkflowStepException retryable, et il reste des retries."""
-        manager = WorkflowManager(mock_workflow_message, retry_count=0, is_last_retry=False)
+        manager = WorkflowManager(
+            mock_workflow_message, retry_count=0, is_last_retry=False
+        )
 
         inner_error = RetryableException("Try again")
         step_error = WorkflowStepException("step_y", inner_error)
 
-        with patch.object(manager, '_prepare_workflow', side_effect=step_error), \
-                patch.object(manager, '_save_failure_event', new_callable=AsyncMock) as mock_save_fail, \
-                patch.object(manager, '_notify_webhook_execution_finished', new_callable=AsyncMock) as mock_notify:
+        with (
+            patch.object(manager, "_prepare_workflow", side_effect=step_error),
+            patch.object(
+                manager, "_save_failure_event", new_callable=AsyncMock
+            ) as mock_save_fail,
+            patch.object(
+                manager, "_notify_webhook_execution_finished", new_callable=AsyncMock
+            ) as mock_notify,
+        ):
             with pytest.raises(RetryableException, match="Try again"):
                 await manager.start()
 
@@ -228,17 +251,26 @@ class TestWorkflowManager:
             assert args[9] == "RetryableException"
 
     @pytest.mark.asyncio
-    async def test_start_workflow_step_exception_retryable_is_last_retry(self, mock_workflow_message, mock_db_manager,
-                                                                         mock_dependencies):
+    async def test_start_workflow_step_exception_retryable_is_last_retry(
+        self, mock_workflow_message, mock_db_manager, mock_dependencies
+    ):
         """Test avec une WorkflowStepException retryable, mais c'est le dernier retry."""
-        manager = WorkflowManager(mock_workflow_message, retry_count=3, is_last_retry=True)
+        manager = WorkflowManager(
+            mock_workflow_message, retry_count=3, is_last_retry=True
+        )
 
         inner_error = RetryableException("Give up")
         step_error = WorkflowStepException("step_z", inner_error)
 
-        with patch.object(manager, '_prepare_workflow', side_effect=step_error), \
-                patch.object(manager, '_save_failure_event', new_callable=AsyncMock) as mock_save_fail, \
-                patch.object(manager, '_notify_webhook_execution_finished', new_callable=AsyncMock) as mock_notify:
+        with (
+            patch.object(manager, "_prepare_workflow", side_effect=step_error),
+            patch.object(
+                manager, "_save_failure_event", new_callable=AsyncMock
+            ) as mock_save_fail,
+            patch.object(
+                manager, "_notify_webhook_execution_finished", new_callable=AsyncMock
+            ) as mock_notify,
+        ):
             with pytest.raises(RetryableException, match="Give up"):
                 await manager.start()
 
@@ -260,23 +292,26 @@ class TestWorkflowManager:
             return_value=None
         )
         repository.get_last_event_by_execution_id = AsyncMock(
-            return_value=MagicMock(
-                event_type=EventType.WORKFLOW_EXECUTION_COMPLETED
-            )
+            return_value=MagicMock(event_type=EventType.WORKFLOW_EXECUTION_COMPLETED)
         )
 
-        with patch(
-            "document_ia_worker.workflow.workflow_manager.EventRepository",
-            return_value=repository,
-        ), patch.object(manager, "_parse_start_event") as mock_parse, patch.object(
-            manager, "_prepare_executor"
-        ) as mock_prepare_executor, patch.object(
-            manager, "_execute_workflow", new_callable=AsyncMock
-        ) as mock_execute, patch.object(
-            manager, "_save_failure_event", new_callable=AsyncMock
-        ) as mock_save_failure, patch.object(
-            manager, "_notify_webhook_execution_finished", new_callable=AsyncMock
-        ) as mock_notify:
+        with (
+            patch(
+                "document_ia_worker.workflow.workflow_manager.EventRepository",
+                return_value=repository,
+            ),
+            patch.object(manager, "_parse_start_event") as mock_parse,
+            patch.object(manager, "_prepare_executor") as mock_prepare_executor,
+            patch.object(
+                manager, "_execute_workflow", new_callable=AsyncMock
+            ) as mock_execute,
+            patch.object(
+                manager, "_save_failure_event", new_callable=AsyncMock
+            ) as mock_save_failure,
+            patch.object(
+                manager, "_notify_webhook_execution_finished", new_callable=AsyncMock
+            ) as mock_notify,
+        ):
             await manager.start()
 
         repository.get_created_event_if_execution_not_completed_or_failed.assert_awaited_once_with(

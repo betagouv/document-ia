@@ -119,12 +119,6 @@ class WorkflowManager:
                         )
                         return
                     self.event_data = self._parse_start_event()
-                    self.main_workflow_context.classification_parameters = (
-                        self.event_data.classification_parameters
-                    )
-                    self.main_workflow_context.extraction_parameters = (
-                        self.event_data.extraction_parameters
-                    )
                     self._prepare_executor(session)
                     await self._execute_workflow()
                 except Exception as e:
@@ -281,6 +275,12 @@ class WorkflowManager:
                 raise Exception("Workflow or event not prepared")
 
             self.main_workflow_context.event_version = self.event_data.version
+            self.main_workflow_context.classification_parameters = (
+                self.event_data.classification_parameters
+            )
+            self.main_workflow_context.extraction_parameters = (
+                self.event_data.extraction_parameters
+            )
 
             # Ensure a fresh step list per workflow execution
             self.step_list = []
@@ -315,19 +315,16 @@ class WorkflowManager:
         try:
             if self.event_dto is None:
                 raise Exception("Event not prepared")
-            try:
-                event = convert_inner_event_dto(
-                    self.event_dto.event, self.event_dto.event_type
-                )
-                if not isinstance(event, WorkflowExecutionStartedEvent):
-                    raise ValueError("Expected a workflow execution started event")
-                return event
-            except Exception as e:
-                logger.error(
-                    f"Failed to parse start event for execution {self.message.workflow_execution_id}: {e}"
-                )
-                raise
+            event = convert_inner_event_dto(
+                self.event_dto.event, self.event_dto.event_type
+            )
+            if not isinstance(event, WorkflowExecutionStartedEvent):
+                raise ValueError("Expected a workflow execution started event")
+            return event
         except Exception as e:
+            logger.error(
+                f"Failed to parse start event for execution {self.message.workflow_execution_id}: {e}"
+            )
             raise WorkflowStepException("parse_start_event", e)
 
     async def _notify_webhook_execution_finished(self, async_session: AsyncSession):
