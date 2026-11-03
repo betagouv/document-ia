@@ -106,12 +106,7 @@ class WebhookNotificationService:
         retry_count: int = 0,
         is_last_retry: bool = False,
     ) -> None:
-        logger.info(
-            "Handling webhook notification: %s (retry_count=%d, is_last_retry=%s)",
-            webhook_message,
-            retry_count,
-            is_last_retry,
-        )
+        logger.info("Handling webhook notification")
         try:
             async with database_manager.local_session() as session:
                 webhook_repo = WebHookRepository(session)
@@ -189,39 +184,36 @@ class WebhookNotificationService:
             status_code = http_exc.response.status_code
             if self.should_retry_http_status(status_code):
                 logger.warning(
-                    "Retryable webhook HTTP status %d for %s (retry_count=%d)",
+                    "Retryable webhook HTTP status %d (retry_count=%d)",
                     status_code,
-                    webhook_dto.url,
                     retry_count,
                 )
                 await self._sleep_before_retry(
                     retry_count=retry_count, is_last_retry=is_last_retry
                 )
                 raise RetryableException(
-                    f"Webhook HTTP status {status_code} for {webhook_dto.url}"
+                    f"Webhook HTTP status {status_code}"
                 ) from http_exc
             logger.error(
-                "Non-retryable webhook HTTP status %d for %s: %s",
+                "Non-retryable webhook HTTP status %d: %s",
                 status_code,
-                webhook_dto.url,
-                http_exc,
+                type(http_exc).__name__,
             )
             raise
         except httpx.TransportError as transport_exc:
             logger.warning(
-                "Transient webhook transport error for %s (retry_count=%d): %s",
-                webhook_dto.url,
+                "Transient webhook transport error (retry_count=%d): %s",
                 retry_count,
-                transport_exc,
+                type(transport_exc).__name__,
             )
             await self._sleep_before_retry(
                 retry_count=retry_count, is_last_retry=is_last_retry
             )
             raise RetryableException(
-                f"Webhook transport error for {webhook_dto.url}: {transport_exc}"
+                f"Webhook transport error: {type(transport_exc).__name__}"
             ) from transport_exc
         except Exception as exc:
-            logger.error("Error handling webhook notification: %s", exc)
+            logger.error("Error handling webhook notification: %s", type(exc).__name__)
             raise
 
     @staticmethod
@@ -239,11 +231,7 @@ class WebhookNotificationService:
     async def _call_webhook_notification(
         self, webhook_dto: WebHookDTO, event_dto: EventDTO
     ) -> None:
-        logger.info(
-            "Sending webhook notification to %s for event %s",
-            webhook_dto.url,
-            event_dto.id,
-        )
+        logger.info("Sending webhook notification")
         payload = self._execution_service.get_event_model(
             event_dto, event_dto.execution_id, is_debug_mode=False
         )
@@ -257,8 +245,7 @@ class WebhookNotificationService:
         )
         response.raise_for_status()
         logger.info(
-            "Webhook notification sent successfully to %s with status %d",
-            webhook_dto.url,
+            "Webhook notification sent successfully with status %d",
             response.status_code,
         )
 

@@ -117,6 +117,7 @@ Concurrency knobs:
   The API enforces bounded admission control (see [`document-ia-infra/README.md#new-execution-admission`](../document-ia-infra/README.md#new-execution-admission)) based on worker throughput and backlog:
   1. **Outstanding count (`lag + pending`)**: If the total unacknowledged backlog reaches `ADMISSION_MAX_OUTSTANDING` (default `1000`), the API rejects new workflow submissions with HTTP `503 Service Unavailable` (`execution_capacity_unavailable`) until workers drain the backlog below `ADMISSION_RESUME_OUTSTANDING` (default `800`).
   2. **Backlog age (oldest unacknowledged entry)**: If the oldest entry in the queue (pending in PEL or waiting to be read) exceeds `ADMISSION_MAX_AGE_SECONDS` (default `300s`), the API also blocks new admissions until the age falls below `ADMISSION_RESUME_AGE_SECONDS` (default `120s`).
+  3. **Retained entries budget (`XLEN(stream) + XLEN(dlq)`)**: If the total retained history in Redis reaches `ADMISSION_MAX_RETAINED` (default `10000`), the API blocks new admissions until background maintenance cleanup reduces retained entries below `ADMISSION_RESUME_RETAINED` (default `8000`).
 
 > [!NOTE]
 > Tracking queue age is critical even in an asynchronous system: worker processing time varies widely by document complexity (a 50-page PDF with OCR and LLM takes much longer than a 1-page ID). If workers crash or hang, age-based backpressure triggers fast protection without waiting for hundreds of requests to pile up.

@@ -23,13 +23,14 @@ class RedisSettings(BaseDocumentIaSettings):
     DLQ_STREAM_MAXLEN: int = Field(default=100000)
     EVENT_CONSUMER_GROUP: str = Field(default="workflow_execution_consumer")
 
-    ADMISSION_MAX_OUTSTANDING: int = Field(default=1000, ge=2)
-    ADMISSION_RESUME_OUTSTANDING: int = Field(default=800, ge=0)
-    ADMISSION_MAX_AGE_SECONDS: int = Field(default=300, ge=2)
-    ADMISSION_RESUME_AGE_SECONDS: int = Field(default=120, ge=0)
+    ADMISSION_MAX_OUTSTANDING: int = Field(default=2000, ge=2)
+    ADMISSION_RESUME_OUTSTANDING: int = Field(default=1600, ge=0)
+    ADMISSION_MAX_AGE_SECONDS: int = Field(default=600, ge=2)
+    ADMISSION_RESUME_AGE_SECONDS: int = Field(default=300, ge=0)
     # Includes completed history and DLQ; retries of accepted work may exceed it.
-    ADMISSION_MAX_RETAINED: int = Field(default=10000, ge=2)
-    ADMISSION_RESUME_RETAINED: int = Field(default=8000, ge=0)
+    ADMISSION_MAX_RETAINED: int = Field(default=50000, ge=2)
+    # Cleanup preserves at least one last-delivered row for lag tracking.
+    ADMISSION_RESUME_RETAINED: int = Field(default=32000, ge=1)
     STREAM_COMPLETED_RETENTION_SECONDS: int = Field(default=86400, ge=1)
     STREAM_DLQ_RETENTION_SECONDS: int = Field(default=604800, ge=1)
     STREAM_CLEANUP_BATCH_SIZE: int = Field(default=100, ge=1, le=1000)

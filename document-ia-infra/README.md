@@ -19,7 +19,7 @@ type must match the envelope. An omitted payload type still defaults to the
 envelope-selected schema for legacy compatibility. Store row IDs and timestamps
 are independent of payload event IDs and timestamps and are not compared.
 Decoder errors identify mismatched field names, never their values; schema
-errors use a generic message to avoid logging document contents.
+errors identify invalid field paths while excluding input values to avoid logging document contents.
 
 ### Event representations and versions
 
@@ -65,7 +65,7 @@ and identifier consistency; no production database was accessed for these tests.
 
 `OpenAIManager` creates a request-scoped `AsyncOpenAI` client on the request's loop and closes it with an async context manager on success, errors and cancellation. Merely constructing a manager/unused LLM step opens no client. HTTP download/OCR clients already use async context managers; workflow database sessions/engines are scoped and disposed by the workflow owner. Thread-loop teardown does not call `gc.collect()` to schedule client destructors.
 
-Delivery is at-least-once, not exactly-once business execution. Atomic copy guards scan retained stream history; trimming away pending sources/copies invalidates that guard. Publishers never use MAXLEN; use the completion-aware retention procedure below. Heartbeats protect live handlers but are not fencing/leases against process pauses. See the worker README for the blocking-operation inventory.
+Delivery is at-least-once, not exactly-once business execution. Atomic copy guards scan retained stream history; trimming away pending sources/copies invalidates that guard. Publishers no longer use MAXLEN; safe retention and no-progress deadlines remain separate operational policies (#122). Heartbeats protect live handlers but are not fencing/leases against process pauses. See the worker README for the blocking-operation inventory.
 
 ## New-execution admission
 
@@ -100,7 +100,7 @@ The same configurable thresholds apply independently to each queue:
 | `ADMISSION_MAX_AGE_SECONDS` | 300 | Stop when the oldest queue entry reaches this age |
 | `ADMISSION_RESUME_AGE_SECONDS` | 120 | Reopen only at or below this age |
 | `ADMISSION_MAX_RETAINED` | 10000 | Stop at this combined source + DLQ entry count, per queue |
-| `ADMISSION_RESUME_RETAINED` | 8000 | Reopen only at or below this retained count |
+| `ADMISSION_RESUME_RETAINED` | 8000 | Reopen only at or below this retained count (minimum 1: cleanup keeps the last-delivered row) |
 
 Once a queue closes admission, its outstanding count, age and retained count must fall to their resume
 thresholds. The closed state is shared in `<stream>:admission`, without a TTL
@@ -170,27 +170,39 @@ Do not destroy/reset groups or use manual XDEL/XTRIM to bypass this guard.
    on inline webhook retries or already-running handlers. Keep worker counts and
    webhook backoff consistent with the provider's quotas.
 3. Let already accepted work drain. New workflow requests remain subject to
-   outstanding-count, age and retained-history hysteresis. Recovery does not
-   clear those thresholds. Run safe cleanup if completed history is the blocker.
-4. Inspect a failed execution through the authorized API/Event Store. Determine
-   whether repeating its external effects is safe and whether its uploaded
-   object still exists. Fix permanent failures before considering replay.
-   The DLQ is not a complete workflow backup and cannot restore deleted objects.
-5. Replay **one chosen** DLQ entry from a restricted operator terminal:
+   outstanding-count, age and retained budgets: they will be accepted only after
+   both queues drain below their resume thresholds.
+4. If a consumer crashes on a malformed entry, the existing recovery logic
+   routes it to the DLQ after `max_retries` attempts. If an unhandled exception
+   crashes the reclaimer itself, use the snapshot command to identify the
+   reclaimed entry ID, inspect its metadata under controlled operational access,
+   and address the underlying defect before restarting consumers.
+5. For a **workflow** failure in DLQ:
+   Do **not** replay terminal workflow failures in Redis. Automatic retries are
+   reserved for explicit `RetryableException` during active delivery. After
+   the operational team diagnoses the root cause, repairs the defect and checks duplicate effects,
+   submit a **new execution** through the authenticated API, using the original
+   document and workflow parameters obtained through authorized access. A new
+   upload may be necessary; the DLQ cannot reconstruct a deleted object. Keep
+   the original DLQ row for investigation under the configured retention policy.
+   The CLI and Python replay entry point explicitly refuse workflow streams
+   without inserting a retry or deleting the DLQ row.
+
+   For a **webhook**, replay one chosen DLQ entry from a restricted terminal:
 
 ```bash
-python -m document_ia_infra.redis.maintenance --apply --stream event_stream --replay-id '<dlq-entry-id>'
+python -m document_ia_infra.redis.maintenance --apply --stream webhook_stream --replay-id '<dlq-entry-id>'
 ```
 
-Use the configured workflow or webhook stream name, not a DLQ name. Replay
+Use the configured webhook stream name, not a DLQ name. Replay
 requires the original to be delivered and no longer pending in every group.
 DLQs with consumer groups need separate reconciliation and are refused.
-The same admission check as new executions applies to both replay types.
+The same admission check as new executions applies to webhook replay.
 Insertion and deletion of the DLQ row are atomic: retrying after a lost reply
 cannot create another copy from that row. Global manual replay is limited to
 one per stream per second (or the larger recovery interval). Attempt count
 resets to zero; `replayed_from` records the DLQ ID. There is no bulk-replay flag.
-Replay does not undo terminal PostgreSQL state or guarantee exactly-once effects.
+Webhook replay does not guarantee exactly-once notification effects.
 
 6. Check counts, ages, failure rates and dependency latency after each small
    sample. Increase throughput by lowering the recovery interval only after
@@ -205,7 +217,7 @@ set, known authentication errors and invalid values are permanent. Other
 exceptions are internal: they are not retried blindly. Worker automatic retries
 remain restricted to explicit `RetryableException`, using the existing attempt
 budget and WorkflowManager's notification contract. Raw dependency exceptions
-can be labelled temporary but still require operator replay; classification
+can be labelled temporary but still require a new authorized execution; classification
 does not silently change terminal workflow decisions. Other worker failures
 require DLQ retention before ACK. Webhook HTTP retries use the same status classification;
 non-HTTP webhook errors still remain pending for Redis recovery. Existing steps
@@ -245,3 +257,33 @@ this change. If the service owner requires longer retention or survival of
 Redis loss, provide an independently durable, access-controlled export with a
 restore test before enabling expiration; simply raising a TTL is insufficient.
 Object-storage retention remains outside this Redis policy.
+
+## Documentation
+
+- [Redis Stream Consumer (`BaseConsumer`, `ThreadConsumer`, `AsyncIoConsumer`)](./docs/REDIS_CONSUMER.md) — architecture, execution modes, PEL recovery (`XAUTOCLAIM`), in-flight heartbeat (`XCLAIM JUSTID`), retries, idempotent DLQ, and lifecycle management.
+
+## Environment Variables
+
+### `WEBHOOK_SECRET_ENCRYPTION_KEY`
+
+Webhook secret headers stored in PostgreSQL are encrypted at rest using [`cryptography.fernet.Fernet`](./src/document_ia_infra/service/webhook_encryption_service.py), which requires a 32-byte URL-safe base64-encoded key.
+
+Both `document-ia-api` and `document-ia-worker` must share the **same** `WEBHOOK_SECRET_ENCRYPTION_KEY` value so that headers encrypted by the API can be decrypted by the worker.
+
+Generate a valid key from the repository root with `uv`:
+
+```bash
+uv run --directory document-ia-infra python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Or using Python's standard library only (no virtual environment required):
+
+```bash
+python3 -c "import base64, secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
+```
+
+Then set the generated value in your `.env` file (or deployment environment variables):
+
+```dotenv
+WEBHOOK_SECRET_ENCRYPTION_KEY=<generated-key>
+```

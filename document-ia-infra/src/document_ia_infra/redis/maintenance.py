@@ -1,4 +1,4 @@
-"""Bounded Redis retention and explicitly requested, admission-checked DLQ replay.
+"""Bounded Redis retention and explicitly requested webhook DLQ replay.
 
 Run with ``python -m document_ia_infra.redis.maintenance``. The default is a
 read-only snapshot. No payload or error contents are printed, including on error.
@@ -188,10 +188,11 @@ async def maintain(redis: Redis, stream: str, *, apply: bool = False) -> dict[st
 
 
 async def replay(redis: Redis, stream: str, entry_id: str) -> str:
-    if stream not in {
-        redis_settings.EVENT_STREAM_NAME,
-        redis_settings.WEBHOOK_STREAM_NAME,
-    }:
+    if stream == redis_settings.EVENT_STREAM_NAME:
+        # Redis cannot authorize a transition out of terminal PostgreSQL state.
+        # Refuse before touching either queue or the original failure evidence.
+        raise ValueError("Workflow replay requires a new execution through the API")
+    if stream != redis_settings.WEBHOOK_STREAM_NAME:
         raise ValueError("Unknown stream")
     return await cast(
         Awaitable[str],
@@ -249,7 +250,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--replay-id",
-        help="Replay exactly one DLQ entry; requires --apply and --stream",
+        help="Replay exactly one webhook DLQ entry; requires --apply and --stream",
     )
     parser.add_argument(
         "--stream",
@@ -258,6 +259,10 @@ def main() -> None:
     args = parser.parse_args()
     if args.replay_id and not (args.apply and args.stream):
         parser.error("Replay requires --apply and --stream")
+    if args.replay_id and args.stream == redis_settings.EVENT_STREAM_NAME:
+        parser.error(
+            "Workflow replay requires a new execution through the API; DLQ unchanged"
+        )
     try:
         asyncio.run(_main(args))
     except Exception as exc:
