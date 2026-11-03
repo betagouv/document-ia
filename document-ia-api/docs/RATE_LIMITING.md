@@ -39,4 +39,5 @@ HTTP `429 Too Many Requests` with a detailed error payload.
 ## Operational notes
 
 1. Resets are aligned to window boundaries (not rolling windows).
-2. If Redis is unavailable, the system degrades defensively (API keeps responding, event is logged).
+2. If Redis is unavailable during a quota check, the system fails closed and raises `503 Service Unavailable` (`execution_capacity_unavailable`) with a `Retry-After` header. Outages do not silently bypass rate limits.
+3. Client quota exhaustion returns `429 Too Many Requests` with `Retry-After` aligned to the reset window, whereas infrastructure saturation or Redis outage returns `503`.
