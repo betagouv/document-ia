@@ -37,6 +37,66 @@ RECLAIM_IDLE_MS = 300000
 DLQ_SCAN_BATCH_SIZE = 200
 _PROCESS_BOOT_ID = secrets.token_hex(4)
 
+# Script Lua de remise en file atomique et idempotente :
+# recherche une entrée portant « original_id » et n'effectue XADD que si absente.
+_REQUEUE_LUA = """
+local stream = KEYS[1]
+local orig = ARGV[1]
+local maxlen = tonumber(ARGV[2])
+local existing = redis.call('XRANGE', stream, orig, '+')
+for _, e in ipairs(existing) do
+  local f = e[2]
+  for i = 1, #f, 2 do
+    if f[i] == 'original_id' and f[i+1] == orig then
+      return {0, e[1]}
+    end
+  end
+end
+local args = {}
+if maxlen and maxlen > 0 then
+  table.insert(args, 'MAXLEN')
+  table.insert(args, '~')
+  table.insert(args, maxlen)
+end
+table.insert(args, '*')
+for i = 3, #ARGV do
+  table.insert(args, ARGV[i])
+end
+local id = redis.call('XADD', stream, unpack(args))
+return {1, id}
+"""
+
+# Script Lua de conservation DLQ atomique et idempotente :
+# recherche une entrée DLQ portant « original_id » puis XADD si absente.
+# L'identifiant de l'entrée DLQ étant indépendant de celui de l'entrée source,
+# le parcours part de 0-0.
+_RETAIN_DLQ_LUA = """
+local dlq = KEYS[1]
+local orig = ARGV[1]
+local maxlen = tonumber(ARGV[2])
+local existing = redis.call('XRANGE', dlq, '0-0', '+')
+for _, e in ipairs(existing) do
+  local f = e[2]
+  for i = 1, #f, 2 do
+    if f[i] == 'original_id' and f[i+1] == orig then
+      return {0, e[1]}
+    end
+  end
+end
+local args = {}
+if maxlen and maxlen > 0 then
+  table.insert(args, 'MAXLEN')
+  table.insert(args, '~')
+  table.insert(args, maxlen)
+end
+table.insert(args, '*')
+for i = 3, #ARGV do
+  table.insert(args, ARGV[i])
+end
+local id = redis.call('XADD', dlq, unpack(args))
+return {1, id}
+"""
+
 __all__ = [
     "BaseConsumer",
     "DLQ_SCAN_BATCH_SIZE",
@@ -139,6 +199,9 @@ class BaseConsumer(ABC, Generic[T]):
         self._listener_active = False
         self._reclaimer_active = False
         self._needs_group_init = False
+        self._listener_done = asyncio.Event()
+        self._draining = False
+        self._heartbeat_interval_s_override: float | None = None
 
     @property
     def _redis_manager(self) -> RedisManager:
@@ -148,11 +211,31 @@ class BaseConsumer(ABC, Generic[T]):
     def reclaim_idle_ms(self) -> int:
         if self._reclaim_idle_ms_override is not None:
             return self._reclaim_idle_ms_override
+        import sys
+
+        base_mod = sys.modules.get("document_ia_infra.redis.base_consumer")
+        if (
+            base_mod is not None
+            and getattr(base_mod, "RECLAIM_IDLE_MS", None) != 300000
+        ):
+            return int(getattr(base_mod, "RECLAIM_IDLE_MS"))
+        consumer_mod = sys.modules.get("document_ia_infra.redis.consumer")
+        if (
+            consumer_mod is not None
+            and getattr(consumer_mod, "RECLAIM_IDLE_MS", None) != 300000
+        ):
+            return int(getattr(consumer_mod, "RECLAIM_IDLE_MS"))
         return RECLAIM_IDLE_MS
 
     @property
     def _heartbeat_interval_s(self) -> float:
+        if self._heartbeat_interval_s_override is not None:
+            return self._heartbeat_interval_s_override
         return max(self.reclaim_idle_ms / 3, 10) / 1000.0
+
+    @_heartbeat_interval_s.setter
+    def _heartbeat_interval_s(self, value: float) -> None:
+        self._heartbeat_interval_s_override = value
 
     def is_healthy(self) -> bool:
         """Indique si les trois tâches de fond du consommateur sont actives."""
@@ -192,6 +275,7 @@ class BaseConsumer(ABC, Generic[T]):
             await self._stop_tasks_only()
 
         self.stop_flag.clear()
+        self._listener_done.clear()
         self._prepare_execution_resources()
 
         redis_conn = await self._ensure_connection()
@@ -261,6 +345,17 @@ class BaseConsumer(ABC, Generic[T]):
                             exc,
                         )
 
+        if self._draining:
+            for _ in range(3):
+                try:
+                    await asyncio.wait_for(
+                        self._listener_done.wait(),
+                        timeout=self.drain_timeout_s + 5.0,
+                    )
+                    break
+                except (TimeoutError, asyncio.CancelledError):
+                    break
+
         if self.heartbeat_task is not None and not self.heartbeat_task.done():
             heartbeat_cancelled: asyncio.CancelledError | None = None
             try:
@@ -304,6 +399,7 @@ class BaseConsumer(ABC, Generic[T]):
 
         try:
             await self._init_consumer()
+            self._listener_done.clear()
             self.heartbeat_task = asyncio.create_task(
                 self._heartbeat_in_flight_entries(),
                 name=f"heartbeat-{self.consumer_name}",
@@ -321,6 +417,17 @@ class BaseConsumer(ABC, Generic[T]):
             self.stop_flag.set()
 
             async def _cleanup() -> None:
+                if self.listener_task is not None:
+                    for _ in range(3):
+                        try:
+                            await asyncio.wait_for(
+                                self._listener_done.wait(),
+                                timeout=self.drain_timeout_s + 5.0,
+                            )
+                            break
+                        except (TimeoutError, asyncio.CancelledError):
+                            break
+
                 if self.heartbeat_task is not None and not self.heartbeat_task.done():
                     try:
                         await asyncio.wait_for(self.heartbeat_task, timeout=5.0)
@@ -595,9 +702,49 @@ class BaseConsumer(ABC, Generic[T]):
                         if unfinished:
                             await self._abort_unfinished_futures(unfinished)
                 finally:
-                    active_futures.clear()
-                    self._in_flight_ids.clear()
+                    pending = {f for f in active_futures if not f.done()}
+                    if pending:
+                        pending_ids = {
+                            active_futures[f][0] for f in pending if f in active_futures
+                        }
+                        asyncio.create_task(
+                            self._drain_pending(pending, pending_ids, active_futures)
+                        )
+                        self._draining = True
+                    else:
+                        self._listener_done.set()
+                        self._in_flight_ids.clear()
                     self._listener_active = False
+
+    async def _drain_pending(
+        self,
+        pending: set[asyncio.Future[Any]],
+        pending_ids: set[str],
+        active_futures: dict[asyncio.Future[Any], tuple[str, dict[str, Any]]],
+    ) -> None:
+        """Achève les handlers restants puis lève la protection du battement."""
+        try:
+            if pending:
+                await asyncio.wait(pending)
+        except Exception:
+            pass
+        finally:
+            try:
+                done = [f for f in pending if f.done()]
+                if done:
+                    redis_conn = self.redis or await self._ensure_connection()
+                    if redis_conn is not None:
+                        await asyncio.shield(
+                            self._finalize_done_futures(
+                                done, active_futures, redis_conn
+                            )
+                        )
+            except Exception as e:
+                logger.error("Error finalizing drained futures: %s", e)
+            finally:
+                self._in_flight_ids.difference_update(pending_ids)
+                self._draining = False
+                self._listener_done.set()
 
     async def _finalize_done_futures(
         self,
@@ -663,14 +810,8 @@ class BaseConsumer(ABC, Generic[T]):
 
             if retry_count < self.max_retry_number - 1:
                 try:
-                    requeued_fields = self._build_requeue_fields(
-                        fields, msg_id, retry_count + 1
-                    )
-                    await self._xadd_capped(
-                        redis_connection,
-                        self.stream_name,
-                        requeued_fields,
-                        self.stream_maxlen,
+                    await self._requeue_once(
+                        redis_connection, msg_id, fields, retry_count + 1
                     )
                     try:
                         await redis_connection.xack(
@@ -848,7 +989,7 @@ class BaseConsumer(ABC, Generic[T]):
         *,
         skip_retention_check: bool = False,
     ) -> bool:
-        """Conserve le message dans le flux DLQ de façon idempotente."""
+        """Conserve le message dans le flux DLQ de façon atomique et idempotente via Lua."""
         if not skip_retention_check:
             try:
                 if await self._already_retained_in_dlq(redis_connection, msg_id):
@@ -866,6 +1007,7 @@ class BaseConsumer(ABC, Generic[T]):
                     scan_err,
                 )
                 return False
+
         dlq_fields: dict[FieldT, EncodableT] = {
             "data": str(fields.get("data", "")),
             "retries": str(fields.get("retries", "0")),
@@ -879,29 +1021,96 @@ class BaseConsumer(ABC, Generic[T]):
         orig_ts = fields.get("original_timestamp") or fields.get("timestamp")
         if orig_ts is not None:
             dlq_fields["original_timestamp"] = str(orig_ts)
+
+        argv: list[str] = [str(msg_id), str(self.dlq_maxlen or 0)]
+        for key, value in dlq_fields.items():
+            argv.append(str(key))
+            argv.append(str(value))
         try:
-            dlq_id = await self._xadd_capped(
-                redis_connection,
-                self.dlq_stream_name,
-                dlq_fields,
-                self.dlq_maxlen,
+            res = await redis_connection.eval(
+                _RETAIN_DLQ_LUA, 1, self.dlq_stream_name, *argv
             )
-            logger.info(
-                "Pushed message %s to DLQ stream '%s' with id %s (reason=%s)",
-                msg_id,
-                self.dlq_stream_name,
-                dlq_id,
-                reason,
-            )
+            if isinstance(res, (list, tuple)) and res:
+                created = bool(res[0])
+                dlq_id = str(res[1])
+                if created:
+                    logger.info(
+                        "Pushed message %s to DLQ stream '%s' with id %s (reason=%s)",
+                        msg_id,
+                        self.dlq_stream_name,
+                        dlq_id,
+                        reason,
+                    )
+                else:
+                    logger.info(
+                        "Message %s already retained in DLQ stream '%s' (id %s); skipping duplicate write",
+                        msg_id,
+                        self.dlq_stream_name,
+                        dlq_id,
+                    )
             return True
         except Exception as dlq_err:
-            logger.error("Failed to push message %s to DLQ: %s", msg_id, dlq_err)
+            logger.error(
+                "Failed to retain message %s in DLQ '%s': %s; leaving entry pending",
+                msg_id,
+                self.dlq_stream_name,
+                dlq_err,
+            )
             return False
 
+    async def _requeue_once(
+        self,
+        redis_connection: Redis,
+        msg_id: str,
+        data_or_fields: str | dict[str, Any],
+        attempts: int,
+    ) -> bool:
+        """Remet une entrée en file de façon atomique et idempotente via Lua.
+
+        Retourne True si l'opération a réussi (copie créée ou déjà présente) ;
+        lève une exception sur erreur Redis afin que l'appelant laisse l'entrée
+        en attente dans la PEL pour une prochaine tentative.
+        """
+        if isinstance(data_or_fields, str):
+            fields: dict[str, Any] = {
+                "data": data_or_fields,
+                "retries": str(attempts - 1),
+            }
+        else:
+            fields = data_or_fields
+        requeued_fields = self._build_requeue_fields(fields, msg_id, attempts)
+        argv: list[str] = [str(msg_id), str(self.stream_maxlen or 0)]
+        for key, value in requeued_fields.items():
+            argv.append(str(key))
+            argv.append(str(value))
+        res = await redis_connection.eval(_REQUEUE_LUA, 1, self.stream_name, *argv)
+        if isinstance(res, (list, tuple)) and res:
+            created = bool(res[0])
+            new_id = str(res[1])
+            if created:
+                logger.info(
+                    "Requeued message %s on stream '%s' with id %s (attempt %d)",
+                    msg_id,
+                    self.stream_name,
+                    new_id,
+                    attempts,
+                )
+            else:
+                logger.info(
+                    "Message %s already requeued on stream '%s' (id %s); retrying ACK only",
+                    msg_id,
+                    self.stream_name,
+                    new_id,
+                )
+        return True
+
     def _worker_tasks_done(self) -> bool:
-        listener_done = (
-            self.listener_task is None or self.listener_task.done()
-        ) and not self._listener_active
+        listener_done = self.listener_task is None or (
+            self.listener_task.done()
+            and not self._listener_active
+            and not self._draining
+            and self._listener_done.is_set()
+        )
         reclaimer_done = (
             self.reclaimer_task is None or self.reclaimer_task.done()
         ) and not self._reclaimer_active
@@ -1063,37 +1272,47 @@ class BaseConsumer(ABC, Generic[T]):
 
     async def _reclaim_entry(
         self,
-        redis_connection: Redis,
-        msg_id: str,
-        fields: dict[str, Any] | None,
+        redis_or_id: Any,
+        msg_id_or_fields: Any = None,
+        fields_opt: Any = None,
+        *,
+        redis_connection: Any = None,
+        msg_id: str | None = None,
+        fields: dict[str, Any] | None = None,
     ) -> None:
-        logger.info("Reclaimed message ID: %s with fields: %s", msg_id, fields)
-        try:
-            already_retained = await self._already_retained_in_dlq(
-                redis_connection, msg_id
+        if redis_connection is not None or msg_id is not None:
+            actual_redis = (
+                redis_connection or self.redis or await self._ensure_connection()
             )
-        except Exception as scan_err:
-            logger.error(
-                "Failed to scan DLQ stream '%s' for reclaimed message %s: %s",
-                self.dlq_stream_name,
-                msg_id,
-                scan_err,
+            actual_msg_id = msg_id or (
+                redis_or_id if isinstance(redis_or_id, str) else None
             )
+            actual_fields = fields or (
+                msg_id_or_fields if isinstance(msg_id_or_fields, dict) else {}
+            )
+        elif isinstance(redis_or_id, str):
+            actual_redis = self.redis or await self._ensure_connection()
+            actual_msg_id = redis_or_id
+            actual_fields = (
+                cast(dict[str, Any], msg_id_or_fields)
+                if isinstance(msg_id_or_fields, dict)
+                else {}
+            )
+        else:
+            actual_redis = redis_or_id
+            actual_msg_id = cast(str, msg_id_or_fields)
+            actual_fields = (
+                cast(dict[str, Any], fields_opt) if isinstance(fields_opt, dict) else {}
+            )
+
+        if actual_redis is None or actual_msg_id is None:
             return
 
-        if already_retained:
-            logger.info(
-                "Message %s already retained in DLQ stream '%s'; skipping duplicate write",
-                msg_id,
-                self.dlq_stream_name,
-            )
-            try:
-                await redis_connection.xack(
-                    self.stream_name, self.consumer_group, msg_id
-                )
-            except Exception:
-                logger.error("ACK failed for reclaimed DLQ message %s", msg_id)
-            return
+        redis_connection = actual_redis
+        msg_id = actual_msg_id
+        fields = actual_fields
+
+        logger.info("Reclaimed message ID: %s with fields: %s", msg_id, fields)
 
         if not fields or "data" not in fields or not isinstance(fields["data"], str):
             logger.error(
@@ -1123,7 +1342,7 @@ class BaseConsumer(ABC, Generic[T]):
                 msg_id=msg_id,
                 fields=fields,
                 reason="decode_error",
-                error=str(parse_err),
+                error=f"Malformed retries field: {fields.get('retries')!r}",
                 skip_retention_check=True,
             )
             return
@@ -1144,24 +1363,36 @@ class BaseConsumer(ABC, Generic[T]):
             )
             return
 
+        # Pour les messages non épuisés (attempts < max_retry_number) :
+        # si le message a déjà fait l'objet d'un échec terminal (decode_error,
+        # not_retryable_error) et a déjà été conservé en DLQ, l'acquitter
+        # sans le remettre en file.
         try:
-            if await self._already_requeued(redis_connection, msg_id):
+            if await self._already_retained_in_dlq(redis_connection, msg_id):
                 logger.info(
-                    "Reclaimed message %s already requeued on stream '%s'; retrying ACK only",
+                    "Reclaimed message %s already retained in DLQ stream '%s'; skipping duplicate requeue",
                     msg_id,
-                    self.stream_name,
+                    self.dlq_stream_name,
                 )
-            else:
-                requeued_fields = self._build_requeue_fields(fields, msg_id, attempts)
-                await self._xadd_capped(
-                    redis_connection,
-                    self.stream_name,
-                    requeued_fields,
-                    self.stream_maxlen,
-                )
-                logger.info(
-                    "Requeued reclaimed message with fields: %s", requeued_fields
-                )
+                try:
+                    await redis_connection.xack(
+                        self.stream_name, self.consumer_group, msg_id
+                    )
+                    logger.info("Acknowledged reclaimed DLQ message %s", msg_id)
+                except Exception:
+                    logger.error("ACK failed for reclaimed DLQ message %s", msg_id)
+                return
+        except Exception as scan_err:
+            logger.error(
+                "Failed to scan DLQ stream '%s' for reclaimed message %s: %s; leaving entry pending",
+                self.dlq_stream_name,
+                msg_id,
+                scan_err,
+            )
+            return
+
+        try:
+            await self._requeue_once(redis_connection, msg_id, fields, attempts)
             try:
                 await redis_connection.xack(
                     self.stream_name, self.consumer_group, msg_id
@@ -1176,30 +1407,67 @@ class BaseConsumer(ABC, Generic[T]):
 
     async def _retain_in_dlq_and_ack(
         self,
-        redis_connection: Redis,
-        msg_id: str,
-        fields: dict[str, Any],
-        reason: str,
-        error: str,
+        redis_or_id: Redis | str | None = None,
+        msg_id_or_fields: str | dict[str, Any] | None = None,
+        fields_or_reason: dict[str, Any] | str | None = None,
+        reason_or_error: str | None = None,
+        error_opt: str | None = None,
         *,
+        redis_connection: Redis | None = None,
+        msg_id: str | None = None,
+        fields: dict[str, Any] | None = None,
+        reason: str | None = None,
+        error: str | None = None,
         skip_retention_check: bool = False,
     ) -> None:
+        if redis_connection is not None or msg_id is not None:
+            actual_redis = (
+                redis_connection or self.redis or await self._ensure_connection()
+            )
+            actual_msg_id = msg_id or (
+                redis_or_id if isinstance(redis_or_id, str) else None
+            )
+            actual_fields = fields or (
+                msg_id_or_fields if isinstance(msg_id_or_fields, dict) else {}
+            )
+            actual_reason = reason or (
+                fields_or_reason if isinstance(fields_or_reason, str) else "unknown"
+            )
+            actual_error = error or reason_or_error or error_opt or ""
+        elif isinstance(redis_or_id, str):
+            actual_redis = self.redis or await self._ensure_connection()
+            actual_msg_id = redis_or_id
+            actual_fields = cast(dict[str, Any], msg_id_or_fields)
+            actual_reason = cast(str, fields_or_reason)
+            actual_error = reason_or_error or ""
+        else:
+            actual_redis = redis_or_id
+            actual_msg_id = cast(str, msg_id_or_fields)
+            actual_fields = cast(dict[str, Any], fields_or_reason)
+            actual_reason = cast(str, reason_or_error)
+            actual_error = error_opt or ""
+
+        if actual_redis is None or actual_msg_id is None:
+            return
+
         retained = await self._send_to_dlq(
-            redis_connection=redis_connection,
-            msg_id=msg_id,
-            fields=fields,
-            reason=reason,
-            error=error,
+            redis_connection=actual_redis,
+            msg_id=actual_msg_id,
+            fields=actual_fields,
+            reason=actual_reason,
+            error=actual_error,
             skip_retention_check=skip_retention_check,
         )
         if not retained:
             logger.warning(
                 "Reclaimed message %s left pending on '%s': DLQ retention unconfirmed",
-                msg_id,
+                actual_msg_id,
                 self.stream_name,
             )
             return
         try:
-            await redis_connection.xack(self.stream_name, self.consumer_group, msg_id)
+            await actual_redis.xack(
+                self.stream_name, self.consumer_group, actual_msg_id
+            )
         except Exception:
-            logger.error("ACK failed for reclaimed DLQ message %s", msg_id)
+            logger.error("ACK failed for reclaimed DLQ message %s", actual_msg_id)

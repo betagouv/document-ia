@@ -143,22 +143,20 @@ async def test_worker_terminal_failure_requires_dlq_before_ack(
         error = RetryableException("last attempt failed")
     future.set_exception(error)
     operations: list[str] = []
-    original_xadd = redis_client.xadd
+    original_eval = redis_client.eval
     original_xack = redis_client.xack
 
-    async def record_xadd(
-        stream_name: str, fields: dict[str, Any], *args: Any, **kwargs: Any
-    ) -> Any:
-        operations.append(f"xadd:{stream_name}")
+    async def record_eval(script: str, numkeys: int, *args: Any) -> Any:
+        operations.append(f"xadd:{args[0]}")
         if not dlq_available:
             raise ConnectionError("DLQ unavailable")
-        return await original_xadd(stream_name, fields, *args, **kwargs)
+        return await original_eval(script, numkeys, *args)
 
     async def record_xack(stream_name: str, group_name: str, msg_id: str) -> Any:
         operations.append(f"xack:{stream_name}")
         return await original_xack(stream_name, group_name, msg_id)
 
-    monkeypatch.setattr(redis_client, "xadd", record_xadd)
+    monkeypatch.setattr(redis_client, "eval", record_eval)
     monkeypatch.setattr(redis_client, "xack", record_xack)
 
     await consumer._handle_finished_future(future, msg_id, fields, redis_client)
@@ -184,17 +182,15 @@ async def test_worker_requeue_and_dlq_failures_leave_message_pending(
     future.set_exception(RetryableException("temporary failure"))
     operations: list[str] = []
 
-    async def fail_requeue(
-        stream_name: str, fields: dict[str, Any], *args: Any, **kwargs: Any
-    ) -> Any:
-        operations.append(f"xadd:{stream_name}")
-        raise ConnectionError(f"Redis write unavailable for {stream_name}")
+    async def fail_eval(script: str, numkeys: int, *args: Any) -> Any:
+        operations.append(f"xadd:{args[0]}")
+        raise ConnectionError(f"Redis write unavailable for {args[0]}")
 
     async def record_ack(stream_name: str, group_name: str, msg_id: str) -> Any:
         operations.append(f"xack:{stream_name}")
         return 1
 
-    monkeypatch.setattr(redis_client, "xadd", fail_requeue)
+    monkeypatch.setattr(redis_client, "eval", fail_eval)
     monkeypatch.setattr(redis_client, "xack", record_ack)
 
     await consumer._handle_finished_future(future, msg_id, fields, redis_client)
@@ -228,18 +224,16 @@ async def test_worker_decode_failure_requires_dlq_before_ack(
         redis_manager_module.redis_manager, "get_connection", get_connection
     )
     dlq_attempted = asyncio.Event()
-    original_xadd = redis_client.xadd
+    original_eval = redis_client.eval
 
-    async def record_dlq_attempt(
-        stream_name: str, fields: dict[str, Any], *args: Any, **kwargs: Any
-    ) -> Any:
-        if stream_name == f"{stream}:dlq":
+    async def record_dlq_attempt(script: str, numkeys: int, *args: Any) -> Any:
+        if args and args[0] == f"{stream}:dlq":
             dlq_attempted.set()
             if not dlq_available:
                 raise ConnectionError("DLQ unavailable")
-        return await original_xadd(stream_name, fields, *args, **kwargs)
+        return await original_eval(script, numkeys, *args)
 
-    monkeypatch.setattr(redis_client, "xadd", record_dlq_attempt)
+    monkeypatch.setattr(redis_client, "eval", record_dlq_attempt)
     original_xreadgroup = redis_client.xreadgroup
     next_read_started = asyncio.Event()
     read_count = 0
@@ -302,18 +296,16 @@ async def test_worker_reclaimed_message_requires_dlq_before_ack(
         0,
     )
     dlq_attempted = asyncio.Event()
-    original_xadd = redis_client.xadd
+    original_eval = redis_client.eval
 
-    async def record_dlq_attempt(
-        stream_name: str, fields: dict[str, Any], *args: Any, **kwargs: Any
-    ) -> Any:
-        if stream_name == f"{stream}:dlq":
+    async def record_dlq_attempt(script: str, numkeys: int, *args: Any) -> Any:
+        if args and args[0] == f"{stream}:dlq":
             dlq_attempted.set()
             if not dlq_available:
                 raise ConnectionError("DLQ unavailable")
-        return await original_xadd(stream_name, fields, *args, **kwargs)
+        return await original_eval(script, numkeys, *args)
 
-    monkeypatch.setattr(redis_client, "xadd", record_dlq_attempt)
+    monkeypatch.setattr(redis_client, "eval", record_dlq_attempt)
     original_xautoclaim = redis_client.xautoclaim
     next_claim_started = asyncio.Event()
     claim_count = 0
