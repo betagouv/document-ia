@@ -31,7 +31,7 @@ def decode_event_dto(dto: EventDTO) -> WorkflowEvent:
     """Validate the persisted envelope and payload together for every reader."""
     event = convert_inner_event_dto(dto.event, dto.event_type)
     for field in ("execution_id", "workflow_id", "organization_id"):
-        if getattr(event, field) != getattr(dto, field):
+        if str(getattr(event, field)) != str(getattr(dto, field)):
             raise ValueError(f"Event envelope/payload mismatch: {field}")
     return event
 
@@ -56,9 +56,16 @@ def convert_inner_event_dto(
         raise ValueError("Event envelope/payload mismatch: event_type")
     try:
         return _decode_payload(data, event_type)
-    except ValidationError:
-        # Pydantic errors include input values, including document contents.
-        raise ValueError("Invalid persisted workflow event payload") from None
+    except ValidationError as exc:
+        # Pydantic errors include input values (such as document contents).
+        # We include error locations and messages but exclude raw inputs for privacy.
+        details = ", ".join(
+            f"{'.'.join(str(loc) for loc in err['loc'])} ({err['msg']})"
+            for err in exc.errors(include_input=False)
+        )
+        raise ValueError(
+            f"Invalid persisted workflow event payload: {details}"
+        ) from None
 
 
 def _decode_payload(data: dict[str, Any], event_type: EventType) -> WorkflowEvent:

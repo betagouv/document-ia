@@ -315,16 +315,10 @@ class WorkflowManager:
         try:
             if self.event_dto is None:
                 raise Exception("Event not prepared")
-            try:
-                event = decode_event_dto(self.event_dto)
-                if not isinstance(event, WorkflowExecutionStartedEvent):
-                    raise ValueError("Expected a workflow execution started event")
-                return event
-            except Exception as e:
-                logger.error(
-                    f"Failed to parse start event for execution {self.message.workflow_execution_id}: {e}"
-                )
-                raise
+            event = decode_event_dto(self.event_dto)
+            if not isinstance(event, WorkflowExecutionStartedEvent):
+                raise ValueError("Expected a workflow execution started event")
+            return event
         except Exception as e:
             logger.error(
                 f"Failed to parse start event for execution {self.message.workflow_execution_id}: {e}"

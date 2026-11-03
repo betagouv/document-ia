@@ -239,7 +239,12 @@ def test_malformed_parameters_are_reported_by_the_start_event_decoder():
     with pytest.raises(WorkflowStepException) as error:
         manager._parse_start_event()
     assert error.value.step_name == "parse_start_event"
-    assert str(error.value.inner_exception) == "Invalid persisted workflow event payload"
+    assert str(error.value.inner_exception).startswith(
+        "Invalid persisted workflow event payload"
+    )
+    assert "classification_parameters.document_types.0" in str(
+        error.value.inner_exception
+    )
 
 
 @pytest.mark.parametrize("field", ["execution_id", "workflow_id", "organization_id"])

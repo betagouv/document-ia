@@ -19,7 +19,7 @@ type must match the envelope. An omitted payload type still defaults to the
 envelope-selected schema for legacy compatibility. Store row IDs and timestamps
 are independent of payload event IDs and timestamps and are not compared.
 Decoder errors identify mismatched field names, never their values; schema
-errors use a generic message to avoid logging document contents.
+errors identify invalid field paths while excluding input values to avoid logging document contents.
 
 For malformed persisted start parameters, validation now occurs with the full
 start event: worker failure records identify `parse_start_event` instead of

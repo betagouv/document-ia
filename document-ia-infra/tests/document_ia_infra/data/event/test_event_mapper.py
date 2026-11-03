@@ -175,8 +175,17 @@ def test_invalid_payload_errors_do_not_disclose_document_contents(name):
     dto.event["version"] = "PRIVATE-DOCUMENT-CONTENT"
     with pytest.raises(ValueError) as error:
         decode_event_dto(dto)
-    assert str(error.value) == "Invalid persisted workflow event payload"
+    assert str(error.value).startswith("Invalid persisted workflow event payload")
+    assert "version" in str(error.value)
+    assert "PRIVATE-DOCUMENT-CONTENT" not in str(error.value)
     assert error.value.__suppress_context__
+
+
+def test_envelope_string_uuid_organization_id_matches():
+    dto = make_dto("started_v1")
+    dto.organization_id = str(dto.organization_id)
+    event = decode_event_dto(dto)
+    assert str(event.organization_id) == dto.organization_id
 
 
 def test_invalid_event_type_is_not_echoed():
