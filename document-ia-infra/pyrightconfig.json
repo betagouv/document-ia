@@ -13,7 +13,6 @@
   ],
   "extraPaths": [
     "src",
-    "src/document_ia_infra",
     "../document-ia-schemas/src"
   ]
 }

@@ -15,9 +15,6 @@ from document_ia_api.schemas.rate_limiting import RateLimitInfo
 logger = logging.getLogger(__name__)
 
 
-# TODO: reset self.connection_attempts to 0 otherwise it will never reconnect
-
-
 class RedisService:
     """Redis service for caching and rate limiting operations."""
 

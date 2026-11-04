@@ -2,6 +2,10 @@
 
 This project contains shared code about infrastructure components for documentIA projects.
 
+## Documentation
+
+- [Redis Stream Consumer (`BaseConsumer`, `ThreadConsumer`, `AsyncIoConsumer`)](./docs/REDIS_CONSUMER.md) — architecture, execution modes, PEL recovery (`XAUTOCLAIM`), in-flight heartbeat (`XCLAIM JUSTID`), retries, idempotent DLQ, and lifecycle management.
+
 ## Environment Variables
 
 ### `WEBHOOK_SECRET_ENCRYPTION_KEY`

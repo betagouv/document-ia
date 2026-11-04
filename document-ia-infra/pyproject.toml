@@ -20,7 +20,7 @@ dependencies = [
     "cryptography == 50.0.2",
     "psycopg2-binary == 2.9.12",
     "pyyaml == 6.0.3",
-    "greenlet == 3.5.1",
+    "greenlet == 3.5.1"
 ]
 
 [build-system]
@@ -34,7 +34,7 @@ dev = [
     "pytest-asyncio == 0.23.8",
     "pydantic-settings == 2.14.1",
     "pre-commit == 3.8.0",
-    "pyright == 1.1.409",
+    "pyright == 1.1.414",
 ]
 
 [tool.uv]

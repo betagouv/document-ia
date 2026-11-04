@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.13"
 
 [options]
@@ -380,7 +380,7 @@ requires-dist = [
 dev = [
     { name = "pre-commit", specifier = "==3.8.0" },
     { name = "pydantic-settings", specifier = "==2.14.1" },
-    { name = "pyright", specifier = "==1.1.409" },
+    { name = "pyright", specifier = "==1.1.414" },
     { name = "pytest", specifier = "==8.4.2" },
     { name = "pytest-asyncio", specifier = "==0.23.8" },
     { name = "ruff", specifier = "==0.12.12" },

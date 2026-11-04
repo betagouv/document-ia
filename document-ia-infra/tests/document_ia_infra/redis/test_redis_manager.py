@@ -98,8 +98,43 @@ class TestRedisManager:
             conn = await manager.get_connection()
 
         assert conn is None
+        assert manager.redis is None
         # Atteint le max
         assert manager.connection_attempts == manager.max_retries
+
+    @pytest.mark.asyncio
+    async def test_reconnexion_apres_echec_max_retries(self):
+        manager = RedisManager()
+        manager.max_retries = 3
+
+        mock_pool = MagicMock()
+        failing_redis = MagicMock()
+        failing_redis.ping = AsyncMock(side_effect=ConnectionError("still down"))
+        failing_redis.close = AsyncMock()
+
+        healthy_redis = MagicMock()
+        healthy_redis.ping = AsyncMock(return_value=True)
+
+        with (
+            patch(
+                "document_ia_infra.redis.redis_manager.ConnectionPool.from_url",
+                return_value=mock_pool,
+            ),
+            patch(
+                "document_ia_infra.redis.redis_manager.Redis",
+                side_effect=[failing_redis, healthy_redis],
+            ),
+            patch("asyncio.sleep", return_value=None),
+        ):
+            first = await manager.get_connection()
+            assert first is None
+            assert manager.redis is None
+            failing_redis.close.assert_awaited_once()
+
+            second = await manager.get_connection()
+            assert second is healthy_redis
+            assert manager.redis is healthy_redis
+            assert manager.connection_attempts == 0
 
     @pytest.mark.asyncio
     async def test_close(self):
@@ -107,9 +142,12 @@ class TestRedisManager:
         mock_redis = MagicMock()
         mock_redis.close = AsyncMock()
         manager.redis = mock_redis
+        manager.connection_attempts = 2
 
         await manager.close()
         mock_redis.close.assert_awaited_once()
+        assert manager.redis is None
+        assert manager.connection_attempts == 0
 
     @pytest.mark.asyncio
     async def test_close_sans_connexion(self):

@@ -120,6 +120,7 @@ Start here depending on what you need:
 | API test organization | [document-ia-api/tests/README.md](./document-ia-api/tests/README.md) |
 | Worker execution flow, retries, DLQ, scheduler | [document-ia-worker/README.md](./document-ia-worker/README.md) |
 | Shared infrastructure & `WEBHOOK_SECRET_ENCRYPTION_KEY` generation | [document-ia-infra/README.md](./document-ia-infra/README.md) |
+| Redis Stream consumer (`BaseConsumer`, `ThreadConsumer`, `AsyncIoConsumer`) | [document-ia-infra/docs/REDIS_CONSUMER.md](./document-ia-infra/docs/REDIS_CONSUMER.md) |
 | Document schema package and supported document types | [document-ia-schemas/README.md](./document-ia-schemas/README.md) |
 | Evaluation app | [document-ia-evals/README.md](./document-ia-evals/README.md) |
 | Evaluation metrics | [document-ia-evals/METRICS.md](./document-ia-evals/METRICS.md) |

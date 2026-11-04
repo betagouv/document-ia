@@ -1,6 +1,7 @@
 import asyncio
 import json
 from collections.abc import Awaitable, Callable
+from time import monotonic
 from typing import Any
 from uuid import uuid4
 
@@ -9,7 +10,11 @@ from redis.asyncio import Redis
 from sqlalchemy.exc import OperationalError
 
 from document_ia_infra.exception.retryable_exception import RetryableException
-from document_ia_infra.redis.consumer import Consumer
+from document_ia_infra.redis.consumer import (
+    AsyncIoConsumer,
+    ThreadConsumer,
+    build_instance_consumer_name,
+)
 from document_ia_infra.redis.serializable_message import SerializableMessage
 
 
@@ -47,13 +52,13 @@ async def stream(redis_client: Redis) -> str:
         await redis_client.delete(name, f"{name}:dlq")
 
 
-def make_consumer(stream: str, group: str) -> Consumer[SampleMessage]:
+def make_consumer(stream: str, group: str) -> ThreadConsumer[SampleMessage]:
     async def process_noop(
         message: SampleMessage, retry_count: int, is_last: bool
     ) -> None:
         return None
 
-    return Consumer[SampleMessage](
+    return ThreadConsumer[SampleMessage](
         consumer_name="test-worker",
         consumer_group=group,
         stream_name=stream,
@@ -107,7 +112,7 @@ async def test_worker_acknowledges_success(redis_client: Redis, stream: str) -> 
     await consumer._handle_finished_future(future, msg_id, fields, redis_client)
 
     assert await pending_count(redis_client, stream, group) == 0
-    consumer.executor.shutdown(wait=True)
+    await consumer._shutdown_executor()
 
 
 @pytest.mark.asyncio
@@ -141,11 +146,13 @@ async def test_worker_terminal_failure_requires_dlq_before_ack(
     original_xadd = redis_client.xadd
     original_xack = redis_client.xack
 
-    async def record_xadd(stream_name: str, fields: dict[str, Any]) -> Any:
+    async def record_xadd(
+        stream_name: str, fields: dict[str, Any], *args: Any, **kwargs: Any
+    ) -> Any:
         operations.append(f"xadd:{stream_name}")
         if not dlq_available:
             raise ConnectionError("DLQ unavailable")
-        return await original_xadd(stream_name, fields)
+        return await original_xadd(stream_name, fields, *args, **kwargs)
 
     async def record_xack(stream_name: str, group_name: str, msg_id: str) -> Any:
         operations.append(f"xack:{stream_name}")
@@ -161,7 +168,7 @@ async def test_worker_terminal_failure_requires_dlq_before_ack(
     assert await redis_client.xlen(f"{stream}:dlq") == (1 if dlq_available else 0)
     if dlq_available:
         assert operations == [f"xadd:{stream}:dlq", f"xack:{stream}"]
-    consumer.executor.shutdown(wait=True)
+    await consumer._shutdown_executor()
 
 
 @pytest.mark.asyncio
@@ -177,7 +184,9 @@ async def test_worker_requeue_and_dlq_failures_leave_message_pending(
     future.set_exception(RetryableException("temporary failure"))
     operations: list[str] = []
 
-    async def fail_requeue(stream_name: str, fields: dict[str, Any]) -> Any:
+    async def fail_requeue(
+        stream_name: str, fields: dict[str, Any], *args: Any, **kwargs: Any
+    ) -> Any:
         operations.append(f"xadd:{stream_name}")
         raise ConnectionError(f"Redis write unavailable for {stream_name}")
 
@@ -194,7 +203,7 @@ async def test_worker_requeue_and_dlq_failures_leave_message_pending(
     assert await pending_count(redis_client, stream, group) == 1
     assert await redis_client.xlen(stream) == 1
     assert await redis_client.xlen(f"{stream}:dlq") == 0
-    consumer.executor.shutdown(wait=True)
+    await consumer._shutdown_executor()
 
 
 @pytest.mark.asyncio
@@ -221,12 +230,14 @@ async def test_worker_decode_failure_requires_dlq_before_ack(
     dlq_attempted = asyncio.Event()
     original_xadd = redis_client.xadd
 
-    async def record_dlq_attempt(stream_name: str, fields: dict[str, Any]) -> Any:
+    async def record_dlq_attempt(
+        stream_name: str, fields: dict[str, Any], *args: Any, **kwargs: Any
+    ) -> Any:
         if stream_name == f"{stream}:dlq":
             dlq_attempted.set()
             if not dlq_available:
                 raise ConnectionError("DLQ unavailable")
-        return await original_xadd(stream_name, fields)
+        return await original_xadd(stream_name, fields, *args, **kwargs)
 
     monkeypatch.setattr(redis_client, "xadd", record_dlq_attempt)
     original_xreadgroup = redis_client.xreadgroup
@@ -257,7 +268,7 @@ async def test_worker_decode_failure_requires_dlq_before_ack(
     finally:
         consumer.stop_flag.set()
         await asyncio.wait_for(listener, timeout=2)
-        consumer.executor.shutdown(wait=True)
+        await consumer._shutdown_executor()
 
 
 @pytest.mark.asyncio
@@ -287,18 +298,20 @@ async def test_worker_reclaimed_message_requires_dlq_before_ack(
         redis_manager_module.redis_manager, "get_connection", get_connection
     )
     monkeypatch.setattr(
-        "document_ia_infra.redis.consumer.RECLAIM_IDLE_MS",
+        "document_ia_infra.redis.base_consumer.RECLAIM_IDLE_MS",
         0,
     )
     dlq_attempted = asyncio.Event()
     original_xadd = redis_client.xadd
 
-    async def record_dlq_attempt(stream_name: str, fields: dict[str, Any]) -> Any:
+    async def record_dlq_attempt(
+        stream_name: str, fields: dict[str, Any], *args: Any, **kwargs: Any
+    ) -> Any:
         if stream_name == f"{stream}:dlq":
             dlq_attempted.set()
             if not dlq_available:
                 raise ConnectionError("DLQ unavailable")
-        return await original_xadd(stream_name, fields)
+        return await original_xadd(stream_name, fields, *args, **kwargs)
 
     monkeypatch.setattr(redis_client, "xadd", record_dlq_attempt)
     original_xautoclaim = redis_client.xautoclaim
@@ -332,7 +345,7 @@ async def test_worker_reclaimed_message_requires_dlq_before_ack(
     finally:
         consumer.stop_flag.set()
         await asyncio.wait_for(reclaimer, timeout=2)
-        consumer.executor.shutdown(wait=True)
+        await consumer._shutdown_executor()
 
 
 @pytest.mark.asyncio
@@ -375,7 +388,7 @@ async def test_reclaim_succession_consumes_one_attempt_per_step(
         monkeypatch.setattr(
             redis_manager_module.redis_manager, "get_connection", get_connection
         )
-        monkeypatch.setattr("document_ia_infra.redis.consumer.RECLAIM_IDLE_MS", 0)
+        monkeypatch.setattr("document_ia_infra.redis.base_consumer.RECLAIM_IDLE_MS", 0)
 
         reclaimer = asyncio.create_task(consumer._reclaim_pending_messages())
         try:
@@ -419,7 +432,7 @@ async def test_reclaim_succession_consumes_one_attempt_per_step(
         ]
         assert retries_sequence == ["0", "1", "2"]
     finally:
-        consumer.executor.shutdown(wait=True)
+        await consumer._shutdown_executor()
 
 
 @pytest.mark.asyncio
@@ -447,7 +460,7 @@ async def test_reclaim_after_dlq_retention_terminates_without_duplicate(
         monkeypatch.setattr(
             redis_manager_module.redis_manager, "get_connection", get_connection
         )
-        monkeypatch.setattr("document_ia_infra.redis.consumer.RECLAIM_IDLE_MS", 0)
+        monkeypatch.setattr("document_ia_infra.redis.base_consumer.RECLAIM_IDLE_MS", 0)
 
         # le premier ACK échoue : la conservation DLQ est confirmée mais
         # l'entrée d'origine reste en attente et subit une nouvelle récupération
@@ -479,7 +492,7 @@ async def test_reclaim_after_dlq_retention_terminates_without_duplicate(
         assert dlq_entries[0][1]["original_id"] == msg_id
         assert dlq_entries[0][1]["retries"] == "2"
     finally:
-        consumer.executor.shutdown(wait=True)
+        await consumer._shutdown_executor()
 
 
 @pytest.mark.asyncio
@@ -527,7 +540,7 @@ async def test_reclaim_after_zero_retry_dlq_retention_terminates_without_requeue
         monkeypatch.setattr(
             redis_manager_module.redis_manager, "get_connection", get_connection
         )
-        monkeypatch.setattr("document_ia_infra.redis.consumer.RECLAIM_IDLE_MS", 0)
+        monkeypatch.setattr("document_ia_infra.redis.base_consumer.RECLAIM_IDLE_MS", 0)
 
         reclaimer = asyncio.create_task(consumer._reclaim_pending_messages())
         try:
@@ -547,7 +560,7 @@ async def test_reclaim_after_zero_retry_dlq_retention_terminates_without_requeue
         assert dlq_entries[0][1]["original_id"] == msg_id
         assert dlq_entries[0][1]["reason"] == "not_retryable_error"
     finally:
-        consumer.executor.shutdown(wait=True)
+        await consumer._shutdown_executor()
 
 
 @pytest.mark.asyncio
@@ -606,7 +619,7 @@ async def test_dlq_retention_scan_skips_history_older_than_original(
         assert scans == [(expected_min, 0), (expected_min, 1)]
         assert await redis_client.xlen(dlq) == 201
     finally:
-        consumer.executor.shutdown(wait=True)
+        await consumer._shutdown_executor()
 
 
 @pytest.mark.asyncio
@@ -640,7 +653,7 @@ async def test_dlq_retention_scan_includes_source_millisecond(
         )
         assert await redis_client.xlen(dlq) == 1
     finally:
-        consumer.executor.shutdown(wait=True)
+        await consumer._shutdown_executor()
 
 
 @pytest.mark.asyncio
@@ -686,7 +699,7 @@ async def test_dlq_scan_failure_fails_closed_against_real_redis(
         assert await redis_client.xlen(f"{stream}:dlq") == 1
         assert await pending_count(redis_client, stream, group) == 1
     finally:
-        consumer.executor.shutdown(wait=True)
+        await consumer._shutdown_executor()
 
 
 @pytest.mark.asyncio
@@ -725,7 +738,7 @@ async def test_reclaim_corrupted_retries_routes_to_dlq_and_advances_cursor(
         monkeypatch.setattr(
             redis_manager_module.redis_manager, "get_connection", get_connection
         )
-        monkeypatch.setattr("document_ia_infra.redis.consumer.RECLAIM_IDLE_MS", 0)
+        monkeypatch.setattr("document_ia_infra.redis.base_consumer.RECLAIM_IDLE_MS", 0)
 
         reclaimer = asyncio.create_task(consumer._reclaim_pending_messages())
         try:
@@ -748,7 +761,7 @@ async def test_reclaim_corrupted_retries_routes_to_dlq_and_advances_cursor(
         assert stream_entries[-1][0] != valid_id
         assert stream_entries[-1][1]["retries"] == "1"
     finally:
-        consumer.executor.shutdown(wait=True)
+        await consumer._shutdown_executor()
 
 
 @pytest.mark.asyncio
@@ -759,7 +772,7 @@ async def test_dlq_retention_scan_paginates_on_real_redis(
     pages bornées par DLQ_SCAN_BATCH_SIZE."""
     group = "worker-group"
     dlq = f"{stream}:dlq"
-    monkeypatch.setattr("document_ia_infra.redis.consumer.DLQ_SCAN_BATCH_SIZE", 5)
+    monkeypatch.setattr("document_ia_infra.redis.base_consumer.DLQ_SCAN_BATCH_SIZE", 5)
 
     msg_id = await redis_client.xadd(stream, {"data": json.dumps({"payload": "paged"})})
     for idx in range(12):
@@ -784,4 +797,319 @@ async def test_dlq_retention_scan_paginates_on_real_redis(
         assert await consumer._already_retained_in_dlq(redis_client, msg_id) is True
         assert batch_sizes == [5, 5, 3]
     finally:
-        consumer.executor.shutdown(wait=True)
+        await consumer._shutdown_executor()
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_protects_in_flight_batch_and_releases_failed_sibling(
+    redis_client: Redis, stream: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Dans un lot mixte, une entrée lente reste protégée par le battement sans
+    duplication, tandis qu'une entrée voisine restée en PEL (échec DLQ initial)
+    sort immédiatement de _in_flight_ids et devient récupérable sans attendre la lente."""
+    group = f"group-mixed-batch-{uuid4()}"
+
+    async def get_connection() -> Redis:
+        return redis_client
+
+    from document_ia_infra.redis import redis_manager as redis_manager_module
+
+    monkeypatch.setattr(
+        redis_manager_module.redis_manager, "get_connection", get_connection
+    )
+
+    dlq_failures = 1
+    original_xadd = redis_client.xadd
+
+    async def fail_first_dlq_write(
+        stream_name: str, fields: dict[str, Any], *args: Any, **kwargs: Any
+    ) -> Any:
+        nonlocal dlq_failures
+        if stream_name == f"{stream}:dlq" and dlq_failures > 0:
+            dlq_failures -= 1
+            raise ConnectionError("temporary DLQ outage")
+        return await original_xadd(stream_name, fields, *args, **kwargs)
+
+    monkeypatch.setattr(redis_client, "xadd", fail_first_dlq_write)
+
+    calls: list[str] = []
+    slow_done = asyncio.Event()
+
+    async def handler(
+        message: SampleMessage, _retry_count: int, _is_last: bool
+    ) -> None:
+        kind = message.payload["kind"]
+        calls.append(kind)
+        if kind == "fail-pending":
+            raise ValueError("fatal error")
+        await asyncio.sleep(1.6)
+        slow_done.set()
+
+    consumer = AsyncIoConsumer[SampleMessage](
+        consumer_name=build_instance_consumer_name("test-mixed"),
+        consumer_group=group,
+        stream_name=stream,
+        batch_size=10,
+        block_time=10,
+        message_class=SampleMessage,
+        process_message_callable=handler,
+        max_retry_number=3,
+        max_concurrency=4,
+        reclaim_idle_ms=300,
+    )
+
+    fail_id = await redis_client.xadd(
+        stream, {"data": json.dumps({"kind": "fail-pending"}), "retries": "0"}
+    )
+    await redis_client.xadd(
+        stream, {"data": json.dumps({"kind": "slow-healthy"}), "retries": "0"}
+    )
+
+    await consumer.start()
+    try:
+        await asyncio.wait_for(slow_done.wait(), timeout=6)
+        await wait_until(
+            lambda: _pending_zero(redis_client, stream, group),
+            timeout=6,
+        )
+        # L'entrée saine lente n'a été exécutée qu'une seule fois (protégée par XCLAIM JUSTID)
+        assert calls.count("slow-healthy") == 1
+        # L'entrée en échec a fini par être récupérée par le reclaimer et remise en file
+        # (puis retraitée et envoyée en DLQ quand la DLQ est redevenue disponible)
+        dlq_entries = await redis_client.xrange(f"{stream}:dlq")
+        assert len(dlq_entries) == 1
+        assert dlq_entries[0][1]["reason"] == "not_retryable_error"
+        assert fail_id not in consumer._in_flight_ids
+    finally:
+        await consumer.stop()
+
+
+async def _pending_zero(redis: Redis, stream: str, group: str) -> bool:
+    return (await pending_count(redis, stream, group)) == 0
+
+
+@pytest.mark.asyncio
+async def test_reclaimed_work_is_heartbeat_protected_on_real_redis(
+    redis_client: Redis, stream: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Les entrées réclamées par XAUTOCLAIM sont protégées par le battement
+    pendant toute la durée de _reclaim_entry."""
+    group = f"group-reclaim-hb-{uuid4()}"
+    consumer_name = build_instance_consumer_name("test-reclaim-hb")
+
+    async def get_connection() -> Redis:
+        return redis_client
+
+    from document_ia_infra.redis import redis_manager as redis_manager_module
+
+    monkeypatch.setattr(
+        redis_manager_module.redis_manager, "get_connection", get_connection
+    )
+
+    delivered: list[str] = []
+    handler_done = asyncio.Event()
+
+    async def handler(
+        message: SampleMessage, _retry_count: int, _is_last: bool
+    ) -> None:
+        delivered.append(message.payload["v"])
+        handler_done.set()
+
+    consumer = AsyncIoConsumer[SampleMessage](
+        consumer_name=consumer_name,
+        consumer_group=group,
+        stream_name=stream,
+        batch_size=10,
+        block_time=10,
+        message_class=SampleMessage,
+        process_message_callable=handler,
+        max_retry_number=3,
+        max_concurrency=2,
+        reclaim_idle_ms=300,
+    )
+
+    await redis_client.xgroup_create(stream, group, id="0-0", mkstream=True)
+    await redis_client.xadd(
+        stream, {"data": json.dumps({"v": "protected"}), "retries": "0"}
+    )
+    await redis_client.xreadgroup(group, "dead-consumer", {stream: ">"}, count=1)
+
+    original_reclaim_entry = consumer._reclaim_entry
+
+    async def delayed_reclaim_entry(
+        conn: Redis, mid: str, fields: dict[str, Any] | None
+    ) -> None:
+        await asyncio.sleep(1.0)
+        await original_reclaim_entry(conn, mid, fields)
+
+    monkeypatch.setattr(consumer, "_reclaim_entry", delayed_reclaim_entry)
+
+    await consumer.start()
+    try:
+        saw_claimed = False
+        deadline = monotonic() + 8.0
+        while monotonic() < deadline:
+            pending_entries = await redis_client.xpending_range(
+                stream, group, "-", "+", 10
+            )
+            claimed = [e for e in pending_entries if e["consumer"] == consumer_name]
+            for entry in claimed:
+                saw_claimed = True
+                assert entry["time_since_delivered"] < 300
+            if not pending_entries and saw_claimed:
+                break
+            await asyncio.sleep(0.04)
+
+        assert saw_claimed
+        await asyncio.wait_for(handler_done.wait(), timeout=5)
+        assert delivered == ["protected"]
+    finally:
+        await consumer.stop()
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_protects_late_batch_delivered_during_shutdown_read(
+    redis_client: Redis, stream: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Un lot livré par un XREADGROUP bloqué juste après l'appel à stop() reste
+    protégé par le battement jusqu'à la fin de sa vidange."""
+    group = f"group-late-shutdown-{uuid4()}"
+
+    async def get_connection() -> Redis:
+        return redis_client
+
+    from document_ia_infra.redis import redis_manager as redis_manager_module
+
+    monkeypatch.setattr(
+        redis_manager_module.redis_manager, "get_connection", get_connection
+    )
+
+    calls: list[str] = []
+    handler_started = asyncio.Event()
+
+    async def handler_a(_msg: SampleMessage, _retry_count: int, _is_last: bool) -> None:
+        calls.append("a")
+        handler_started.set()
+        await asyncio.sleep(1.5)
+
+    async def handler_b(_msg: SampleMessage, _retry_count: int, _is_last: bool) -> None:
+        calls.append("b")
+
+    consumer_a = AsyncIoConsumer[SampleMessage](
+        consumer_name=build_instance_consumer_name("drain-a"),
+        consumer_group=group,
+        stream_name=stream,
+        batch_size=10,
+        block_time=5000,
+        message_class=SampleMessage,
+        process_message_callable=handler_a,
+        reclaim_idle_ms=300,
+    )
+    consumer_b = AsyncIoConsumer[SampleMessage](
+        consumer_name=build_instance_consumer_name("drain-b"),
+        consumer_group=group,
+        stream_name=stream,
+        batch_size=10,
+        block_time=10,
+        message_class=SampleMessage,
+        process_message_callable=handler_b,
+        reclaim_idle_ms=300,
+    )
+
+    await redis_client.xgroup_create(stream, group, id="0-0", mkstream=True)
+
+    await consumer_a.start()
+    try:
+        await asyncio.sleep(0.1)
+        stopping = asyncio.create_task(consumer_a.stop())
+        await asyncio.sleep(0.1)
+        assert consumer_a.heartbeat_task is not None
+        assert not consumer_a.heartbeat_task.done()
+
+        await redis_client.xadd(
+            stream, {"data": json.dumps({"late": True}), "retries": "0"}
+        )
+        await asyncio.wait_for(handler_started.wait(), timeout=5)
+        await consumer_b.start()
+        try:
+            await stopping
+            assert calls == ["a"]
+            assert await redis_client.xlen(stream) == 1
+            assert await pending_count(redis_client, stream, group) == 0
+        finally:
+            await consumer_b.stop()
+    finally:
+        await consumer_a.stop()
+
+
+@pytest.mark.asyncio
+async def test_multihop_retries_preserve_root_id_and_original_timestamp_in_dlq(
+    redis_client: Redis, stream: str
+) -> None:
+    """Après plusieurs remises en file successives (M0 -> M1 -> M2 -> DLQ),
+    root_id et original_timestamp conservent la trace de l'entrée initiale M0,
+    tandis que original_id référence la dernière entrée M2 pour l'idempotence."""
+    group = f"group-multihop-{uuid4()}"
+
+    class FixedRedisManager:
+        async def get_connection(self) -> Redis:
+            return redis_client
+
+        async def close(self) -> None:
+            return None
+
+    attempts: list[int] = []
+
+    async def always_retry(
+        _msg: SampleMessage, retry_count: int, _is_last: bool
+    ) -> None:
+        attempts.append(retry_count)
+        raise RetryableException(f"transient-{retry_count}")
+
+    consumer = AsyncIoConsumer[SampleMessage](
+        consumer_name=build_instance_consumer_name("multihop"),
+        consumer_group=group,
+        stream_name=stream,
+        batch_size=10,
+        block_time=20,
+        message_class=SampleMessage,
+        process_message_callable=always_retry,
+        max_retry_number=3,
+        max_concurrency=2,
+        current_redis_manager=FixedRedisManager(),  # type: ignore[arg-type]
+    )
+
+    m0_id = await redis_client.xadd(
+        stream,
+        {
+            "data": json.dumps({"job": "root"}),
+            "retries": "0",
+            "timestamp": "2026-01-01T00:00:00+00:00",
+        },
+    )
+
+    await consumer.start()
+    try:
+
+        async def reached_dlq() -> bool:
+            return (
+                await redis_client.xlen(f"{stream}:dlq") == 1
+                and await pending_count(redis_client, stream, group) == 0
+            )
+
+        await wait_until(reached_dlq, timeout=5.0)
+    finally:
+        await consumer.stop()
+
+    assert attempts == [0, 1, 2]
+    stream_entries = await redis_client.xrange(stream)
+    assert len(stream_entries) == 3
+    m2_id = stream_entries[-1][0]
+
+    dlq_entries = await redis_client.xrange(f"{stream}:dlq")
+    assert len(dlq_entries) == 1
+    dlq_fields = dlq_entries[0][1]
+    assert dlq_fields["root_id"] == m0_id
+    assert dlq_fields["original_id"] == m2_id
+    assert dlq_fields["original_timestamp"] == "2026-01-01T00:00:00+00:00"
+    assert dlq_fields["reason"] == "max_retries_exceeded"

@@ -3,12 +3,11 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Depends
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html
 from starlette.staticfiles import StaticFiles
 
-from api.routes import router
 from document_ia_api.api.config import settings
 from document_ia_api.api.exceptions.handler.exception_handlers import (
     setup_exception_handlers,
@@ -19,22 +18,22 @@ from document_ia_api.api.middleware.aggregator_middleware import (
 )
 from document_ia_api.api.middleware.rate_limiting_middleware import RateLimitMiddleware
 from document_ia_api.api.middleware.request_id_middleware import RequestIDMiddleware
+from document_ia_api.api.routes import router
 from document_ia_api.core.logging_setup import setup_logging
+from document_ia_api.infra.database.migration_service import migration_service
 from document_ia_api.infra.database_service import database_service
-from document_ia_api.infra.redis.simple_stream_consumer import (
-    SimpleStreamConsumer,
-    build_instance_consumer_name,
-)
+from document_ia_api.infra.redis_service import redis_service
+from document_ia_api.infra.s3_service import s3_service
 from document_ia_api.infra.webhook_notification_service import (
     webhook_notification_service,
 )
 from document_ia_infra.data.database import database_manager
+from document_ia_infra.redis.consumer import (
+    AsyncIoConsumer,
+    build_instance_consumer_name,
+)
 from document_ia_infra.redis.model.webhook_message import WebHookMessage
 from document_ia_infra.redis.redis_settings import redis_settings
-from infra.database.migration_service import migration_service
-from infra.redis_service import redis_service
-from infra.s3_service import s3_service
-
 
 setup_logging()
 
@@ -57,16 +56,18 @@ async def lifespan(app: FastAPI):
     await migration_service.auto_migrate()
     await migration_service.auto_migrate_analytics()
 
-    webhook_consumer = SimpleStreamConsumer[WebHookMessage](
-        stream_name=redis_settings.WEBHOOK_STREAM_NAME,
-        handler=webhook_notification_service.handle_webhook_notification,
-        message_class=WebHookMessage,
-        consumer_group=redis_settings.WEBHOOK_CONSUMER_GROUP,
+    webhook_consumer = AsyncIoConsumer[WebHookMessage](
         consumer_name=build_instance_consumer_name("api-webhook-consumer"),
-        auto_ack=True,
-        block_ms=5000,
-        count=50,
+        consumer_group=redis_settings.WEBHOOK_CONSUMER_GROUP,
+        stream_name=redis_settings.WEBHOOK_STREAM_NAME,
+        batch_size=50,
+        block_time=5000,
+        message_class=WebHookMessage,
+        process_message_callable=webhook_notification_service.handle_webhook_notification,
+        max_retry_number=4,
+        reclaim_poll_interval_s=5.0,
     )
+    webhook_notification_service.bind_stop_event(webhook_consumer.stop_flag)
     await webhook_consumer.start()
     app.state.webhook_consumer = webhook_consumer  # type: ignore[attr-defined]
 
@@ -84,6 +85,23 @@ async def lifespan(app: FastAPI):
                 await wc.stop()
         except Exception as e:
             logger.error("Error stopping webhook consumer: %s", e)
+        finally:
+            webhook_notification_service.bind_stop_event(None)
+
+        try:
+            await webhook_notification_service.aclose()
+        except Exception as e:
+            logger.error("Error closing webhook HTTP client: %s", e)
+
+        try:
+            await redis_service.close()
+        except Exception as e:
+            logger.error("Error closing Redis service: %s", e)
+
+        try:
+            await database_manager.dispose_async()
+        except Exception as e:
+            logger.error("Error disposing database connections: %s", e)
 
 
 # Create FastAPI application

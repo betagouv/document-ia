@@ -35,7 +35,7 @@ Key paths:
 ## Execution Flow
 1) The consumer reads a batch of messages with `XREADGROUP` on the configured stream.
 2) Each message is decoded into a type `T` (implementing `SerializableMessage`).
-3) Message processing is submitted to a `ThreadPoolExecutor`. Each thread creates its own asyncio event loop and runs the async coroutine `process_message_callable(message, retry_count)`.
+3) Message processing is submitted either to a `ThreadPoolExecutor` (`ThreadConsumer`, used for CPU-bound worker workflows, where each thread creates its own asyncio event loop) or as a coroutine task on the current event loop (`AsyncIoConsumer`, used for I/O-bound API webhook notifications), running `process_message_callable(message, retry_count, is_last_retry)`. See [`document-ia-infra/docs/REDIS_CONSUMER.md`](../document-ia-infra/docs/REDIS_CONSUMER.md) for full details.
 4) `WorkflowManager`:
    - Retrieves a “created” event that is not closed (i.e., not Completed/Failed non‑retryable) using `EventRepository.get_created_event_if_execution_not_completed_or_failed`.
    - Loads the workflow definition (steps).
@@ -81,18 +81,21 @@ On the consumer side (`infra/redis/consumer.py`):
 - If processing raises `RetryableException`, the message is re‑queued on the stream with `retries = retries + 1` while `retries < max_retry_number - 1`; once exhausted, it is routed to the DLQ (`max_retries_exceeded`).
 - If a decode error, invalid `retries` metadata, or non‑retryable error occurs, the message is sent directly to the DLQ stream.
 - If re‑queuing itself fails, the message is sent to the DLQ stream.
-- The DLQ stream is named `"<stream>:dlq"` and stores fields such as: `data`, `retries`, `original_id`, `reason`, `error`, `consumer`, `timestamp`. DLQ retention is idempotent per `original_id` (bounded paginated scan from `<source_ms>-0`, fail-closed on scan error).
+- The DLQ stream is named `"<stream>:dlq"` and stores fields such as: `data`, `retries`, `original_id`, `root_id`, `reason`, `error`, `consumer`, `timestamp` (plus `original_timestamp` when present). DLQ retention is idempotent per `original_id` (bounded paginated scan from `<source_ms>-0`, fail-closed on scan error), while `root_id` preserves the initial stream entry ID across multi-hop retries.
 
-Reclaiming pending messages:
-- A background “reclaimer” task uses `XAUTOCLAIM` to recover idle messages (`idle > RECLAIM_IDLE_MS`). Any message already retained in the DLQ (e.g., after a prior `XACK` failure) is acknowledged immediately without re‑queuing. Otherwise, a reclaim consumes a single attempt (`attempts = retries + 1`): while `attempts < max_retry_number`, the message is re‑queued; once `attempts >= max_retry_number`, it is routed to the DLQ.
+Reclaiming pending messages & in-flight heartbeat:
+- An `XCLAIM ... JUSTID` heartbeat refreshes the idle timer of active in-flight and reclaiming entries every `reclaim_idle_ms / 3` (including during graceful shutdown drain) so slow healthy handlers are never reclaimed as duplicates.
+- A background “reclaimer” task uses `XAUTOCLAIM` to recover idle messages (`idle > RECLAIM_IDLE_MS`). Any message already retained in the DLQ (e.g., after a prior `XACK` failure) is acknowledged immediately without re‑queuing. Otherwise, a reclaim consumes a single attempt (`attempts = retries + 1`): while `attempts < max_retry_number`, the message is idempotently re‑queued; once `attempts >= max_retry_number`, it is routed to the DLQ.
 
 ACKs/NACKs:
 - `XACK` is only sent after a confirmed terminal outcome (processing success, confirmed re‑queue, or confirmed DLQ retention); otherwise, the message remains pending in the PEL for recovery.
 
 ---
 
-## Redis Consumer (Multi‑thread)
-The consumer uses a `ThreadPoolExecutor` to process each message in a dedicated thread, creating an **asyncio event loop per thread** to run `process_message_callable(message, retry_count)`.
+## Redis Consumer (`BaseConsumer` / `ThreadConsumer` / `AsyncIoConsumer`)
+`BaseConsumer` shares all Redis Stream group, heartbeat, PEL recovery, retry, and DLQ logic across two specialized subclasses:
+- `ThreadConsumer` (used by `document-ia-worker`): uses a lazily initialized `ThreadPoolExecutor` (`worker_number`) to process each message in a dedicated thread, creating an **asyncio event loop per thread** to run `process_message_callable(message, retry_count, is_last_retry)`.
+- `AsyncIoConsumer` (used by `document-ia-api` webhooks): schedules tasks directly on the caller's event loop (`max_concurrency` defaulting to `batch_size`, without any thread pool).
 
 Key points:
 - Async resources (async Redis client, async DB sessions) are **bound to the event loop** that created them. Do not use a client/session created on the main loop from a worker thread loop.
@@ -100,7 +103,8 @@ Key points:
 - For CPU‑bound tasks (OCR, heavy parsing), threads work well. For external binaries (e.g., Tesseract), consider `asyncio.create_subprocess_exec` to run subprocesses concurrently without blocking the loop.
 
 Concurrency knobs:
-- `worker_number`: thread pool size (per message). Start with 1 in debug.
+- `worker_number` (`ThreadConsumer`): thread pool size. Start with 1 in debug.
+- `max_concurrency` (`AsyncIoConsumer`): max concurrent `asyncio` tasks in flight (defaults to `batch_size`).
 - `batch_size`, `block_time`: batching and blocking timeout for `XREADGROUP`.
 - `max_retry_number`: retry limit before DLQ.
 
