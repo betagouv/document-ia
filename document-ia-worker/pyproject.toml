@@ -41,7 +41,7 @@ dev = [
     "pytest == 9.2.0",
     "pytest-asyncio == 1.4.1",
     "pre-commit == 3.8.0",
-    "uvicorn == 0.38.0",
+    "uvicorn == 0.54.0",
 ]
 
 [tool.uv]
