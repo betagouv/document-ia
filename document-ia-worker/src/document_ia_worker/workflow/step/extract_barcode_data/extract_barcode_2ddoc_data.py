@@ -56,7 +56,9 @@ def _read_barcodes_compat(
             ZXINGCPP.read_barcodes(image_scaled, formats=formats),
         )
         has_datamatrix = any(
-            str(barcode.format) == "BarcodeFormat.DataMatrix" for barcode in barcodes
+            getattr(barcode.format, "name", str(barcode.format))
+            in ("DataMatrix", "BarcodeFormat.DataMatrix", "Data Matrix")
+            for barcode in barcodes
         )
         if not has_datamatrix:
             logger.info(
@@ -166,9 +168,7 @@ class ExtractBarcode2DDocData(BaseExtractBarcode2DDoc):
         assert self.preprocess_file_result is not None
 
         barcodes_data: list[PageResult] = []
-        target_formats: Any = (
-            ZXINGCPP.BarcodeFormat.DataMatrix | ZXINGCPP.BarcodeFormat.QRCode
-        )
+        target_formats: Any = ZXINGCPP.barcode_formats_from_str("DataMatrix|QRCode")
 
         for idx, file in enumerate(self.preprocess_file_result.output_files_path):
             img_raw = cv2.imread(file)
