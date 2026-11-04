@@ -1,0 +1,113 @@
+{
+  "common": {
+    "event_id": "11111111-1111-4111-8111-111111111111",
+    "organization_id": "22222222-2222-4222-8222-222222222222",
+    "workflow_id": "wf-historical",
+    "execution_id": "exec-historical",
+    "created_at": "2026-01-01T12:00:00Z"
+  },
+  "events": {
+    "started_v1": {
+      "event_type": "WorkflowExecutionStarted",
+      "version": 1,
+      "s3_file_info": {
+        "filename": "document.pdf",
+        "size": 1234,
+        "content_type": "application/pdf",
+        "s3_key": "documents/example.pdf",
+        "uploaded_at": "2026-01-01T12:00:00Z",
+        "presigned_url": "https://example.com/document.pdf"
+      },
+      "metadata": {"source": "upload"},
+      "classification_parameters": {},
+      "extraction_parameters": {}
+    },
+    "started_v2": {
+      "event_type": "WorkflowExecutionStarted",
+      "version": 2,
+      "file_url": "https://example.com/input.pdf",
+      "metadata": {},
+      "classification_parameters": {"document_types": ["cni"]},
+      "extraction_parameters": {"document_type": "cni"},
+      "workflow_configuration": {
+        "id": "wf-historical",
+        "name": "Historical workflow",
+        "description": "Fixture",
+        "version": "1.0.0",
+        "enabled": true,
+        "supported_file_types": ["application/pdf"],
+        "max_file_size_mb": 25,
+        "processing_timeout_minutes": 5,
+        "steps": [{"action": "download_file"}, {"action": "save_workflow_result"}]
+      }
+    },
+    "step_completed_v1": {
+      "event_type": "WorkflowExecutionStepCompleted",
+      "version": 1,
+      "step_name": "extract_content_ocr",
+      "step_result": {"text": "Example"},
+      "execution_time_ms": 12
+    },
+    "completed_v1": {
+      "event_type": "WorkflowExecutionCompleted",
+      "version": 1,
+      "final_result": {
+        "extraction": {"type": "cni", "properties": {"nom": "EXEMPLE", "prenom": "Alice", "date_naissance": "1990-01-02"}},
+        "classification": {"document_type": "cni", "confidence": 0.9, "explanation": "Identity card"}
+      },
+      "total_processing_time_ms": 100,
+      "output_summary": {},
+      "steps_completed": 3
+    },
+    "completed_v2": {
+      "event_type": "WorkflowExecutionCompleted",
+      "version": 2,
+      "final_result": {
+        "extraction": {"type": "autre", "properties": {}},
+        "barcodes": [
+          {
+            "type": "QR",
+            "page_number": 1,
+            "position": {"top_left": [0, 0], "top_right": [10, 0], "bottom_right": [10, 10], "bottom_left": [0, 10]},
+            "raw_data": "https://example.com/qr"
+          },
+          {
+            "type": "DATA_MATRIX",
+            "page_number": 2,
+            "position": {"top_left": [0, 0], "top_right": [10, 0], "bottom_right": [10, 10], "bottom_left": [0, 10]},
+            "raw_data": "matrix-content"
+          },
+          {
+            "type": "2D_DOC",
+            "page_number": 3,
+            "position": {"top_left": [0, 0], "top_right": [10, 0], "bottom_right": [10, 10], "bottom_left": [0, 10]},
+            "is_valid": true,
+            "raw_data": {"issuer": "example"},
+            "typed_data": [{"name": "name", "type": "string", "value": "Alice"}],
+            "issue_date": "2026-01-01",
+            "ants_type": "01",
+            "doc_type": "example"
+          }
+        ]
+      },
+      "total_processing_time_ms": 200,
+      "output_summary": {"page_count": 3},
+      "steps_completed": 4,
+      "workflow_metadata": [{"step": "ocr", "duration_ms": 12}]
+    },
+    "failed_v1": {
+      "event_type": "WorkflowExecutionFailed",
+      "version": 1,
+      "error_type": "ValueError",
+      "error_message": "Invalid document"
+    },
+    "failed_v2": {
+      "event_type": "WorkflowExecutionFailed",
+      "version": 2,
+      "error_type": "RetryableException",
+      "error_message": "Service unavailable",
+      "failed_step": "ocr",
+      "retry_count": 2
+    }
+  }
+}

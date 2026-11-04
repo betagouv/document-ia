@@ -2,6 +2,23 @@
 
 This project contains shared code about infrastructure components for documentIA projects.
 
+## Persisted event decoding
+
+`data/event/schema/mappers/event_mapper.py::convert_inner_event_dto` is the shared
+decoder for the four persisted workflow event types. `convert_event_dto` adds the
+store envelope; the worker and API also use the decoder directly. Pydantic event
+schemas retain responsibility for nested extraction and barcode decoding. API
+response projection and debug filtering remain in `ExecutionService`, also used
+by webhook notifications. No storage schema or accepted payload rules change.
+
+For malformed persisted start parameters, validation now occurs with the full
+start event: worker failure records identify `parse_start_event` instead of
+`prepare_workflow`, with the nested parameter path in the validation error.
+
+Synthetic historical-shape fixtures live in `tests/fixtures/persisted_events.json`.
+API golden payloads were captured from parent commit `e54d117`, before migrating
+callers, and cover normal/debug output and webhook JSON.
+
 ## Redis delivery and execution responsibilities
 
 - `redis/stream_delivery.py`: concrete group/read/claim/ACK/idle-refresh operations and atomic, idempotent copy-before-ACK primitives shared by the worker and API. A failed or cancelled copy is **not** confirmation: do not ACK on that evidence alone (the worker failure policy may instead confirm terminal DLQ retention); a lost successful response is safe to retry. DLQ scans cover the whole target stream because source and target IDs have independent sequences.

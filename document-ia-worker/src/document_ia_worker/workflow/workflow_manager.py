@@ -6,10 +6,11 @@ from document_ia_infra.data.database import DatabaseManager
 from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.repository.event import EventRepository
+from document_ia_infra.data.event.schema.mappers.event_mapper import (
+    convert_inner_event_dto,
+)
 from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import (
     WorkflowExecutionStartedEvent,
-    ClassificationParameters,
-    ExtractionParameters,
 )
 from document_ia_infra.data.webhook.repository.webhook_repository import (
     WebHookRepository,
@@ -259,20 +260,6 @@ class WorkflowManager:
             if self.main_workflow_context is not None:
                 self.main_workflow_context.organization_id = event_dto.organization_id
 
-                classification_raw = self.event_dto.event.get(
-                    "classification_parameters"
-                )
-                if isinstance(classification_raw, dict):
-                    self.main_workflow_context.classification_parameters = (
-                        ClassificationParameters.model_validate(classification_raw)
-                    )
-
-                extraction_raw = self.event_dto.event.get("extraction_parameters")
-                if isinstance(extraction_raw, dict):
-                    self.main_workflow_context.extraction_parameters = (
-                        ExtractionParameters.model_validate(extraction_raw)
-                    )
-
             return False
         except Exception as e:
             # We catch all exceptions here to wrap them in a WorkflowStepException
@@ -288,6 +275,12 @@ class WorkflowManager:
                 raise Exception("Workflow or event not prepared")
 
             self.main_workflow_context.event_version = self.event_data.version
+            self.main_workflow_context.classification_parameters = (
+                self.event_data.classification_parameters
+            )
+            self.main_workflow_context.extraction_parameters = (
+                self.event_data.extraction_parameters
+            )
 
             # Ensure a fresh step list per workflow execution
             self.step_list = []
@@ -318,18 +311,20 @@ class WorkflowManager:
         except Exception as e:
             raise WorkflowStepException("prepare_executor", e)
 
-    def _parse_start_event(self):
+    def _parse_start_event(self) -> WorkflowExecutionStartedEvent:
         try:
             if self.event_dto is None:
                 raise Exception("Event not prepared")
-            try:
-                return WorkflowExecutionStartedEvent(**self.event_dto.event)
-            except Exception as e:
-                logger.error(
-                    f"Failed to parse start event for execution {self.message.workflow_execution_id}: {e}"
-                )
-                raise
+            event = convert_inner_event_dto(
+                self.event_dto.event, self.event_dto.event_type
+            )
+            if not isinstance(event, WorkflowExecutionStartedEvent):
+                raise ValueError("Expected a workflow execution started event")
+            return event
         except Exception as e:
+            logger.error(
+                f"Failed to parse start event for execution {self.message.workflow_execution_id}: {e}"
+            )
             raise WorkflowStepException("parse_start_event", e)
 
     async def _notify_webhook_execution_finished(self, async_session: AsyncSession):

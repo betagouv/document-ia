@@ -29,6 +29,9 @@ from document_ia_infra.data.document.schema.document_extraction import (
 )
 from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.dto.event_type_enum import EventType
+from document_ia_infra.data.event.schema.mappers.event_mapper import (
+    convert_inner_event_dto,
+)
 from document_ia_infra.data.event.schema.workflow.workflow_execution_completed_event import (
     WorkflowExecutionCompletedEvent,
 )
@@ -56,49 +59,57 @@ class ExecutionService:
     def get_event_model(
         self, event_dto: EventDTO, execution_id: str, is_debug_mode: bool
     ) -> ExecutionStartedModel | ExecutionSuccessModel | ExecutionFailedModel:
-        if event_dto.event_type == EventType.WORKFLOW_EXECUTION_STARTED:
-            event_data = WorkflowExecutionStartedEvent(**event_dto.event)
-            file_info: Optional[S3FileInfo] = None
-            if event_data.s3_file_info is not None:
-                file_info = S3FileInfo(
-                    file_name=event_data.s3_file_info.filename,
-                    content_type=event_data.s3_file_info.content_type,
-                    presigned_url=event_data.s3_file_info.presigned_url,
+        if event_dto.event_type not in (
+            EventType.WORKFLOW_EXECUTION_STARTED,
+            EventType.WORKFLOW_EXECUTION_FAILED,
+            EventType.WORKFLOW_EXECUTION_COMPLETED,
+        ):
+            raise HTTPException(status_code=400, detail="Event type not supported")
+
+        event_data = convert_inner_event_dto(event_dto.event, event_dto.event_type)
+        match event_data:
+            case WorkflowExecutionStartedEvent():
+                file_info: Optional[S3FileInfo] = None
+                if event_data.s3_file_info is not None:
+                    file_info = S3FileInfo(
+                        file_name=event_data.s3_file_info.filename,
+                        content_type=event_data.s3_file_info.content_type,
+                        presigned_url=event_data.s3_file_info.presigned_url,
+                    )
+                return ExecutionStartedModel(
+                    id=execution_id,
+                    status=ExecutionStatus.STARTED,
+                    data=ExecutionStartedData(
+                        created_at=event_dto.created_at,
+                        s3_file_info=file_info,
+                        file_url=event_data.file_url,
+                    ),
                 )
-            return ExecutionStartedModel(
-                id=execution_id,
-                status=ExecutionStatus.STARTED,
-                data=ExecutionStartedData(
-                    created_at=event_dto.created_at,
-                    s3_file_info=file_info,
-                    file_url=event_data.file_url,
-                ),
-            )
-
-        if event_dto.event_type == EventType.WORKFLOW_EXECUTION_FAILED:
-            event_data = WorkflowExecutionFailedEvent(**event_dto.event)
-            return ExecutionFailedModel(
-                id=execution_id,
-                status=ExecutionStatus.FAILED,
-                data=ExecutionFailedData(
-                    error_type=event_data.error_type,
-                    failed_step=event_data.failed_step,
-                    retry_count=event_data.retry_count,
-                    workflow_id=event_data.workflow_id,
-                    error_message=event_data.error_message,
-                ),
-            )
-
-        if event_dto.event_type == EventType.WORKFLOW_EXECUTION_COMPLETED:
-            return self._get_success_response(execution_id, event_dto, is_debug_mode)
-
-        raise HTTPException(status_code=400, detail="Event type not supported")
+            case WorkflowExecutionFailedEvent():
+                return ExecutionFailedModel(
+                    id=execution_id,
+                    status=ExecutionStatus.FAILED,
+                    data=ExecutionFailedData(
+                        error_type=event_data.error_type,
+                        failed_step=event_data.failed_step,
+                        retry_count=event_data.retry_count,
+                        workflow_id=event_data.workflow_id,
+                        error_message=event_data.error_message,
+                    ),
+                )
+            case WorkflowExecutionCompletedEvent():
+                return self._get_success_response(
+                    execution_id, event_data, is_debug_mode
+                )
+            case _:
+                raise HTTPException(status_code=400, detail="Event type not supported")
 
     def _get_success_response(
-        self, execution_id: str, last_event: EventDTO, is_debug_mode: bool
+        self,
+        execution_id: str,
+        event_data: WorkflowExecutionCompletedEvent,
+        is_debug_mode: bool,
     ):
-        event_data = WorkflowExecutionCompletedEvent(**last_event.event)
-
         success_result = SuccessResult()
 
         if event_data.final_result.classification is not None:
