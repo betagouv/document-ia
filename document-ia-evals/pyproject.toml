@@ -8,10 +8,10 @@ authors = [
     {name = "Nicolas Sagon",email = "nicolas.sagon@beta.gouv.fr"}
 ]
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.13,<3.14"
 dependencies = [
     "streamlit == 1.56.0",
-    "pandas == 2.3.3",
+    "pandas == 3.1.0",
     "plotly == 7.1.0",
     "python-dotenv == 1.2.4",
     "label-studio-sdk == 2.1.2",
