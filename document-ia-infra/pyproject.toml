@@ -8,7 +8,7 @@ requires-python = ">=3.13"
 dependencies = [
     "python-dotenv == 1.2.2",
     "redis == 5.3.1",
-    "boto3 == 1.35.99",
+    "boto3==1.43.120",
     "pydantic == 2.13.4",
     "openai == 1.109.1",
     "tiktoken == 0.11.0",
