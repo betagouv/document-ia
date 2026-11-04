@@ -6,7 +6,7 @@ authors = [{name = "Romaric HALDENWANG",email = "romaric.haldenwang@beta.gouv.fr
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "fastapi == 0.136.3",
+    "fastapi==0.162.0",
     "starlette == 1.0.1",
     "python-dotenv == 1.2.2",
     "pydantic-settings == 2.14.1",
