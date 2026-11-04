@@ -28,6 +28,7 @@ async def test_worker_main_sigterm_waits_for_consumer_graceful_drain(
         def __init__(self, **kwargs: Any) -> None:
             self.kwargs = kwargs
             self.stop_flag = asyncio.Event()
+            self.has_running_handlers = False
 
         async def start_consumer(self) -> None:
             nonlocal drain_completed
@@ -62,6 +63,7 @@ async def test_worker_main_propagates_consumer_crash_and_cancels_stop_wait(
     class CrashingConsumer[T]:
         def __init__(self, **_kwargs: Any) -> None:
             self.stop_flag = asyncio.Event()
+            self.has_running_handlers = False
 
         async def start_consumer(self) -> None:
             raise RuntimeError("boom in start_consumer")
@@ -72,3 +74,126 @@ async def test_worker_main_propagates_consumer_crash_and_cancels_stop_wait(
         await asyncio.wait_for(worker_main.main(), timeout=2.0)
 
     assert worker_main._consumer is None
+
+
+@pytest.mark.asyncio
+async def test_signal_stops_consumer_and_waits_for_shutdown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from document_ia_worker import main as worker_main
+
+    monkeypatch.setattr(worker_main, "_prewarm_models", lambda: None)
+    monkeypatch.setattr(worker_main.logger, "disabled", True)
+
+    created_consumers = []
+
+    class FakeConsumer[T]:
+        def __init__(self, **_kwargs: Any) -> None:
+            self.stop_flag = asyncio.Event()
+            self.stopped = asyncio.Event()
+            self.has_running_handlers = False
+            created_consumers.append(self)
+
+        async def start_consumer(self) -> None:
+            await self.stop_flag.wait()
+            self.stopped.set()
+
+    monkeypatch.setattr(worker_main, "ThreadConsumer", FakeConsumer)
+    monkeypatch.setattr(
+        worker_main, "_register_signal_handlers", lambda event: event.set()
+    )
+
+    await worker_main.main()
+
+    assert len(created_consumers) == 1
+    consumer = created_consumers[0]
+    assert consumer.stop_flag.is_set()
+    assert consumer.stopped.is_set()
+
+
+@pytest.mark.asyncio
+async def test_signal_cancels_consumer_after_shutdown_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from document_ia_worker import main as worker_main
+
+    monkeypatch.setattr(worker_main, "_prewarm_models", lambda: None)
+    monkeypatch.setattr(worker_main.logger, "disabled", True)
+
+    class StuckConsumer[T]:
+        def __init__(self, **_kwargs: Any) -> None:
+            self.stop_flag = asyncio.Event()
+            self.has_running_handlers = False
+
+        async def start_consumer(self) -> None:
+            await asyncio.Event().wait()
+
+    monkeypatch.setattr(worker_main, "ThreadConsumer", StuckConsumer)
+    monkeypatch.setattr(
+        worker_main, "_register_signal_handlers", lambda event: event.set()
+    )
+    monkeypatch.setattr(worker_main, "CONSUMER_SHUTDOWN_TIMEOUT_S", 0.01)
+    monkeypatch.setattr(worker_main, "CANCELLATION_CLEANUP_TIMEOUT_S", 0.01)
+    forced_exit: list[int] = []
+    monkeypatch.setattr(worker_main, "_force_exit", lambda: forced_exit.append(1))
+
+    await asyncio.wait_for(worker_main.main(), timeout=1)
+
+    assert forced_exit == [1]
+
+
+@pytest.mark.asyncio
+async def test_signal_forces_exit_if_handler_thread_is_still_running(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from document_ia_worker import main as worker_main
+
+    monkeypatch.setattr(worker_main, "_prewarm_models", lambda: None)
+    monkeypatch.setattr(worker_main.logger, "disabled", True)
+
+    class RunningHandlerConsumer[T]:
+        def __init__(self, **_kwargs: Any) -> None:
+            self.stop_flag = asyncio.Event()
+            self.has_running_handlers = True
+
+        async def start_consumer(self) -> None:
+            await self.stop_flag.wait()
+
+    monkeypatch.setattr(worker_main, "ThreadConsumer", RunningHandlerConsumer)
+    monkeypatch.setattr(
+        worker_main, "_register_signal_handlers", lambda event: event.set()
+    )
+    forced_exit: list[int] = []
+    monkeypatch.setattr(worker_main, "_force_exit", lambda: forced_exit.append(1))
+
+    await worker_main.main()
+
+    assert forced_exit == [1]
+
+
+@pytest.mark.asyncio
+async def test_consumer_crash_forces_exit_if_handler_thread_is_still_running(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from document_ia_worker import main as worker_main
+
+    monkeypatch.setattr(worker_main, "_prewarm_models", lambda: None)
+    monkeypatch.setattr(worker_main.logger, "disabled", True)
+
+    class CrashedConsumer[T]:
+        def __init__(self, **_kwargs: Any) -> None:
+            self.stop_flag = asyncio.Event()
+            self.has_running_handlers = True
+
+        async def start_consumer(self) -> None:
+            raise RuntimeError("consumer failed")
+
+    monkeypatch.setattr(worker_main, "ThreadConsumer", CrashedConsumer)
+    monkeypatch.setattr(worker_main, "_register_signal_handlers", lambda _event: None)
+    forced_exit: list[int] = []
+    monkeypatch.setattr(worker_main, "_force_exit", lambda: forced_exit.append(1))
+
+    with pytest.raises(RuntimeError, match="consumer failed"):
+        await worker_main.main()
+
+    assert forced_exit == [1]

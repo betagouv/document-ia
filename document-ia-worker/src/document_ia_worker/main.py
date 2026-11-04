@@ -38,6 +38,15 @@ except Exception:
     pass
 
 
+CONSUMER_SHUTDOWN_TIMEOUT_S = 22
+CANCELLATION_CLEANUP_TIMEOUT_S = 3
+
+
+def _force_exit() -> None:
+    logger.critical("Forcing worker exit; unfinished messages remain pending")
+    os._exit(1)
+
+
 # Instance globale pour permettre l'arrêt gracieux lors d'un signal système
 _consumer: ThreadConsumer[WorkflowExecutionMessage] | None = None
 
@@ -69,9 +78,6 @@ async def run_consumer(stop_event: asyncio.Event | None = None) -> None:
     global _consumer
     logger.info("--- Starting document-ia-worker ---")
     _prewarm_models()
-    if stop_event is not None and stop_event.is_set():
-        logger.info("Shutdown requested during boot — skipping consumer startup")
-        return
     logger.info("Register redis stream consumer for workflow execution")
 
     _consumer = ThreadConsumer[WorkflowExecutionMessage](
@@ -86,7 +92,6 @@ async def run_consumer(stop_event: asyncio.Event | None = None) -> None:
     )
     if stop_event is not None and stop_event.is_set():
         _consumer.stop_flag.set()
-        return
 
     await _consumer.start_consumer()
 
@@ -135,29 +140,50 @@ async def main() -> None:
         )
 
         if consumer_task in done:
-            # Le consumer s'est terminé de lui-même (erreur ou fin normale)
+            stop_wait.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await stop_wait
             try:
                 await consumer_task
             except Exception:
                 logger.error("❌ Consumer crashed — exiting with error")
+                if _consumer is not None and _consumer.has_running_handlers:
+                    _force_exit()
                 raise
+            if stop_event.is_set() and _consumer is not None:
+                if _consumer.has_running_handlers:
+                    _force_exit()
             return
 
         # Un signal d'arrêt (SIGINT / SIGTERM) a été reçu : arrêt gracieux
-        logger.info("Shutdown signal received — stopping consumer gracefully...")
+        logger.info("Shutdown requested; stopping consumer")
         if _consumer is not None:
             _consumer.stop_flag.set()
+        done, _ = await asyncio.wait(
+            {consumer_task}, timeout=CONSUMER_SHUTDOWN_TIMEOUT_S
+        )
+        if consumer_task in done:
+            await consumer_task
+            if _consumer is not None and _consumer.has_running_handlers:
+                _force_exit()
+            return
+
+        logger.warning("Consumer shutdown timed out; cancelling remaining tasks")
+        consumer_task.cancel()
         try:
-            await asyncio.wait_for(consumer_task, timeout=25)
-            logger.info("Consumer finished gracefully — exiting")
+            await asyncio.wait_for(
+                asyncio.shield(consumer_task), timeout=CANCELLATION_CLEANUP_TIMEOUT_S
+            )
+        except asyncio.CancelledError:
+            pass
         except TimeoutError:
-            logger.warning("Consumer timed out during shutdown — cancelling")
-            consumer_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await consumer_task
+            logger.warning(
+                "Consumer cancellation timed out; unfinished messages remain pending"
+            )
+        _force_exit()
     finally:
         loop = asyncio.get_running_loop()
-        for s in registered_sigs:
+        for s in registered_sigs or ():
             with contextlib.suppress(Exception):
                 loop.remove_signal_handler(s)
         if not stop_wait.done():
