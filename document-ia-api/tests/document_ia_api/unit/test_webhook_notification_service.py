@@ -55,17 +55,18 @@ def _sample_webhook_dto(
 
 
 def _sample_event_dto(execution_id: str) -> EventDTO:
+    organization_id = uuid4()
     return EventDTO(
         id=uuid4(),
         workflow_id="wf-1",
-        organization_id=uuid4(),
+        organization_id=organization_id,
         execution_id=execution_id,
         created_at=datetime.now(UTC),
         event_type=EventType.WORKFLOW_EXECUTION_STARTED,
         event={
             "workflow_id": "wf-1",
             "execution_id": execution_id,
-            "organization_id": str(uuid4()),
+            "organization_id": str(organization_id),
             "created_at": datetime.now(UTC).isoformat(),
             "version": 1,
             "s3_file_info": None,

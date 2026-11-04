@@ -1,11 +1,11 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Literal
 
 from pydantic import Field, BaseModel
 
 from document_ia_infra.core.model.file_info import FileInfo
 from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.schema.event import BaseEvent
-from document_ia_infra.data.workflow.dto.workflow_dto import LLMModel
+from document_ia_infra.data.workflow.dto.enums import LLMModel
 from document_ia_infra.data.workflow.dto.workflow_v2_dto import WorkflowV2Dto
 from document_ia_schemas import SupportedDocumentType
 
@@ -32,7 +32,7 @@ class ExtractionParameters(BaseModel):
 class WorkflowExecutionStartedEvent(BaseEvent):
     """Event triggered when workflow execution begins."""
 
-    event_type: EventType = Field(
+    event_type: Literal[EventType.WORKFLOW_EXECUTION_STARTED] = Field(  # pyright: ignore[reportIncompatibleVariableOverride]
         default=EventType.WORKFLOW_EXECUTION_STARTED, description="Event type"
     )
     s3_file_info: Optional[FileInfo] = Field(
