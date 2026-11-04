@@ -638,7 +638,7 @@ requires-dist = [
     { name = "cryptography", specifier = "==50.0.2" },
     { name = "document-ia-infra", editable = "../document-ia-infra" },
     { name = "document-ia-schemas", editable = "../document-ia-schemas" },
-    { name = "fastapi", specifier = "==0.136.3" },
+    { name = "fastapi", specifier = "==0.162.0" },
     { name = "greenlet", specifier = "==3.5.6" },
     { name = "gunicorn", specifier = "==22.0.0" },
     { name = "httpx", specifier = "==0.28.1" },
@@ -807,18 +807,19 @@ wheels = [
 
 [[package]]
 name = "fastapi"
-version = "0.136.3"
+version = "0.162.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "annotated-doc" },
+    { name = "opentelemetry-api" },
     { name = "pydantic" },
     { name = "starlette" },
     { name = "typing-extensions" },
     { name = "typing-inspection" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/81/2d/ff8d91d7b564d464629a0fd50a4489c97fcb836ac230bf3a7269232a9b1f/fastapi-0.136.3.tar.gz", hash = "sha256:e487fae93ad408e6f47641ee4dfe389864fd7bec92e547ea8498fc13f43e83ab", size = 396410, upload-time = "2026-05-23T18:53:15.192Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e9/eb/2cf8c80abf09b2800aef0a83b41066fbfda8ee5495b7a08b9d1af40f7046/fastapi-0.162.0.tar.gz", hash = "sha256:6a22c1e2e6e32e0633ee7e170f00009a29b8228b16feb219ee42f32fd8d88a8f", size = 527867, upload-time = "2026-10-23T18:47:33.264Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e0/82/45359b62a067409bd929ae8a56b8ed13e5a8c8a61194b3c236920999ab83/fastapi-0.136.3-py3-none-any.whl", hash = "sha256:3d2a69bdf04b7e9f3afa292c3bc7a98816bbfafa10bc9b45f3f3700d2f761620", size = 117481, upload-time = "2026-05-23T18:53:16.924Z" },
+    { url = "https://files.pythonhosted.org/packages/b4/4f/3f2c25c9b43970b5e9a08beb5e04776247edea684ddc0930f4f02f0bb6cb/fastapi-0.162.0-py3-none-any.whl", hash = "sha256:3785963de305dd09912426cb81f2d230fce98ab3521cdfe97265c8d14983128c", size = 148912, upload-time = "2026-10-23T18:47:31.734Z" },
 ]
 
 [[package]]
@@ -1487,6 +1488,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/89/53/e19c21e0c4eb1275c3e2c97b081103b6dfb3938172264d283a519bf728b9/opencv_python_headless-4.12.0.88-cp37-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:236c8df54a90f4d02076e6f9c1cc763d794542e886c576a6fee46ec8ff75a7a9", size = 54023419, upload-time = "2025-07-07T09:15:10.164Z" },
     { url = "https://files.pythonhosted.org/packages/bf/9c/a76fd5414de6ec9f21f763a600058a0c3e290053cea87e0275692b1375c0/opencv_python_headless-4.12.0.88-cp37-abi3-win32.whl", hash = "sha256:fde2cf5c51e4def5f2132d78e0c08f9c14783cd67356922182c6845b9af87dbd", size = 30225230, upload-time = "2025-07-07T09:15:17.045Z" },
     { url = "https://files.pythonhosted.org/packages/f2/35/0858e9e71b36948eafbc5e835874b63e515179dc3b742cbe3d76bc683439/opencv_python_headless-4.12.0.88-cp37-abi3-win_amd64.whl", hash = "sha256:86b413bdd6c6bf497832e346cd5371995de148e579b9774f8eba686dee3f5528", size = 38923559, upload-time = "2025-07-07T09:15:25.229Z" },
+]
+
+[[package]]
+name = "opentelemetry-api"
+version = "1.45.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2e/02/6e0ae9cc61bd3169d401077b507b3ebc344745171e1051ab430be012dcd9/opentelemetry_api-1.45.1.tar.gz", hash = "sha256:aa38ed19bcc084ba42782a73255b3582283eced7ad6dddbd6695189e69adfb75", size = 72804, upload-time = "2026-10-06T17:32:58.133Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1e/41/f7dcf80b81ee8e71c1a2b59f14208bc723edbd89ed027a73b175abf6348e/opentelemetry_api-1.45.1-py3-none-any.whl", hash = "sha256:b31553efa588ae44bc306f863c785c5333a9ecc091248c6ee68b4b6c87fdedfb", size = 60256, upload-time = "2026-10-06T17:32:33.506Z" },
 ]
 
 [[package]]
