@@ -16,7 +16,7 @@ dependencies = [
     "jinja2 == 3.1.6",
     "pydantic == 2.14.1",
     "mypy-boto3-s3 == 1.43.14",
-    "greenlet == 3.5.1",
+    "greenlet == 3.5.6",
     "zxing-cpp == 2.3.0",
     "2ddoc-parser",
     "python-magic == 0.4.27",
