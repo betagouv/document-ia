@@ -9,7 +9,7 @@ dependencies = [
     "document-ia-infra",
     "document-ia-schemas",
     "python-dotenv == 1.2.2",
-    "pydantic-settings == 2.14.1",
+    "pydantic-settings == 2.16.1",
     "pytesseract == 0.3.13",
     "pymupdf == 1.27.2.3",
     "opencv-python-headless == 5.0.0.93",

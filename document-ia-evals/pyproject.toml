@@ -22,7 +22,7 @@ dependencies = [
     "sqlalchemy == 2.1.6",
     "alembic == 1.20.1",
     "pydantic == 2.14.1",
-    "pydantic-settings == 2.14.1",
+    "pydantic-settings == 2.16.1",
     "psycopg2-binary == 2.9.12",
     "document-ia-schemas",
     "document-ia-infra",
