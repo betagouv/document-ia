@@ -601,10 +601,8 @@ class BaseConsumer(ABC, Generic[T]):
                         )
                     except Exception as decode_err:
                         logger.error(
-                            "Decode error for message %s on '%s': %s",
-                            msg_id,
-                            self.stream_name,
-                            decode_err,
+                            "Message decode failed: %s",
+                            type(decode_err).__name__,
                         )
                         try:
                             if await self._send_to_dlq(
@@ -612,12 +610,10 @@ class BaseConsumer(ABC, Generic[T]):
                                 msg_id=msg_id,
                                 fields=fields,
                                 reason="decode_error",
-                                error=str(decode_err),
+                                error=type(decode_err).__name__,
                             ):
                                 try:
-                                    await redis_conn.xack(
-                                        self.stream_name, self.consumer_group, msg_id
-                                    )
+                                    await self.delivery.ack(redis_conn, msg_id)
                                 except Exception:
                                     logger.error(
                                         "ACK failed for decode_error %s", msg_id
@@ -642,7 +638,7 @@ class BaseConsumer(ABC, Generic[T]):
             self.stop_flag.set()
             raise
         except Exception as e:
-            logger.error("Error in consumer loop shutdown: %s", e)
+            logger.error("Error in consumer loop shutdown: %s", type(e).__name__)
             self.stop_flag.set()
             raise
         finally:
@@ -888,7 +884,7 @@ class BaseConsumer(ABC, Generic[T]):
                     "Failed to scan DLQ stream '%s' for %s: %s",
                     self.dlq_stream_name,
                     msg_id,
-                    scan_err,
+                    type(scan_err).__name__,
                 )
                 return False
 
@@ -899,6 +895,7 @@ class BaseConsumer(ABC, Generic[T]):
             "root_id": self._resolve_root_id(fields, msg_id),
             "reason": reason,
             "error": error or "",
+            "failure_class": fields.get("failure_class", "internal"),
             "consumer": self.consumer_name,
             "timestamp": datetime.now(UTC).isoformat(),
         }
@@ -907,13 +904,20 @@ class BaseConsumer(ABC, Generic[T]):
             dlq_fields["original_timestamp"] = str(orig_ts)
 
         try:
-            return await self.delivery.retain(redis_connection, msg_id, dlq_fields)
+            retained = await self.delivery.retain(redis_connection, msg_id, dlq_fields)
+            if retained:
+                logger.warning(
+                    "Message %s moved to DLQ '%s'",
+                    msg_id,
+                    self.dlq_stream_name,
+                )
+            return retained
         except Exception as dlq_err:
             logger.error(
                 "Failed to retain message %s in DLQ '%s': %s; leaving entry pending",
                 msg_id,
                 self.dlq_stream_name,
-                dlq_err,
+                type(dlq_err).__name__,
             )
             return False
 
@@ -996,7 +1000,9 @@ class BaseConsumer(ABC, Generic[T]):
             except Exception as e:
                 self._invalidate_connection_on_transport_error(e)
                 logger.warning(
-                    "Heartbeat failed for stream=%s: %s", self.stream_name, e
+                    "Heartbeat failed for stream=%s: %s",
+                    self.stream_name,
+                    type(e).__name__,
                 )
         logger.info("Heartbeat task stopped (stream='%s')", self.stream_name)
 
@@ -1085,11 +1091,15 @@ class BaseConsumer(ABC, Generic[T]):
                                 )
                                 self._needs_group_init = True
                     else:
-                        logger.error("Error reclaiming pending messages: %s", e)
+                        logger.error(
+                            "Error reclaiming pending messages: %s", type(e).__name__
+                        )
                     await self._sleep_unless_stopped(5.0)
                 except Exception as e:
                     self._invalidate_connection_on_transport_error(e)
-                    logger.error("Error reclaiming pending messages: %s", e)
+                    logger.error(
+                        "Error reclaiming pending messages: %s", type(e).__name__
+                    )
                     await self._sleep_unless_stopped(5.0)
         finally:
             self._reclaimer_active = False
@@ -1136,7 +1146,7 @@ class BaseConsumer(ABC, Generic[T]):
         msg_id = actual_msg_id
         fields = actual_fields
 
-        logger.info("Reclaimed message ID: %s with fields: %s", msg_id, fields)
+        logger.info("Reclaimed message ID: %s", msg_id)
 
         if not fields or "data" not in fields or not isinstance(fields["data"], str):
             logger.error(
@@ -1155,18 +1165,17 @@ class BaseConsumer(ABC, Generic[T]):
 
         try:
             retry_count = self._parse_retry_count(fields)
-        except Exception as parse_err:
+        except Exception:
             logger.error(
-                "Invalid retries metadata for reclaimed message %s: %s. Moving to DLQ.",
+                "Malformed retries field for reclaimed message %s. Moving to DLQ.",
                 msg_id,
-                parse_err,
             )
             await self._retain_in_dlq_and_ack(
                 redis_connection=redis_connection,
                 msg_id=msg_id,
                 fields=fields,
                 reason="decode_error",
-                error=f"Malformed retries field: {fields.get('retries')!r}",
+                error="Malformed retries field",
                 skip_retention_check=True,
             )
             return
@@ -1209,7 +1218,7 @@ class BaseConsumer(ABC, Generic[T]):
                 "Failed to scan DLQ stream '%s' for reclaimed message %s: %s; leaving entry pending",
                 self.dlq_stream_name,
                 msg_id,
-                scan_err,
+                type(scan_err).__name__,
             )
             return
 
@@ -1222,7 +1231,9 @@ class BaseConsumer(ABC, Generic[T]):
                 logger.error("ACK failed for reclaimed %s", msg_id)
         except Exception as requeue_err:
             logger.error(
-                "Failed to requeue reclaimed message %s: %s", msg_id, requeue_err
+                "Failed to requeue reclaimed message %s: %s",
+                msg_id,
+                type(requeue_err).__name__,
             )
 
     async def _retain_in_dlq_and_ack(

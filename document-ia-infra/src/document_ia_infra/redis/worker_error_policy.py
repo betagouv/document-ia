@@ -12,6 +12,8 @@ from typing import Any
 from redis.asyncio import Redis
 
 from document_ia_infra.exception.retryable_exception import RetryableException
+from document_ia_infra.redis.delivery_metrics import delivery_metric
+from document_ia_infra.redis.failure_classification import classify_failure
 from document_ia_infra.redis.stream_delivery import StreamDelivery
 
 logger = logging.getLogger(__name__)
@@ -41,26 +43,34 @@ class WorkerErrorPolicy:
                 entry_id,
             )
             return
-        except RetryableException as exc:
-            logger.warning("Retryable failure for %s: %s", entry_id, exc)
+        except Exception as exc:
+            category = classify_failure(exc)
+            delivery_metric(delivery.stream, "failure", category)
+            fields = {**fields, "failure_class": category}
+            error = type(exc).__name__
+            logger.error(
+                "Handler error for stream=%s id=%s: %s",
+                delivery.stream,
+                entry_id,
+                type(exc).__name__,
+            )
             try:
                 retries = int(fields.get("retries", "0"))
             except (TypeError, ValueError):
                 retries = 0
-            error = str(exc)
-            if retries < self.max_attempts - 1:
+            if isinstance(exc, RetryableException) and retries < self.max_attempts - 1:
                 try:
                     if not await requeue(redis, entry_id, fields, retries + 1):
                         return
                 except Exception as exc:
-                    reason, error = "error_requeueing_message", str(exc)
-            else:
+                    reason, error = "error_requeueing_message", type(exc).__name__
+            elif isinstance(exc, RetryableException):
                 reason = "max_retries_exceeded"
-        except Exception as exc:
-            reason, error = "not_retryable_error", str(exc)
+            else:
+                reason = "not_retryable_error"
         if reason and not await retain(redis, entry_id, fields, reason, error):
             return
         try:
             await delivery.ack(redis, entry_id)
         except Exception as exc:
-            logger.error("ACK failed for message %s: %s", entry_id, exc)
+            logger.error("ACK failed for message %s: %s", entry_id, type(exc).__name__)

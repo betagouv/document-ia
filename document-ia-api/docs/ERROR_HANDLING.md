@@ -54,6 +54,8 @@ Admission thresholds use hysteresis to avoid oscillation (flapping):
 - `ADMISSION_RESUME_OUTSTANDING` (default 800): reopens admission only once outstanding entries drop to or below this threshold.
 - `ADMISSION_MAX_AGE_SECONDS` (default 300s): stops admission when the oldest unacknowledged entry (`PEL` or unread) in either stream exceeds this age, protecting against hung/stalled workers or extreme processing delays.
 - `ADMISSION_RESUME_AGE_SECONDS` (default 120s): reopens admission only once the oldest entry age drops to or below this threshold.
+- `ADMISSION_MAX_RETAINED` (default 10000): stops admission when total entries in Redis (`XLEN(stream) + XLEN(stream:dlq)`) reach this ceiling, protecting Redis memory if completed entries or DLQ entries accumulate.
+- `ADMISSION_RESUME_RETAINED` (default 8000): reopens admission once maintenance cleanup drains retained entries back down to this threshold.
 
 Quota check failures (e.g., Redis outage during rate limiting) also fail closed and return `503 execution_capacity_unavailable`. Result read endpoints (`GET /api/v1/executions/{id}`) are not admission-gated and remain readable even when Redis is down.
 
