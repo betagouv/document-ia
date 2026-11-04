@@ -21,7 +21,7 @@ dependencies = [
     "zxing-cpp == 3.1.1",
     "2ddoc-parser",
     "python-magic == 0.4.27",
-    "psycopg2-binary == 2.9.12",
+    "psycopg2-binary == 2.9.13",
     "torch == 2.7.1+cpu; sys_platform == 'linux'",
     "torch == 2.7.1; sys_platform == 'darwin'",
     "torchvision == 0.22.1+cpu; sys_platform == 'linux'",

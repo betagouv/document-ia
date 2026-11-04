@@ -20,7 +20,7 @@ dependencies = [
     "python-logging-loki == 0.3.1",
     "document-ia-schemas",
     "cryptography == 50.0.2",
-    "psycopg2-binary == 2.9.12",
+    "psycopg2-binary == 2.9.13",
     "pyyaml == 6.0.3",
     "greenlet == 3.5.6",
 ]
