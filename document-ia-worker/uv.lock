@@ -429,7 +429,7 @@ requires-dist = [
     { name = "document-ia-schemas", editable = "../document-ia-schemas" },
     { name = "greenlet", specifier = "==3.5.6" },
     { name = "httpx", specifier = "==0.27.2" },
-    { name = "mypy-boto3-s3", specifier = "==1.43.14" },
+    { name = "mypy-boto3-s3", specifier = "==1.43.106" },
     { name = "openai", specifier = "==3.40.0" },
     { name = "psycopg2-binary", specifier = "==2.9.12" },
     { name = "pydantic", specifier = "==2.14.1" },
@@ -516,7 +516,7 @@ requires-dist = [
     { name = "greenlet", specifier = "==3.5.6" },
     { name = "httpx", specifier = "==0.27.2" },
     { name = "jinja2", specifier = "==3.1.6" },
-    { name = "mypy-boto3-s3", specifier = "==1.43.14" },
+    { name = "mypy-boto3-s3", specifier = "==1.43.106" },
     { name = "opencv-python-headless", specifier = "==4.13.0.92" },
     { name = "psycopg2-binary", specifier = "==2.9.12" },
     { name = "pydantic", specifier = "==2.14.1" },
@@ -1014,11 +1014,11 @@ wheels = [
 
 [[package]]
 name = "mypy-boto3-s3"
-version = "1.43.14"
+version = "1.43.106"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/04/2c/fc409f9ff5904a02cf4c2c1518c34d20cb56f22b2368b35fd0adda2926f3/mypy_boto3_s3-1.43.14.tar.gz", hash = "sha256:73d54c1d0999c73c403dc9a9a3da4a9722715aba116595af08c0d4675f8bc670", size = 77078, upload-time = "2026-05-22T20:48:28.251Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/46/db/e3922d6c62365c1098da97d9a775e78c66827df5cba11619a7d2a11cdae4/mypy_boto3_s3-1.43.106.tar.gz", hash = "sha256:731195f15830699a36e29d3c8abb2918bccd3587eb2edcb233f8046967893279", size = 79447, upload-time = "2026-09-30T22:44:48.472Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b7/61/e8e74a3f4c729719efc8b1d00179bc16c302202eac32a1b56a842a997ed2/mypy_boto3_s3-1.43.14-py3-none-any.whl", hash = "sha256:ce77096d6c5f90020c45e34c83d2268ca2bb17726149ce5033751870f7fb4e97", size = 84277, upload-time = "2026-05-22T20:48:25.032Z" },
+    { url = "https://files.pythonhosted.org/packages/b8/4a/52419b5496215ab52c6c257134c1ac0da25c1ca5d802f133424d02a43686/mypy_boto3_s3-1.43.106-py3-none-any.whl", hash = "sha256:e233d04dbcf3925522dff4346e75c37344ec3d1cbb82337e5eed2af263847668", size = 86791, upload-time = "2026-09-30T22:44:46.139Z" },
 ]
 
 [[package]]
