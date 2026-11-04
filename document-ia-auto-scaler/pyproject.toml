@@ -21,7 +21,7 @@ dev = [
     "ruff == 0.17.3",
     "pytest == 9.2.0",
     "pytest-asyncio == 1.4.1",
-    "pre-commit == 3.8.0",
+    "pre-commit == 4.7.0",
 ]
 
 [tool.uv]
