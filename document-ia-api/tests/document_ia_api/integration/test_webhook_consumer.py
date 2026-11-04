@@ -64,17 +64,18 @@ def _make_webhook_dto(webhook_id: UUID, url: str) -> WebHookDTO:
 
 
 def _make_event_dto(execution_id: str) -> EventDTO:
+    org_id = uuid4()
     return EventDTO(
         id=uuid4(),
         workflow_id="wf-webhook-test",
-        organization_id=uuid4(),
+        organization_id=org_id,
         execution_id=execution_id,
         created_at=datetime.now(UTC),
         event_type=EventType.WORKFLOW_EXECUTION_STARTED,
         event={
             "workflow_id": "wf-webhook-test",
             "execution_id": execution_id,
-            "organization_id": str(uuid4()),
+            "organization_id": str(org_id),
             "created_at": datetime.now(UTC).isoformat(),
             "version": 1,
             "s3_file_info": None,

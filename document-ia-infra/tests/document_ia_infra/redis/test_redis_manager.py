@@ -169,3 +169,21 @@ class TestRedisManager:
         # Ne doit pas lever
         await manager.close()
         assert manager.redis is None
+
+    @pytest.mark.asyncio
+    async def test_recovers_on_next_call_after_exhausting_retries(self):
+        manager = RedisManager()
+        manager.max_retries = 1
+        client = MagicMock()
+        client.ping = AsyncMock(side_effect=[ConnectionError("down"), True])
+        client.aclose = AsyncMock()
+        client.close = AsyncMock()
+        manager.redis = client
+        with (
+            patch("document_ia_infra.redis.redis_manager.ConnectionPool.from_url"),
+            patch("document_ia_infra.redis.redis_manager.Redis", return_value=client),
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            assert await manager.get_connection() is None
+            assert await manager.get_connection() is client
+        assert client.ping.await_count == 2

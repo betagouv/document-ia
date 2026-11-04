@@ -1452,7 +1452,7 @@ def test_base_consumer_is_abstract_and_subclasses_have_tailored_defaults():
     assert isinstance(tc, BaseConsumer)
     assert tc.worker_number == 4
     assert tc.max_in_flight == 4
-    assert tc.start_from == "$"
+    assert tc.start_from == "0-0"
     assert tc.close_redis_on_stop is True
     assert tc.executor is None
 

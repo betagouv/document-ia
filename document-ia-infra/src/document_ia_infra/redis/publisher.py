@@ -13,6 +13,7 @@ from redis.typing import EncodableT
 from document_ia_infra.redis.redis_manager import redis_manager, RedisManager
 from document_ia_infra.redis.redis_settings import redis_settings
 from document_ia_infra.redis.serializable_message import SerializableMessage
+from document_ia_infra.redis.admission import admit_execution
 
 logger = logging.getLogger(__name__)
 
@@ -50,10 +51,8 @@ class Publisher(Generic[T]):
                 the write. The exception message never embeds the published
                 payload.
 
-        Note:
-            ``maxlen`` truncation is not a saturation error: Redis accepts the
-            write and drops the oldest entries. Admission control on stream
-            capacity is a separate concern and is not detected here.
+        New workflow messages allocate capacity atomically against both queues.
+        Other publications can drain accepted work. Never trim unfinished work.
         """
         try:
             connection = await self.current_redis_manager.get_connection()
@@ -73,13 +72,14 @@ class Publisher(Generic[T]):
                 "retries": 0,
             }
 
-            # Ajouter au stream
-            # WARNING = inside a stream there is no ttl or expiration mechanism we have to implement it !
-            message_id = await connection.xadd(
-                self.stream_name,
-                stream_data,
-                maxlen=redis_settings.EVENT_STREAM_MAXLEN,  # limit the size of the stream
-            )
+            if self.stream_name == redis_settings.EVENT_STREAM_NAME:
+                message_id = await admit_execution(
+                    connection,
+                    data=str(stream_data["data"]),
+                    timestamp=str(stream_data["timestamp"]),
+                )
+            else:
+                message_id = await connection.xadd(self.stream_name, stream_data)
 
             logger.info(f"✅ Message published in Redis stream: {message_id}")
 

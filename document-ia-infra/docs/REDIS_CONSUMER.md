@@ -71,7 +71,7 @@ classDiagram
 | **Target workload** | CPU/RAM-heavy or hybrid sync/async workflows (`document-ia-worker`: PDF rendering, OpenCV, PyTorch, OCR) | Pure async I/O handlers (`document-ia-api`: PostgreSQL + `httpx` webhook notifications) |
 | **Scheduling model** | Lazily initialized `ThreadPoolExecutor` (`loop.run_in_executor`), **one fresh `asyncio` event loop per thread** | `asyncio.create_task` directly on the caller's running event loop (shares host DB/HTTP pools) |
 | **Concurrency parameter** | `worker_number` (defaults to `REDIS_WORKER_NUMBER`, i.e., `1`) | `max_concurrency` (defaults to `batch_size`; no `worker_number` or thread pool) |
-| **Default `start_from`** | `"$"` (new messages after group creation) | `"0-0"` (do not miss events published before initial group creation) |
+| **Default `start_from`** | `"0-0"` (do not miss events published before initial group creation) | `"0-0"` (do not miss events published before initial group creation) |
 | **Default `close_redis_on_stop`** | `True` (dedicated worker process) | `False` (preserves shared FastAPI `redis_manager`) |
 | **Typical lifecycle** | Blocking `await consumer.start_consumer()` | Non-blocking `await consumer.start()` / `await consumer.stop()` |
 
@@ -292,7 +292,7 @@ Defined in [`src/document_ia_infra/redis/redis_settings.py`](../src/document_ia_
 | `worker_number` | `ThreadConsumer` | `REDIS_WORKER_NUMBER` | ThreadPool size and `max_in_flight` limit (`>= 1`) |
 | `max_concurrency` | `AsyncIoConsumer` | `None` (`= batch_size`) | Max concurrent `asyncio.Task`s in flight (`>= 1`) |
 | `max_retry_number` | Both | `3` | Total allowed attempts before routing to DLQ (`>= 1`) |
-| `start_from` | `ThreadConsumer` / `AsyncIoConsumer` | `"$"` / `"0-0"` | Initial cursor when creating a missing consumer group |
+| `start_from` | `ThreadConsumer` / `AsyncIoConsumer` | `"0-0"` | Initial cursor when creating a missing consumer group |
 | `reclaim_idle_ms` | Both | `300000` (5 min) | Minimum PEL idle time in ms before `XAUTOCLAIM` reclaims an entry |
 | `reclaim_batch_size` | Both | `batch_size` | `COUNT` passed to `XAUTOCLAIM` |
 | `reclaim_poll_interval_s` | Both | `1.0` | Delay in seconds between `XAUTOCLAIM` sweeps |

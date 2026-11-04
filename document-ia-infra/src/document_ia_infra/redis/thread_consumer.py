@@ -47,7 +47,7 @@ class ThreadConsumer(BaseConsumer[T]):
         worker_number: int = redis_settings.REDIS_WORKER_NUMBER,
         max_retry_number: int = 3,
         *,
-        start_from: str = "$",
+        start_from: str = "0-0",
         reclaim_idle_ms: int | None = None,
         reclaim_batch_size: int | None = None,
         reclaim_poll_interval_s: float = 1.0,

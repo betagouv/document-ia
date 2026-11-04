@@ -28,7 +28,34 @@ The API standardizes errors using a Problem Details-like format, for example:
 | `422` | schema/request validation errors |
 | `429` | rate limit exceeded |
 | `500` | unhandled internal error |
-| `503` | execution could not be scheduled (see below) |
+| `503` | execution capacity unavailable (saturation) or publication failed (see below) |
+
+## Execution admission control (Saturation & Backpressure)
+
+Before accepting a new execution (and before uploading files to S3 or creating start events in PostgreSQL), the API checks stream admission capacity across both worker execution and webhook notification streams.
+
+If the queue is saturated, or if the oldest unacknowledged message exceeds the maximum age, the API returns `503` with a `Retry-After` header (configured by `PUBLISH_RETRY_AFTER_SECONDS`, default 5 seconds):
+
+```json
+{
+  "type": "about:blank",
+  "title": "Service Unavailable",
+  "status": 503,
+  "code": "http.service_unavailable",
+  "errors": {
+    "error": "execution_capacity_unavailable",
+    "message": "Execution capacity is unavailable. Retry the request later."
+  }
+}
+```
+
+Admission thresholds use hysteresis to avoid oscillation (flapping):
+- `ADMISSION_MAX_OUTSTANDING` (default 1000): stops admission when `lag + pending` entries across the stream reach this count.
+- `ADMISSION_RESUME_OUTSTANDING` (default 800): reopens admission only once outstanding entries drop to or below this threshold.
+- `ADMISSION_MAX_AGE_SECONDS` (default 300s): stops admission when the oldest unacknowledged entry (`PEL` or unread) in either stream exceeds this age, protecting against hung/stalled workers or extreme processing delays.
+- `ADMISSION_RESUME_AGE_SECONDS` (default 120s): reopens admission only once the oldest entry age drops to or below this threshold.
+
+Quota check failures (e.g., Redis outage during rate limiting) also fail closed and return `503 execution_capacity_unavailable`. Result read endpoints (`GET /api/v1/executions/{id}`) are not admission-gated and remain readable even when Redis is down.
 
 ## Execution scheduling failures
 
