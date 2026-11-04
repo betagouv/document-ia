@@ -6,7 +6,7 @@ authors = [{name = "Nicolas Sagon",email = "nicolas.sagon@beta.gouv.fr"}]
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "python-dotenv == 1.2.2",
+    "python-dotenv == 1.2.4",
     "redis == 5.3.1",
     "boto3 == 1.35.99",
     "pydantic == 2.14.1",

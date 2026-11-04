@@ -8,7 +8,7 @@ requires-python = ">=3.13"
 dependencies = [
     "document-ia-infra",
     "document-ia-schemas",
-    "python-dotenv == 1.2.2",
+    "python-dotenv == 1.2.4",
     "pydantic-settings == 2.16.1",
     "pytesseract == 0.3.13",
     "pymupdf == 1.27.2.3",

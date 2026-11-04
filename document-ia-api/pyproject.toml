@@ -9,7 +9,7 @@ dependencies = [
     "fastapi == 0.136.3",
     "pydantic == 2.14.1",
     "starlette == 1.10.0",
-    "python-dotenv == 1.2.2",
+    "python-dotenv == 1.2.4",
     "pydantic-settings == 2.16.1",
     "sqlalchemy == 2.1.6",
     "uvicorn == 0.54.0",
