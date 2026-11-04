@@ -1,8 +1,17 @@
-import calendar
 import re
 from abc import ABC
 from datetime import date
-from typing import TypeVar, Generic, Type, Any, Optional, Annotated, Literal, cast
+from typing import (
+    TypeVar,
+    Generic,
+    Type,
+    Any,
+    Optional,
+    Annotated,
+    cast,
+    Final,
+    final,
+)
 
 from pydantic import BaseModel, ConfigDict, BeforeValidator
 
@@ -16,15 +25,24 @@ DATE_FORMAT_PATTERNS: list[re.Pattern[str]] = [
 ]
 
 
-class InvalidDate(BaseModel):
-    """An extracted candidate that is not a calendar date, not a corrected value."""
+@final
+class DateAnomalyCode:
+    """Anomaly codes for date values."""
 
-    code: Literal["invalid_date"] = "invalid_date"
+    INVALID_DATE: Final[str] = "invalid_date"
+
+
+INVALID_DATE_CODE: Final[str] = DateAnomalyCode.INVALID_DATE
+
+
+class InvalidProperty(BaseModel):
+    """An extracted candidate property that failed validation."""
+
+    code: str
     raw_value: str
-    suggested_value: Optional[date] = None
 
 
-def _parse_date_candidate(raw_value: str) -> date | InvalidDate | None:
+def _parse_date_candidate(raw_value: str) -> date | InvalidProperty | None:
     for pattern in DATE_FORMAT_PATTERNS:
         match = pattern.fullmatch(raw_value)
         if match is None:
@@ -37,16 +55,12 @@ def _parse_date_candidate(raw_value: str) -> date | InvalidDate | None:
         try:
             return date(year, month, day)
         except ValueError:
-            suggestion = None
-            if 1 <= year <= 9999 and 1 <= month <= 12 and day > 0:
-                max_day = calendar.monthrange(year, month)[1]
-                suggestion = date(year, month, min(day, max_day))
-            return InvalidDate(raw_value=raw_value, suggested_value=suggestion)
+            return InvalidProperty(code=INVALID_DATE_CODE, raw_value=raw_value)
 
     return None
 
 
-def parse_flexible_date(value: Any) -> date | InvalidDate | None:
+def parse_flexible_date(value: Any) -> date | InvalidProperty | None:
     """
     Tente de convertir une chaîne en date en essayant plusieurs formats.
     Gère aussi les cas où le LLM renvoie 'null' ou 'None' en string.
@@ -58,12 +72,15 @@ def parse_flexible_date(value: Any) -> date | InvalidDate | None:
     if isinstance(value, date):
         return value
 
-    # Recompute anomalies on deserialization rather than trusting a supplied correction.
-    if isinstance(value, InvalidDate):
+    # Recompute anomalies on deserialization rather than trusting a supplied anomaly.
+    if isinstance(value, InvalidProperty):
         value = value.raw_value
     elif isinstance(value, dict):
         anomaly_data = cast(dict[str, Any], value)
-        if anomaly_data.get("code") == "invalid_date":
+        if (
+            anomaly_data.get("code") == INVALID_DATE_CODE
+            and "raw_value" in anomaly_data
+        ):
             value = anomaly_data.get("raw_value")
 
     if isinstance(value, str):
@@ -75,7 +92,7 @@ def parse_flexible_date(value: Any) -> date | InvalidDate | None:
 
         parsed_date = _parse_date_candidate(value)
         if parsed_date is not None:
-            if isinstance(parsed_date, InvalidDate):
+            if isinstance(parsed_date, InvalidProperty):
                 parsed_date.raw_value = raw_value
             return parsed_date
 
@@ -87,15 +104,15 @@ def parse_flexible_date(value: Any) -> date | InvalidDate | None:
 def _validate_fuzzy_date(value: Any) -> date | dict[str, Any] | None:
     parsed = parse_flexible_date(value)
     # The OpenAI adapter rebuilds nested models; a dict works for both model classes.
-    return parsed.model_dump() if isinstance(parsed, InvalidDate) else parsed
+    return parsed.model_dump() if isinstance(parsed, InvalidProperty) else parsed
 
 
 FuzzyDate = Annotated[
-    Optional[date | InvalidDate], BeforeValidator(_validate_fuzzy_date)
+    Optional[date | InvalidProperty], BeforeValidator(_validate_fuzzy_date)
 ]
 
 
-class BaseDocumentTypeSchema(BaseModel, Generic[T], ABC):
+class BaseDocumentTypeSchema(BaseModel, Generic[T], ABC):  # pyright: ignore [reportUnsafeMultipleInheritance]
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     type: str = ""

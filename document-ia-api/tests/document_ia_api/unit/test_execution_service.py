@@ -290,7 +290,6 @@ def test_date_anomaly_survives_completed_event_and_api_response(version, is_debu
     ] == {
         "code": "invalid_date",
         "raw_value": "31/04/2026",
-        "suggested_value": "2026-04-30",
     }
     dto = EventDTO(
         id=uuid4(),
@@ -314,7 +313,6 @@ def test_date_anomaly_survives_completed_event_and_api_response(version, is_debu
         "anomaly": {
             "code": "invalid_date",
             "raw_value": "31/04/2026",
-            "suggested_value": "2026-04-30",
         },
     }
     assert props["date_delivrance"] == {

@@ -27,7 +27,10 @@ def test_get_response_format_preserves_and_executes_field_validators_on_model_va
 
 def test_openai_wrapper_preserves_impossible_date_through_domain_validation():
     from document_ia_schemas.cni import CNIModel
-    from document_ia_schemas.base_document_type_schema import InvalidDate
+    from document_ia_schemas.base_document_type_schema import (
+        INVALID_DATE_CODE,
+        InvalidProperty,
+    )
 
     response_model = get_response_format(CNIModel)
     parsed = response_model.model_validate_json(
@@ -35,6 +38,6 @@ def test_openai_wrapper_preserves_impossible_date_through_domain_validation():
     )
     domain = CNIModel.model_validate_json(parsed.model_dump_json())
     assert domain.nom == "DUPONT"
-    assert domain.date_naissance == InvalidDate(
-        raw_value="31/04/2026", suggested_value=date(2026, 4, 30)
+    assert domain.date_naissance == InvalidProperty(
+        code=INVALID_DATE_CODE, raw_value="31/04/2026"
     )

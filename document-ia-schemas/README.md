@@ -93,36 +93,54 @@ Tous les schémas héritent de `BaseDocumentTypeSchema` et exposent:
 Utilitaires fournis:
 - `resolve_extract_schema(name: str) -> BaseDocumentTypeSchema`: importe le module du type et retourne l’instance du schéma `*ExtractSchema` correspondant.
 
-### Dates impossibles et suggestions de correction
+### Propriétés invalides et anomalies d'extraction
+
+Le socle repose sur `InvalidProperty`, un modèle unique pour toute propriété candidate dont l'extraction échoue à la validation métier :
+
+```python
+class InvalidProperty(BaseModel):
+    code: str
+    raw_value: str
+```
+
+Pour les dates, lorsqu'une valeur candidate ne représente pas une date valide sur le calendrier, `FuzzyDate` instancie directement un `InvalidProperty` avec le code `DateAnomalyCode.INVALID_DATE` (`"invalid_date"`).
 
 `FuzzyDate` conserve les dates valides et les valeurs absentes. Les formats
 `AAAA-MM-JJ`, `JJ/MM/AAAA`, `JJ-MM-AAAA` et `JJ.MM.AAAA` restent acceptés,
 y compris avec un jour ou un mois sur un chiffre.
 
-Une date impossible ne remplace plus la valeur extraite par le dernier jour du
-mois. Le champ contient un objet `InvalidDate`, conservé lors de la sérialisation :
+Une date impossible ne remplace plus la valeur extraite et ne tente aucune correction automatique.
+Le champ contient un objet `InvalidProperty`, conservé lors de la sérialisation :
 
 ```json
 {
   "code": "invalid_date",
-  "raw_value": "31/04/2026",
-  "suggested_value": "2026-04-30"
+  "raw_value": "31/04/2026"
 }
 ```
 
-`raw_value` est la valeur candidate reçue. `suggested_value` est une proposition,
-pas une date extraite ni une correction validée. Elle vaut `null` lorsque le jour,
-le mois ou l'année ne permet pas de proposer le dernier jour du mois.
-Les autres champs du document restent disponibles.
+`raw_value` est la valeur candidate brute extraite du document. Les autres champs du document restent disponibles.
 
 Dans les résultats de l'API v1 et v2, la propriété garde `type: "date"`, avec
-`value: null` et cet objet dans `anomaly`. Les dates valides gardent leur valeur
-ISO habituelle ; les valeurs absentes restent à `null`, sans champ `anomaly`.
-Le consommateur peut ainsi demander une vérification avant d'utiliser la suggestion.
+`value: null` et cet objet dans `anomaly` :
+
+```json
+{
+  "name": "date_naissance",
+  "type": "date",
+  "value": null,
+  "anomaly": {
+    "code": "invalid_date",
+    "raw_value": "31/04/2026"
+  }
+}
+```
+
+Les dates valides gardent leur valeur ISO habituelle (`value: "2024-01-01"`) ; les valeurs absentes restent à `value: null`, sans champ `anomaly`.
 
 **Limites :** un texte qui ne correspond à aucun format accepté reste une erreur
-de validation. Les anciennes valeurs déjà corrigées et enregistrées sans leur
-candidate d'origine ne peuvent pas être reconstituées.
+de validation. Les anciennes valeurs enregistrées sans leur candidate d'origine ne
+peuvent pas être reconstituées.
 
 
 ## 🗂️ Structure du projet
