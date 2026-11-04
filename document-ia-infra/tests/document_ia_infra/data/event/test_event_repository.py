@@ -99,7 +99,11 @@ class TestEventRepository:
                 workflow_id="test_workflow_001",
                 execution_id="test_execution_001",
                 event_type=EventType.WORKFLOW_EXECUTION_STARTED,
-                event={"test": "data1", "classification_parameters": {}, "extraction_parameters": {}},
+                event={
+                    "test": "data1",
+                    "classification_parameters": {},
+                    "extraction_parameters": {},
+                },
             ),
             EventDTO(
                 id=uuid4(),
@@ -247,31 +251,45 @@ class TestGetCreatedEventIfExecutionNotCompletedOrFailed:
         row.event = payload or {}
         return row
 
-    async def test_returns_none_when_last_event_is_completed(
+    async def test_returns_none_when_latest_event_is_completed(
         self, event_repository, mock_session
     ):
         now = datetime.now(UTC)
-        # events list is ordered DESC by created_at according to query; code uses events[-1] (oldest)
-        newest = self._make_entity(evt_type=EventType.WORKFLOW_EXECUTION_STARTED, created_at=now)
-        oldest = self._make_entity(evt_type=EventType.WORKFLOW_EXECUTION_COMPLETED, created_at=now.replace(year=now.year-1))
+        newest = self._make_entity(
+            evt_type=EventType.WORKFLOW_EXECUTION_COMPLETED, created_at=now
+        )
+        oldest = self._make_entity(
+            evt_type=EventType.WORKFLOW_EXECUTION_STARTED,
+            created_at=now.replace(year=now.year - 1),
+        )
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = [newest, oldest]
         mock_session.execute.return_value = mock_result
 
-        result = await event_repository.get_created_event_if_execution_not_completed_or_failed("exec1")
+        result = await event_repository.get_created_event_if_execution_not_completed_or_failed(
+            "exec1"
+        )
         assert result is None
 
-    async def test_returns_started_when_last_event_is_started(
+    async def test_returns_started_when_latest_event_is_started(
         self, event_repository, mock_session
     ):
         now = datetime.now(UTC)
-        newest = self._make_entity(evt_type=EventType.WORKFLOW_EXECUTION_FAILED, created_at=now, payload={"error_type": "Other"})
-        oldest_started = self._make_entity(evt_type=EventType.WORKFLOW_EXECUTION_STARTED, created_at=now.replace(year=now.year-1))
+        newest = self._make_entity(
+            evt_type=EventType.WORKFLOW_EXECUTION_STARTED, created_at=now
+        )
+        oldest_failed = self._make_entity(
+            evt_type=EventType.WORKFLOW_EXECUTION_FAILED,
+            created_at=now.replace(year=now.year - 1),
+            payload={"error_type": "Other"},
+        )
         mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [newest, oldest_started]
+        mock_result.scalars.return_value.all.return_value = [newest, oldest_failed]
         mock_session.execute.return_value = mock_result
 
-        result = await event_repository.get_created_event_if_execution_not_completed_or_failed("exec1")
+        result = await event_repository.get_created_event_if_execution_not_completed_or_failed(
+            "exec1"
+        )
         assert isinstance(result, EventDTO)
         assert result.event_type == EventType.WORKFLOW_EXECUTION_STARTED
         assert result.execution_id == "exec1"
@@ -280,14 +298,26 @@ class TestGetCreatedEventIfExecutionNotCompletedOrFailed:
         self, event_repository, mock_session
     ):
         now = datetime.now(UTC)
-        # oldest is FAILED retryable, there is a STARTED more recent; code scans reversed(events) to find STARTED
-        newest_started = self._make_entity(evt_type=EventType.WORKFLOW_EXECUTION_STARTED, created_at=now)
-        oldest_failed = self._make_entity(evt_type=EventType.WORKFLOW_EXECUTION_FAILED, created_at=now.replace(year=now.year-1), payload={"error_type": RetryableException.__name__})
+        # The latest failure is retryable, so resume from its preceding start.
+        newest_failed = self._make_entity(
+            evt_type=EventType.WORKFLOW_EXECUTION_FAILED,
+            created_at=now,
+            payload={"error_type": RetryableException.__name__},
+        )
+        prior_started = self._make_entity(
+            evt_type=EventType.WORKFLOW_EXECUTION_STARTED,
+            created_at=now.replace(year=now.year - 1),
+        )
         mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [newest_started, oldest_failed]
+        mock_result.scalars.return_value.all.return_value = [
+            newest_failed,
+            prior_started,
+        ]
         mock_session.execute.return_value = mock_result
 
-        result = await event_repository.get_created_event_if_execution_not_completed_or_failed("exec1")
+        result = await event_repository.get_created_event_if_execution_not_completed_or_failed(
+            "exec1"
+        )
         assert isinstance(result, EventDTO)
         assert result.event_type == EventType.WORKFLOW_EXECUTION_STARTED
 
@@ -295,13 +325,59 @@ class TestGetCreatedEventIfExecutionNotCompletedOrFailed:
         self, event_repository, mock_session
     ):
         now = datetime.now(UTC)
-        newest = self._make_entity(evt_type=EventType.WORKFLOW_EXECUTION_STARTED, created_at=now)
-        oldest_failed = self._make_entity(evt_type=EventType.WORKFLOW_EXECUTION_FAILED, created_at=now.replace(year=now.year-1), payload={"error_type": "SomeOther"})
+        newest = self._make_entity(
+            evt_type=EventType.WORKFLOW_EXECUTION_FAILED,
+            created_at=now,
+            payload={"error_type": "SomeOther"},
+        )
+        oldest_started = self._make_entity(
+            evt_type=EventType.WORKFLOW_EXECUTION_STARTED,
+            created_at=now.replace(year=now.year - 1),
+        )
         mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [newest, oldest_failed]
+        mock_result.scalars.return_value.all.return_value = [newest, oldest_started]
         mock_session.execute.return_value = mock_result
 
-        result = await event_repository.get_created_event_if_execution_not_completed_or_failed("exec1")
+        result = await event_repository.get_created_event_if_execution_not_completed_or_failed(
+            "exec1"
+        )
+        assert result is None
+
+    async def test_latest_progress_event_prevents_reexecution(
+        self, event_repository, mock_session
+    ):
+        now = datetime.now(UTC)
+        newest = self._make_entity(
+            evt_type=EventType.WORKFLOW_EXECUTION_STEP_COMPLETED, created_at=now
+        )
+        oldest_started = self._make_entity(
+            evt_type=EventType.WORKFLOW_EXECUTION_STARTED,
+            created_at=now.replace(year=now.year - 1),
+        )
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [newest, oldest_started]
+        mock_session.execute.return_value = mock_result
+
+        result = await event_repository.get_created_event_if_execution_not_completed_or_failed(
+            "exec1"
+        )
+        assert result is None
+
+    async def test_retryable_failure_without_start_event_returns_none(
+        self, event_repository, mock_session
+    ):
+        failed = self._make_entity(
+            evt_type=EventType.WORKFLOW_EXECUTION_FAILED,
+            created_at=datetime.now(UTC),
+            payload={"error_type": RetryableException.__name__},
+        )
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [failed]
+        mock_session.execute.return_value = mock_result
+
+        result = await event_repository.get_created_event_if_execution_not_completed_or_failed(
+            "exec1"
+        )
         assert result is None
 
     async def test_oserror_raises_retryable_exception(
@@ -309,15 +385,19 @@ class TestGetCreatedEventIfExecutionNotCompletedOrFailed:
     ):
         mock_session.execute.side_effect = OSError("db connection down")
         with pytest.raises(RetryableException):
-            await event_repository.get_created_event_if_execution_not_completed_or_failed("exec1")
+            await (
+                event_repository.get_created_event_if_execution_not_completed_or_failed(
+                    "exec1"
+                )
+            )
 
-    async def test_empty_events_list_returns_none(
-        self, event_repository, mock_session
-    ):
+    async def test_empty_events_list_returns_none(self, event_repository, mock_session):
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = []
         mock_session.execute.return_value = mock_result
 
-        result = await event_repository.get_created_event_if_execution_not_completed_or_failed("exec1")
+        result = await event_repository.get_created_event_if_execution_not_completed_or_failed(
+            "exec1"
+        )
         assert result is None
         mock_session.rollback.assert_not_called()
