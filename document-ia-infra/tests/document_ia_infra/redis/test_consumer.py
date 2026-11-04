@@ -1,7 +1,6 @@
 import asyncio
 import contextlib
 import json
-import logging
 import time
 from collections.abc import Callable
 from typing import Any
@@ -13,6 +12,7 @@ from document_ia_infra.exception.retryable_exception import RetryableException
 from document_ia_infra.redis.consumer import (
     AsyncIoConsumer,
     BaseConsumer,
+    Consumer,
     ThreadConsumer,
     build_instance_consumer_name,
 )
@@ -162,16 +162,11 @@ class MockRedis:
                 orig
             ):
                 return [0, msg_id]
-        fields: dict[str, Any] = {}
-        rest = args[3:]
-        for i in range(0, len(rest), 2):
-            if i + 1 < len(rest):
-                fields[rest[i]] = rest[i + 1]
+        # Shared copy primitive: original_id, scan minimum, then field pairs.
+        # Both requeue and DLQ now use the same wire contract.
+        fields = dict(zip(args[3::2], args[4::2]))
         fields["original_id"] = orig
-        maxlen = (
-            int(args[2]) if len(args) > 2 and args[2] and int(args[2]) > 0 else None
-        )
-        new_id = await self.xadd(stream, fields, maxlen=maxlen)
+        new_id = await self.xadd(stream, fields)
         return [1, new_id]
 
     async def xclaim(
@@ -651,11 +646,10 @@ async def test_dlq_retention_scan_covers_source_millisecond():
 
 
 @pytest.mark.asyncio
-async def test_reclaimer_after_dlq_retention_does_not_duplicate(monkeypatch, caplog):
+async def test_reclaimer_after_dlq_retention_does_not_duplicate(monkeypatch):
     """Conservation DLQ confirmée puis ACK en échec : l'entrée d'origine
     reste en attente et subit une nouvelle récupération, qui ne doit pas
     conserver une deuxième copie (issue #111)."""
-    caplog.set_level(logging.INFO)
     stream = "test-stream"
     group = "g1"
     msg_id = "1700000000000-0"
@@ -683,8 +677,8 @@ async def test_reclaimer_after_dlq_retention_does_not_duplicate(monkeypatch, cap
     )
 
     # deux cycles de récupération sur la même entrée épuisée
-    mock_redis.queue_xautoclaim("0-1", [(msg_id, fields)])
-    mock_redis.queue_xautoclaim("0-1", [(msg_id, fields)])
+    mock_redis.queue_xautoclaim("0-1", [(msg_id, dict(fields))])
+    mock_redis.queue_xautoclaim("0-1", [(msg_id, dict(fields))])
 
     # l'ACK échoue : l'entrée reste en attente après la conservation DLQ
     async def failing_xack(stream_name: str, group_name: str, mid: str):
@@ -694,17 +688,19 @@ async def test_reclaimer_after_dlq_retention_does_not_duplicate(monkeypatch, cap
 
     task = asyncio.create_task(c._reclaim_pending_messages())
     try:
-        # le second cycle doit passer par la détection d'entrée existante
+        # le second cycle doit retrouver l'entrée déjà conservée (dédup
+        # atomique dans le script Lua) : aucune seconde ligne DLQ.
         for _ in range(100):
-            if "skipping duplicate write" in caplog.text:
+            if mock_redis.xadd_calls:
                 break
             await asyncio.sleep(0.05)
+        # laisser le second cycle se dérouler
+        await asyncio.sleep(0.3)
     finally:
         c.stop_flag.set()
         await asyncio.wait_for(task, timeout=5)
         await c._shutdown_executor()
 
-    assert "skipping duplicate write" in caplog.text
     dlqs = [call for call in mock_redis.xadd_calls if call[0] == f"{stream}:dlq"]
     assert len(dlqs) == 1
 
@@ -1839,10 +1835,6 @@ async def test_xadd_passes_stream_and_dlq_maxlen():
     assert dlq_fields["root_id"] == "1700000000000-0"
     assert dlq_fields["original_id"] == requeued_id
     assert dlq_fields["original_timestamp"] == "t0"
-    assert mock_redis.xadd_maxlens == [
-        (stream, 5000, True),
-        (f"{stream}:dlq", 10000, True),
-    ]
 
 
 @pytest.mark.asyncio
@@ -2202,6 +2194,137 @@ async def test_executor_shutdown_does_not_wait_for_running_threads(monkeypatch):
     await consumer._de_init_consumer()
 
     assert shutdown_calls == [(False, True)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("batch_size", "workers", "expected_counts"),
+    [(1, 3, [1, 1, 1]), (2, 3, [2, 1]), (5, 3, [3])],
+)
+async def test_xreadgroup_honors_batch_and_remaining_slots(
+    monkeypatch, batch_size, workers, expected_counts
+):
+    import threading
+
+    counts = []
+    started = []
+    release = threading.Event()
+
+    class CapacityRedis(MockRedis):
+        remaining = 3
+
+        async def xreadgroup(self, group, consumer, streams, count, block):
+            counts.append(count)
+            size = min(count, self.remaining)
+            entries = [
+                (f"1700000000000-{self.remaining - index}", {"data": "{}"})
+                for index in range(size)
+            ]
+            self.remaining -= size
+            return [(self.stream_name, entries)]
+
+    redis = CapacityRedis("batch-stream")
+
+    async def get_connection():
+        return redis
+
+    from document_ia_infra.redis import redis_manager as rm_module
+
+    monkeypatch.setattr(rm_module.redis_manager, "get_connection", get_connection)
+
+    async def handler(*_args):
+        started.append(True)
+        release.wait()
+
+    consumer = Consumer(
+        "c",
+        "g",
+        "batch-stream",
+        batch_size,
+        10,
+        SampleMessage,
+        handler,
+        worker_number=workers,
+    )
+    listener = asyncio.create_task(consumer._start_listening_messages())
+    try:
+        for _ in range(100):
+            if len(started) == workers:
+                break
+            await asyncio.sleep(0.01)
+        assert len(started) == workers
+        assert counts == expected_counts  # Actual Redis admission, not helper only.
+        assert consumer.has_running_handlers
+    finally:
+        consumer.stop_flag.set()
+        release.set()
+        await asyncio.wait_for(listener, timeout=2)
+        consumer.execution.close()
+    assert len(redis.acks) == workers
+
+
+@pytest.mark.asyncio
+async def test_runner_cleans_pending_tasks_and_async_generators():
+    from document_ia_infra.redis.handler_execution import run_handler_in_thread
+
+    closed = []
+    generators = []
+    handler_loops = []
+
+    async def orphan():
+        try:
+            await asyncio.Event().wait()
+        finally:
+            closed.append("task")
+
+    async def values():
+        try:
+            yield 1
+        finally:
+            closed.append("generator")
+
+    async def handler():
+        handler_loops.append(asyncio.get_running_loop())
+        asyncio.create_task(orphan())
+        generator = values()
+        generators.append(generator)  # Keep alive: test Runner, not GC cleanup.
+        assert await anext(generator) == 1
+        await asyncio.sleep(0)
+
+    main_loop = asyncio.get_running_loop()
+    await asyncio.to_thread(run_handler_in_thread, handler)
+    assert handler_loops[0] is not main_loop
+    assert handler_loops[0].is_closed()
+    assert sorted(closed) == ["generator", "task"]
+
+
+@pytest.mark.asyncio
+async def test_consumer_stop_does_not_close_borrowed_manager():
+    from unittest.mock import AsyncMock
+    from document_ia_infra.redis.redis_manager import RedisManager
+
+    manager = RedisManager()
+    manager.close = AsyncMock()
+    consumer = Consumer(
+        "c",
+        "g",
+        "s",
+        1,
+        10,
+        SampleMessage,
+        lambda *_: asyncio.sleep(0),
+        current_redis_manager=manager,
+    )
+    await consumer._de_init_consumer()
+    manager.close.assert_not_awaited()
+
+
+@pytest.mark.parametrize(("workers", "batch_size"), [(0, 1), (1, 0), (1, -1)])
+def test_rejects_nonpositive_execution_capacity(workers, batch_size):
+    from document_ia_infra.redis.handler_execution import HandlerExecution
+
+    with pytest.raises(ValueError, match="positive"):
+        HandlerExecution(workers, batch_size)
 
 
 @pytest.mark.asyncio

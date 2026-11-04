@@ -31,13 +31,30 @@ class TestWorkflowManager:
     @pytest.fixture
     def mock_dependencies(self):
         # Mocks for logging and context vars
-        with patch("document_ia_worker.workflow.workflow_manager.setup_logging_worker") as mock_setup_log, \
-                patch("document_ia_worker.workflow.workflow_manager.execution_id_var") as mock_exec_var, \
-                patch("document_ia_worker.workflow.workflow_manager.agg_buffer_var") as mock_agg_var, \
-                patch("document_ia_worker.workflow.workflow_manager.start_time_var") as mock_start_var, \
-                patch("document_ia_worker.workflow.workflow_manager.handle_finish_execution") as mock_handle_finish, \
-                patch("document_ia_worker.workflow.workflow_manager.Publisher") as mock_publisher, \
-                patch("document_ia_worker.workflow.workflow_manager.RedisManager"):
+        with (
+            patch(
+                "document_ia_worker.workflow.workflow_manager.setup_logging_worker"
+            ) as mock_setup_log,
+            patch(
+                "document_ia_worker.workflow.workflow_manager.execution_id_var"
+            ) as mock_exec_var,
+            patch(
+                "document_ia_worker.workflow.workflow_manager.agg_buffer_var"
+            ) as mock_agg_var,
+            patch(
+                "document_ia_worker.workflow.workflow_manager.start_time_var"
+            ) as mock_start_var,
+            patch(
+                "document_ia_worker.workflow.workflow_manager.handle_finish_execution"
+            ) as mock_handle_finish,
+            patch(
+                "document_ia_worker.workflow.workflow_manager.Publisher"
+            ) as mock_publisher,
+            patch(
+                "document_ia_worker.workflow.workflow_manager.RedisManager"
+            ) as mock_redis_manager,
+        ):
+            mock_redis_manager.return_value.close = AsyncMock()
             mock_publisher_instance = mock_publisher.return_value
             mock_publisher_instance.publish_message = AsyncMock()
 
@@ -48,7 +65,11 @@ class TestWorkflowManager:
                 "start_var": mock_start_var,
                 "handle_finish": mock_handle_finish,
                 "publisher": mock_publisher_instance,
+                "redis_manager": mock_redis_manager.return_value,
             }
+            # Success, fatal/retryable failure, duplicates and cancellation
+            # must all close the workflow-owned publisher manager.
+            mock_redis_manager.return_value.close.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_start_success(self, mock_workflow_message, mock_db_manager, mock_dependencies):
@@ -243,3 +264,36 @@ class TestWorkflowManager:
         mock_notify.assert_not_awaited()
         mock_dependencies["handle_finish"].assert_not_called()
         mock_db_manager.return_value.dispose_async.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_cancellation_closes_workflow_owned_resources(
+        self, mock_workflow_message, mock_db_manager, mock_dependencies
+    ):
+        import asyncio
+
+        manager = WorkflowManager(mock_workflow_message, retry_count=0)
+        executing = asyncio.Event()
+
+        async def execute():
+            executing.set()
+            await asyncio.Event().wait()
+
+        with (
+            patch.object(
+                manager, "_prepare_workflow", new=AsyncMock(return_value=False)
+            ),
+            patch.object(manager, "_parse_start_event", return_value=MagicMock()),
+            patch.object(manager, "_prepare_executor"),
+            patch.object(manager, "_execute_workflow", new=execute),
+            patch.object(
+                manager, "_notify_webhook_execution_finished", new=AsyncMock()
+            ),
+        ):
+            task = asyncio.create_task(manager.start())
+            await executing.wait()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        mock_db_manager.return_value.dispose_async.assert_awaited_once()
+        mock_dependencies["redis_manager"].close.assert_awaited_once()

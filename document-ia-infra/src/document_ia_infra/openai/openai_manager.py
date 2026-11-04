@@ -23,16 +23,19 @@ T = TypeVar("T", bound=BaseModel)
 
 class OpenAIManager:
     def __init__(self):
-        self.client = AsyncOpenAI(
+        self.encoding = tiktoken.encoding_for_model(
+            openai_settings.OPENAI_ENCODING_MODEL
+        )
+
+    def _create_client(self) -> AsyncOpenAI:
+        """Create on the request loop; each request explicitly owns/closes it."""
+        return AsyncOpenAI(
             base_url=openai_settings.OPENAI_BASE_URL,
             api_key=openai_settings.OPENAI_API_KEY.get_secret_value()
             if openai_settings.OPENAI_API_KEY is not None
             else None,
             timeout=openai_settings.OPENAI_TIMEOUT,
             max_retries=openai_settings.OPENAI_MAX_RETRIES,
-        )
-        self.encoding = tiktoken.encoding_for_model(
-            openai_settings.OPENAI_ENCODING_MODEL
         )
 
     async def get_classification_response(
@@ -108,12 +111,13 @@ class OpenAIManager:
         }
 
         try:
-            response: ChatCompletion = cast(
-                ChatCompletion,
-                await self.client.chat.completions.parse(
-                    **data, response_format=get_response_format(response_class)
-                ),
-            )
+            async with self._create_client() as client:
+                response: ChatCompletion = cast(
+                    ChatCompletion,
+                    await client.chat.completions.parse(
+                        **data, response_format=get_response_format(response_class)
+                    ),
+                )
             result = response.choices[0].message.content
             if result is None:
                 raise Exception(f"Failed to generate response: {response}")

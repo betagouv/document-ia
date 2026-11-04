@@ -4,13 +4,16 @@ Consommateur Redis Stream multi-thread (ThreadConsumer).
 
 import asyncio
 import functools
-import gc
 import logging
 from collections.abc import Callable, Coroutine
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, TypeVar
 
 from document_ia_infra.redis.base_consumer import BaseConsumer
+from document_ia_infra.redis.handler_execution import (
+    HandlerExecution,
+    run_handler_in_thread,
+)
 from document_ia_infra.redis.redis_manager import RedisManager
 from document_ia_infra.redis.redis_settings import redis_settings
 from document_ia_infra.redis.serializable_message import SerializableMessage
@@ -57,7 +60,7 @@ class ThreadConsumer(BaseConsumer[T]):
         if worker_number < 1:
             raise ValueError("worker_number must be >= 1")
         self.worker_number = worker_number
-        self.executor: ThreadPoolExecutor | None = None
+        self._execution: HandlerExecution | None = None
         super().__init__(
             consumer_name=consumer_name,
             consumer_group=consumer_group,
@@ -79,16 +82,38 @@ class ThreadConsumer(BaseConsumer[T]):
             current_redis_manager=current_redis_manager,
         )
 
+    @property
+    def execution(self) -> HandlerExecution:
+        if self._execution is None:
+            self._execution = HandlerExecution(
+                workers=self.worker_number, batch_size=self.batch_size
+            )
+        return self._execution
+
+    @execution.setter
+    def execution(self, value: HandlerExecution) -> None:
+        self._execution = value
+
+    @property
+    def executor(self) -> ThreadPoolExecutor | None:
+        return self._execution.executor if self._execution is not None else None
+
+    @executor.setter
+    def executor(self, value: ThreadPoolExecutor | None) -> None:
+        if value is None:
+            if self._execution is not None:
+                self._execution.close()
+                self._execution = None
+        else:
+            self.execution.executor = value
+
     def _ensure_executor(self) -> ThreadPoolExecutor:
-        if self.executor is None:
-            self.executor = ThreadPoolExecutor(max_workers=self.worker_number)
-        return self.executor
+        return self.execution.executor
 
     async def _shutdown_executor(self) -> None:
-        executor = self.executor
-        self.executor = None
-        if executor is not None:
-            executor.shutdown(wait=False, cancel_futures=True)
+        if self._execution is not None:
+            self._execution.close()
+            self._execution = None
 
     def _prepare_execution_resources(self) -> None:
         self._ensure_executor()
@@ -102,55 +127,15 @@ class ThreadConsumer(BaseConsumer[T]):
         message_data: T,
         retry_count: int,
     ) -> asyncio.Future[Any]:
-        executor = self._ensure_executor()
         func = functools.partial(
             self._process_message_sync_wrapper, message_data, retry_count
         )
-        return loop.run_in_executor(executor, func)
+        return loop.run_in_executor(self.executor, func)
 
     def _process_message_sync_wrapper(self, message: T, retry_count: int) -> None:
-        """Fonction exécutée dans un thread avec un event loop dédié."""
-        loop = asyncio.new_event_loop()
-        try:
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(
-                self.process_message_callable(
-                    message, retry_count, retry_count >= self.max_retry_number - 1
-                )
+        """Fonction exécutée dans un thread avec un runner asyncio dédié."""
+        run_handler_in_thread(
+            lambda: self.process_message_callable(
+                message, retry_count, retry_count >= self.max_retry_number - 1
             )
-        finally:
-            try:
-                gc.collect()
-
-                pending_tasks = [t for t in asyncio.all_tasks(loop) if not t.done()]
-                if pending_tasks:
-                    try:
-                        loop.run_until_complete(
-                            asyncio.wait_for(
-                                asyncio.gather(*pending_tasks, return_exceptions=True),
-                                timeout=5.0,
-                            )
-                        )
-                    except TimeoutError:
-                        logger.warning(
-                            "Timeout waiting for pending tasks to finish during thread loop shutdown; cancelling"
-                        )
-                        for t in pending_tasks:
-                            t.cancel()
-                        loop.run_until_complete(
-                            asyncio.gather(*pending_tasks, return_exceptions=True)
-                        )
-                    except Exception as shutdown_err:
-                        logger.error(
-                            "Error executing pending tasks during thread loop shutdown: %s",
-                            shutdown_err,
-                        )
-
-                loop.run_until_complete(loop.shutdown_asyncgens())
-            except Exception as e:
-                logger.error("Error during thread loop cleanup: %s", e)
-            finally:
-                try:
-                    loop.close()
-                finally:
-                    asyncio.set_event_loop(None)
+        )
