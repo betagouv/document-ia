@@ -122,6 +122,52 @@ curl -X POST "/api/v2/workflows/document-extraction-v2/execute-sync" \
   -F 'override={"llm_extract_data":[{"param":"document_type","value":"passeport"}]}'
 ```
 
+### Response example (`SUCCESS`)
+
+```json
+{
+  "id": "exec-12345",
+  "status": "SUCCESS",
+  "data": {
+    "total_processing_time_ms": 1250,
+    "result": {
+      "classification": {
+        "document_type": "cni",
+        "confidence": 0.98,
+        "explanation": "Carte Nationale d'Identité française"
+      },
+      "extraction": {
+        "type": "cni",
+        "properties": [
+          {
+            "name": "nom",
+            "type": "string",
+            "value": "DUPONT"
+          },
+          {
+            "name": "date_delivrance",
+            "type": "date",
+            "value": "2024-01-01"
+          },
+          {
+            "name": "date_naissance",
+            "type": "date",
+            "value": null,
+            "anomaly": {
+              "code": "invalid_date",
+              "raw_value": "31/04/2026"
+            }
+          }
+        ]
+      },
+      "barcodes": []
+    }
+  }
+}
+```
+
+> **Note sur les anomalies d'extraction (`anomaly`) :** lorsqu'une valeur candidate extraite est invalide (par exemple une date impossible sur le calendrier), `value` vaut `null` et l'objet `anomaly` contient le `code` d'erreur ainsi que la valeur brute `raw_value`. Pour les valeurs valides ou absentes sans anomalie, le champ `anomaly` est omis.
+
 ## Best practices
 
 1. Start with `GET /api/v2/workflows/` to discover accepted parameters.

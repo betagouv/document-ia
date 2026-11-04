@@ -6,6 +6,59 @@ import pytest
 from pydantic import BaseModel, Field
 
 from document_ia_infra.core.model.typed_generic_model import GenericProperty
+from document_ia_schemas.base_document_type_schema import FuzzyDate
+
+
+def test_nested_date_anomaly_is_not_flattened_into_a_valid_date():
+    class Item(BaseModel):
+        value: FuzzyDate = None
+
+    class Container(BaseModel):
+        items: list[Item]
+
+    result = GenericProperty.convert_pydantic_model(
+        Container(items=[Item(value="31/04/2026"), Item(value="30/04/2026")])
+    )
+    payload = result[0].model_dump(mode="json")
+    invalid, valid = [item["value"][0] for item in payload["value"]]
+    assert invalid["value"] is None
+    assert invalid["type"] == "date"
+    assert invalid["anomaly"] == {
+        "code": "invalid_date",
+        "raw_value": "31/04/2026",
+    }
+    assert valid == {"name": "value", "value": "2026-04-30", "type": "date"}
+
+
+def test_dict_anomaly_parsed_only_when_field_compatible_with_invalid_property():
+    class DateModel(BaseModel):
+        birth_date: FuzzyDate = None
+
+    class NonDateModel(BaseModel):
+        details: dict[str, str]
+
+    # For compatible field, dict is parsed as anomaly
+    res_date = GenericProperty.convert_pydantic_model(
+        DateModel.model_validate(
+            {"birth_date": {"code": "invalid_date", "raw_value": "31/04/2026"}}
+        )
+    )
+    assert res_date[0].value is None
+    assert res_date[0].type == "date"
+    assert res_date[0].anomaly is not None
+    assert res_date[0].anomaly.code == "invalid_date"
+    assert res_date[0].anomaly.raw_value == "31/04/2026"
+
+    # For incompatible field (standard dict), it stays a dict/object
+    res_non_date = GenericProperty.convert_pydantic_model(
+        NonDateModel(details={"code": "invalid_date", "raw_value": "31/04/2026"})
+    )
+    assert res_non_date[0].type == "object"
+    assert res_non_date[0].anomaly is None
+
+
+def test_date_anomaly_is_masked_like_other_extracted_values():
+    assert GenericProperty.model_fields["anomaly"].json_schema_extra == {"x-mask": True}
 
 
 class SimpleModel(BaseModel):

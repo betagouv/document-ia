@@ -253,3 +253,79 @@ def test_get_event_model_completed_with_other_extraction_skips_schema_resolution
     assert res.data.result.extraction.type == SupportedDocumentType.AUTRE
     assert res.data.result.extraction.properties == []
     resolve_extract_schema_mock.assert_not_called()
+
+
+@pytest.mark.parametrize("version", [1, 2])
+@pytest.mark.parametrize("is_debug_mode", [False, True])
+def test_date_anomaly_survives_completed_event_and_api_response(version, is_debug_mode):
+    from document_ia_api.api.contracts.execution.success import ExecutionSuccessModel
+    from document_ia_schemas.cni import CNIModel
+
+    extraction = DocumentExtraction[CNIModel](
+        type=SupportedDocumentType.CNI,
+        properties=CNIModel(
+            nom="DUPONT",
+            date_naissance="31/04/2026",
+            date_delivrance="1/1/2024",
+        ),
+    )
+    completed = WorkflowExecutionCompletedEvent(
+        event_id=uuid4(),
+        organization_id=uuid4(),
+        workflow_id="wf",
+        execution_id="exec",
+        created_at=datetime.now(UTC),
+        version=version,
+        final_result=CompletedEventResult(extraction=extraction),
+        total_processing_time_ms=100,
+        output_summary={},
+        steps_completed=3,
+    )
+    # JSON round-trip stands for the worker -> event store/Redis -> API boundary.
+    import json
+
+    stored_event = json.loads(completed.model_dump_json())
+    assert stored_event["final_result"]["extraction"]["properties"][
+        "date_naissance"
+    ] == {
+        "code": "invalid_date",
+        "raw_value": "31/04/2026",
+    }
+    dto = EventDTO(
+        id=uuid4(),
+        organization_id=completed.organization_id,
+        workflow_id="wf",
+        execution_id="exec",
+        created_at=completed.created_at,
+        event_type=EventType.WORKFLOW_EXECUTION_COMPLETED,
+        event=stored_event,
+    )
+    response = ExecutionService().get_event_model(dto, "exec", is_debug_mode)
+    payload = json.loads(response.model_dump_json())
+    props = {
+        p["name"]: p for p in payload["data"]["result"]["extraction"]["properties"]
+    }
+    assert props["nom"]["value"] == "DUPONT"
+    assert props["date_naissance"] == {
+        "name": "date_naissance",
+        "type": "date",
+        "value": None,
+        "anomaly": {
+            "code": "invalid_date",
+            "raw_value": "31/04/2026",
+        },
+    }
+    assert props["date_delivrance"] == {
+        "name": "date_delivrance",
+        "type": "date",
+        "value": "2024-01-01",
+    }
+    assert props["date_expiration"] == {
+        "name": "date_expiration",
+        "type": "date",
+        "value": None,
+    }
+    assert (
+        ExecutionSuccessModel.model_validate_json(response.model_dump_json())
+        == response
+    )

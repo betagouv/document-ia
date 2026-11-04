@@ -1,8 +1,19 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Literal, Optional, Union, get_args, get_origin, Dict, cast
+from typing import (
+    Any,
+    Literal,
+    Optional,
+    Union,
+    get_args,
+    get_origin,
+    Dict,
+    cast,
+    Annotated,
+)
 
 from pydantic import BaseModel, Field
+from document_ia_schemas.base_document_type_schema import InvalidProperty
 
 
 class GenericProperty(BaseModel):
@@ -22,6 +33,30 @@ class GenericProperty(BaseModel):
         json_schema_extra={"x-mask": True},
     )
     type: Literal["string", "number", "boolean", "object", "date", "list"]
+    anomaly: Optional[InvalidProperty] = Field(
+        default=None,
+        exclude_if=lambda v: v is None,
+        json_schema_extra={"x-mask": True},
+    )
+
+    @classmethod
+    def _is_invalid_property_compatible(cls, annotation: Any) -> bool:
+        """Check if the given annotation allows an InvalidProperty."""
+        if get_origin(annotation) is Annotated:
+            args = get_args(annotation)
+            if args:
+                annotation = args[0]
+
+        origin = get_origin(annotation)
+        args = get_args(annotation)
+        if origin is Union:
+            for arg in args:
+                if isinstance(arg, type) and issubclass(arg, InvalidProperty):
+                    return True
+        elif isinstance(annotation, type) and issubclass(annotation, InvalidProperty):
+            return True
+
+        return False
 
     @classmethod
     def convert_pydantic_model(
@@ -42,12 +77,30 @@ class GenericProperty(BaseModel):
                 else type(field_value)
             )
 
+            # Check if this property type is compatible with InvalidProperty
+            is_anomaly_compatible = cls._is_invalid_property_compatible(annotation)
+
             # Infer the UI type from annotation and runtime value.
             ui_type = cls._infer_ui_type(annotation, field_value)
             final_value: Any = field_value
+            anomaly: Optional[InvalidProperty] = None
 
-            # Normalize the value based on its runtime type.
-            if isinstance(field_value, BaseModel):
+            # Normalize the value based on its runtime type and anomaly compatibility.
+            if isinstance(field_value, InvalidProperty):
+                final_value = None
+                anomaly = field_value
+            elif (
+                is_anomaly_compatible
+                and isinstance(field_value, dict)
+                and "code" in field_value
+                and "raw_value" in field_value
+            ):
+                try:
+                    anomaly = InvalidProperty.model_validate(field_value)
+                    final_value = None
+                except Exception:
+                    pass
+            elif isinstance(field_value, BaseModel):
                 final_value = cls.convert_pydantic_model(field_value)
                 ui_type = "object"
             elif (
@@ -85,7 +138,9 @@ class GenericProperty(BaseModel):
                 final_value = float(field_value)
 
             properties.append(
-                GenericProperty(name=field_name, value=final_value, type=ui_type)
+                GenericProperty(
+                    name=field_name, value=final_value, type=ui_type, anomaly=anomaly
+                )
             )
 
         return properties
@@ -94,6 +149,11 @@ class GenericProperty(BaseModel):
     def _infer_ui_type(
         cls, annotation: Any, runtime_value: Any
     ) -> Literal["string", "number", "boolean", "object", "date", "list"]:
+        if get_origin(annotation) is Annotated:
+            args = get_args(annotation)
+            if args:
+                annotation = args[0]
+
         origin = get_origin(annotation)
         args = get_args(annotation)
 
@@ -101,11 +161,16 @@ class GenericProperty(BaseModel):
         if origin is dict or origin is Dict:
             return "object"
 
-        # A. Optional types
-        if origin is Union and type(None) in args:
-            non_none_args = [a for a in args if a is not type(None)]
-            if non_none_args:
-                return cls._infer_ui_type(non_none_args[0], None)
+        # A. Optional types / Unions
+        if origin is Union:
+            target_args: list[Any] = [
+                a
+                for a in args
+                if a is not type(None)
+                and not (isinstance(a, type) and issubclass(a, InvalidProperty))
+            ]
+            if target_args:
+                return cls._infer_ui_type(target_args[0], None)
 
         # B. Lists
         if origin is list or annotation is list:

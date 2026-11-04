@@ -5,7 +5,13 @@ from typing import Any, Type, cast
 
 from pydantic import BaseModel
 
-from .base_document_type_schema import BaseDocumentTypeSchema
+from .base_document_type_schema import (
+    BaseDocumentTypeSchema,
+    DateAnomalyCode,
+    FuzzyDate,
+    INVALID_DATE_CODE,
+    InvalidProperty,
+)
 from .field_metrics import Metric
 
 
@@ -91,6 +97,10 @@ class SupportedDocumentType(str, Enum):
 
 __all__ = [
     "BaseDocumentTypeSchema",
+    "DateAnomalyCode",
+    "FuzzyDate",
+    "INVALID_DATE_CODE",
+    "InvalidProperty",
     "SupportedDocumentType",
     "Metric",
     "resolve_extract_schema",
