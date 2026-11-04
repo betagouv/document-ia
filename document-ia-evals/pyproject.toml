@@ -21,6 +21,7 @@ dependencies = [
     "deepdiff == 8.6.2",
     "sqlalchemy == 2.0.50",
     "alembic == 1.18.4",
+    "pydantic == 2.14.1",
     "pydantic-settings == 2.14.1",
     "psycopg2-binary == 2.9.12",
     "document-ia-schemas",

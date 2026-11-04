@@ -9,7 +9,8 @@ dependencies = [
     "python-dotenv == 1.2.2",
     "redis == 5.3.1",
     "boto3 == 1.35.99",
-    "pydantic == 2.13.4",
+    "pydantic == 2.14.1",
+    "pydantic-settings == 2.14.1",
     "openai == 1.109.1",
     "tiktoken == 0.11.0",
     "sqlalchemy == 2.0.50",
@@ -32,7 +33,6 @@ dev = [
     "ruff == 0.12.12",
     "pytest == 8.4.2",
     "pytest-asyncio == 0.23.8",
-    "pydantic-settings == 2.14.1",
     "pre-commit == 3.8.0",
     "pyright == 1.1.414",
 ]
