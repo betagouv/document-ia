@@ -21,11 +21,44 @@ from document_ia_infra.data.database import (
 logger = logging.getLogger(__name__)
 
 
+def _find_project_root(
+    current_file: Path | None = None,
+    cwd: Path | None = None,
+) -> Path:
+    """Localise le dossier racine contenant alembic.ini et le dossier alembic.
+
+    Résout le chemin quel que soit le mode d'exécution :
+    - Développement local (editable install)
+    - Déploiement Scalingo / Docker (installation dans site-packages et chdir src/document_ia_api)
+    - Exécution depuis la racine du repo ou du sous-projet
+    """
+    base_cwd = cwd if cwd is not None else Path.cwd()
+    base_file = current_file if current_file is not None else Path(__file__)
+
+    # 1. Vérifie depuis le répertoire de travail courant (CWD) et ses parents
+    # Sur Scalingo avec --chdir src/document_ia_api, CWD est /app/src/document_ia_api et son parent /app
+    for p in (base_cwd, *base_cwd.parents):
+        if (p / "alembic.ini").is_file() and (p / "alembic").is_dir():
+            return p
+
+    # 2. Vérifie depuis l'emplacement du fichier source et ses parents (cas dev local)
+    for p in base_file.resolve().parents:
+        if (p / "alembic.ini").is_file() and (p / "alembic").is_dir():
+            return p
+
+    # 3. Fallback conteneur (/app standard Scalingo / Docker)
+    if (Path("/app/alembic.ini")).is_file() and (Path("/app/alembic")).is_dir():
+        return Path("/app")
+
+    # 4. Fallback historique
+    return base_file.resolve().parents[4]
+
+
 class MigrationService:
-    def __init__(self):
-        project_root = Path(__file__).resolve().parents[4]
-        self.alembic_ini_path = project_root / "alembic.ini"
-        self.alembic_script_location = project_root / "alembic"
+    def __init__(self, project_root: Path | None = None):
+        root = project_root or _find_project_root()
+        self.alembic_ini_path = root / "alembic.ini"
+        self.alembic_script_location = root / "alembic"
 
     async def _get_db_revision(
         self, engine: AsyncEngine, schema: str | None = None

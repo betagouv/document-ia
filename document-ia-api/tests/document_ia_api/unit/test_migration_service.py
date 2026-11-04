@@ -11,7 +11,9 @@ async def test_auto_migrate_analytics_with_custom_schema():
     mock_settings = MagicMock()
     mock_settings.is_configured.return_value = True
     mock_settings.POSTGRES_SCHEMA = "custom_analytics"
-    mock_settings.get_database_url.return_value = "postgresql+asyncpg://user:pass@localhost:5432/db"
+    mock_settings.get_database_url.return_value = (
+        "postgresql+asyncpg://user:pass@localhost:5432/db"
+    )
 
     mock_conn = AsyncMock()
     mock_engine = MagicMock()
@@ -29,7 +31,9 @@ async def test_auto_migrate_analytics_with_custom_schema():
             "document_ia_api.infra.database.migration_service.get_analytics_database_manager",
             return_value=mock_manager,
         ),
-        patch.object(service, "_run_migrations", new_callable=AsyncMock) as mock_run_migrations,
+        patch.object(
+            service, "_run_migrations", new_callable=AsyncMock
+        ) as mock_run_migrations,
     ):
         await service.auto_migrate_analytics()
 
@@ -54,7 +58,9 @@ async def test_auto_migrate_analytics_without_schema():
     mock_settings = MagicMock()
     mock_settings.is_configured.return_value = True
     mock_settings.POSTGRES_SCHEMA = None
-    mock_settings.get_database_url.return_value = "postgresql+asyncpg://user:pass@localhost:5432/db"
+    mock_settings.get_database_url.return_value = (
+        "postgresql+asyncpg://user:pass@localhost:5432/db"
+    )
 
     mock_engine = MagicMock()
     mock_manager = MagicMock()
@@ -69,7 +75,9 @@ async def test_auto_migrate_analytics_without_schema():
             "document_ia_api.infra.database.migration_service.get_analytics_database_manager",
             return_value=mock_manager,
         ),
-        patch.object(service, "_run_migrations", new_callable=AsyncMock) as mock_run_migrations,
+        patch.object(
+            service, "_run_migrations", new_callable=AsyncMock
+        ) as mock_run_migrations,
     ):
         await service.auto_migrate_analytics()
 
@@ -80,3 +88,58 @@ async def test_auto_migrate_analytics_without_schema():
             label="(base analytics, schema: public)",
             schema=None,
         )
+
+
+def test_find_project_root_from_cwd_parent(tmp_path):
+    from document_ia_api.infra.database.migration_service import _find_project_root
+
+    # Simuler /app avec alembic.ini et dossier alembic
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    (app_dir / "alembic.ini").touch()
+    (app_dir / "alembic").mkdir()
+
+    # Simuler CWD dans /app/src/document_ia_api
+    src_dir = app_dir / "src" / "document_ia_api"
+    src_dir.mkdir(parents=True)
+
+    fake_file = tmp_path / "somewhere_else" / "file.py"
+
+    root = _find_project_root(current_file=fake_file, cwd=src_dir)
+    assert root == app_dir
+
+
+def test_find_project_root_when_in_site_packages_fallback(tmp_path):
+    from document_ia_api.infra.database.migration_service import _find_project_root
+
+    # Simuler site-packages indépendant
+    fake_site_packages_file = (
+        tmp_path
+        / "venv"
+        / "lib"
+        / "python3.13"
+        / "site-packages"
+        / "document_ia_api"
+        / "migration.py"
+    )
+    fake_site_packages_file.parent.mkdir(parents=True)
+
+    # Simuler app_dir comme racine trouvée via CWD
+    app_dir = tmp_path / "deployed_app"
+    app_dir.mkdir()
+    (app_dir / "alembic.ini").touch()
+    (app_dir / "alembic").mkdir()
+
+    cwd_sub = app_dir / "src" / "document_ia_api"
+    cwd_sub.mkdir(parents=True)
+
+    # En staging : file est dans site-packages, mais cwd est dans /app/src/document_ia_api
+    root = _find_project_root(current_file=fake_site_packages_file, cwd=cwd_sub)
+    assert root == app_dir
+
+
+def test_migration_service_custom_project_root(tmp_path):
+    custom_root = tmp_path / "custom"
+    service = MigrationService(project_root=custom_root)
+    assert service.alembic_ini_path == custom_root / "alembic.ini"
+    assert service.alembic_script_location == custom_root / "alembic"
