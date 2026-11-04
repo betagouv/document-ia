@@ -9,29 +9,43 @@ from document_ia_infra.data.event.dto.event_type_enum import EventType
 
 
 class BaseEvent(BaseModel, ABC):
-    """Base event class with common fields for all events."""
+    """Domain event payload, independent of its storage envelope."""
 
     event_id: UUID = Field(
-        description="Unique identifier for this event", default_factory=uuid4
+        description="Domain event identifier, independent of the store row ID",
+        default_factory=uuid4,
     )
     organization_id: UUID = Field(description="Organization identifier")
     workflow_id: str = Field(description="Workflow identifier")
     execution_id: str = Field(description="Execution instance identifier")
-    created_at: datetime = Field(description="Event timestamp")
-    version: int = Field(description="Event version for optimistic locking")
+    created_at: datetime = Field(
+        description="Domain occurrence timestamp, independent of persistence time"
+    )
+    version: int = Field(
+        description="Workflow definition version used to select v1/v2 execution semantics"
+    )
     event_type: EventType = Field(description="Event type")
+
+    @property
+    def workflow_version(self) -> int:
+        """Name the persisted ``version`` field by its actual responsibility."""
+        return self.version
 
 
 class EventStoreRecord(BaseModel):
-    """Schema for event store database record."""
+    """Storage envelope paired with its decoded domain event payload."""
 
-    id: UUID = Field(description="Primary key")
+    id: UUID = Field(
+        description="Store row identifier, independent of payload event_id"
+    )
     workflow_id: str = Field(description="Workflow identifier")
     execution_id: str = Field(description="Execution instance identifier")
     organization_id: UUID = Field(description="Organization identifier")
-    created_at: datetime = Field(description="Event timestamp")
+    created_at: datetime = Field(
+        description="Persistence timestamp, independent of payload created_at"
+    )
     event_type: EventType = Field(description="Type of event")
-    event: BaseEvent = Field(description="Event payload as JSON")
+    event: BaseEvent = Field(description="Decoded domain event payload")
 
 
 class EventStream(BaseModel):

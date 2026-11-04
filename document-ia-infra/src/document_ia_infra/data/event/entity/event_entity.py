@@ -18,11 +18,10 @@ from document_ia_infra.data.database import Base
 
 
 class EventEntity(Base):
-    """
-    Event store table for storing workflow execution events.
+    """SQLAlchemy storage envelope for an immutable workflow event.
 
-    This table implements event sourcing by storing all state changes
-    as immutable events with versioning support.
+    Row metadata is owned by persistence and remains distinct from the JSON
+    payload's domain event ID, occurrence timestamp, and workflow version.
     """
 
     __tablename__ = "event_store"
@@ -33,7 +32,7 @@ class EventEntity(Base):
         primary_key=True,
         default=uuid4,
         nullable=False,
-        comment="Unique identifier for the event",
+        comment="Store row identifier, independent of payload event_id",
     )
 
     organization_id: Mapped[UUID] = mapped_column(
@@ -57,7 +56,7 @@ class EventEntity(Base):
         nullable=False,
         default=func.now(),
         index=True,
-        comment="Event timestamp",
+        comment="Persistence timestamp, independent of payload created_at",
     )
 
     event_type: Mapped[str] = mapped_column(
@@ -78,9 +77,6 @@ class EventEntity(Base):
         default="PENDING",
         comment="Anonymization status of the event data",
     )
-
-    # TODO: add constraint
-    # UNIQUE CONSTRAINT (workflow_id, execution_id, event_type, version)
 
     # Composite indexes for efficient querying
     __table_args__ = (

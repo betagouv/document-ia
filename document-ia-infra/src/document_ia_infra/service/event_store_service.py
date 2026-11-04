@@ -68,7 +68,7 @@ class EventStoreService:
 
     async def store_event(self, event: BaseEvent) -> EventStoreRecord:
         """
-        Store an event in the event store with automatic versioning.
+        Store an event with its workflow definition version.
 
         Args:
             event: The event to store
@@ -191,7 +191,7 @@ class EventStoreService:
         classification_parameters: Optional[ClassificationParameters] = None,
         extraction_parameters: Optional[ExtractionParameters] = None,
         workflow_configuration: Optional[WorkflowV2Dto] = None,
-        event_version: int = 1,
+        workflow_version: int = 1,
     ) -> WorkflowExecutionStartedEvent:
         """Create a WorkflowExecutionStartedEvent."""
         return WorkflowExecutionStartedEvent(
@@ -199,7 +199,7 @@ class EventStoreService:
             execution_id=execution_id,
             organization_id=organization_id,
             created_at=datetime.now(),
-            version=event_version,
+            version=workflow_version,
             s3_file_info=file_info,
             file_url=file_url,
             metadata=metadata,
@@ -226,7 +226,7 @@ class EventStoreService:
             execution_id=execution_id,
             organization_id=organization_id,
             created_at=datetime.now(),
-            version=1,  # Will be updated when stored
+            version=1,
             step_name=step_name,
             step_result=step_result,
             execution_time_ms=execution_time_ms,
@@ -243,7 +243,7 @@ class EventStoreService:
         output_summary: Dict[str, Any],
         steps_completed: int,
         workflow_metadata: Optional[list[Any]] = None,
-        event_version: int = 1,
+        workflow_version: int = 1,
     ) -> WorkflowExecutionCompletedEvent:
         """Create a WorkflowExecutionCompletedEvent."""
         return WorkflowExecutionCompletedEvent(
@@ -252,7 +252,7 @@ class EventStoreService:
             organization_id=organization_id,
             execution_id=execution_id,
             created_at=datetime.now(UTC),
-            version=event_version,
+            version=workflow_version,
             final_result=final_result,
             total_processing_time_ms=total_processing_time_ms,
             output_summary=output_summary,
@@ -277,7 +277,7 @@ class EventStoreService:
             organization_id=organization_id,
             execution_id=execution_id,
             created_at=datetime.now(UTC),
-            version=1,  # Will be updated when stored
+            version=1,
             error_type=error_type,
             error_message=error_message,
             failed_step=failed_step,
@@ -297,7 +297,7 @@ class EventStoreService:
         classification_parameters: Optional[ClassificationParameters] = None,
         extraction_parameters: Optional[ExtractionParameters] = None,
         workflow_configuration: Optional[WorkflowV2Dto] = None,
-        event_version: int = 1,
+        workflow_version: int = 1,
     ) -> EventStoreRecord:
         """Emit and store a workflow started event."""
         event = self.create_workflow_started_event(
@@ -310,7 +310,7 @@ class EventStoreService:
             classification_parameters=classification_parameters,
             extraction_parameters=extraction_parameters,
             workflow_configuration=workflow_configuration,
-            event_version=event_version,
+            workflow_version=workflow_version,
         )
         return await self.store_event(event)
 
@@ -346,7 +346,7 @@ class EventStoreService:
         output_summary: Dict[str, Any],
         steps_completed: int,
         workflow_metadata: Optional[list[Any]] = None,
-        event_version: int = 1,
+        workflow_version: int = 1,
     ) -> EventStoreRecord:
         """Emit and store a workflow completed event."""
         event = self.create_workflow_completed_event(
@@ -358,7 +358,7 @@ class EventStoreService:
             output_summary=output_summary,
             steps_completed=steps_completed,
             workflow_metadata=workflow_metadata,
-            event_version=event_version,
+            workflow_version=workflow_version,
         )
         return await self.store_event(event)
 
