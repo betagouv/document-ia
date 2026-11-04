@@ -649,6 +649,7 @@ async def test_requeue_guard_fails_closed_when_scan_fails(
         return await original_xack(stream_name, group_name, *entry_ids)
 
     original_xrange = redis_client.xrange
+    original_eval = redis_client.eval
     guard_scans = 0
 
     async def fail_second_guard_scan(*args: Any, **kwargs: Any) -> Any:
@@ -659,8 +660,17 @@ async def test_requeue_guard_fails_closed_when_scan_fails(
                 raise ConnectionError("redis scan failed")
         return await original_xrange(*args, **kwargs)
 
+    async def fail_second_guard_eval(script: str, numkeys: int, *args: Any) -> Any:
+        nonlocal guard_scans
+        if numkeys == 1 and args and args[0] == stream:
+            guard_scans += 1
+            if guard_scans == 2:
+                raise ConnectionError("redis scan failed")
+        return await original_eval(script, numkeys, *args)
+
     monkeypatch.setattr(redis_client, "xack", fail_ack_once_for_original)
     monkeypatch.setattr(redis_client, "xrange", fail_second_guard_scan)
+    monkeypatch.setattr(redis_client, "eval", fail_second_guard_eval)
 
     await consumer.start()
     try:
@@ -728,6 +738,7 @@ async def test_dlq_retention_guard_fails_closed_when_scan_fails(
         return await original_xack(stream_name, group_name, *entry_ids)
 
     original_xrange = redis_client.xrange
+    original_eval = redis_client.eval
     guard_scans = 0
 
     async def fail_second_dlq_guard_scan(*args: Any, **kwargs: Any) -> Any:
@@ -738,8 +749,17 @@ async def test_dlq_retention_guard_fails_closed_when_scan_fails(
                 raise ConnectionError("redis scan failed")
         return await original_xrange(*args, **kwargs)
 
+    async def fail_second_dlq_guard_eval(script: str, numkeys: int, *args: Any) -> Any:
+        nonlocal guard_scans
+        if numkeys == 1 and args and args[0] == dlq_stream:
+            guard_scans += 1
+            if guard_scans == 2:
+                raise ConnectionError("redis scan failed")
+        return await original_eval(script, numkeys, *args)
+
     monkeypatch.setattr(redis_client, "xack", fail_ack_once_for_original)
     monkeypatch.setattr(redis_client, "xrange", fail_second_dlq_guard_scan)
+    monkeypatch.setattr(redis_client, "eval", fail_second_dlq_guard_eval)
 
     await consumer.start()
     try:

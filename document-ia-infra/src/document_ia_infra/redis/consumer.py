@@ -18,9 +18,12 @@ from document_ia_infra.redis.base_consumer import (
 )
 from document_ia_infra.redis.thread_consumer import ThreadConsumer
 
+Consumer = ThreadConsumer
+
 __all__ = [
     "AsyncIoConsumer",
     "BaseConsumer",
+    "Consumer",
     "DLQ_SCAN_BATCH_SIZE",
     "RECLAIM_IDLE_MS",
     "ThreadConsumer",

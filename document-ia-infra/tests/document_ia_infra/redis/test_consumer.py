@@ -151,6 +151,28 @@ class MockRedis:
         await asyncio.sleep(0.01)
         return (start, [], [])
 
+    async def eval(self, script: str, numkeys: int, *args: Any):
+        stream = args[0]
+        orig = args[1]
+        if self.xrange.__code__ is not MockRedis.xrange.__code__:
+            await self.xrange(stream, "-", "+")
+        for (recorded_stream, fields), msg_id in zip(self.xadd_calls, self.xadd_ids):
+            if recorded_stream == stream and str(fields.get("original_id", "")) == str(
+                orig
+            ):
+                return [0, msg_id]
+        fields: dict[str, Any] = {}
+        rest = args[3:]
+        for i in range(0, len(rest), 2):
+            if i + 1 < len(rest):
+                fields[rest[i]] = rest[i + 1]
+        fields["original_id"] = orig
+        maxlen = (
+            int(args[2]) if len(args) > 2 and args[2] and int(args[2]) > 0 else None
+        )
+        new_id = await self.xadd(stream, fields, maxlen=maxlen)
+        return [1, new_id]
+
     async def xclaim(
         self,
         name: str,
@@ -1276,7 +1298,9 @@ def test_build_instance_consumer_name_includes_host_pid_and_boot_id(monkeypatch)
         "document_ia_infra.redis.base_consumer.socket.gethostname", lambda: "api-pod-1"
     )
     monkeypatch.setattr("document_ia_infra.redis.base_consumer.os.getpid", lambda: 1)
-    monkeypatch.setattr("document_ia_infra.redis.base_consumer._PROCESS_BOOT_ID", "a1b2c3d4")
+    monkeypatch.setattr(
+        "document_ia_infra.redis.base_consumer._PROCESS_BOOT_ID", "a1b2c3d4"
+    )
 
     name = build_instance_consumer_name("api-webhook-consumer")
     assert name == "api-webhook-consumer-api-pod-1-1-a1b2c3d4"
@@ -1293,7 +1317,9 @@ def test_build_instance_consumer_name_differs_across_hosts_pids_and_restarts(
         "document_ia_infra.redis.base_consumer.socket.gethostname", lambda: "pod-a"
     )
     monkeypatch.setattr("document_ia_infra.redis.base_consumer.os.getpid", lambda: 1)
-    monkeypatch.setattr("document_ia_infra.redis.base_consumer._PROCESS_BOOT_ID", "boot0001")
+    monkeypatch.setattr(
+        "document_ia_infra.redis.base_consumer._PROCESS_BOOT_ID", "boot0001"
+    )
     name_pod_a = build_instance_consumer_name(base)
 
     monkeypatch.setattr(
@@ -1302,7 +1328,9 @@ def test_build_instance_consumer_name_differs_across_hosts_pids_and_restarts(
     name_pod_b = build_instance_consumer_name(base)
 
     # Same host + PID 1 after container restart -> distinct boot ID
-    monkeypatch.setattr("document_ia_infra.redis.base_consumer._PROCESS_BOOT_ID", "boot0002")
+    monkeypatch.setattr(
+        "document_ia_infra.redis.base_consumer._PROCESS_BOOT_ID", "boot0002"
+    )
     name_pod_b_restarted = build_instance_consumer_name(base)
 
     assert len({name_pod_a, name_pod_b, name_pod_b_restarted}) == 3
@@ -1323,7 +1351,9 @@ def test_build_instance_consumer_name_sanitizes_hostname(
         "document_ia_infra.redis.base_consumer.socket.gethostname", lambda: raw_hostname
     )
     monkeypatch.setattr("document_ia_infra.redis.base_consumer.os.getpid", lambda: 42)
-    monkeypatch.setattr("document_ia_infra.redis.base_consumer._PROCESS_BOOT_ID", "deadbeef")
+    monkeypatch.setattr(
+        "document_ia_infra.redis.base_consumer._PROCESS_BOOT_ID", "deadbeef"
+    )
 
     name = build_instance_consumer_name("worker")
     assert name == f"worker-{expected_host}-42-deadbeef"

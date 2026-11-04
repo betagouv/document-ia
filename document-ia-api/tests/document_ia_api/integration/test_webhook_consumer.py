@@ -444,6 +444,7 @@ async def test_consumer_invalid_json_requires_dlq_before_ack(
     await redis_client.xadd(stream, {"data": "{invalid-json}"})
 
     original_xadd = redis_client.xadd
+    original_eval = redis_client.eval
 
     async def record_dlq_attempt(
         stream_name: str, fields: dict[str, Any], *args: Any, **kwargs: Any
@@ -454,7 +455,15 @@ async def test_consumer_invalid_json_requires_dlq_before_ack(
                 raise ConnectionError("DLQ unavailable")
         return await original_xadd(stream_name, fields, *args, **kwargs)
 
+    async def record_dlq_eval(script: str, numkeys: int, *args: Any) -> Any:
+        if args and args[0] == f"{stream}:dlq":
+            dlq_attempted.set()
+            if not dlq_available:
+                raise ConnectionError("DLQ unavailable")
+        return await original_eval(script, numkeys, *args)
+
     monkeypatch.setattr(redis_client, "xadd", record_dlq_attempt)
+    monkeypatch.setattr(redis_client, "eval", record_dlq_eval)
 
     await consumer.start()
     try:
@@ -516,6 +525,7 @@ async def test_consumer_terminal_http_error_requires_dlq_before_ack(
         handler=reject_webhook,
     )
     original_xadd = redis_client.xadd
+    original_eval = redis_client.eval
     operations: list[str] = []
 
     async def record_dlq_attempt(
@@ -528,12 +538,22 @@ async def test_consumer_terminal_http_error_requires_dlq_before_ack(
                 raise ConnectionError("DLQ unavailable")
         return await original_xadd(stream_name, fields, *args, **kwargs)
 
+    async def record_dlq_eval(script: str, numkeys: int, *args: Any) -> Any:
+        stream_name = args[0] if args else ""
+        operations.append(f"xadd:{stream_name}")
+        if stream_name == f"{stream}:dlq":
+            dlq_attempted.set()
+            if not dlq_available:
+                raise ConnectionError("DLQ unavailable")
+        return await original_eval(script, numkeys, *args)
+
     message = SampleWebhookMessage(
         workflow_execution_id=str(uuid4()),
         webhook_url="http://localhost:1080/webhook",
     )
     await _append_message(redis_client, stream, message)
     monkeypatch.setattr(redis_client, "xadd", record_dlq_attempt)
+    monkeypatch.setattr(redis_client, "eval", record_dlq_eval)
 
     original_xack = redis_client.xack
 
