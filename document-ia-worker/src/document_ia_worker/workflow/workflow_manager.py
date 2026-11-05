@@ -25,6 +25,10 @@ from document_ia_infra.redis.model.webhook_message import WebHookMessage
 from document_ia_infra.redis.model.workflow_execution_message import (
     WorkflowExecutionMessage,
 )
+from document_ia_infra.redis.progress_tracker import (
+    get_current_progress_tracker,
+    record_step_progress,
+)
 from document_ia_infra.redis.publisher import PublishFailedError, Publisher
 from document_ia_infra.redis.redis_manager import RedisManager
 from document_ia_infra.redis.redis_settings import redis_settings
@@ -124,6 +128,14 @@ class WorkflowManager:
                 except Exception as e:
                     logger.error(f"Workflow execution failed: {e}")
                     is_success = False
+
+                    tracker = get_current_progress_tracker()
+                    if tracker is not None and tracker.is_aborted:
+                        logger.warning(
+                            f"Workflow execution {self.message.workflow_execution_id} was aborted by watchdog; skipping failure event and DB commit"
+                        )
+                        return
+
                     # We use the WorkflowStepException to know in which step the error happened
                     # and we dispatch the inner exception to have the original exception
                     if isinstance(e, WorkflowStepException):
@@ -177,7 +189,12 @@ class WorkflowManager:
                             else []
                         )
                     )
-                    if not is_completed_duplicate:
+                    tracker = get_current_progress_tracker()
+                    if tracker is not None and tracker.is_aborted:
+                        logger.warning(
+                            f"Workflow execution {self.message.workflow_execution_id} was aborted by watchdog; skipping session commit and webhooks"
+                        )
+                    elif not is_completed_duplicate:
                         # Persist DB changes
                         await session.commit()
                         if need_to_notify_webhook:
@@ -381,6 +398,12 @@ class WorkflowManager:
             )
         try:
             for step in self.step_list:
+                tracker = get_current_progress_tracker()
+                if tracker is not None and tracker.is_aborted:
+                    logger.warning(
+                        f"Execution {self.message.workflow_execution_id} aborted during step execution; stopping workflow"
+                    )
+                    break
                 try:
                     logger.info(f"Executing step {step.__class__.__name__}")
                     step.inject_workflow_context(self.workflow_context)
@@ -390,6 +413,7 @@ class WorkflowManager:
                         self.main_workflow_context.number_of_step_executed + 1
                     )
                     self.main_workflow_context.steps_metadata.append(step_metadata)
+                    record_step_progress(step.__class__.__name__)
                 except Exception as e:
                     raise WorkflowStepException(step.__class__.__name__, e)
         except Exception as e:
@@ -405,6 +429,9 @@ class WorkflowManager:
             )
             raise e
         finally:
+            tracker = get_current_progress_tracker()
+            if tracker is not None and tracker.is_aborted:
+                is_last_cleanup = False
             logger.info(f"Cleaning up workflow {self.message.workflow_execution_id}")
             # We clean up the data in the reverse order because the first step need to be the last
             for step in reversed(self.step_list):

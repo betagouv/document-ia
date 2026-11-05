@@ -93,6 +93,9 @@ async def run_consumer(stop_event: asyncio.Event | None = None) -> None:
         process_message_callable=process_message,
         reclaim_poll_interval_s=5.0,
         current_redis_manager=redis_manager,
+        max_processing_time_s=120.0,
+        step_progress_timeout_s=90.0,
+        use_execution_lease=True,
     )
     if stop_event is not None and stop_event.is_set():
         _consumer.stop_flag.set()

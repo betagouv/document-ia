@@ -358,3 +358,51 @@ class TestWorkflowManager:
 
         mock_db_manager.return_value.dispose_async.assert_awaited_once()
         mock_dependencies["redis_manager"].close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_aborted_tracker_fencing_skips_commit_and_webhooks(
+        self, mock_workflow_message, mock_db_manager, mock_dependencies
+    ):
+        """Si le tracker de progression est avorté (timeout/watchdog), le commit et les webhooks sont ignorés."""
+        from document_ia_infra.redis.progress_tracker import (
+            ProgressTracker,
+            current_progress_tracker,
+        )
+
+        manager = WorkflowManager(mock_workflow_message, retry_count=0)
+        parsed_event = MagicMock(version=1)
+
+        tracker = ProgressTracker("test-msg-1")
+        tracker.abort("step_timeout")
+        token = current_progress_tracker.set(tracker)
+
+        try:
+            with (
+                patch.object(
+                    manager, "_prepare_workflow", new_callable=AsyncMock
+                ) as mock_prepare,
+                patch.object(
+                    manager, "_parse_start_event", return_value=parsed_event
+                ),
+                patch.object(manager, "_prepare_executor"),
+                patch.object(
+                    manager, "_execute_workflow", new_callable=AsyncMock
+                ) as mock_execute,
+                patch.object(
+                    manager, "_notify_webhook_execution_finished", new_callable=AsyncMock
+                ) as mock_notify,
+                patch.object(
+                    manager, "_save_failure_event", new_callable=AsyncMock
+                ) as mock_save_failure,
+            ):
+                mock_prepare.return_value = False
+                await manager.start()
+
+            # Vérifier qu'aucun commit, ni webhook, ni failure event n'a été émis
+            session = mock_db_manager.return_value.local_session.return_value.__aenter__.return_value
+            session.commit.assert_not_awaited()
+            mock_notify.assert_not_awaited()
+            mock_save_failure.assert_not_awaited()
+            mock_dependencies["handle_finish"].assert_not_called()
+        finally:
+            current_progress_tracker.reset(token)
