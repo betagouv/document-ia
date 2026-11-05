@@ -14,6 +14,10 @@ from document_ia_infra.redis.handler_execution import (
     HandlerExecution,
     run_handler_in_thread,
 )
+from document_ia_infra.redis.progress_tracker import (
+    ProgressTracker,
+    current_progress_tracker,
+)
 from document_ia_infra.redis.redis_manager import RedisManager
 from document_ia_infra.redis.redis_settings import redis_settings
 from document_ia_infra.redis.serializable_message import SerializableMessage
@@ -56,6 +60,10 @@ class ThreadConsumer(BaseConsumer[T]):
         dlq_maxlen: int | None = redis_settings.DLQ_STREAM_MAXLEN,
         close_redis_on_stop: bool = True,
         current_redis_manager: RedisManager | None = None,
+        max_processing_time_s: float | None = None,
+        step_progress_timeout_s: float | None = None,
+        use_execution_lease: bool = False,
+        lease_ttl_ms: int | None = None,
     ) -> None:
         if worker_number < 1:
             raise ValueError("worker_number must be >= 1")
@@ -80,6 +88,10 @@ class ThreadConsumer(BaseConsumer[T]):
             dlq_maxlen=dlq_maxlen,
             close_redis_on_stop=close_redis_on_stop,
             current_redis_manager=current_redis_manager,
+            max_processing_time_s=max_processing_time_s,
+            step_progress_timeout_s=step_progress_timeout_s,
+            use_execution_lease=use_execution_lease,
+            lease_ttl_ms=lease_ttl_ms,
         )
 
     @property
@@ -126,16 +138,28 @@ class ThreadConsumer(BaseConsumer[T]):
         loop: asyncio.AbstractEventLoop,
         message_data: T,
         retry_count: int,
+        tracker: ProgressTracker | None = None,
     ) -> asyncio.Future[Any]:
         func = functools.partial(
-            self._process_message_sync_wrapper, message_data, retry_count
+            self._process_message_sync_wrapper, message_data, retry_count, tracker
         )
         return loop.run_in_executor(self.executor, func)
 
-    def _process_message_sync_wrapper(self, message: T, retry_count: int) -> None:
+    def _process_message_sync_wrapper(
+        self,
+        message: T,
+        retry_count: int,
+        tracker: ProgressTracker | None = None,
+    ) -> None:
         """Fonction exécutée dans un thread avec un runner asyncio dédié."""
-        run_handler_in_thread(
-            lambda: self.process_message_callable(
-                message, retry_count, retry_count >= self.max_retry_number - 1
-            )
-        )
+
+        async def _coro_runner() -> None:
+            token = current_progress_tracker.set(tracker)
+            try:
+                await self.process_message_callable(
+                    message, retry_count, retry_count >= self.max_retry_number - 1
+                )
+            finally:
+                current_progress_tracker.reset(token)
+
+        run_handler_in_thread(_coro_runner)

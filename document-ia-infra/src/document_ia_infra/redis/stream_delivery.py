@@ -33,6 +33,22 @@ local id = redis.call('XADD', target, '*', unpack(args))
 return {1, id}
 """
 
+_RENEW_LEASE_LUA = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  return redis.call('PEXPIRE', KEYS[1], ARGV[2])
+else
+  return 0
+end
+"""
+
+_RELEASE_LEASE_LUA = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  return redis.call('DEL', KEYS[1])
+else
+  return 0
+end
+"""
+
 
 class StreamDelivery:
     """Concrete operations for one stream/group, with no scheduling or retries."""
@@ -151,3 +167,52 @@ class StreamDelivery:
 
     async def retain(self, redis: Redis, entry_id: str, fields: dict[str, Any]) -> bool:
         return await self.copy_once(redis, f"{self.stream}:dlq", entry_id, fields)
+
+    @staticmethod
+    def execution_lease_key(execution_id: str) -> str:
+        return f"lock:workflow_execution:{execution_id}"
+
+    async def acquire_lease(
+        self, redis: Redis, execution_id: str, token: str, ttl_ms: int
+    ) -> bool:
+        key = self.execution_lease_key(execution_id)
+        try:
+            result = await redis.set(key, token, nx=True, px=ttl_ms)
+            acquired = bool(result)
+        except Exception:
+            delivery_metric(self.stream, "lease_acquire", "error")
+            raise
+        delivery_metric(
+            self.stream, "lease_acquire", "success" if acquired else "rejected"
+        )
+        return acquired
+
+    async def renew_lease(
+        self, redis: Redis, execution_id: str, token: str, ttl_ms: int
+    ) -> bool:
+        key = self.execution_lease_key(execution_id)
+        try:
+            result = await cast(
+                Awaitable[Any], redis.eval(_RENEW_LEASE_LUA, 1, key, token, ttl_ms)
+            )
+            renewed = bool(result == 1)
+        except Exception:
+            delivery_metric(self.stream, "lease_renew", "error")
+            raise
+        delivery_metric(self.stream, "lease_renew", "success" if renewed else "lost")
+        return renewed
+
+    async def release_lease(self, redis: Redis, execution_id: str, token: str) -> bool:
+        key = self.execution_lease_key(execution_id)
+        try:
+            result = await cast(
+                Awaitable[Any], redis.eval(_RELEASE_LEASE_LUA, 1, key, token)
+            )
+            released = bool(result == 1)
+        except Exception:
+            delivery_metric(self.stream, "lease_release", "error")
+            raise
+        delivery_metric(
+            self.stream, "lease_release", "success" if released else "not_owned"
+        )
+        return released

@@ -8,6 +8,10 @@ from collections.abc import Callable, Coroutine
 from typing import Any, TypeVar
 
 from document_ia_infra.redis.base_consumer import BaseConsumer
+from document_ia_infra.redis.progress_tracker import (
+    ProgressTracker,
+    current_progress_tracker,
+)
 from document_ia_infra.redis.redis_manager import RedisManager
 from document_ia_infra.redis.redis_settings import redis_settings
 from document_ia_infra.redis.serializable_message import SerializableMessage
@@ -56,6 +60,10 @@ class AsyncIoConsumer(BaseConsumer[T]):
         dlq_maxlen: int | None = redis_settings.DLQ_STREAM_MAXLEN,
         close_redis_on_stop: bool = False,
         current_redis_manager: RedisManager | None = None,
+        max_processing_time_s: float | None = None,
+        step_progress_timeout_s: float | None = None,
+        use_execution_lease: bool = False,
+        lease_ttl_ms: int | None = None,
     ) -> None:
         if batch_size < 1:
             raise ValueError("batch_size must be >= 1")
@@ -84,6 +92,10 @@ class AsyncIoConsumer(BaseConsumer[T]):
             dlq_maxlen=dlq_maxlen,
             close_redis_on_stop=close_redis_on_stop,
             current_redis_manager=current_redis_manager,
+            max_processing_time_s=max_processing_time_s,
+            step_progress_timeout_s=step_progress_timeout_s,
+            use_execution_lease=use_execution_lease,
+            lease_ttl_ms=lease_ttl_ms,
         )
 
     def _submit_message(
@@ -91,12 +103,21 @@ class AsyncIoConsumer(BaseConsumer[T]):
         loop: asyncio.AbstractEventLoop,
         message_data: T,
         retry_count: int,
+        tracker: ProgressTracker | None = None,
     ) -> asyncio.Future[Any]:
         del loop
         is_last_retry = retry_count >= self.max_retry_number - 1
-        return asyncio.create_task(
-            self.process_message_callable(message_data, retry_count, is_last_retry)
-        )
+
+        async def _coro_with_tracker() -> None:
+            token = current_progress_tracker.set(tracker)
+            try:
+                await self.process_message_callable(
+                    message_data, retry_count, is_last_retry
+                )
+            finally:
+                current_progress_tracker.reset(token)
+
+        return asyncio.create_task(_coro_with_tracker())
 
     async def _abort_unfinished_futures(
         self, unfinished: list[asyncio.Future[Any]]
