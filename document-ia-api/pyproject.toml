@@ -13,7 +13,7 @@ dependencies = [
     "pydantic-settings == 2.16.2",
     "sqlalchemy == 2.1.6",
     "uvicorn == 0.54.0",
-    "gunicorn == 22.0.0",
+    "gunicorn == 26.2.0",
     "python-magic == 0.4.27",
     "python-multipart == 0.0.32",
     "asyncpg == 0.32.0",
