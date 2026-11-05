@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import cv2
-import fitz
+import pymupdf as fitz
 import numpy as np
 import pytest
 from pytesseract import get_tesseract_version

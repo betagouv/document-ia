@@ -239,11 +239,13 @@ def main() -> None:
     documents: list[ErrorReviewDocument] = sorted(
         st.session_state.get("review_error_documents", []),
         key=lambda document: (
-            0,
-            int(document.task_id),
-        )
-        if str(document.task_id).isdigit()
-        else (1, str(document.task_id)),
+            (
+                0,
+                int(document.task_id),
+            )
+            if str(document.task_id).isdigit()
+            else (1, str(document.task_id))
+        ),
     )
     st.metric("Documents erronés", len(documents))
     if not documents:

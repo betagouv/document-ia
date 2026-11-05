@@ -81,9 +81,9 @@ class BaseExtractBarcode(BaseStep[BarcodeResult]):
         Decodes a single barcode into a BarcodeVariant.
         Returns (variant, key, is_specialized_variant).
         """
-        format_str = str(barcode.format)
+        format_name = getattr(barcode.format, "name", str(barcode.format))
 
-        if format_str == "BarcodeFormat.DataMatrix":
+        if format_name in ("DataMatrix", "BarcodeFormat.DataMatrix", "Data Matrix"):
             key = f"dm:{barcode.text}"
             return (
                 DataMatrix(
@@ -95,7 +95,7 @@ class BaseExtractBarcode(BaseStep[BarcodeResult]):
                 False,
             )
 
-        if format_str == "BarcodeFormat.QRCode":
+        if format_name in ("QRCode", "BarcodeFormat.QRCode", "QR Code"):
             key = f"qr:{barcode.text}"
             return (
                 QrCode(

@@ -8,23 +8,24 @@ requires-python = ">=3.13"
 dependencies = [
     "document-ia-infra",
     "document-ia-schemas",
-    "python-dotenv == 1.2.2",
-    "pydantic-settings == 2.14.1",
+    "python-dotenv == 1.2.4",
+    "pydantic-settings == 2.16.2",
     "pytesseract == 0.3.13",
-    "pymupdf == 1.27.2.3",
-    "opencv-python-headless == 4.13.0.92",
+    "pymupdf == 2.0",
+    "opencv-python-headless == 5.0.0.93",
     "jinja2 == 3.1.6",
-    "pydantic == 2.13.4",
-    "mypy-boto3-s3 == 1.43.14",
-    "greenlet == 3.5.1",
-    "zxing-cpp == 2.3.0",
+    "pydantic == 2.14.1",
+    "mypy-boto3-s3 == 1.43.106",
+    "greenlet == 3.5.6",
+    "httpx == 0.28.1",
+    "zxing-cpp == 3.1.1",
     "2ddoc-parser",
     "python-magic == 0.4.27",
-    "psycopg2-binary == 2.9.12",
-    "torch == 2.7.1+cpu; sys_platform == 'linux'",
-    "torch == 2.7.1; sys_platform == 'darwin'",
-    "torchvision == 0.22.1+cpu; sys_platform == 'linux'",
-    "torchvision == 0.22.1; sys_platform == 'darwin'",
+    "psycopg2-binary == 2.9.13",
+    "torch == 2.15.0+cpu; sys_platform == 'linux'",
+    "torch == 2.15.0; sys_platform == 'darwin'",
+    "torchvision == 0.29.2+cpu; sys_platform == 'linux'",
+    "torchvision == 0.29.2; sys_platform == 'darwin'",
     "qrdet == 2.5",
     "pyright == 1.1.414",
     "clip",
@@ -36,11 +37,11 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "ruff == 0.12.12",
-    "pytest == 8.4.2",
-    "pytest-asyncio == 0.23.8",
-    "pre-commit == 3.8.0",
-    "uvicorn == 0.38.0",
+    "ruff == 0.17.3",
+    "pytest == 9.2.0",
+    "pytest-asyncio == 1.4.1",
+    "pre-commit == 4.7.0",
+    "uvicorn == 0.54.0",
 ]
 
 [tool.uv]
@@ -83,6 +84,10 @@ packages = ["src/document_ia_worker", "src/document_ia_task_scheduler"]
 target-version = "py313"
 line-length = 88
 
+# TODO: Dans une PR complémentaire, durcir le linter et revenir aux règles par défaut de Ruff
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
@@ -91,3 +96,4 @@ line-ending = "auto"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

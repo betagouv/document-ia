@@ -8,21 +8,22 @@ authors = [
     {name = "Nicolas Sagon",email = "nicolas.sagon@beta.gouv.fr"}
 ]
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.13,<3.14"
 dependencies = [
-    "streamlit == 1.56.0",
-    "pandas == 2.3.3",
-    "plotly == 6.7.0",
-    "python-dotenv == 1.2.2",
-    "label-studio-sdk == 2.0.14",
+    "streamlit == 1.66.1",
+    "pandas == 3.1.0",
+    "plotly == 7.1.0",
+    "python-dotenv == 1.2.4",
+    "label-studio-sdk == 2.1.2",
     "requests == 2.34.2",
-    "urllib3 == 2.7.0",
-    "boto3 == 1.35.99",
-    "deepdiff == 8.6.2",
-    "sqlalchemy == 2.0.50",
-    "alembic == 1.18.4",
-    "pydantic-settings == 2.14.1",
-    "psycopg2-binary == 2.9.12",
+    "urllib3 == 2.8.0",
+    "boto3 == 1.43.121",
+    "deepdiff == 9.1.0",
+    "sqlalchemy == 2.1.6",
+    "alembic == 1.20.1",
+    "pydantic == 2.14.1",
+    "pydantic-settings == 2.16.2",
+    "psycopg2-binary == 2.9.13",
     "document-ia-schemas",
     "document-ia-infra",
     "document-ia-api",
@@ -34,8 +35,8 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "ruff == 0.12.12",
-    "pytest == 8.4.2",
+    "ruff == 0.17.3",
+    "pytest == 9.2.0",
 ]
 
 [tool.uv]
@@ -56,3 +57,17 @@ editable = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/document_ia_evals"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+
+# TODO: Dans une PR complémentaire, durcir le linter et revenir aux règles par défaut de Ruff
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"

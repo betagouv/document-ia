@@ -6,7 +6,7 @@ authors = [{name = "Nicolas Sagon",email = "nicolas.sagon@beta.gouv.fr"}]
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "pydantic == 2.13.4",
+    "pydantic == 2.14.1",
 ]
 
 [project.license]
@@ -18,8 +18,8 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "ruff == 0.12.12",
-    "pytest == 8.4.2",
+    "ruff == 0.17.3",
+    "pytest == 9.2.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -28,6 +28,10 @@ packages = ["src/document_ia_schemas"]
 [tool.ruff]
 target-version = "py313"
 line-length = 88
+
+# TODO: Dans une PR complémentaire, durcir le linter et revenir aux règles par défaut de Ruff
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
 
 [tool.ruff.format]
 quote-style = "double"

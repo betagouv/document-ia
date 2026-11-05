@@ -30,9 +30,9 @@ class BaseExtractBarcode2DDoc(BaseExtractBarcode):
         """
         Specialized decoding for 2DDoc format.
         """
-        format_str = str(barcode.format)
+        format_name = getattr(barcode.format, "name", str(barcode.format))
 
-        if format_str == "BarcodeFormat.DataMatrix":
+        if format_name in ("DataMatrix", "BarcodeFormat.DataMatrix", "Data Matrix"):
             key = f"dm:{barcode.text}"
             try:
                 result = decode_2d_doc(barcode.text)
