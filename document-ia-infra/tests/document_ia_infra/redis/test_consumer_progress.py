@@ -36,6 +36,25 @@ class ProgressTaskMessage(SerializableMessage):
         return ProgressTaskMessage(json.loads(data))
 
 
+@pytest.fixture(autouse=True)
+def configure_redis_for_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    from document_ia_infra.redis.redis_settings import redis_settings
+
+    monkeypatch.setattr(redis_settings, "REDIS_URL", "redis://localhost:6379/0")
+
+
+class LocalRedisManager(RedisManager):
+    def __init__(self, client: Redis) -> None:
+        super().__init__()
+        self.redis = client
+
+    async def get_connection(self) -> Redis:
+        return self.redis
+
+    async def close(self) -> None:
+        pass
+
+
 @pytest.fixture
 async def redis_client() -> AsyncIterator[Redis]:
     client = Redis.from_url("redis://localhost:6379/0", decode_responses=True)
@@ -93,7 +112,7 @@ async def test_active_workflow_exceeding_reclaim_timeout_is_not_reclaimed(
             record_step_progress(f"step_{i}")
         await asyncio.to_thread(continue_event.wait)
 
-    rm = RedisManager()
+    rm = LocalRedisManager(redis_client)
     consumer = ThreadConsumer[ProgressTaskMessage](
         consumer_name=f"worker-{uuid4()}",
         consumer_group=group,
@@ -164,7 +183,7 @@ async def test_stalled_workflow_stops_heartbeat_and_requeues_with_retry_incremen
             if tracker and tracker.is_aborted:
                 break
 
-    rm = RedisManager()
+    rm = LocalRedisManager(redis_client)
     consumer = ThreadConsumer[ProgressTaskMessage](
         consumer_name=f"worker-{uuid4()}",
         consumer_group=group,
@@ -230,7 +249,7 @@ async def test_max_processing_time_exceeded_routes_to_dlq(
             if tracker and tracker.is_aborted:
                 break
 
-    rm = RedisManager()
+    rm = LocalRedisManager(redis_client)
     consumer = ThreadConsumer[ProgressTaskMessage](
         consumer_name=f"worker-{uuid4()}",
         consumer_group=group,
@@ -300,8 +319,8 @@ async def test_concurrency_with_execution_lease_excludes_duplicate_execution(
     ) -> None:
         worker2_executed.set()
 
-    rm1 = RedisManager()
-    rm2 = RedisManager()
+    rm1 = LocalRedisManager(redis_client)
+    rm2 = LocalRedisManager(redis_client)
     worker1 = ThreadConsumer[ProgressTaskMessage](
         consumer_name=f"worker-1-{uuid4()}",
         consumer_group=group,
@@ -394,7 +413,7 @@ async def test_api_mode_without_steps(
         assert tracker.is_healthy()
         executed.set()
 
-    rm = RedisManager()
+    rm = LocalRedisManager(redis_client)
     api_consumer = AsyncIoConsumer[ProgressTaskMessage](
         consumer_name=f"api-worker-{uuid4()}",
         consumer_group=group,
