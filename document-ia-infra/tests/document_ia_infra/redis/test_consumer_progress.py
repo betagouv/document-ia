@@ -3,7 +3,6 @@
 import asyncio
 import json
 import threading
-import time
 from collections.abc import AsyncIterator
 from typing import Any
 from uuid import uuid4
@@ -13,7 +12,6 @@ from redis.asyncio import Redis
 
 from document_ia_infra.redis.asyncio_consumer import AsyncIoConsumer
 from document_ia_infra.redis.progress_tracker import (
-    ProgressTracker,
     get_current_progress_tracker,
     record_step_progress,
 )

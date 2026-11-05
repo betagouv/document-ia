@@ -399,6 +399,7 @@ class TestWorkflowManager:
                 await manager.start()
 
             # Vérifier qu'aucun commit, ni webhook, ni failure event n'a été émis
+            mock_execute.assert_not_awaited()
             session = mock_db_manager.return_value.local_session.return_value.__aenter__.return_value
             session.commit.assert_not_awaited()
             mock_notify.assert_not_awaited()

@@ -124,6 +124,12 @@ class WorkflowManager:
                         return
                     self.event_data = self._parse_start_event()
                     self._prepare_executor(session)
+                    tracker = get_current_progress_tracker()
+                    if tracker is not None and tracker.is_aborted:
+                        logger.warning(
+                            f"Workflow execution {self.message.workflow_execution_id} was aborted by watchdog; skipping execution"
+                        )
+                        return
                     await self._execute_workflow()
                 except Exception as e:
                     logger.error(f"Workflow execution failed: {e}")

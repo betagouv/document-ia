@@ -937,8 +937,11 @@ class BaseConsumer(ABC, Generic[T]):
         if isinstance(raw_data, str) and "workflow_execution_id" in raw_data:
             try:
                 parsed = json.loads(raw_data)
-                if isinstance(parsed, dict) and "workflow_execution_id" in parsed:
-                    return str(parsed["workflow_execution_id"])
+                if isinstance(parsed, dict):
+                    parsed_dict = cast(dict[str, object], parsed)
+                    exec_val = parsed_dict.get("workflow_execution_id")
+                    if exec_val is not None:
+                        return str(exec_val)
             except Exception:
                 pass
         return None

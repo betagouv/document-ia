@@ -193,7 +193,7 @@ class StreamDelivery:
         key = self.execution_lease_key(execution_id)
         try:
             result = await cast(
-                Awaitable[Any], redis.eval(_RENEW_LEASE_LUA, 1, key, token, ttl_ms)
+                Awaitable[Any], redis.eval(_RENEW_LEASE_LUA, 1, key, token, str(ttl_ms))
             )
             renewed = bool(result == 1)
         except Exception:
