@@ -40,7 +40,7 @@ dev = [
     "pre-commit == 4.7.0",
     "httpx == 0.28.1",
     "pyright == 1.1.414",
-    "boto3-stubs == 1.43.121",
+    "boto3-stubs==1.43.122",
 ]
 
 [tool.uv]
