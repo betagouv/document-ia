@@ -7,7 +7,10 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 10
-
+    groups:
+      uv-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
   - package-ecosystem: "uv"
     directory: "/document-ia-infra"
     schedule:
@@ -15,7 +18,10 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 10
-
+    groups:
+      uv-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
   - package-ecosystem: "uv"
     directory: "/document-ia-worker"
     schedule:
@@ -23,7 +29,10 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 10
-
+    groups:
+      uv-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
   - package-ecosystem: "uv"
     directory: "/document-ia-schemas"
     schedule:
@@ -31,7 +40,10 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 10
-
+    groups:
+      uv-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
   - package-ecosystem: "uv"
     directory: "/document-ia-evals"
     schedule:
@@ -39,7 +51,10 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 10
-
+    groups:
+      uv-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
   - package-ecosystem: "uv"
     directory: "/document-ia-auto-scaler"
     schedule:
@@ -47,7 +62,10 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 10
-
+    groups:
+      uv-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -55,3 +73,6 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ["*"]
