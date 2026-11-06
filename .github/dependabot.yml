@@ -11,10 +11,6 @@ updates:
       uv-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
-      uv-major:
-        patterns: ["*"]
-        update-types: ["major"]
-
   - package-ecosystem: "uv"
     directory: "/document-ia-infra"
     schedule:
@@ -26,10 +22,6 @@ updates:
       uv-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
-      uv-major:
-        patterns: ["*"]
-        update-types: ["major"]
-
   - package-ecosystem: "uv"
     directory: "/document-ia-worker"
     schedule:
@@ -41,10 +33,6 @@ updates:
       uv-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
-      uv-major:
-        patterns: ["*"]
-        update-types: ["major"]
-
   - package-ecosystem: "uv"
     directory: "/document-ia-schemas"
     schedule:
@@ -56,10 +44,6 @@ updates:
       uv-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
-      uv-major:
-        patterns: ["*"]
-        update-types: ["major"]
-
   - package-ecosystem: "uv"
     directory: "/document-ia-evals"
     schedule:
@@ -71,10 +55,6 @@ updates:
       uv-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
-      uv-major:
-        patterns: ["*"]
-        update-types: ["major"]
-
   - package-ecosystem: "uv"
     directory: "/document-ia-auto-scaler"
     schedule:
@@ -86,10 +66,6 @@ updates:
       uv-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
-      uv-major:
-        patterns: ["*"]
-        update-types: ["major"]
-
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
