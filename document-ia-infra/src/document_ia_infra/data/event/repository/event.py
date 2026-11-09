@@ -20,9 +20,27 @@ from document_ia_infra.data.event.dto.anonymization_enum import AnonymizationSta
 from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.entity.event_entity import EventEntity
+from document_ia_infra.exception.processing_aborted_exception import (
+    ProcessingAbortedException,
+)
 from document_ia_infra.exception.retryable_exception import RetryableException
+from document_ia_infra.redis.progress_tracker import get_current_progress_tracker
 
 logger = logging.getLogger(__name__)
+
+
+def ensure_processing_not_aborted(detail: str) -> None:
+    """Fence an event write at the persistence boundary.
+
+    ``put_event`` commits internally, so a caller's own ``is_aborted`` guard runs
+    too late to prevent a terminal event from being persisted: an attempt that
+    stalled in database I/O until the watchdog aborted it would still write when
+    that I/O resumed. Checking here, immediately before the commit, is the only
+    place that can refuse it.
+    """
+    tracker = get_current_progress_tracker()
+    if tracker is not None and tracker.is_aborted:
+        raise ProcessingAbortedException(detail)
 
 
 class EventRepository:
@@ -79,6 +97,7 @@ class EventRepository:
 
             self.session.add(event_record)
             await self.session.flush()  # Flush to get the ID
+            ensure_processing_not_aborted(f"{event_type} for execution {execution_id}")
             await self.session.commit()
             await self.session.refresh(event_record)
 
@@ -89,6 +108,13 @@ class EventRepository:
 
             return self._to_dto(event_record)
 
+        except ProcessingAbortedException:
+            logger.warning(
+                f"Refusing to persist event {event_type} for execution {execution_id}:"
+                " the watchdog aborted this attempt"
+            )
+            await self.session.rollback()
+            raise
         except IntegrityError as e:
             logger.error(
                 f"Failed to store event {event_type} for execution {execution_id}: {e}"
