@@ -33,7 +33,7 @@ def configure_worker_logging():
 @pytest.mark.asyncio
 async def test_download_file_step_never_logs_full_url_or_query_parameters(caplog):
     context = MagicMock(spec=MainWorkflowContext)
-    context.execution_id = "exec-test-123"
+    context.execution_id = str(uuid4())
 
     secret_signature = "SECRET_AWS_SIGNATURE_9999"
     secret_credential = "SECRET_AWS_CREDENTIAL_8888"
@@ -44,8 +44,6 @@ async def test_download_file_step_never_logs_full_url_or_query_parameters(caplog
         file_info=None,
         file_url=sensitive_url,
     )
-    step.execution_id = "exec-test-123"
-    step.tmp_folder_path = "/tmp/test_download_step"
 
     # Simulate network failure during download
     with caplog.at_level(logging.INFO):
@@ -63,11 +61,13 @@ async def test_download_file_step_never_logs_full_url_or_query_parameters(caplog
     assert sensitive_url not in logs
     assert "private-bucket" not in logs
 
+    await step.cleanup(is_last_cleanup=True)
+
 
 @pytest.mark.asyncio
 async def test_download_file_step_never_logs_s3_key(caplog):
     context = MagicMock(spec=MainWorkflowContext)
-    context.execution_id = "exec-s3-456"
+    context.execution_id = str(uuid4())
 
     secret_s3_key = "sensitive/customer_path/SECRET_DOC_KEY_777.pdf"
     file_info = FileInfo(
@@ -83,14 +83,14 @@ async def test_download_file_step_never_logs_s3_key(caplog):
         main_workflow_context=context,
         file_info=file_info,
     )
-    step.execution_id = "exec-s3-456"
-    step.tmp_folder_path = "/tmp/test_s3_step"
 
     with caplog.at_level(logging.INFO):
         await step._prepare_step()
 
     logs = caplog.text
     assert secret_s3_key not in logs
+
+    await step.cleanup(is_last_cleanup=True)
 
 
 def test_handle_finish_execution_purges_prompts_and_document_data(monkeypatch):

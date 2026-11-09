@@ -190,8 +190,65 @@ Scan for leaked custom authorization headers and presigned S3 signatures:
 {env="sandbox"} |~ `(?i)(AWSAccessKeyId|X-Amz-Signature=[a-zA-Z0-9]+)`
 ```
 
-### 5.2 Remediation & Key Rotation Procedure
-1. **Identify Exposed Keys**: Run Query 5.1.C over the operational retention window (e.g., 30 days) and export the list of unique `prefix` / `exposed_api_key` values.
+### 5.2 SQL Queries for Organization Contacts & Key Rotation (Excluding Admin Keys)
+
+Assuming historic leaks affected all standard tenant keys prior to this PR, run these queries to identify organizations and their respective contact emails:
+
+#### A. Sandbox Environment
+```sql
+SELECT
+    o.id AS organization_id,
+    o.name AS organization_name,
+    o.contact_email,
+    k.id AS api_key_id,
+    CONCAT('dia_sandbox_1_', k.prefix, '_***') AS masked_key,
+    k.prefix,
+    k.status,
+    k.created_at
+FROM organization o
+JOIN api_key k ON k.organization_id = o.id
+WHERE o.platform_role != 'PlatformAdmin'
+ORDER BY o.name;
+```
+
+#### B. Production Environment
+```sql
+SELECT
+    o.id AS organization_id,
+    o.name AS organization_name,
+    o.contact_email,
+    k.id AS api_key_id,
+    CONCAT('dia_prod_1_', k.prefix, '_***') AS masked_key,
+    k.prefix,
+    k.status,
+    k.created_at
+FROM organization o
+JOIN api_key k ON k.organization_id = o.id
+WHERE o.platform_role != 'PlatformAdmin'
+ORDER BY o.name;
+```
+
+### 5.3 Communication Template for Tenant Representatives
+
+```markdown
+Objet : [Sécurité Document IA] Rotation requise de votre clé d'API ({{ masked_key }})
+
+Bonjour,
+
+Dans le cadre d'un audit de sécurité et de la mise à niveau de nos systèmes de journalisation (passage à une politique stricte d'interdiction de fuite de données), nous procédons par mesure de précaution à la rotation des clés d'accès à l'API Document IA.
+
+Votre organisation **{{ organization_name }}** utilise actuellement la clé d'API débutant par **`{{ masked_key }}`**.
+
+Afin de garantir la continuité de service et la sécurité de vos intégrations :
+1. Une nouvelle clé d'API a été générée pour votre organisation dans votre espace d'administration.
+2. Nous vous invitons à mettre à jour vos configurations d'intégration avec cette nouvelle clé dès réception.
+3. L'ancienne clé débutant par **`{{ masked_key }}`** sera définitivement révoquée le **<DATE_A_DEFINIR>**.
+
+L'équipe Document IA reste disponible pour tout échange ou accompagnement sur cette opération.
+```
+
+### 5.4 Remediation & Key Rotation Procedure
+1. **Identify Exposed Keys**: Run Query 5.1.C or SQL Query 5.2.B over the operational retention window and export the list of unique `prefix` / `masked_key` values.
 2. **Revoke Exposed Keys**:
    - Call `PATCH /api/v1/admin/api-keys/{id}/status` with `status: "REVOKED"` for each compromised key.
    - Generate a replacement key via `POST /api/v1/admin/organizations/{organization_id}/api-keys` and securely transmit the new credential to the affected tenant.

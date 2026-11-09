@@ -215,7 +215,6 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
         if not safe_basename or safe_basename in {".", ".."}:
             safe_basename = f"{uuid4().hex}.bin"
         file_path = validate_safe_path(
-
             Path(self.tmp_folder_path) / f"{uuid4().hex}_{safe_basename}",
             self.sandbox_root,
         )
