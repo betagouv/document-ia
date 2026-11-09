@@ -192,6 +192,7 @@ class BaseConsumer(ABC, Generic[T]):
         self._needs_group_init = False
         self._listener_done = asyncio.Event()
         self._draining = False
+        self._terminal_failure_tasks: set[asyncio.Task[Any]] = set()
         self._heartbeat_interval_s_override: float | None = None
 
     @property
@@ -419,6 +420,18 @@ class BaseConsumer(ABC, Generic[T]):
                 logger.error("Error stopping heartbeat task: %s", hb_err)
             if heartbeat_cancelled is not None:
                 raise heartbeat_cancelled
+
+        if self._terminal_failure_tasks:
+            outstanding = set(self._terminal_failure_tasks)
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*outstanding, return_exceptions=True), timeout=5.0
+                )
+            except TimeoutError:
+                logger.warning(
+                    "Timed out waiting for %d terminal-failure notification(s)",
+                    len(outstanding),
+                )
 
         self.listener_task = None
         self.reclaimer_task = None
@@ -1302,15 +1315,29 @@ class BaseConsumer(ABC, Generic[T]):
                 await self._handle_timed_out_entry(redis_conn, ctx)
         logger.info("Heartbeat task stopped (stream='%s')", self.stream_name)
 
-    async def _notify_terminal_failure(
+    def _notify_terminal_failure(
         self, msg_id: str, fields: dict[str, Any], reason: str
     ) -> None:
-        """Signale à l'intégrateur l'échec terminal d'un message.
+        """Programme la notification d'échec terminal hors de la boucle de battement.
 
-        Appelé uniquement après une rétention DLQ et un ACK confirmés : la tentative
-        a été fencée par le watchdog et ne rapportera donc jamais son propre échec.
-        Toute erreur du callback est journalisée et n'interrompt pas le consommateur.
+        Déclenché uniquement après une rétention DLQ et un ACK confirmés : la tentative
+        a été fencée et ne rapportera donc jamais son propre échec. Le callback est
+        exécuté dans une tâche dédiée : il fait des lectures base, un commit et une
+        publication webhook, et l'attendre ici gèlerait le renouvellement des baux
+        ainsi que le fencing local de toutes les autres exécutions en vol.
         """
+        if self.on_terminal_failure is None:
+            return
+        task = asyncio.create_task(
+            self._run_terminal_failure_callback(msg_id, fields, reason),
+            name=f"terminal-failure:{msg_id}",
+        )
+        self._terminal_failure_tasks.add(task)
+        task.add_done_callback(self._terminal_failure_tasks.discard)
+
+    async def _run_terminal_failure_callback(
+        self, msg_id: str, fields: dict[str, Any], reason: str
+    ) -> None:
         if self.on_terminal_failure is None:
             return
         try:
@@ -1375,9 +1402,7 @@ class BaseConsumer(ABC, Generic[T]):
                 )
                 if retained:
                     await self.delivery.ack(redis_conn, msg_id)
-                    await self._notify_terminal_failure(
-                        msg_id, ctx.fields, timeout_reason
-                    )
+                    self._notify_terminal_failure(msg_id, ctx.fields, timeout_reason)
             except Exception as dlq_err:
                 self._invalidate_connection_on_transport_error(dlq_err)
                 logger.error(

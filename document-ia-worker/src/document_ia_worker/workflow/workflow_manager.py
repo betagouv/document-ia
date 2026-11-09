@@ -502,51 +502,77 @@ class WorkflowManager:
         tentatives dépassent le délai reste bloquée en ``STARTED``, sans nouvelle
         tentative planifiée.
         """
-        database_manager = DatabaseManager(pool_size=1, max_overflow=1)
-        async with database_manager.local_session() as session:
-            event_service = EventStoreService(session)
-            last_event = await event_service.get_last_event_for_execution_id(
-                self.message.workflow_execution_id
-            )
-
-            if last_event.event_type in (
-                EventType.WORKFLOW_EXECUTION_COMPLETED.value,
-                EventType.WORKFLOW_EXECUTION_FAILED.value,
-            ):
-                logger.info(
-                    "Execution %s is already terminal (%s); skipping watchdog failure",
-                    last_event.execution_id,
-                    last_event.event_type,
+        local_database_manager = DatabaseManager(pool_size=1, max_overflow=1)
+        try:
+            async with local_database_manager.local_session() as session:
+                event_service = EventStoreService(session)
+                last_event = await event_service.get_last_event_for_execution_id(
+                    self.message.workflow_execution_id
                 )
-                return
 
-            self.event_dto = last_event
-            raw_version = last_event.event.get("version")
-            workflow_version = raw_version if isinstance(raw_version, int) else 1
-            self.main_workflow_context = MainWorkflowContext(
-                execution_id=last_event.execution_id,
-                organization_id=last_event.organization_id,
-                workflow_version=workflow_version,
-                start_time=datetime.now(UTC),
-                steps_metadata=[],
-            )
+                if self._is_terminal_event(last_event):
+                    logger.info(
+                        "Execution %s is already terminal (%s); skipping watchdog failure",
+                        last_event.execution_id,
+                        last_event.event_type,
+                    )
+                    return
 
-            logger.warning(
-                "Recording terminal watchdog failure for execution %s (reason=%s)",
-                last_event.execution_id,
-                reason,
-            )
-            await event_service.emit_workflow_failed(
-                workflow_id=last_event.workflow_id,
-                execution_id=last_event.execution_id,
-                organization_id=last_event.organization_id,
-                error_type="WatchdogTimeout",
-                error_message=(
-                    "The watchdog stopped the execution and no attempt is left: "
-                    f"{reason}"
-                ),
-                failed_step="watchdog",
-                retry_count=self.retry_count,
-                workflow_version=workflow_version,
-            )
-            await self._notify_webhook_execution_finished(session)
+                self.event_dto = last_event
+                raw_version = last_event.event.get("version")
+                workflow_version = raw_version if isinstance(raw_version, int) else 1
+                self.main_workflow_context = MainWorkflowContext(
+                    execution_id=last_event.execution_id,
+                    organization_id=last_event.organization_id,
+                    workflow_version=workflow_version,
+                    start_time=datetime.now(UTC),
+                    steps_metadata=[],
+                )
+
+                logger.warning(
+                    "Recording terminal watchdog failure for execution %s (reason=%s)",
+                    last_event.execution_id,
+                    reason,
+                )
+                await event_service.emit_workflow_failed(
+                    workflow_id=last_event.workflow_id,
+                    execution_id=last_event.execution_id,
+                    organization_id=last_event.organization_id,
+                    error_type="WatchdogTimeout",
+                    error_message=(
+                        "The watchdog stopped the execution and no attempt is left: "
+                        f"{reason}"
+                    ),
+                    failed_step="watchdog",
+                    retry_count=self.retry_count,
+                    workflow_version=workflow_version,
+                )
+                await self._notify_webhook_execution_finished(session)
+        finally:
+            # Cette entrée construit son propre moteur de base et son propre
+            # gestionnaire Redis : les libérer explicitement, sinon des échecs
+            # terminaux répétés accumulent des connexions jusqu'au GC.
+            try:
+                await local_database_manager.dispose_async()
+            except Exception as e:
+                logger.error(
+                    f"Error while disposing terminal-failure database manager: {e}"
+                )
+            try:
+                await self._webhook_redis_manager.close()
+            except Exception as e:
+                logger.error(f"Error while closing terminal-failure Redis manager: {e}")
+
+    @staticmethod
+    def _is_terminal_event(event: EventDTO) -> bool:
+        """Indique si le dernier événement clôt définitivement l'exécution.
+
+        Un échec ``RetryableException`` est un échec intermédiaire : ``start()`` a
+        volontairement retenu sa notification webhook en attendant une reprise, donc
+        l'échec terminal du watchdog doit encore être enregistré.
+        """
+        if event.event_type == EventType.WORKFLOW_EXECUTION_COMPLETED.value:
+            return True
+        if event.event_type == EventType.WORKFLOW_EXECUTION_FAILED.value:
+            return event.event.get("error_type") != RetryableException.__name__
+        return False

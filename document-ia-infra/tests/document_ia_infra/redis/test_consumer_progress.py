@@ -789,3 +789,85 @@ async def test_terminal_failure_callback_fires_when_watchdog_retries_exhausted(
         assert any(fields.get("original_id") == msg_id for _, fields in dlq_entries)
     finally:
         await consumer.stop()
+
+
+@pytest.mark.asyncio
+async def test_blocking_terminal_failure_callback_does_not_stall_heartbeat(
+    redis_client: Redis, stream: str
+):
+    """Un callback d'échec terminal bloquant ne doit pas geler la boucle de battement.
+
+    S'il y était attendu, les autres messages en timeout ne seraient plus traités :
+    plus de rejeu, plus de renouvellement de bail, plus de fencing local.
+    """
+    group = f"group-{uuid4()}"
+    terminal_exec = f"exec-{uuid4()}"
+    retry_exec = f"exec-{uuid4()}"
+
+    await redis_client.xadd(
+        stream,
+        {"data": json.dumps({"workflow_execution_id": terminal_exec}), "retries": "2"},
+    )
+    retry_msg_id = await redis_client.xadd(
+        stream,
+        {"data": json.dumps({"workflow_execution_id": retry_exec}), "retries": "0"},
+    )
+
+    callback_started = threading.Event()
+    callback_release = threading.Event()
+
+    async def blocking_terminal_failure(
+        failed_msg_id: str, fields: dict[str, Any], reason: str
+    ) -> None:
+        callback_started.set()
+        await asyncio.to_thread(callback_release.wait)
+
+    async def endlessly_progressing_handler(
+        message: ProgressTaskMessage, retry_count: int, is_last: bool
+    ) -> None:
+        while True:
+            await asyncio.sleep(0.05)
+            record_step_progress("minor_step")
+            tracker = get_current_progress_tracker()
+            if tracker and tracker.is_aborted:
+                break
+
+    rm = LocalRedisManager(redis_client)
+    consumer = ThreadConsumer[ProgressTaskMessage](
+        consumer_name=f"worker-{uuid4()}",
+        consumer_group=group,
+        stream_name=stream,
+        batch_size=2,
+        block_time=10,
+        drain_timeout_s=0.2,
+        message_class=ProgressTaskMessage,
+        process_message_callable=endlessly_progressing_handler,
+        worker_number=2,
+        reclaim_idle_ms=60000,
+        step_progress_timeout_s=1.0,
+        max_processing_time_s=0.3,
+        max_retry_number=3,
+        use_execution_lease=True,
+        close_redis_on_stop=True,
+        current_redis_manager=rm,
+        on_terminal_failure=blocking_terminal_failure,
+    )
+    consumer._heartbeat_interval_s = 0.05
+
+    await consumer.start()
+    try:
+        await wait_until(callback_started.is_set, timeout=5.0)
+
+        async def retry_copy_present() -> bool:
+            entries = await redis_client.xrange(stream)
+            return any(
+                fields.get("retries") == "1"
+                and fields.get("original_id") == retry_msg_id
+                for _, fields in entries
+            )
+
+        assert not callback_release.is_set()
+        await wait_until(retry_copy_present, timeout=3.0)
+    finally:
+        callback_release.set()
+        await consumer.stop()
