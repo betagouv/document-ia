@@ -935,3 +935,71 @@ async def test_worker_shutdown_path_drains_terminal_failure_tasks(
         # Ne jamais laisser un callback bloqué retenir la boucle (ni le thread).
         released.set()
         await asyncio.wait_for(shutdown, timeout=5.0)
+
+
+@pytest.mark.asyncio
+async def test_shutdown_aborted_delivery_is_not_acknowledged(
+    redis_client: Redis, stream: str
+):
+    """Une livraison abandonnée à l'arrêt doit rester en attente, pas être acquittée.
+
+    Le handler fencé revient « en succès » (il saute la persistance) : l'acquitter
+    laisserait l'exécution inachevée, sans message en attente ni reprise planifiée.
+    """
+    group = f"group-{uuid4()}"
+    exec_id = f"exec-{uuid4()}"
+    await redis_client.xadd(
+        stream, {"data": json.dumps({"workflow_execution_id": exec_id})}
+    )
+
+    started = threading.Event()
+    release = threading.Event()
+
+    async def blocking_handler(
+        message: ProgressTaskMessage, retry_count: int, is_last: bool
+    ) -> None:
+        started.set()
+        await asyncio.to_thread(release.wait)
+
+    rm = LocalRedisManager(redis_client)
+    consumer = ThreadConsumer[ProgressTaskMessage](
+        consumer_name=f"worker-{uuid4()}",
+        consumer_group=group,
+        stream_name=stream,
+        batch_size=1,
+        block_time=10,
+        drain_timeout_s=0.2,
+        message_class=ProgressTaskMessage,
+        process_message_callable=blocking_handler,
+        reclaim_idle_ms=60000,
+        step_progress_timeout_s=30.0,
+        max_processing_time_s=60.0,
+        use_execution_lease=True,
+        lease_ttl_ms=60000,
+        close_redis_on_stop=True,
+        current_redis_manager=rm,
+    )
+    consumer._heartbeat_interval_s = 0.05
+
+    await consumer.start()
+    stop_task: Any = None
+    try:
+        await wait_until(started.is_set, timeout=3.0)
+        stop_task = asyncio.create_task(consumer.stop())
+
+        # Laisser le drain expirer pour que l'abandon (fencing) ait lieu, puis
+        # laisser le handler threadé se terminer « normalement ».
+        await asyncio.sleep(0.6)
+        release.set()
+        await asyncio.wait_for(stop_task, timeout=10.0)
+        stop_task = None
+
+        info = await redis_client.xpending(stream, group)
+        pending = info["pending"] if isinstance(info, dict) else info.pending
+        assert pending == 1, (
+            "an aborted-at-shutdown delivery must stay pending for recovery"
+        )
+    finally:
+        release.set()
+        if stop_task is not None:
+            await asyncio.wait_for(stop_task, timeout=10.0)

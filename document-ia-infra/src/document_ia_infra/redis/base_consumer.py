@@ -285,8 +285,11 @@ class BaseConsumer(ABC, Generic[T]):
         """Hook appelé en sortie de boucle sur les futures non terminées après vidange."""
         if not self.use_execution_lease:
             return
+        unfinished_futures = set(unfinished)
         for ctx in list(self._in_flight_contexts.values()):
             if ctx.handled or not ctx.execution_id or not ctx.lease_token:
+                continue
+            if ctx.future is not None and ctx.future not in unfinished_futures:
                 continue
             # Fencer le handler AVANT de libérer son bail : un handler threadé
             # n'est pas interruptible et peut encore committer. Libérer le bail
@@ -294,6 +297,12 @@ class BaseConsumer(ABC, Generic[T]):
             # que l'ancien handler passe encore les gardes `is_aborted`.
             if not ctx.tracker.is_aborted:
                 ctx.tracker.abort("shutdown")
+            # Marquer la livraison comme traitée : le handler fencé peut revenir
+            # « en succès » (il saute la persistance). Sans cette marque il serait
+            # acquitté normalement et l'exécution resterait inachevée, sans message
+            # en attente ni reprise planifiée. La laisser dans la PEL permet à la
+            # récupération de la reprendre.
+            ctx.handled = True
             if self.redis is not None:
                 with contextlib.suppress(Exception):
                     await self.delivery.release_lease(
