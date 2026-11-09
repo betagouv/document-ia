@@ -192,6 +192,17 @@ class BaseConsumer(ABC, Generic[T]):
         """Indique si des traitements de messages sont actuellement en cours d'exécution."""
         return any(not future.done() for future in self._processing_futures)
 
+    def _can_interrupt_pending_handler(self) -> bool:
+        """Indique si annuler la future suspend l'exécution réelle du handler.
+
+        Par défaut (AsyncIoConsumer), la future est une tâche asyncio et sa
+        cancellation est coopérative. Pour un ThreadConsumer, la future n'est que
+        le wrapper d'un ``run_in_executor``: la canceller la marque terminée sans
+        arrêter le thread sous-jacent, ce qui libérerait un slot d'exécution
+        toujours occupé. Les sous-classes threadées surchargent donc cette méthode.
+        """
+        return True
+
     @property
     def _redis_manager(self) -> RedisManager:
         return self._custom_redis_manager or redis_manager_main_thread
@@ -220,7 +231,26 @@ class BaseConsumer(ABC, Generic[T]):
     def _heartbeat_interval_s(self) -> float:
         if self._heartbeat_interval_s_override is not None:
             return self._heartbeat_interval_s_override
-        return max(self.reclaim_idle_ms / 3, 10) / 1000.0
+        # La cadence de base dérive de la fenêtre de reclaim, mais elle ne doit
+        # jamais être assez lente pour laisser expirer un bail d'exécution entre
+        # deux battements, ni pour dépasser un délai watchdog avant la prochaine
+        # vérification de santé.
+        interval_ms = self.reclaim_idle_ms / 3
+
+        if self.use_execution_lease:
+            interval_ms = min(interval_ms, self.lease_ttl_ms / 2)
+
+        watchdog_ms: float | None = None
+        for threshold_s in (self.max_processing_time_s, self.step_progress_timeout_s):
+            if threshold_s is not None:
+                candidate_ms = threshold_s * 1000.0
+                watchdog_ms = (
+                    candidate_ms if watchdog_ms is None else min(watchdog_ms, candidate_ms)
+                )
+        if watchdog_ms is not None:
+            interval_ms = min(interval_ms, watchdog_ms / 2)
+
+        return max(interval_ms, 10) / 1000.0
 
     @_heartbeat_interval_s.setter
     def _heartbeat_interval_s(self, value: float) -> None:
@@ -1232,7 +1262,11 @@ class BaseConsumer(ABC, Generic[T]):
 
         ctx.tracker.abort(timeout_reason)
 
-        if ctx.future is not None and not ctx.future.done():
+        if (
+            ctx.future is not None
+            and not ctx.future.done()
+            and self._can_interrupt_pending_handler()
+        ):
             ctx.future.cancel()
 
         if self.use_execution_lease and ctx.execution_id and ctx.lease_token:

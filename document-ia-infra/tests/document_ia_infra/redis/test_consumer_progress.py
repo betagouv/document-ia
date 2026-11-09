@@ -438,3 +438,127 @@ async def test_api_mode_without_steps(
         assert (info["pending"] if isinstance(info, dict) else info.pending) == 0
     finally:
         await api_consumer.stop()
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_interval_is_bounded_by_lease_ttl_and_watchdog():
+    """Le battement est borné par le TTL du bail et les seuils watchdog, pas seulement par reclaim."""
+
+    async def _noop(message: ProgressTaskMessage, retry_count: int, is_last: bool) -> None:
+        return None
+
+    # Configuration worker de production : le TTL du bail de 60 s est la borne
+    # déterminante (et non la cadence de reclaim de ~100 s).
+    worker = ThreadConsumer[ProgressTaskMessage](
+        consumer_name="w",
+        consumer_group="g",
+        stream_name="s",
+        batch_size=1,
+        block_time=10,
+        message_class=ProgressTaskMessage,
+        process_message_callable=_noop,
+        reclaim_idle_ms=300000,  # valeur par défaut
+        step_progress_timeout_s=90.0,
+        max_processing_time_s=120.0,
+        use_execution_lease=True,
+        lease_ttl_ms=60000,  # valeur par défaut
+        current_redis_manager=None,
+    )
+    assert worker._heartbeat_interval_s <= 60.0 / 2
+    assert worker._heartbeat_interval_s <= 90.0 / 2
+
+    # Configuration API (pas de bail) : le plafond de 15 s de traitement est la
+    # borne déterminante.
+    api = ThreadConsumer[ProgressTaskMessage](
+        consumer_name="w",
+        consumer_group="g",
+        stream_name="s",
+        batch_size=1,
+        block_time=10,
+        message_class=ProgressTaskMessage,
+        process_message_callable=_noop,
+        reclaim_idle_ms=300000,
+        step_progress_timeout_s=None,
+        max_processing_time_s=15.0,
+        use_execution_lease=False,
+        lease_ttl_ms=60000,
+        current_redis_manager=None,
+    )
+    assert api._heartbeat_interval_s <= 15.0 / 2
+
+
+@pytest.mark.asyncio
+async def test_stuck_thread_keeps_occupying_worker_slot(redis_client: Redis, stream: str):
+    """Un handler bloqué conserve son slot de travail après un timeout watchdog."""
+    group = f"group-{uuid4()}"
+    exec1 = f"exec-{uuid4()}"
+    exec2 = f"exec-{uuid4()}"
+
+    block_event = threading.Event()
+    seen_exec_ids: list[str] = []
+
+    async def stuck_handler(
+        message: ProgressTaskMessage, retry_count: int, is_last: bool
+    ) -> None:
+        seen_exec_ids.append(message.workflow_execution_id)
+        if message.workflow_execution_id == exec1:
+            await asyncio.to_thread(block_event.wait)
+
+    msg1 = await redis_client.xadd(
+        stream,
+        {"data": json.dumps({"workflow_execution_id": exec1}), "retries": "0"},
+    )
+
+    rm = LocalRedisManager(redis_client)
+    consumer = ThreadConsumer[ProgressTaskMessage](
+        consumer_name=f"worker-{uuid4()}",
+        consumer_group=group,
+        stream_name=stream,
+        batch_size=1,
+        block_time=10,
+        drain_timeout_s=0.2,
+        message_class=ProgressTaskMessage,
+        process_message_callable=stuck_handler,
+        reclaim_idle_ms=5000,
+        step_progress_timeout_s=0.2,
+        max_processing_time_s=5.0,
+        max_retry_number=3,
+        use_execution_lease=False,
+        close_redis_on_stop=True,
+        current_redis_manager=rm,
+    )
+    consumer._heartbeat_interval_s = 0.05
+
+    await consumer.start()
+    try:
+        await wait_until(lambda: seen_exec_ids == [exec1], timeout=3.0)
+
+        async def requeued_present() -> bool:
+            entries = await redis_client.xrange(stream)
+            return any(
+                fields.get("retries") == "1" and fields.get("original_id") == msg1
+                for _, fields in entries
+            )
+
+        await wait_until(requeued_present, timeout=3.0)
+
+        # Le watchdog a avorté msg1, mais son thread reste bloqué : le worker
+        # unique est donc toujours occupé. Publier msg2 ne doit pas l'admettre.
+        msg2 = await redis_client.xadd(
+            stream, {"data": json.dumps({"workflow_execution_id": exec2})}
+        )
+        await asyncio.sleep(0.4)
+
+        assert seen_exec_ids == [exec1], (
+            "msg2 must not be admitted while msg1's thread is still stuck"
+        )
+        assert msg2 not in consumer._in_flight_ids
+        assert len(consumer._processing_futures) == 1
+        assert all(not f.done() for f in consumer._processing_futures)
+
+        # Une fois le thread débloqué, la capacité revient et msg2 est traité.
+        block_event.set()
+        await wait_until(lambda: exec2 in seen_exec_ids, timeout=3.0)
+    finally:
+        block_event.set()
+        await consumer.stop()

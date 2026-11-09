@@ -5,6 +5,7 @@ from typing import TypeVar, Optional
 
 from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
 from document_ia_worker.workflow.step.base_step import BaseStep
+from document_ia_infra.redis.progress_tracker import get_current_progress_tracker
 
 T = TypeVar("T")
 
@@ -24,6 +25,16 @@ class BaseFileManipulationStep(BaseStep[T], ABC):
         self.tmp_folder_path = str(tmp_path)
 
     async def cleanup(self, is_last_cleanup: bool = False):
+        tracker = get_current_progress_tracker()
+        if tracker is not None and tracker.is_aborted:
+            # Tentative avortée par le watchdog : un redémarrage du même
+            # execution_id peut partager ce répertoire. Ne jamais supprimer des
+            # fichiers qu'une tentative de remplacement est encore en train
+            # d'utiliser.
+            logger.info(
+                "Skipping temp cleanup for aborted execution %s", self.execution_id
+            )
+            return
         tmp_dir = Path(self.tmp_folder_path)
         if tmp_dir.exists() and tmp_dir.is_dir():
             for file in tmp_dir.iterdir():

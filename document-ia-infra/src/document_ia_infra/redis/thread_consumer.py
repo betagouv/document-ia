@@ -145,6 +145,14 @@ class ThreadConsumer(BaseConsumer[T]):
         )
         return loop.run_in_executor(self.executor, func)
 
+    def _can_interrupt_pending_handler(self) -> bool:
+        # Canceller le wrapper asyncio d'un ``run_in_executor`` marque la future
+        # terminée sans arrêter le thread : le slot du ThreadPoolExecutor reste
+        # occupé. On ne cancelle donc pas et on laisse la future en attente, afin
+        # que le listener continue de compter le worker occupé jusqu'à la fin
+        # réelle du thread (impossible à interrompre en Python).
+        return False
+
     def _process_message_sync_wrapper(
         self,
         message: T,
