@@ -62,6 +62,9 @@ class InFlightContext:
     future: asyncio.Future[Any] | None = None
     execution_id: str | None = None
     lease_token: str | None = None
+    # Expiration du bail d'exécution (horloge monotone), repoussée uniquement
+    # à chaque renouvellement confirmé par Redis.
+    lease_expires_at: float | None = None
     handled: bool = False
 
 
@@ -758,6 +761,11 @@ class BaseConsumer(ABC, Generic[T]):
                         tracker=tracker,
                         execution_id=execution_id,
                         lease_token=lease_token,
+                        lease_expires_at=(
+                            time.monotonic() + self.lease_ttl_ms / 1000.0
+                            if lease_token is not None
+                            else None
+                        ),
                     )
                     self._in_flight_contexts[msg_id] = ctx
 
@@ -1145,6 +1153,35 @@ class BaseConsumer(ABC, Generic[T]):
         ) and not self._reclaimer_active
         return listener_done and reclaimer_done
 
+    def _fence_expired_leases(self, now: float) -> None:
+        """Avorte localement les handlers dont le bail d'exécution a expiré.
+
+        `lease_expires_at` n'est repoussé qu'à chaque renouvellement confirmé par
+        Redis ; une valeur dépassée signifie donc que la propriété de l'exécution
+        n'est plus garantie. La vérification est purement locale et s'exécute même
+        quand Redis est injoignable, de sorte qu'un worker isolé du réseau ne
+        puisse pas committer après l'expiration de son bail.
+        """
+        if not self.use_execution_lease:
+            return
+        for msg_id in list(self._in_flight_ids):
+            ctx = self._in_flight_contexts.get(msg_id)
+            if (
+                ctx is None
+                or ctx.handled
+                or ctx.tracker.is_aborted
+                or ctx.lease_token is None
+                or ctx.lease_expires_at is None
+                or now < ctx.lease_expires_at
+            ):
+                continue
+            logger.warning(
+                "Execution lease expired for execution_id=%s, msg_id=%s; fencing handler",
+                ctx.execution_id,
+                msg_id,
+            )
+            ctx.tracker.abort("lease_lost")
+
     async def _heartbeat_in_flight_entries(self) -> None:
         """Rafraîchit l'inactivité des entrées saines et gère le watchdog des timeouts."""
         logger.info(
@@ -1175,11 +1212,15 @@ class BaseConsumer(ABC, Generic[T]):
                 except TimeoutError:
                     pass
 
+            now = time.monotonic()
+            # Fencing des baux expirés, évalué localement avant toute I/O Redis :
+            # couvre aussi l'indisponibilité de Redis, où le watchdog est court-circuité.
+            self._fence_expired_leases(now)
+
             redis_conn = await self._ensure_connection()
             if redis_conn is None:
                 continue
 
-            now = time.monotonic()
             healthy_ids: set[str] = set()
             timed_out_contexts: list[InFlightContext] = []
 
@@ -1216,6 +1257,8 @@ class BaseConsumer(ABC, Generic[T]):
                                 ctx.tracker.abort("lease_lost")
                                 healthy_ids.discard(msg_id)
                                 timed_out_contexts.append(ctx)
+                            else:
+                                ctx.lease_expires_at = now + self.lease_ttl_ms / 1000.0
                         except Exception as renew_err:
                             self._invalidate_connection_on_transport_error(renew_err)
                             logger.warning(

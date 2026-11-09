@@ -562,3 +562,72 @@ async def test_stuck_thread_keeps_occupying_worker_slot(redis_client: Redis, str
     finally:
         block_event.set()
         await consumer.stop()
+
+
+@pytest.mark.asyncio
+async def test_expired_lease_fences_handler_while_redis_unavailable(
+    redis_client: Redis, stream: str
+):
+    """Un bail d'exécution expiré fence le handler même si Redis est injoignable.
+
+    Le renouvellement n'avançant plus, l'expiration doit se calculer localement
+    (dernier renouvellement confirmé + TTL) et non dépendre d'un aller-retour Redis.
+    """
+    group = f"group-{uuid4()}"
+    exec_id = f"exec-{uuid4()}"
+    await redis_client.xadd(
+        stream, {"data": json.dumps({"workflow_execution_id": exec_id})}
+    )
+
+    started = threading.Event()
+    release = threading.Event()
+    aborted_seen = threading.Event()
+
+    async def blocking_handler(
+        message: ProgressTaskMessage, retry_count: int, is_last: bool
+    ) -> None:
+        started.set()
+        tracker = get_current_progress_tracker()
+        while not release.is_set():
+            if tracker is not None and tracker.is_aborted:
+                aborted_seen.set()
+                return
+            await asyncio.sleep(0.02)
+
+    rm = LocalRedisManager(redis_client)
+    consumer = ThreadConsumer[ProgressTaskMessage](
+        consumer_name=f"worker-{uuid4()}",
+        consumer_group=group,
+        stream_name=stream,
+        batch_size=1,
+        block_time=10,
+        drain_timeout_s=0.2,
+        message_class=ProgressTaskMessage,
+        process_message_callable=blocking_handler,
+        reclaim_idle_ms=60000,
+        step_progress_timeout_s=30.0,
+        max_processing_time_s=60.0,
+        use_execution_lease=True,
+        lease_ttl_ms=300,
+        close_redis_on_stop=True,
+        current_redis_manager=rm,
+    )
+    consumer._heartbeat_interval_s = 0.05
+
+    await consumer.start()
+    try:
+        await wait_until(started.is_set, timeout=3.0)
+
+        # Simule une coupure Redis : plus aucune connexion, donc plus de renouvellement.
+        async def _no_connection() -> None:
+            return None
+
+        consumer._ensure_connection = _no_connection  # type: ignore[method-assign]
+
+        await wait_until(aborted_seen.is_set, timeout=3.0)
+        assert aborted_seen.is_set(), (
+            "handler must be fenced once its last confirmed lease expires"
+        )
+    finally:
+        release.set()
+        await consumer.stop()
