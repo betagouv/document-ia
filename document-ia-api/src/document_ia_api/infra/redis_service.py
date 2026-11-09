@@ -2,6 +2,7 @@ import logging
 import asyncio
 from datetime import datetime, timedelta
 from typing import Tuple
+from uuid import UUID
 
 from redis.exceptions import ConnectionError, TimeoutError
 
@@ -22,17 +23,18 @@ logger = logging.getLogger(__name__)
 class RedisService:
     """Redis service for caching and rate limiting operations."""
 
-    async def check_rate_limit(self, api_key: str) -> Tuple[bool, RateLimitInfo]:
+    async def check_rate_limit(self, key_id: str | UUID) -> Tuple[bool, RateLimitInfo]:
         """
-        Check rate limits for an API key.
+        Check rate limits for an API key by its identifier.
 
         Args:
-            api_key: The API key to check rate limits for
+            key_id: The API key identifier (UUID or str) to check rate limits for
 
         Returns:
             Tuple[bool, RateLimitInfo]: (is_allowed, rate_limit_info)
         """
         try:
+            key_identifier = str(key_id)
             connection = await redis_manager.get_connection()
             if connection is None:
                 raise ConnectionError("Quota connection unavailable")
@@ -45,10 +47,10 @@ class RedisService:
             day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
             next_day = day_start + timedelta(days=1)
 
-            minute_key = (
-                f"rate_limit:minute:{api_key}:{minute_start.strftime('%Y%m%d%H%M')}"
+            minute_key = f"rate_limit:minute:{key_identifier}:{minute_start.strftime('%Y%m%d%H%M')}"
+            daily_key = (
+                f"rate_limit:daily:{key_identifier}:{day_start.strftime('%Y%m%d')}"
             )
-            daily_key = f"rate_limit:daily:{api_key}:{day_start.strftime('%Y%m%d')}"
 
             # Use pipeline for atomic operations
             async with connection.pipeline() as pipe:
@@ -73,7 +75,7 @@ class RedisService:
 
             if minute_exceeded or daily_exceeded:
                 logger.warning(
-                    f"Rate limit exceeded for API key {api_key[:8]}... - "
+                    f"Rate limit exceeded for API key identifier {key_identifier} - "
                     f"Minute: {minute_count}/{settings.RATE_LIMIT_REQUESTS_PER_MINUTE}, "
                     f"Daily: {daily_count}/{settings.RATE_LIMIT_REQUESTS_PER_DAY}"
                 )

@@ -23,7 +23,7 @@ async def verify_api_key(
     request: Request,
     api_key: Optional[str] = Security(security),
     db_session: AsyncSession = Depends(database_manager.async_get_db),
-):
+) -> ApiKeyDTO:
     if not api_key:
         raise MissingApiKeyException()
 
