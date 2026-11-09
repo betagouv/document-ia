@@ -142,3 +142,57 @@ Fields explicitly excluded and scrubbed:
 - `user_prompt`: contains raw OCR text extracted from personal documents (CNI, payslips, tax assessments, etc.).
 - `system_prompt`: internal instructions and business rules.
 - `output_images`: visual artifacts.
+
+---
+
+## 5. Operations: Historic Leak Auditing & Secret Rotation (Point 4)
+
+To remediate historic exposures prior to the deployment of this PR, operators must search existing Loki logs for leaked credentials without disabling monitoring.
+
+### 5.1 Grafana / Loki (LogQL) Audit Queries for Sandbox & Production
+
+#### A. Comprehensive API Key Leak Discovery
+Search for any Document IA generated API key pattern (`dia_<env>_<version>_<prefix>_<body>_<chk>`) across all logs:
+```logql
+{env="sandbox"} |= "dia_" |~ `dia_(dev|sandbox|staging|prod)_[0-9v]+_[A-Z0-9]{8}_[A-Z0-9]+_[A-Z0-9]{4}`
+```
+
+#### B. Targeted Search on Key Creation Endpoint (`aggregator` logs)
+Inspect requests and responses on the API key creation route:
+```logql
+{app="document-ia-api", env="sandbox", logger="aggregator"}
+  | json
+  | normalized_path =~ ".*api-keys.*"
+  |~ `dia_[a-zA-Z0-9_]+`
+```
+
+#### C. Extraction of Distinct Exposed Keys in Grafana Table
+Extract the matched key into a temporary label `exposed_api_key` to build a list of keys requiring rotation:
+```logql
+{env="sandbox"}
+  | regexp `(?P<exposed_api_key>dia_(sandbox|dev|staging|prod)_[a-zA-Z0-9_]{30,100})`
+```
+To calculate the occurrence count per exposed key:
+```logql
+sum by (exposed_api_key) (
+  count_over_time({env="sandbox"} | regexp `(?P<exposed_api_key>dia_(sandbox|dev|staging|prod)_[a-zA-Z0-9_]{30,100})` [7d])
+)
+```
+
+#### D. Webhook Tokens & Presigned URL Leaks
+Scan for leaked custom authorization headers and presigned S3 signatures:
+```logql
+{app="document-ia-api", env="sandbox", logger="aggregator"}
+  |= "webhooks"
+  |~ `(?i)(bearer\s+[a-zA-Z0-9_\-\.]+|x-api-key)`
+```
+```logql
+{env="sandbox"} |~ `(?i)(AWSAccessKeyId|X-Amz-Signature=[a-zA-Z0-9]+)`
+```
+
+### 5.2 Remediation & Key Rotation Procedure
+1. **Identify Exposed Keys**: Run Query 5.1.C over the operational retention window (e.g., 30 days) and export the list of unique `prefix` / `exposed_api_key` values.
+2. **Revoke Exposed Keys**:
+   - Call `PATCH /api/v1/admin/api-keys/{id}/status` with `status: "REVOKED"` for each compromised key.
+   - Generate a replacement key via `POST /api/v1/admin/organizations/{organization_id}/api-keys` and securely transmit the new credential to the affected tenant.
+3. **Purge Compromised Log Segments**: Restrict access or execute Loki deletion requests for targeted chunks where secrets were detected, avoiding a full wipe of monitoring history.
