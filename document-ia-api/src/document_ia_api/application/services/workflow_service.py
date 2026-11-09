@@ -67,6 +67,7 @@ class WorkflowService:
             WorkflowClassificationParameterRequest
         ],
         request_extraction_parameter: Optional[WorkflowExtractionParameterRequest],
+        execution_id: Optional[str] = None,
     ) -> WorkflowExecutionData:
         """
         Execute a workflow with file upload and metadata processing.
@@ -98,8 +99,8 @@ class WorkflowService:
             # Validate and parse metadata
             metadata = self._parse_metadata(metadata_json)
 
-            # Generate execution ID
-            execution_id = str(uuid.uuid4())
+            # Generate or use provided execution ID
+            execution_id = execution_id or str(uuid.uuid4())
 
             file_info: Optional[FileInfo] = None
 
@@ -206,6 +207,26 @@ class WorkflowService:
                     "message": "An internal server error occurred during workflow execution",
                 },
             )
+
+    async def get_execution_data(
+        self, execution_id: str
+    ) -> WorkflowExecutionData | None:
+        """Retrieve execution data from the started event to reconstruct the admission response."""
+        event_store_service = EventStoreService(self.db_session)
+        result = await event_store_service.get_workflow_started_event(execution_id)
+        if result is None:
+            return None
+
+        dto, started = result
+        return WorkflowExecutionData(
+            execution_id=started.execution_id,
+            workflow_id=started.workflow_id,
+            status="processing",
+            created_at=dto.created_at.isoformat(),
+            file_info=started.s3_file_info,
+            file_url=started.file_url,
+            metadata=started.metadata,
+        )
 
     async def wait_for_execution_result(
         self,

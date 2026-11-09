@@ -59,6 +59,11 @@ class RedisSettings(BaseDocumentIaSettings):
     # indéfiniment une indisponibilité prolongée.
     PUBLISH_RETRY_AFTER_SECONDS: int = Field(default=5, ge=1, le=120)
 
+    # Durée de rétention des clés d'idempotence (12 heures par défaut).
+    IDEMPOTENCY_KEY_TTL_SECONDS: int = Field(default=43200, ge=1)
+    # Durée de verrouillage temporaire pendant le traitement de la requête (60 secondes).
+    IDEMPOTENCY_LOCK_TTL_SECONDS: int = Field(default=60, ge=1, le=600)
+
     def get_redis_url(self) -> str:
         if self.REDIS_URL:
             return self.REDIS_URL

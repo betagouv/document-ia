@@ -1,0 +1,450 @@
+import io
+import json
+from collections.abc import AsyncGenerator
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock, patch
+from uuid import uuid4
+
+import httpx
+from httpx import ASGITransport
+import pytest
+from redis.asyncio import Redis
+
+from document_ia_api.api.middleware.execution_admission import check_execution_admission
+import document_ia_api.api.middleware.rate_limiting_middleware as rl_mod
+from document_ia_api.core.idempotency.models import (
+    IdempotencyEntry,
+    IdempotencyStatus,
+)
+from document_ia_api.core.idempotency.request_fingerprint import (
+    compute_request_fingerprint,
+)
+from document_ia_api.infra.idempotency_service import build_idempotency_redis_key
+from document_ia_infra.data.api_key.dto.api_key_dto import ApiKeyDTO
+from document_ia_infra.data.api_key.enum.api_key_status import ApiKeyStatus
+from document_ia_infra.data.organization.dto.organization_dto import OrganizationDTO
+from document_ia_infra.data.organization.enum.platform_role import PlatformRole
+from document_ia_infra.data.organization.repository.organization_repository import (
+    OrganizationRepository,
+)
+from document_ia_infra.redis.publisher import PublishFailedError
+from tests.document_ia_api.conftest import create_test_app
+
+
+@pytest.fixture
+def mock_pdf_file():
+    pdf_content = (
+        b"%PDF-1.4\n1 0 obj\n<<\n/Type /Catalog\n/Pages 2 0 R\n>>\nendobj\n"
+    )
+    return io.BytesIO(pdf_content)
+
+
+@pytest.fixture
+def mock_pdf_file_different():
+    pdf_content = (
+        b"%PDF-1.4\n2 0 obj\n<<\n/Type /Catalog /Pages 3 0 R\n>>\nendobj\n"
+    )
+    return io.BytesIO(pdf_content)
+
+
+@pytest.fixture(autouse=True)
+async def reset_redis_manager():
+    yield
+    from document_ia_infra.redis.redis_manager import redis_manager
+    await redis_manager.close()
+
+
+@pytest.fixture(autouse=True)
+def mock_publish_success():
+    """Default mocked publish for success scenarios in integration tests."""
+    with patch(
+        "document_ia_api.application.services.workflow_service.Publisher.publish_message",
+        new=AsyncMock(return_value="1-0"),
+    ), patch(
+        "document_ia_api.application.services.workflow_v2_service.Publisher.publish_message",
+        new=AsyncMock(return_value="1-0"),
+    ):
+        yield
+
+
+@pytest.fixture
+async def async_client(
+    isolated_database_manager,
+    mock_redis_service,
+) -> AsyncGenerator[httpx.AsyncClient, None]:
+    """Single-event-loop ASGI test client avoiding cross-request asyncpg pool issues."""
+    from document_ia_api.api import auth as auth_mod
+    from document_ia_api.api.routes.v1 import workflow as v1_wf_mod
+    from document_ia_api.api.routes.v2 import workflow as v2_wf_mod
+
+    app = create_test_app()
+    app.dependency_overrides[check_execution_admission] = lambda: None
+    app.dependency_overrides[v2_wf_mod.database_manager.async_get_db] = (
+        isolated_database_manager.async_get_db
+    )
+    app.dependency_overrides[v1_wf_mod.database_manager.async_get_db] = (
+        isolated_database_manager.async_get_db
+    )
+    app.dependency_overrides[auth_mod.database_manager.async_get_db] = (
+        isolated_database_manager.async_get_db
+    )
+    original = rl_mod.redis_service
+    rl_mod.redis_service = mock_redis_service
+
+    async with httpx.AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://testserver",
+    ) as client:
+        try:
+            yield client
+        finally:
+            rl_mod.redis_service = original
+
+
+class TestIdempotencyIntegration:
+    """Integration tests for Idempotency-Key support across v1 and v2 workflow endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_v2_execute_idempotent_replay(
+        self,
+        async_client: httpx.AsyncClient,
+        standard_api_key_value: str,
+    ):
+        idempotency_key = f"key-v2-replay-{uuid4()}"
+        file_url = "https://example.com/contract.pdf"
+        override = json.dumps({"llm_extract_data": [{"param": "document_type", "value": "cni"}]})
+        metadata = json.dumps({"source": "integration_test", "doc_type": "contract"})
+
+        headers = {
+            "X-API-KEY": standard_api_key_value,
+            "Idempotency-Key": idempotency_key,
+        }
+        payload = {
+            "file_url": file_url,
+            "override": override,
+            "metadata": metadata,
+        }
+
+        # 1. First submission (Miss)
+        response_1 = await async_client.post(
+            "/api/v2/workflows/document-extraction-v2/execute",
+            data=payload,
+            headers=headers,
+        )
+        assert response_1.status_code == 200
+        data_1 = response_1.json()
+        assert data_1["status"] == "success"
+        execution_id_1 = data_1["data"]["execution_id"]
+        assert execution_id_1
+        assert "Idempotent-Replay" not in response_1.headers
+
+        # 2. Second submission with exact same key and payload (Replay Hit)
+        response_2 = await async_client.post(
+            "/api/v2/workflows/document-extraction-v2/execute",
+            data=payload,
+            headers=headers,
+        )
+        assert response_2.status_code == 200
+        assert response_2.headers.get("Idempotent-Replay") == "true"
+        data_2 = response_2.json()
+        assert data_2["status"] == "success"
+        assert data_2["data"]["execution_id"] == execution_id_1
+        assert data_2["data"]["workflow_id"] == "document-extraction-v2"
+        assert data_2["data"]["status"] == "processing"
+
+    @pytest.mark.asyncio
+    async def test_v2_execute_idempotency_conflict(
+        self,
+        async_client: httpx.AsyncClient,
+        standard_api_key_value: str,
+    ):
+        idempotency_key = f"key-v2-conflict-{uuid4()}"
+        headers = {
+            "X-API-KEY": standard_api_key_value,
+            "Idempotency-Key": idempotency_key,
+        }
+        override = json.dumps({"llm_extract_data": [{"param": "document_type", "value": "cni"}]})
+
+        # First submission with url A
+        resp_1 = await async_client.post(
+            "/api/v2/workflows/document-extraction-v2/execute",
+            data={"file_url": "https://example.com/docA.pdf", "override": override},
+            headers=headers,
+        )
+        assert resp_1.status_code == 200
+
+        # Second submission with same key but different url B
+        resp_2 = await async_client.post(
+            "/api/v2/workflows/document-extraction-v2/execute",
+            data={"file_url": "https://example.com/docB.pdf", "override": override},
+            headers=headers,
+        )
+        assert resp_2.status_code == 409
+        body = resp_2.json()
+        assert body["code"] == "http.conflict"
+        assert body["errors"]["error"] == "idempotency_conflict"
+
+    @pytest.mark.asyncio
+    async def test_v2_execute_idempotency_in_progress(
+        self,
+        async_client: httpx.AsyncClient,
+        standard_api_key_value: str,
+        organization_id,
+    ):
+        idempotency_key = f"key-v2-inprog-{uuid4()}"
+        workflow_id = "document-extraction-v2"
+        file_url = "https://example.com/pending.pdf"
+        override = json.dumps({"llm_extract_data": [{"param": "document_type", "value": "cni"}]})
+
+        # Compute matching fingerprint
+        fp = await compute_request_fingerprint(
+            method="POST",
+            path=f"/api/v2/workflows/{workflow_id}/execute",
+            file_url=file_url,
+            params={"override": override, "metadata": None},
+        )
+
+        reserved_exec_id = f"exec-in-flight-{uuid4()}"
+        redis_key = build_idempotency_redis_key(
+            version=2,
+            organization_id=organization_id,
+            workflow_id=workflow_id,
+            idempotency_key=idempotency_key,
+        )
+
+        # Place key in Redis with IN_PROGRESS state
+        redis = Redis.from_url("redis://localhost:6379/0", decode_responses=True)
+        try:
+            entry = IdempotencyEntry(
+                fingerprint=fp,
+                execution_id=reserved_exec_id,
+                status=IdempotencyStatus.IN_PROGRESS,
+                created_at=datetime.now(timezone.utc).isoformat(),
+            )
+            await redis.set(redis_key, entry.model_dump_json(), ex=60)
+        finally:
+            await redis.aclose()
+
+        # Concurrent request with same key
+        response = await async_client.post(
+            f"/api/v2/workflows/{workflow_id}/execute",
+            data={"file_url": file_url, "override": override},
+            headers={
+                "X-API-KEY": standard_api_key_value,
+                "Idempotency-Key": idempotency_key,
+            },
+        )
+        assert response.status_code == 409
+        body = response.json()
+        assert body["code"] == "http.conflict"
+        assert body["errors"]["error"] == "idempotency_in_progress"
+        assert body["errors"]["execution_id"] == reserved_exec_id
+
+    @pytest.mark.asyncio
+    async def test_v2_execute_invalid_idempotency_key_format(
+        self,
+        async_client: httpx.AsyncClient,
+        standard_api_key_value: str,
+    ):
+        # Empty string
+        resp_empty = await async_client.post(
+            "/api/v2/workflows/document-extraction-v2/execute",
+            data={"file_url": "https://example.com/doc.pdf"},
+            headers={
+                "X-API-KEY": standard_api_key_value,
+                "Idempotency-Key": "",
+            },
+        )
+        assert resp_empty.status_code == 400
+        assert resp_empty.json()["errors"]["error"] == "invalid_idempotency_key"
+
+        # Key too long (257 chars)
+        resp_long = await async_client.post(
+            "/api/v2/workflows/document-extraction-v2/execute",
+            data={"file_url": "https://example.com/doc.pdf"},
+            headers={
+                "X-API-KEY": standard_api_key_value,
+                "Idempotency-Key": "x" * 257,
+            },
+        )
+        assert resp_long.status_code == 400
+        assert resp_long.json()["errors"]["error"] == "invalid_idempotency_key"
+
+    @pytest.mark.asyncio
+    async def test_v1_execute_idempotent_replay_and_conflict(
+        self,
+        async_client: httpx.AsyncClient,
+        standard_api_key_value: str,
+        mock_pdf_file,
+        mock_pdf_file_different,
+    ):
+        idempotency_key = f"key-v1-{uuid4()}"
+        workflow_id = "document-classification-v1"
+        metadata = json.dumps({"source": "v1_test"})
+
+        headers = {
+            "X-API-KEY": standard_api_key_value,
+            "Idempotency-Key": idempotency_key,
+        }
+
+        # 1. First submission (Miss)
+        resp_1 = await async_client.post(
+            f"/api/v1/workflows/{workflow_id}/execute",
+            files={"file": ("doc.pdf", mock_pdf_file.getvalue(), "application/pdf")},
+            data={"metadata": metadata},
+            headers=headers,
+        )
+        assert resp_1.status_code == 200
+        data_1 = resp_1.json()
+        exec_id_1 = data_1["data"]["execution_id"]
+        assert "Idempotent-Replay" not in resp_1.headers
+
+        # 2. Replay with exact same file content
+        resp_2 = await async_client.post(
+            f"/api/v1/workflows/{workflow_id}/execute",
+            files={"file": ("doc.pdf", mock_pdf_file.getvalue(), "application/pdf")},
+            data={"metadata": metadata},
+            headers=headers,
+        )
+        assert resp_2.status_code == 200
+        assert resp_2.headers.get("Idempotent-Replay") == "true"
+        data_2 = resp_2.json()
+        assert data_2["data"]["execution_id"] == exec_id_1
+
+        # 3. Conflict with different file content
+        resp_conflict = await async_client.post(
+            f"/api/v1/workflows/{workflow_id}/execute",
+            files={"file": ("doc.pdf", mock_pdf_file_different.getvalue(), "application/pdf")},
+            data={"metadata": metadata},
+            headers=headers,
+        )
+        assert resp_conflict.status_code == 409
+        body_conflict = resp_conflict.json()
+        assert body_conflict["code"] == "http.conflict"
+        assert body_conflict["errors"]["error"] == "idempotency_conflict"
+
+    @pytest.mark.asyncio
+    async def test_early_release_on_publish_failure_allows_immediate_retry(
+        self,
+        async_client: httpx.AsyncClient,
+        standard_api_key_value: str,
+    ):
+        idempotency_key = f"key-release-fail-{uuid4()}"
+        file_url = "https://example.com/retry_after_failure.pdf"
+        override = json.dumps({"llm_extract_data": [{"param": "document_type", "value": "cni"}]})
+
+        headers = {
+            "X-API-KEY": standard_api_key_value,
+            "Idempotency-Key": idempotency_key,
+        }
+
+        # 1. First request fails during stream publish
+        with patch(
+            "document_ia_api.application.services.workflow_v2_service.Publisher.publish_message",
+            new=AsyncMock(side_effect=PublishFailedError("event_stream", "simulated_broker_down")),
+        ):
+            resp_fail = await async_client.post(
+                "/api/v2/workflows/document-extraction-v2/execute",
+                data={"file_url": file_url, "override": override},
+                headers=headers,
+            )
+            assert resp_fail.status_code == 503
+            assert resp_fail.headers.get("Retry-After") is not None
+
+        # 2. The key should have been released immediately, so immediate retry succeeds
+        resp_retry = await async_client.post(
+            "/api/v2/workflows/document-extraction-v2/execute",
+            data={"file_url": file_url, "override": override},
+            headers=headers,
+        )
+        assert resp_retry.status_code == 200
+        data_retry = resp_retry.json()
+        assert data_retry["status"] == "success"
+        assert data_retry["data"]["execution_id"]
+
+    @pytest.mark.asyncio
+    async def test_cross_organization_isolation(
+        self,
+        async_client: httpx.AsyncClient,
+        isolated_database_manager,
+        standard_api_key_value: str,
+        monkeypatch,
+    ):
+        idempotency_key = f"shared-key-{uuid4()}"
+        file_url = "https://example.com/shared.pdf"
+        override = json.dumps({"llm_extract_data": [{"param": "document_type", "value": "cni"}]})
+
+        # Request from Organization 1
+        resp_org1 = await async_client.post(
+            "/api/v2/workflows/document-extraction-v2/execute",
+            data={"file_url": file_url, "override": override},
+            headers={
+                "X-API-KEY": standard_api_key_value,
+                "Idempotency-Key": idempotency_key,
+            },
+        )
+        assert resp_org1.status_code == 200
+        exec_id_org1 = resp_org1.json()["data"]["execution_id"]
+
+        # Persist organization 2 in PostgreSQL to satisfy the foreign key constraint
+        async with isolated_database_manager.local_session() as session:
+            repo = OrganizationRepository(session)
+            org2_db = await repo.create(
+                contact_email=f"org2-{uuid4().hex[:8]}@example.org",
+                name=f"Org 2 {uuid4().hex[:6]}",
+                platform_role=PlatformRole.STANDARD,
+            )
+            await session.commit()
+            org2_id = org2_db.id
+
+        try:
+            # Now mock organization 2 for auth
+            from document_ia_api.api import auth as auth_mod
+
+            now = datetime.now(timezone.utc)
+            org2 = OrganizationDTO(
+                id=org2_id,
+                contact_email="org2@example.org",
+                name="Org 2",
+                platform_role=PlatformRole.STANDARD,
+                created_at=now,
+                updated_at=now,
+            )
+            api_key_org2 = ApiKeyDTO(
+                id=uuid4(),
+                organization_id=org2.id,
+                organization=org2,
+                key_hash="hash",
+                prefix="KEYORG2X",
+                status=ApiKeyStatus.ACTIVE,
+                created_at=now,
+                updated_at=now,
+            )
+
+            async def fake_get_api_key(self, presented: str):
+                return api_key_org2
+
+            monkeypatch.setattr(auth_mod.ApiKeyService, "get_from_presented_key", fake_get_api_key)
+
+            # Request from Organization 2 with the same idempotency key
+            resp_org2 = await async_client.post(
+                "/api/v2/workflows/document-extraction-v2/execute",
+                data={"file_url": file_url, "override": override},
+                headers={
+                    "X-API-KEY": standard_api_key_value,
+                    "Idempotency-Key": idempotency_key,
+                },
+            )
+            assert resp_org2.status_code == 200
+            exec_id_org2 = resp_org2.json()["data"]["execution_id"]
+
+            # Must be two distinct executions isolated per organization!
+            assert exec_id_org1 != exec_id_org2
+        finally:
+            async with isolated_database_manager.local_session() as session:
+                repo = OrganizationRepository(session)
+                try:
+                    await repo.delete(org2_id)
+                    await session.commit()
+                except Exception:
+                    await session.rollback()

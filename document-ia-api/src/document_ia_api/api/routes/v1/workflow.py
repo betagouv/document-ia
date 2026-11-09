@@ -1,7 +1,19 @@
 import logging
 from typing import Optional
+import uuid
 
-from fastapi import APIRouter, Depends, UploadFile, File, Form, Path, HTTPException
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Path,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import ValidationError
@@ -17,6 +29,14 @@ from document_ia_api.api.contracts.workflow import (
 from document_ia_api.api.middleware.rate_limiting_middleware import check_rate_limit
 from document_ia_api.api.middleware.execution_admission import check_execution_admission
 from document_ia_api.application.services.workflow_service import WorkflowService
+from document_ia_api.core.idempotency import (
+    compute_request_fingerprint,
+    validate_idempotency_key,
+)
+from document_ia_api.infra.idempotency_service import (
+    build_idempotency_redis_key,
+    idempotency_service,
+)
 from document_ia_api.schemas.rate_limiting import RateLimitInfo
 from document_ia_infra.data.database import database_manager
 from document_ia_infra.data.organization.dto.organization_dto import OrganizationDTO
@@ -40,6 +60,15 @@ router = APIRouter(prefix="/workflows")
         200: {
             "model": WorkflowExecuteResponse,
             "description": "Workflow execution started successfully",
+            "headers": {
+                "Idempotent-Replay": {
+                    "description": (
+                        "Present and 'true' when this response is replayed from "
+                        "a previously accepted execution."
+                    ),
+                    "schema": {"type": "string", "example": "true"},
+                }
+            },
             "content": {
                 "application/json": {
                     "example": {
@@ -101,6 +130,48 @@ router = APIRouter(prefix="/workflows")
                         "code": "http.unauthorized",
                         "detail": "Unauthorized",
                         "instance": "/api/v1/workflows/{workflow_id}/execute",
+                    }
+                }
+            },
+        },
+        409: {
+            "model": ProblemDetail,
+            "description": (
+                "Conflict (ProblemDetail) — idempotency payload mismatch or concurrent execution in progress"
+            ),
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "idempotency_conflict": {
+                            "summary": "Idempotency Conflict",
+                            "value": {
+                                "type": "about:blank",
+                                "title": "Conflict",
+                                "status": 409,
+                                "code": "http.conflict",
+                                "errors": {
+                                    "error": "idempotency_conflict",
+                                    "message": "The idempotency key is already used with a different request payload.",
+                                },
+                            },
+                        },
+                        "idempotency_in_progress": {
+                            "summary": "Idempotency In Progress",
+                            "value": {
+                                "type": "about:blank",
+                                "title": "Conflict",
+                                "status": 409,
+                                "code": "http.conflict",
+                                "errors": {
+                                    "error": "idempotency_in_progress",
+                                    "execution_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+                                    "message": (
+                                        "An execution with this idempotency key is currently being processed. "
+                                        "You can query its status using the provided execution_id."
+                                    ),
+                                },
+                            },
+                        },
                     }
                 }
             },
@@ -229,6 +300,7 @@ router = APIRouter(prefix="/workflows")
     },
 )
 async def execute_workflow(
+    response: Response,
     workflow_id: str = Path(..., description="ID of the workflow to execute"),
     file: Optional[UploadFile] = File(
         ...,
@@ -252,6 +324,11 @@ async def execute_workflow(
     metadata: Optional[str] = Form(
         default=None,
         description="JSON string containing metadata object",
+    ),
+    idempotency_key: Optional[str] = Header(
+        default=None,
+        alias="Idempotency-Key",
+        description="Optional idempotency key (1-256 printable ASCII characters).",
     ),
     current_org: OrganizationDTO = Depends(get_current_organization),
     db_session: AsyncSession = Depends(database_manager.async_get_db),
@@ -277,11 +354,15 @@ async def execute_workflow(
     that will be passed to the workflow for processing context.
     """
 
+    validate_idempotency_key(idempotency_key)
+
     if file_url is None and file is None:
         raise HTTPException(
             status_code=400,
             detail="Either 'file' or 'file_url' must be provided.",
         )
+
+    workflow_id_normalized = workflow_id.strip()
 
     if file is not None:
         logger.info(
@@ -303,10 +384,57 @@ async def execute_workflow(
             },
         )
 
-    try:
-        # Create workflow service instance with database session
-        workflow_service = WorkflowService(db_session)
+    workflow_service = WorkflowService(db_session)
+    redis_key: str | None = None
+    pre_generated_execution_id: str | None = None
 
+    if idempotency_key is not None:
+        fingerprint = await compute_request_fingerprint(
+            method="POST",
+            path=f"/api/v1/workflows/{workflow_id_normalized}/execute",
+            file=file,
+            file_url=file_url,
+            params={
+                "classification_parameters": classification_parameters,
+                "extraction_parameters": extraction_parameters,
+                "metadata": metadata,
+            },
+        )
+        redis_key = build_idempotency_redis_key(
+            version=1,
+            organization_id=current_org.id,
+            workflow_id=workflow_id_normalized,
+            idempotency_key=idempotency_key,
+        )
+        pre_generated_execution_id = str(uuid.uuid4())
+
+        idempotency_result = await idempotency_service.acquire_or_check(
+            key=redis_key,
+            fingerprint=fingerprint,
+            execution_id=pre_generated_execution_id,
+        )
+
+        if idempotency_result.is_replay:
+            replayed_execution = await workflow_service.get_execution_data(
+                idempotency_result.execution_id
+            )
+            if replayed_execution is None:
+                await idempotency_service.release_key(
+                    key=redis_key,
+                    execution_id=idempotency_result.execution_id,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Execution not found for replay",
+                )
+            response.headers["Idempotent-Replay"] = "true"
+            return WorkflowExecuteResponse(
+                status="success",
+                data=replayed_execution,
+                message="Workflow execution started successfully",
+            )
+
+    try:
         parsed_classification_parameters: Optional[
             WorkflowClassificationParameterRequest
         ] = None
@@ -337,13 +465,20 @@ async def execute_workflow(
         # Execute workflow using the service
         result = await workflow_service.execute_workflow(
             organization_id=current_org.id,
-            workflow_id=workflow_id.strip(),
+            workflow_id=workflow_id_normalized,
             file=file,
             file_url=file_url,
             metadata_json=metadata,
             request_classification_parameter=parsed_classification_parameters,
             request_extraction_parameter=parsed_extraction_parameters,
+            execution_id=pre_generated_execution_id,
         )
+
+        if redis_key is not None and pre_generated_execution_id is not None:
+            await idempotency_service.mark_completed(
+                key=redis_key,
+                execution_id=pre_generated_execution_id,
+            )
 
         logger.info(
             "Workflow execution started successfully",
@@ -360,12 +495,21 @@ async def execute_workflow(
             message="Workflow execution started successfully",
         )
 
-    except RequestValidationError:
-        await db_session.rollback()
-        raise
     except Exception as e:
+        if redis_key is not None and pre_generated_execution_id is not None:
+            try:
+                await idempotency_service.release_key(
+                    key=redis_key,
+                    execution_id=pre_generated_execution_id,
+                )
+            except Exception as release_exc:
+                logger.warning(
+                    "Failed to release idempotency key %s: %s", redis_key, release_exc
+                )
         # Rollback the database session on any error
         await db_session.rollback()
+        if isinstance(e, (HTTPException, RequestValidationError)):
+            raise
         logger.error(f"Workflow execution failed: {e}")
         raise
 

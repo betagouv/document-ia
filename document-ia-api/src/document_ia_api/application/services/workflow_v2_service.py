@@ -56,6 +56,7 @@ class WorkflowV2Service:
         file_url: str | None,
         metadata_json: str | None,
         override_payload: WorkflowV2OverridePayload | None,
+        execution_id: str | None = None,
     ) -> WorkflowExecutionDataV2:
         if self.db_session is None:
             raise HTTPException(
@@ -72,7 +73,7 @@ class WorkflowV2Service:
         )
 
         metadata = self._parse_metadata(metadata_json)
-        execution_id = uuid.uuid4().__str__()
+        execution_id = execution_id or str(uuid.uuid4())
 
         file_info: FileInfo | None = None
         if file is not None:
@@ -141,6 +142,43 @@ class WorkflowV2Service:
             file_url=file_url,
             metadata=metadata,
             workflow_configuration=resolved_workflow,
+        )
+
+    async def get_execution_data(
+        self, execution_id: str
+    ) -> WorkflowExecutionDataV2 | None:
+        """Retrieve execution data from the started event to reconstruct the admission response."""
+        if self.db_session is None:
+            raise HTTPException(
+                status_code=500,
+                detail="WorkflowV2Service requires a database session for reading execution.",
+            )
+
+        event_store_service = EventStoreService(self.db_session)
+        result = await event_store_service.get_workflow_started_event(execution_id)
+        if result is None:
+            return None
+
+        dto, started = result
+        if started.workflow_configuration is None:
+            raw_workflow = self._get_raw_workflow_or_404(started.workflow_id)
+            workflow_config = self._resolve_workflow_configuration(
+                raw_workflow=raw_workflow,
+                override_payload=None,
+            )
+        else:
+            workflow_config = started.workflow_configuration
+
+        return WorkflowExecutionDataV2(
+            execution_id=started.execution_id,
+            workflow_id=started.workflow_id,
+            organization_id=started.organization_id,
+            status="processing",
+            created_at=dto.created_at.isoformat(),
+            file_info=started.s3_file_info,
+            file_url=started.file_url,
+            metadata=started.metadata,
+            workflow_configuration=workflow_config,
         )
 
     def validateWorkflow(
