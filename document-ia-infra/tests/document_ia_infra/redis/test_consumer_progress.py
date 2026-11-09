@@ -871,3 +871,67 @@ async def test_blocking_terminal_failure_callback_does_not_stall_heartbeat(
     finally:
         callback_release.set()
         await consumer.stop()
+
+
+@pytest.mark.asyncio
+async def test_worker_shutdown_path_drains_terminal_failure_tasks(
+    redis_client: Redis, stream: str
+):
+    """Le chemin d'arrêt du worker (``_de_init_consumer``) doit drainer les notifications.
+
+    ``start_consumer()`` termine par ``_de_init_consumer()`` et non par
+    ``_stop_tasks_only()`` : sans drain partagé, une notification en cours serait
+    annulée à la sortie du processus alors que le message est déjà acquitté,
+    perdant définitivement l'échec terminal de l'exécution.
+    """
+    async def endless_handler(
+        message: ProgressTaskMessage, retry_count: int, is_last: bool
+    ) -> None:
+        while True:
+            await asyncio.sleep(0.05)
+
+    rm = LocalRedisManager(redis_client)
+    consumer = ThreadConsumer[ProgressTaskMessage](
+        consumer_name=f"worker-{uuid4()}",
+        consumer_group=f"group-{uuid4()}",
+        stream_name=stream,
+        batch_size=1,
+        block_time=10,
+        drain_timeout_s=0.2,
+        message_class=ProgressTaskMessage,
+        process_message_callable=endless_handler,
+        reclaim_idle_ms=60000,
+        step_progress_timeout_s=30.0,
+        max_processing_time_s=60.0,
+        use_execution_lease=True,
+        close_redis_on_stop=True,
+        current_redis_manager=rm,
+    )
+
+    released = threading.Event()
+
+    async def blocking_callback(*_args: Any) -> None:
+        await asyncio.to_thread(released.wait)
+
+    consumer.on_terminal_failure = blocking_callback
+    task = asyncio.create_task(
+        consumer._run_terminal_failure_callback("1-0", {}, "workflow_timeout")
+    )
+    consumer._terminal_failure_tasks.add(task)
+    task.add_done_callback(consumer._terminal_failure_tasks.discard)
+
+    shutdown = asyncio.create_task(consumer._de_init_consumer())
+    try:
+        await asyncio.sleep(0.2)
+        assert not shutdown.done(), (
+            "shutdown must wait for the outstanding notification"
+        )
+
+        released.set()
+        await asyncio.wait_for(shutdown, timeout=5.0)
+        assert task.done()
+        assert not task.cancelled()
+    finally:
+        # Ne jamais laisser un callback bloqué retenir la boucle (ni le thread).
+        released.set()
+        await asyncio.wait_for(shutdown, timeout=5.0)

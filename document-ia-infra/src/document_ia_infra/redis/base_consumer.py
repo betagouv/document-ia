@@ -421,18 +421,7 @@ class BaseConsumer(ABC, Generic[T]):
             if heartbeat_cancelled is not None:
                 raise heartbeat_cancelled
 
-        if self._terminal_failure_tasks:
-            outstanding = set(self._terminal_failure_tasks)
-            try:
-                await asyncio.wait_for(
-                    asyncio.gather(*outstanding, return_exceptions=True), timeout=5.0
-                )
-            except TimeoutError:
-                logger.warning(
-                    "Timed out waiting for %d terminal-failure notification(s)",
-                    len(outstanding),
-                )
-
+        await self._drain_terminal_failure_tasks()
         self.listener_task = None
         self.reclaimer_task = None
         self.heartbeat_task = None
@@ -524,6 +513,7 @@ class BaseConsumer(ABC, Generic[T]):
 
     async def _de_init_consumer(self) -> None:
         logger.info("Consumer %s stopping...", self.consumer_name)
+        await self._drain_terminal_failure_tasks()
         await self._release_execution_resources()
         if self.close_redis_on_stop and self._custom_redis_manager is None:
             self.redis = None
@@ -1347,6 +1337,28 @@ class BaseConsumer(ABC, Generic[T]):
                 "Terminal-failure callback failed for message %s: %s",
                 msg_id,
                 callback_err,
+            )
+
+    async def _drain_terminal_failure_tasks(self) -> None:
+        """Attend (de façon bornée) les notifications d'échec terminal en cours.
+
+        Le message correspondant a déjà été acquitté : si le processus sortait
+        maintenant, son échec terminal serait perdu et l'exécution resterait à
+        ``STARTED``. Appelé par les deux chemins d'arrêt — ``_stop_tasks_only()``
+        (mode non bloquant) et ``_de_init_consumer()`` (``start_consumer()`` du
+        worker) — car ils ne partagent aucun autre crochet.
+        """
+        if not self._terminal_failure_tasks:
+            return
+        outstanding = set(self._terminal_failure_tasks)
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*outstanding, return_exceptions=True), timeout=5.0
+            )
+        except TimeoutError:
+            logger.warning(
+                "Timed out waiting for %d terminal-failure notification(s)",
+                len(outstanding),
             )
 
     async def _handle_timed_out_entry(
