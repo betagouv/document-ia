@@ -245,7 +245,9 @@ class BaseConsumer(ABC, Generic[T]):
             if threshold_s is not None:
                 candidate_ms = threshold_s * 1000.0
                 watchdog_ms = (
-                    candidate_ms if watchdog_ms is None else min(watchdog_ms, candidate_ms)
+                    candidate_ms
+                    if watchdog_ms is None
+                    else min(watchdog_ms, candidate_ms)
                 )
         if watchdog_ms is not None:
             interval_ms = min(interval_ms, watchdog_ms / 2)
