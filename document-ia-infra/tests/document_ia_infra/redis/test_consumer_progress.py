@@ -631,3 +631,92 @@ async def test_expired_lease_fences_handler_while_redis_unavailable(
     finally:
         release.set()
         await consumer.stop()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_fences_unfinished_handler_before_releasing_lease(
+    redis_client: Redis, stream: str
+):
+    """A l'arret, un handler threade non termine est fence avant la liberation de son bail.
+
+    Liberer le bail en premier laisserait une livraison concurrente demarrer alors
+    que le thread d'origine tourne encore et passe les gardes ``is_aborted``.
+    """
+    group = f"group-{uuid4()}"
+    exec_id = f"exec-{uuid4()}"
+    await redis_client.xadd(
+        stream, {"data": json.dumps({"workflow_execution_id": exec_id})}
+    )
+
+    started = threading.Event()
+    release = threading.Event()
+
+    async def blocking_handler(
+        message: ProgressTaskMessage, retry_count: int, is_last: bool
+    ) -> None:
+        started.set()
+        await asyncio.to_thread(release.wait)
+
+    rm = LocalRedisManager(redis_client)
+    consumer = ThreadConsumer[ProgressTaskMessage](
+        consumer_name=f"worker-{uuid4()}",
+        consumer_group=group,
+        stream_name=stream,
+        batch_size=1,
+        block_time=10,
+        drain_timeout_s=0.2,
+        message_class=ProgressTaskMessage,
+        process_message_callable=blocking_handler,
+        reclaim_idle_ms=60000,
+        step_progress_timeout_s=30.0,
+        max_processing_time_s=60.0,
+        use_execution_lease=True,
+        lease_ttl_ms=60000,
+        close_redis_on_stop=True,
+        current_redis_manager=rm,
+    )
+    consumer._heartbeat_interval_s = 0.05
+
+    # Espionne la libération du bail pour figer l'état du tracker à cet instant
+    # précis : c'est l'ordre « fencer puis libérer » qui est vérifié ici.
+    observed: dict[str, Any] = {}
+    original_release = consumer.delivery.release_lease
+
+    async def spy_release(
+        redis_conn: Redis, execution_id: str, lease_token: str
+    ) -> bool:
+        if "aborted_at_release" not in observed:
+            trackers_here = [
+                c.tracker
+                for c in consumer._in_flight_contexts.values()
+                if c.execution_id == execution_id
+            ]
+            observed["aborted_at_release"] = bool(
+                trackers_here and all(t.is_aborted for t in trackers_here)
+            )
+        observed["release_called"] = True
+        return await original_release(redis_conn, execution_id, lease_token)
+
+    consumer.delivery.release_lease = spy_release  # type: ignore[method-assign]
+
+    lease_key = f"lock:workflow_execution:{exec_id}"
+    await consumer.start()
+    stop_task: Any = None
+    try:
+        await wait_until(started.is_set, timeout=3.0)
+        assert await redis_client.get(lease_key) is not None
+
+        stop_task = asyncio.create_task(consumer.stop())
+        await wait_until(
+            lambda: observed.get("aborted_at_release") is not None, timeout=6.0
+        )
+        assert observed.get("aborted_at_release") is True, (
+            "handler must be fenced before its execution lease is released"
+        )
+        release.set()
+        await asyncio.wait_for(stop_task, timeout=10.0)
+        stop_task = None
+    finally:
+        release.set()
+        if stop_task is not None:
+            await asyncio.wait_for(stop_task, timeout=10.0)

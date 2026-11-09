@@ -278,13 +278,22 @@ class BaseConsumer(ABC, Generic[T]):
         self, unfinished: list[asyncio.Future[Any]]
     ) -> None:
         """Hook appelé en sortie de boucle sur les futures non terminées après vidange."""
-        if self.use_execution_lease and self.redis is not None:
-            for ctx in list(self._in_flight_contexts.values()):
-                if ctx.execution_id and ctx.lease_token and not ctx.handled:
-                    with contextlib.suppress(Exception):
-                        await self.delivery.release_lease(
-                            self.redis, ctx.execution_id, ctx.lease_token
-                        )
+        if not self.use_execution_lease:
+            return
+        for ctx in list(self._in_flight_contexts.values()):
+            if ctx.handled or not ctx.execution_id or not ctx.lease_token:
+                continue
+            # Fencer le handler AVANT de libérer son bail : un handler threadé
+            # n'est pas interruptible et peut encore committer. Libérer le bail
+            # en premier laisserait une livraison concurrente démarrer pendant
+            # que l'ancien handler passe encore les gardes `is_aborted`.
+            if not ctx.tracker.is_aborted:
+                ctx.tracker.abort("shutdown")
+            if self.redis is not None:
+                with contextlib.suppress(Exception):
+                    await self.delivery.release_lease(
+                        self.redis, ctx.execution_id, ctx.lease_token
+                    )
 
     @abstractmethod
     def _submit_message(
