@@ -53,7 +53,24 @@ def _get_loggers() -> dict[str, Any]:
             "handlers": [],
             "level": "INFO",
             "propagate": False,
-        }
+        },
+        # Suppress verbose HTTP client logs that might echo headers or sensitive queries
+        "httpx": {
+            "level": "WARNING",
+            "propagate": True,
+        },
+        "httpcore": {
+            "level": "WARNING",
+            "propagate": True,
+        },
+        "urllib3": {
+            "level": "WARNING",
+            "propagate": True,
+        },
+        "botocore": {
+            "level": "WARNING",
+            "propagate": True,
+        },
     }
 
     if logging_settings.LOKI_LOGGING_ENABLED:

@@ -27,56 +27,64 @@ Document IA enforces a strict positive allowlist approach:
 ### 2.1 Request Headers Allowlist (`ALLOWED_REQUEST_HEADERS`)
 Only standard, non-sensitive HTTP headers are retained in API logs:
 ```python
-ALLOWED_REQUEST_HEADERS = frozenset({
-    "content-type",
-    "content-length",
-    "user-agent",
-    "accept",
-    "accept-encoding",
-    "host",
-    "x-request-id",
-})
+ALLOWED_REQUEST_HEADERS = frozenset(
+    {
+        "content-type",
+        "content-length",
+        "user-agent",
+        "accept",
+        "accept-encoding",
+        "host",
+        "x-request-id",
+    }
+)
 ```
 > [!IMPORTANT]
 > All other headers—including `Authorization`, `Cookie`, `X-Api-Key`, `X-Signature`, and custom bearer headers—are strictly discarded before log entry construction.
 
 ### 2.2 Response Headers Allowlist (`ALLOWED_RESPONSE_HEADERS`)
 ```python
-ALLOWED_RESPONSE_HEADERS = frozenset({
-    "content-type",
-    "content-length",
-    "x-request-id",
-    "idempotent-replay",  # Preshot to support seamless integration with idempotency key feature (#148)
-    "location",
-})
+ALLOWED_RESPONSE_HEADERS = frozenset(
+    {
+        "content-type",
+        "content-length",
+        "x-request-id",
+        "idempotent-replay",  # Preshot to support seamless integration with idempotency key feature (#148)
+        "location",
+    }
+)
 ```
 
 ### 2.3 Query Parameters Allowlist (`ALLOWED_QUERY_PARAMS`)
 ```python
-ALLOWED_QUERY_PARAMS = frozenset({
-    "limit",
-    "offset",
-    "page",
-    "status",
-    "sort",
-    "order",
-    "direction",
-    "workflow_id",
-    "execution_id",
-})
+ALLOWED_QUERY_PARAMS = frozenset(
+    {
+        "limit",
+        "offset",
+        "page",
+        "status",
+        "sort",
+        "order",
+        "direction",
+        "workflow_id",
+        "execution_id",
+    }
+)
 ```
 *Any query parameter not included in this allowlist is replaced by `"**********"`.*
 
 ### 2.4 Path Parameters Allowlist (`ALLOWED_PATH_PARAMS`)
 ```python
-ALLOWED_PATH_PARAMS = frozenset({
-    "execution_id",
-    "organization_id",
-    "workflow_id",
-    "webhook_id",
-    "task_id",
-    "version",
-})
+ALLOWED_PATH_PARAMS = frozenset(
+    {
+        "execution_id",
+        "organization_id",
+        "workflow_id",
+        "webhook_id",
+        "task_id",
+        "version",
+    }
+)
 ```
 
 ### 2.5 Request & Response Body Metadata
@@ -119,13 +127,15 @@ Logging complete URLs poses severe risks when presigned S3 URLs or authenticated
 In `handle_finish_execution`, execution metadata reported to Loki is strictly filtered through `ALLOWED_STEP_METADATA_FIELDS`:
 
 ```python
-ALLOWED_STEP_METADATA_FIELDS = frozenset({
-    "step_name",
-    "execution_time",
-    "request_tokens",
-    "response_tokens",
-    "model",
-})
+ALLOWED_STEP_METADATA_FIELDS = frozenset(
+    {
+        "step_name",
+        "execution_time",
+        "request_tokens",
+        "response_tokens",
+        "model",
+    }
+)
 ```
 
 Fields explicitly excluded and scrubbed:

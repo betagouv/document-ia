@@ -178,10 +178,10 @@ async def create_webhook(
         return await service.create(
             organization_id=organization_id,
             url=payload.url,
-            headers=payload.headers or {},
+            headers=payload.headers,
         )
     except Exception as err:
-        logger.error(f"Error creating webhook: {err}")
+        logger.error("Error creating webhook: %s", type(err).__name__)
         raise
 
 

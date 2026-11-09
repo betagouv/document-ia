@@ -1,6 +1,8 @@
 import asyncio
 import logging
 
+from collections.abc import Mapping
+
 import httpx
 from sqlalchemy.exc import (
     DBAPIError,
@@ -12,6 +14,7 @@ from sqlalchemy.exc import (
 )
 
 from document_ia_api.application.services.execution_service import ExecutionService
+from document_ia_infra.core.model.types.secret import SecretDict
 from document_ia_infra.data.database import database_manager
 from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.repository.event import EventRepository
@@ -217,7 +220,9 @@ class WebhookNotificationService:
             raise
 
     @staticmethod
-    def _build_headers(custom_headers: dict[str, str]) -> dict[str, str]:
+    def _build_headers(
+        custom_headers: Mapping[str, str] | SecretDict[str],
+    ) -> dict[str, str]:
         custom_content_type: str | None = None
         headers: dict[str, str] = {}
         for key, value in custom_headers.items():
@@ -232,8 +237,9 @@ class WebhookNotificationService:
         self, webhook_dto: WebHookDTO, event_dto: EventDTO
     ) -> None:
         logger.info("Sending webhook notification")
+        execution_id: str = str(getattr(event_dto, "execution_id", ""))
         payload = self._execution_service.get_event_model(
-            event_dto, event_dto.execution_id, is_debug_mode=False
+            event_dto, execution_id, is_debug_mode=False
         )
         headers = self._build_headers(webhook_dto.headers)
 

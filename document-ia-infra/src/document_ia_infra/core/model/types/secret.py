@@ -1,7 +1,8 @@
 from typing import Annotated, Optional, TypeAlias, TypeVar, Generic, Any
 
-from pydantic import SecretStr, SecretBytes, BeforeValidator
+from pydantic import SecretStr, SecretBytes, BeforeValidator, GetCoreSchemaHandler
 from pydantic.functional_serializers import PlainSerializer
+from pydantic_core import core_schema
 
 V = TypeVar("V")
 
@@ -9,6 +10,49 @@ V = TypeVar("V")
 class SecretDict(Generic[V]):
     def __init__(self, inner_dict: dict[str, V]) -> None:
         self.inner_dict = inner_dict
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source_type: Any, handler: GetCoreSchemaHandler
+    ) -> core_schema.CoreSchema:
+        return core_schema.is_instance_schema(cls)
+
+    def get_secret_value(self) -> dict[str, V]:
+        return self.inner_dict
+
+    def items(self):
+        return self.inner_dict.items()
+
+    def keys(self):
+        return self.inner_dict.keys()
+
+    def values(self):
+        return self.inner_dict.values()
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self.inner_dict.get(key, default)
+
+    def __getitem__(self, key: str) -> V:
+        return self.inner_dict[key]
+
+    def __contains__(self, key: object) -> bool:
+        return key in self.inner_dict
+
+    def __len__(self) -> int:
+        return len(self.inner_dict)
+
+    def __iter__(self):
+        return iter(self.inner_dict)
+
+    def __bool__(self) -> bool:
+        return bool(self.inner_dict)
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, SecretDict):
+            return self.inner_dict == other.inner_dict  # type: ignore[reportUnknownMemberType]
+        if isinstance(other, dict):
+            return self.inner_dict == other
+        return False
 
     def __str__(self):
         items: list[str] = []

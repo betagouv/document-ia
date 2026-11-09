@@ -12,6 +12,7 @@ from document_ia_infra.core.file.safe_path import (
 )
 from document_ia_infra.core.model.file_info import FileInfo
 from document_ia_infra.core.network.safe_transport import SafeAsyncHTTPTransport
+from document_ia_infra.core.security.safe_logging import extract_safe_host
 from document_ia_infra.exception.retryable_exception import RetryableException
 from document_ia_infra.exception.s3_authentification_exception import (
     S3AuthentificationException,
@@ -48,7 +49,7 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
         return DownloadFileResult.__name__
 
     async def _prepare_step(self) -> None:
-        logger.info("Preparing download step for file: %s", self.file_info)
+        logger.info("Preparing download step (execution_id=%s)", self.execution_id)
         tmp_dir = Path(self.tmp_folder_path)
         validate_safe_path(tmp_dir, self.sandbox_root)
         if not tmp_dir.exists():
@@ -68,7 +69,12 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
             raise ValueError("No file information or URL provided for download.")
 
     async def _handle_file_url(self, file_url: str) -> tuple[DownloadFileResult, None]:
-        logger.info("Downloading file from URL: %s", file_url)
+        host = extract_safe_host(file_url)
+        logger.info(
+            "Downloading file from host: %s (execution_id=%s)",
+            host,
+            self.execution_id,
+        )
         tmp_dir = Path(self.tmp_folder_path)
         validate_safe_path(tmp_dir, self.sandbox_root)
         tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -177,7 +183,15 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
             )
 
         except Exception as e:
-            logger.error("Error handling file url: %s", e)
+            host = extract_safe_host(file_url)
+            status_code = getattr(getattr(e, "response", None), "status_code", None)
+            logger.error(
+                "Download file failed: host=%s exception=%s status_code=%s (execution_id=%s)",
+                host,
+                type(e).__name__,
+                status_code,
+                self.execution_id,
+            )
             raise e
 
         finally:
@@ -193,14 +207,15 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
         self, file_info: FileInfo
     ) -> tuple[DownloadFileResult, None]:
         s3_key_value = file_info.s3_key.get_secret_value()
-        logger.info("Downloading file from S3: %s", s3_key_value)
-
+        logger.info(
+            "Downloading file from S3 storage (execution_id=%s)", self.execution_id
+        )
         # Security: Extract basename safely and confine to sandbox
         safe_basename = Path(s3_key_value).name
         if not safe_basename or safe_basename in {".", ".."}:
             safe_basename = f"{uuid4().hex}.bin"
-
         file_path = validate_safe_path(
+
             Path(self.tmp_folder_path) / f"{uuid4().hex}_{safe_basename}",
             self.sandbox_root,
         )
@@ -208,7 +223,10 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
         s3_manager = S3Manager()
         try:
             s3_manager.download_file(s3_key_value, str(file_path))
-            logger.info("File downloaded successfully to: %s", file_path)
+            logger.info(
+                "File downloaded successfully from S3 storage (execution_id=%s)",
+                self.execution_id,
+            )
             return (
                 DownloadFileResult(
                     file_path=str(file_path),
@@ -228,9 +246,9 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
             try:
                 s3_manager.delete_file(self.file_info.s3_key.get_secret_value())
                 logger.info(
-                    "S3 file deleted successfully: %s",
-                    self.file_info.s3_key,
+                    "S3 file deleted successfully (execution_id=%s)",
+                    self.execution_id,
                 )
             except S3AuthentificationException as e:
-                logger.error("S3 authentication failed during file deletion: %s", e)
+                logger.error("S3 authentication failed during file deletion.")
                 raise RuntimeError("Error while deleting S3 file") from e

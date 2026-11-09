@@ -8,6 +8,7 @@ from logging import Filter, LogRecord, Handler
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
+from document_ia_infra.core.security.safe_logging import ALLOWED_STEP_METADATA_FIELDS
 from document_ia_worker.workflow.main_workflow_context import StepMetadata
 
 execution_id_var: ContextVar[Optional[str]] = ContextVar(
@@ -97,7 +98,7 @@ def handle_finish_execution(
         finished_at = datetime.now(UTC)
         logs = agg_buffer_var.get() or []
         if start_time_var.get() is None:
-            start_time = datetime.now()
+            start_time = datetime.now(UTC)
         else:
             start_time = start_time_var.get()
 
@@ -117,14 +118,18 @@ def handle_finish_execution(
             "elapsed_time_ms": elapsed_time_ms,
             "logs": logs,
             "workflow_metadata": [
-                meta.model_dump(mode="json") for meta in (workflow_metadata or [])
+                {
+                    k: v
+                    for k, v in meta.model_dump(mode="json").items()
+                    if k in ALLOWED_STEP_METADATA_FIELDS
+                }
+                for meta in (workflow_metadata or [])
             ],
         }
         if not is_success:
             entry.update(
                 {
                     "error_type": err_type,
-                    "error_message": err_message,
                     "failed_step": failed_step or "unknown",
                 }
             )
