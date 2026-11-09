@@ -5,6 +5,7 @@ Technical README for the API subproject: setup, configuration, build, and useful
 ## Documentation API
 
 - **API summary (entry point)**: [docs/API_SUMMARY.md](./docs/API_SUMMARY.md)
+- **Workflow Idempotency-Key**: [docs/WORKFLOW_IDEMPOTENCY_KEY.md](./docs/WORKFLOW_IDEMPOTENCY_KEY.md)
 
 ## Prerequisites
 

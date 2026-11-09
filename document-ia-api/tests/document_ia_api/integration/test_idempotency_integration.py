@@ -9,6 +9,9 @@ import httpx
 from httpx import ASGITransport
 import pytest
 from redis.asyncio import Redis
+from redis.exceptions import AuthenticationError
+
+from document_ia_infra.redis.redis_settings import redis_settings
 
 from document_ia_api.api.middleware.execution_admission import check_execution_admission
 import document_ia_api.api.middleware.rate_limiting_middleware as rl_mod
@@ -48,10 +51,43 @@ def mock_pdf_file_different():
 
 
 @pytest.fixture(autouse=True)
-async def reset_redis_manager():
-    yield
-    from document_ia_infra.redis.redis_manager import redis_manager
-    await redis_manager.close()
+def use_test_redis(monkeypatch: pytest.MonkeyPatch, redis_client: Redis) -> None:
+    from document_ia_infra.redis import redis_manager as redis_manager_module
+
+    async def get_connection() -> Redis:
+        return redis_client
+
+    monkeypatch.setattr(
+        redis_manager_module.redis_manager, "get_connection", get_connection
+    )
+
+
+@pytest.fixture
+async def redis_client() -> AsyncGenerator[Redis, None]:
+    connection = Redis(
+        host=redis_settings.REDIS_HOST,
+        port=redis_settings.REDIS_PORT,
+        db=redis_settings.REDIS_DB,
+        password=redis_settings.REDIS_PASSWORD.get_secret_value(),
+        decode_responses=True,
+    )
+    try:
+        await connection.ping()
+    except AuthenticationError as exc:
+        if "without any password configured" not in str(exc):
+            raise
+        await connection.aclose()
+        connection = Redis(
+            host=redis_settings.REDIS_HOST,
+            port=redis_settings.REDIS_PORT,
+            db=redis_settings.REDIS_DB,
+            decode_responses=True,
+        )
+        await connection.ping()
+    try:
+        yield connection
+    finally:
+        await connection.aclose()
 
 
 @pytest.fixture(autouse=True)

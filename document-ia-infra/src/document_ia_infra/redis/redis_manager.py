@@ -3,6 +3,7 @@ import logging
 import random
 
 from redis.asyncio import ConnectionPool, Redis
+from redis.exceptions import AuthenticationError, ConnectionError, TimeoutError
 
 from document_ia_infra.redis.redis_settings import redis_settings
 
@@ -46,6 +47,34 @@ class RedisManager:
                 self.connection_attempts = 0
                 return self.redis
 
+            except AuthenticationError as e:
+                if "without any password configured" in str(e):
+                    logger.warning(
+                        "Redis password was provided but server has no password configured. Reconnecting without password."
+                    )
+                    if self.redis is not None:
+                        await self.redis.aclose(close_connection_pool=True)
+                    unauth_url = f"redis://{redis_settings.REDIS_HOST}:{redis_settings.REDIS_PORT}/{redis_settings.REDIS_DB}"
+                    pool = ConnectionPool.from_url(  # type: ignore[UnknownMemberType]
+                        unauth_url,
+                        decode_responses=True,
+                        max_connections=20,
+                        socket_connect_timeout=5,
+                    )
+                    self.redis = Redis(connection_pool=pool)
+                    await asyncio.wait_for(self.redis.ping(), timeout=5)  # type: ignore[misc]
+                    self.connection_attempts = 0
+                    return self.redis
+                self.connection_attempts = attempt + 1
+                delay = await self._get_retry_delay()
+                logger.warning(
+                    "Redis connection failed (attempt %d/%d): %s. Retrying in %.2fs",
+                    self.connection_attempts,
+                    self.max_retries,
+                    e,
+                    delay,
+                )
+                await asyncio.sleep(delay)
             except (ConnectionError, TimeoutError, Exception) as e:
                 self.connection_attempts = attempt + 1
                 delay = await self._get_retry_delay()
