@@ -615,7 +615,10 @@ class BaseConsumer(ABC, Generic[T]):
                     msg_id, fields = active_futures.pop(fut)
                     self._processing_futures.discard(fut)
                     ctx = self._in_flight_contexts.pop(msg_id, None)
-                    if ctx is not None and ctx.handled:
+                    # Un tracker avorté (bail expiré, arrêt) ne doit jamais être
+                    # acquitté comme un succès : la tentative a été fencée, sa
+                    # persistance sautée. La laisser dans la PEL la rend récupérable.
+                    if ctx is not None and (ctx.handled or ctx.tracker.is_aborted):
                         self._in_flight_ids.discard(msg_id)
                         continue
                     try:
@@ -917,7 +920,8 @@ class BaseConsumer(ABC, Generic[T]):
                 continue
             msg_id, fields = popped
             ctx = self._in_flight_contexts.pop(msg_id, None)
-            if ctx is not None and ctx.handled:
+            # Idem dans le drain : un tracker avorté n'est jamais acquitté en succès.
+            if ctx is not None and (ctx.handled or ctx.tracker.is_aborted):
                 self._in_flight_ids.discard(msg_id)
                 continue
             try:

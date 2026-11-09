@@ -11,7 +11,9 @@ import pytest
 from redis.asyncio import Redis
 
 from document_ia_infra.redis.asyncio_consumer import AsyncIoConsumer
+from document_ia_infra.redis.base_consumer import InFlightContext
 from document_ia_infra.redis.progress_tracker import (
+    ProgressTracker,
     get_current_progress_tracker,
     record_step_progress,
 )
@@ -1003,3 +1005,58 @@ async def test_shutdown_aborted_delivery_is_not_acknowledged(
         release.set()
         if stop_task is not None:
             await asyncio.wait_for(stop_task, timeout=10.0)
+
+
+@pytest.mark.asyncio
+async def test_fenced_tracker_completion_is_never_acknowledged():
+    """Un handler fencé qui se termine proprement ne doit pas être acquitté en succès.
+
+    Couvre la fenêtre où une future se termine entre le fencing et sa reprise par
+    le battement : le listener finalise alors la future et acquitterait à tort le
+    message, laissant l'exécution inachevée sans livraison en attente ni reprise.
+    """
+    async def noop_handler(
+        message: ProgressTaskMessage, retry_count: int, is_last: bool
+    ) -> None:
+        return None
+
+    consumer = ThreadConsumer[ProgressTaskMessage](
+        consumer_name="worker-1",
+        consumer_group="group-1",
+        stream_name="stream-1",
+        batch_size=1,
+        block_time=10,
+        message_class=ProgressTaskMessage,
+        process_message_callable=noop_handler,
+        use_execution_lease=True,
+        lease_ttl_ms=60000,
+    )
+
+    tracker = ProgressTracker(msg_id="1-0", max_processing_time_s=60.0)
+    tracker.abort("lease_lost")
+    consumer._in_flight_contexts["1-0"] = InFlightContext(
+        msg_id="1-0",
+        fields={"data": "{}"},
+        tracker=tracker,
+        execution_id="exec-1",
+        lease_token="worker-1:token",
+    )
+    consumer._in_flight_ids.add("1-0")
+
+    future: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
+    future.set_result(None)
+    active_futures: dict[asyncio.Future[Any], tuple[str, dict[str, Any]]] = {
+        future: ("1-0", {"data": "{}"})
+    }
+
+    acked: list[str] = []
+
+    async def spy_ack(_redis: Any, msg_id: str) -> None:
+        acked.append(msg_id)
+
+    consumer.delivery.ack = spy_ack  # type: ignore[method-assign]
+
+    await consumer._finalize_done_futures([future], active_futures, object())  # type: ignore[arg-type]
+
+    assert acked == [], "a fenced attempt must never be acknowledged as success"
+    assert "1-0" not in consumer._in_flight_ids
