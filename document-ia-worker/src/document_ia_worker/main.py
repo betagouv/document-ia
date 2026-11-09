@@ -17,6 +17,9 @@ from document_ia_infra.redis.redis_manager import RedisManager
 from document_ia_infra.redis.redis_settings import redis_settings
 from document_ia_worker.config.logging import setup_logging
 from document_ia_worker.workflow.message_handler import process_message
+from document_ia_worker.workflow.terminal_failure import (
+    notify_watchdog_terminal_failure,
+)
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -96,6 +99,7 @@ async def run_consumer(stop_event: asyncio.Event | None = None) -> None:
         max_processing_time_s=120.0,
         step_progress_timeout_s=90.0,
         use_execution_lease=True,
+        on_terminal_failure=notify_watchdog_terminal_failure,
     )
     if stop_event is not None and stop_event.is_set():
         _consumer.stop_flag.set()

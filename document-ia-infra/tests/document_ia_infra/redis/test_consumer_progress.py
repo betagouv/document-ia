@@ -720,3 +720,72 @@ async def test_shutdown_fences_unfinished_handler_before_releasing_lease(
         release.set()
         if stop_task is not None:
             await asyncio.wait_for(stop_task, timeout=10.0)
+
+
+@pytest.mark.asyncio
+async def test_terminal_failure_callback_fires_when_watchdog_retries_exhausted(
+    redis_client: Redis, stream: str
+):
+    """Le callback d'échec terminal est appelé après rétention DLQ et ACK.
+
+    Une tentative fencée ne rapporte jamais son propre échec : sans ce callback
+    l'exécution resterait bloquée à ``STARTED``, sans nouvelle tentative.
+    """
+    group = f"group-{uuid4()}"
+    exec_id = f"exec-{uuid4()}"
+    msg_id = await redis_client.xadd(
+        stream,
+        {"data": json.dumps({"workflow_execution_id": exec_id}), "retries": "2"},
+    )
+
+    started = threading.Event()
+    calls: list[tuple[str, str]] = []
+
+    async def on_terminal_failure(
+        failed_msg_id: str, fields: dict[str, Any], reason: str
+    ) -> None:
+        calls.append((failed_msg_id, reason))
+
+    async def endlessly_progressing_handler(
+        message: ProgressTaskMessage, retry_count: int, is_last: bool
+    ) -> None:
+        started.set()
+        while True:
+            await asyncio.sleep(0.05)
+            record_step_progress("minor_step")
+            tracker = get_current_progress_tracker()
+            if tracker and tracker.is_aborted:
+                break
+
+    rm = LocalRedisManager(redis_client)
+    consumer = ThreadConsumer[ProgressTaskMessage](
+        consumer_name=f"worker-{uuid4()}",
+        consumer_group=group,
+        stream_name=stream,
+        batch_size=1,
+        block_time=10,
+        drain_timeout_s=0.2,
+        message_class=ProgressTaskMessage,
+        process_message_callable=endlessly_progressing_handler,
+        reclaim_idle_ms=5000,
+        step_progress_timeout_s=1.0,
+        max_processing_time_s=0.25,
+        max_retry_number=3,
+        use_execution_lease=True,
+        close_redis_on_stop=True,
+        current_redis_manager=rm,
+        on_terminal_failure=on_terminal_failure,
+    )
+    consumer._heartbeat_interval_s = 0.05
+
+    await consumer.start()
+    try:
+        await wait_until(started.is_set, timeout=3.0)
+        await wait_until(lambda: len(calls) == 1, timeout=3.0)
+        assert calls == [(msg_id, "workflow_timeout")]
+
+        # Le message a bien été retenu en DLQ avant la notification.
+        dlq_entries = await redis_client.xrange(f"{stream}:dlq")
+        assert any(fields.get("original_id") == msg_id for _, fields in dlq_entries)
+    finally:
+        await consumer.stop()

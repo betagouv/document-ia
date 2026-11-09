@@ -119,6 +119,9 @@ class BaseConsumer(ABC, Generic[T]):
         step_progress_timeout_s: float | None = None,
         use_execution_lease: bool = False,
         lease_ttl_ms: int | None = None,
+        on_terminal_failure: (
+            Callable[[str, dict[str, Any], str], Coroutine[Any, Any, None]] | None
+        ) = None,
     ) -> None:
         if max_retry_number < 1:
             raise ValueError("max_retry_number must be >= 1")
@@ -168,6 +171,7 @@ class BaseConsumer(ABC, Generic[T]):
         self.max_processing_time_s = max_processing_time_s
         self.step_progress_timeout_s = step_progress_timeout_s
         self.use_execution_lease = use_execution_lease
+        self.on_terminal_failure = on_terminal_failure
         self.lease_ttl_ms = (
             lease_ttl_ms
             if lease_ttl_ms is not None
@@ -1298,6 +1302,26 @@ class BaseConsumer(ABC, Generic[T]):
                 await self._handle_timed_out_entry(redis_conn, ctx)
         logger.info("Heartbeat task stopped (stream='%s')", self.stream_name)
 
+    async def _notify_terminal_failure(
+        self, msg_id: str, fields: dict[str, Any], reason: str
+    ) -> None:
+        """Signale à l'intégrateur l'échec terminal d'un message.
+
+        Appelé uniquement après une rétention DLQ et un ACK confirmés : la tentative
+        a été fencée par le watchdog et ne rapportera donc jamais son propre échec.
+        Toute erreur du callback est journalisée et n'interrompt pas le consommateur.
+        """
+        if self.on_terminal_failure is None:
+            return
+        try:
+            await self.on_terminal_failure(msg_id, fields, reason)
+        except Exception as callback_err:
+            logger.error(
+                "Terminal-failure callback failed for message %s: %s",
+                msg_id,
+                callback_err,
+            )
+
     async def _handle_timed_out_entry(
         self, redis_conn: Redis, ctx: InFlightContext
     ) -> None:
@@ -1351,6 +1375,9 @@ class BaseConsumer(ABC, Generic[T]):
                 )
                 if retained:
                     await self.delivery.ack(redis_conn, msg_id)
+                    await self._notify_terminal_failure(
+                        msg_id, ctx.fields, timeout_reason
+                    )
             except Exception as dlq_err:
                 self._invalidate_connection_on_transport_error(dlq_err)
                 logger.error(

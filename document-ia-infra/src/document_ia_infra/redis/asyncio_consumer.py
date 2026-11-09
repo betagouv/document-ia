@@ -64,6 +64,9 @@ class AsyncIoConsumer(BaseConsumer[T]):
         step_progress_timeout_s: float | None = None,
         use_execution_lease: bool = False,
         lease_ttl_ms: int | None = None,
+        on_terminal_failure: (
+            Callable[[str, dict[str, Any], str], Coroutine[Any, Any, None]] | None
+        ) = None,
     ) -> None:
         if batch_size < 1:
             raise ValueError("batch_size must be >= 1")
@@ -96,6 +99,7 @@ class AsyncIoConsumer(BaseConsumer[T]):
             step_progress_timeout_s=step_progress_timeout_s,
             use_execution_lease=use_execution_lease,
             lease_ttl_ms=lease_ttl_ms,
+            on_terminal_failure=on_terminal_failure,
         )
 
     def _submit_message(
