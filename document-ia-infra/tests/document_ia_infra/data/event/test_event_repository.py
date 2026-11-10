@@ -5,15 +5,17 @@ This module contains comprehensive unit tests for the event store repository,
 testing all CRUD operations and event stream functionality.
 """
 
-from datetime import datetime, UTC
+from datetime import datetime, timedelta, timezone, UTC
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from document_ia_infra.data.event.dto.anonymization_enum import AnonymizationStatus
 from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.dto.event_type_enum import EventType
+from document_ia_infra.data.event.entity.event_entity import EventEntity
 from document_ia_infra.data.event.repository.event import EventRepository
 from document_ia_infra.exception.processing_aborted_exception import (
     ProcessingAbortedException,
@@ -454,3 +456,148 @@ class TestGetCreatedEventIfExecutionNotCompletedOrFailed:
         )
         assert result is None
         mock_session.rollback.assert_not_called()
+
+    def test_anonymize_payload_started(self):
+        payload = {
+            "s3_file_info": {"filename": "test.pdf", "presigned_url": "https://secret"},
+            "file_url": "https://secret/test.pdf",
+            "metadata": {"user": "alice", "ip": "1.2.3.4"},
+            "workflow_id": "wf-1",
+        }
+        res = EventRepository.anonymize_payload("WorkflowExecutionStarted", payload)
+        assert res["s3_file_info"] is None
+        assert res["file_url"] is None
+        assert res["metadata"] == {}
+        assert res["workflow_id"] == "wf-1"
+
+    def test_anonymize_payload_step_completed(self):
+        payload = {
+            "step_name": "ocr_step",
+            "step_result": {"text": "Confidential extracted OCR text"},
+            "execution_time_ms": 250,
+            "output_data": {"extracted_data": "sensitive"},
+        }
+        res = EventRepository.anonymize_payload(
+            "WorkflowExecutionStepCompleted", payload
+        )
+        assert res["step_result"] == {}
+        assert res["output_data"] is None
+        assert res["step_name"] == "ocr_step"
+        assert res["execution_time_ms"] == 250
+
+    def test_anonymize_payload_completed(self):
+        payload = {
+            "final_result": {
+                "classification": {"type": "CNI"},
+                "extraction": {"name": "Jean Dupont"},
+            },
+            "output_summary": {"summary": "sensitive summary"},
+            "workflow_metadata": [{"info": "sensitive context"}],
+            "total_processing_time_ms": 1200,
+            "steps_completed": 4,
+        }
+        res = EventRepository.anonymize_payload("WorkflowExecutionCompleted", payload)
+        assert res["final_result"] == {}
+        assert res["output_summary"] == {}
+        assert res["workflow_metadata"] is None
+        assert res["total_processing_time_ms"] == 1200
+        assert res["steps_completed"] == 4
+
+    def test_anonymize_payload_failed(self):
+        payload = {
+            "error_type": "ValueError",
+            "error_message": "Document contains invalid token secret_token_12345",
+            "failed_step": "extraction",
+            "retry_count": 2,
+        }
+        res = EventRepository.anonymize_payload("WorkflowExecutionFailed", payload)
+        assert res["error_message"] == "[PURGED]"
+        assert res["error_type"] == "ValueError"
+        assert res["failed_step"] == "extraction"
+        assert res["retry_count"] == 2
+
+    def test_to_dto_anonymization_status(self):
+        entity = EventEntity(
+            id=uuid4(),
+            workflow_id="wf_1",
+            execution_id="exec_1",
+            organization_id=uuid4(),
+            created_at=datetime.now(UTC),
+            event_type="WorkflowExecutionCompleted",
+            event={"final_result": {}},
+            anonymization_status="DONE",
+        )
+        dto = EventRepository._to_dto(entity)
+        assert dto.anonymization_status == AnonymizationStatus.DONE
+
+        entity.anonymization_status = "ERROR"
+        dto_err = EventRepository._to_dto(entity)
+        assert dto_err.anonymization_status == AnonymizationStatus.ERROR
+
+    async def test_get_events_to_anonymize(self, event_repository, mock_session):
+        cutoff = datetime.now(timezone.utc)
+        entity1 = EventEntity(
+            id=uuid4(),
+            workflow_id="wf_1",
+            execution_id="exec_1",
+            organization_id=uuid4(),
+            created_at=cutoff - timedelta(days=31),
+            event_type="WorkflowExecutionCompleted",
+            event={},
+            anonymization_status="PENDING",
+        )
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [entity1]
+        mock_session.execute.return_value = mock_result
+
+        events = await event_repository.get_events_to_anonymize(
+            before_date=cutoff,
+            statuses=["PENDING", "ERROR"],
+            limit=500,
+        )
+        assert len(events) == 1
+        assert events[0].id == entity1.id
+        mock_session.execute.assert_called_once()
+
+    async def test_get_oldest_pending_event_age_seconds_none_when_empty(
+        self, event_repository, mock_session
+    ):
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
+
+        age = await event_repository.get_oldest_pending_event_age_seconds()
+        assert age is None
+
+    async def test_get_oldest_pending_event_age_seconds_calculates_diff(
+        self, event_repository, mock_session
+    ):
+        ten_minutes_ago = datetime.now(timezone.utc) - timedelta(seconds=600)
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = ten_minutes_ago
+        mock_session.execute.return_value = mock_result
+
+        age = await event_repository.get_oldest_pending_event_age_seconds()
+        assert age is not None
+        assert 595.0 <= age <= 605.0
+
+    async def test_bulk_insert_events_uses_upsert(self, event_repository, mock_session):
+        entity = EventEntity(
+            id=uuid4(),
+            workflow_id="wf_1",
+            execution_id="exec_1",
+            organization_id=uuid4(),
+            created_at=datetime.now(timezone.utc),
+            event_type="WorkflowExecutionStarted",
+            event={"file_url": None},
+            anonymization_status="DONE",
+        )
+        await event_repository.bulk_insert_events([entity])
+        mock_session.execute.assert_called_once()
+        mock_session.commit.assert_called_once()
+        stmt = mock_session.execute.call_args[0][0]
+        # Verify the statement compiles to an ON CONFLICT DO UPDATE
+        stmt_str = str(stmt.compile(compile_kwargs={"literal_binds": False}))
+        assert "ON CONFLICT" in stmt_str
+        assert "DO UPDATE" in stmt_str
+        assert "anonymization_status" in stmt_str

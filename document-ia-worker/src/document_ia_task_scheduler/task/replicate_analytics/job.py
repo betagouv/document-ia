@@ -25,7 +25,7 @@ class ReplicateAnalytics(BaseScheduledJob):
     - organization: full, idempotent replication (upsert), no anonymization.
     - event_store: incremental replication from the cursor on the
       destination (``created_at >= replication_cursor``). Rows already replicated are
-      skipped gracefully via ``ON CONFLICT (id) DO NOTHING``.
+      updated gracefully via ``ON CONFLICT (id) DO UPDATE``.
     """
 
     def _get_job_name(self) -> str:

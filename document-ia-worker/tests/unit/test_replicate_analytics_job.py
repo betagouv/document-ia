@@ -43,7 +43,8 @@ class TestToReplicatedRow:
         replica = ReplicateAnalytics._to_replicated_event(source)
 
         # Sensitive fields cleared, non-sensitive fields preserved.
-        assert replica.event["s3_file_info"] == {}
+        assert replica.event["s3_file_info"] is None
+        assert replica.event.get("file_url") is None
         assert replica.event["metadata"] == {}
         assert replica.event["keep"] == 42
         assert replica.anonymization_status == AnonymizationStatus.DONE.value
@@ -53,7 +54,7 @@ class TestToReplicatedRow:
 
         # The replica payload is a distinct object graph from the source.
         assert replica.event is not source.event
-        assert replica.event["s3_file_info"] is not source.event["s3_file_info"]
+        assert replica.event["metadata"] is not source.event["metadata"]
 
     def test_mutating_replica_does_not_affect_source(self):
         source = _make_started_event()

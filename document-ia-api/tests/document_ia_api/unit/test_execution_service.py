@@ -17,6 +17,7 @@ from document_ia_infra.data.document.schema.document_classification import (
 from document_ia_infra.data.document.schema.document_extraction import (
     DocumentExtraction,
 )
+from document_ia_infra.data.event.dto.anonymization_enum import AnonymizationStatus
 from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_schemas import SupportedDocumentType
@@ -329,3 +330,131 @@ def test_date_anomaly_survives_completed_event_and_api_response(version, is_debu
         ExecutionSuccessModel.model_validate_json(response.model_dump_json())
         == response
     )
+
+
+def test_get_event_model_started_purged(service: ExecutionService):
+    start_evt = WorkflowExecutionStartedEvent(
+        event_id=uuid4(),
+        organization_id=uuid4(),
+        workflow_id="wf",
+        execution_id="exec",
+        created_at=datetime.now(UTC),
+        version=1,
+        s3_file_info=None,
+        file_url=None,
+        metadata={},
+        classification_parameters=ClassificationParameters(),
+        extraction_parameters=ExtractionParameters(),
+    )
+    dto = EventDTO(
+        id=uuid4(),
+        organization_id=start_evt.organization_id,
+        workflow_id="wf",
+        execution_id="exec",
+        created_at=start_evt.created_at,
+        event_type=EventType.WORKFLOW_EXECUTION_STARTED,
+        event=start_evt.model_dump(mode="json"),
+        anonymization_status=AnonymizationStatus.DONE,
+    )
+    res = service.get_event_model(dto, execution_id="exec", is_debug_mode=False)
+    assert res.status == ExecutionStatus.STARTED
+    assert res.purged is True
+    assert res.data.s3_file_info is None
+    assert res.data.file_url is None
+
+
+def test_get_event_model_started_not_purged(service: ExecutionService):
+    start_evt = WorkflowExecutionStartedEvent(
+        event_id=uuid4(),
+        organization_id=uuid4(),
+        workflow_id="wf",
+        execution_id="exec",
+        created_at=datetime.now(UTC),
+        version=1,
+        s3_file_info=_file_info(),
+        file_url="https://example.com/test.pdf",
+        metadata={"key": "val"},
+        classification_parameters=ClassificationParameters(),
+        extraction_parameters=ExtractionParameters(),
+    )
+    dto = EventDTO(
+        id=uuid4(),
+        organization_id=start_evt.organization_id,
+        workflow_id="wf",
+        execution_id="exec",
+        created_at=start_evt.created_at,
+        event_type=EventType.WORKFLOW_EXECUTION_STARTED,
+        event=start_evt.model_dump(mode="json"),
+        anonymization_status=AnonymizationStatus.PENDING,
+    )
+    res = service.get_event_model(dto, execution_id="exec", is_debug_mode=False)
+    assert res.status == ExecutionStatus.STARTED
+    assert res.purged is False
+    assert res.data.s3_file_info is not None
+    assert res.data.file_url == "https://example.com/test.pdf"
+
+
+def test_get_event_model_completed_purged(service: ExecutionService):
+    completed = WorkflowExecutionCompletedEvent(
+        event_id=uuid4(),
+        organization_id=uuid4(),
+        workflow_id="wf",
+        execution_id="exec",
+        created_at=datetime.now(UTC),
+        version=1,
+        final_result=CompletedEventResult(
+            extraction=None,
+            classification=None,
+            barcodes=[],
+        ),
+        total_processing_time_ms=500,
+        output_summary={},
+        steps_completed=2,
+        workflow_metadata=None,
+    )
+    dto = EventDTO(
+        id=uuid4(),
+        organization_id=completed.organization_id,
+        workflow_id="wf",
+        execution_id="exec",
+        created_at=completed.created_at,
+        event_type=EventType.WORKFLOW_EXECUTION_COMPLETED,
+        event=completed.model_dump(mode="json"),
+        anonymization_status=AnonymizationStatus.DONE,
+    )
+    res = service.get_event_model(dto, execution_id="exec", is_debug_mode=True)
+    assert res.status == ExecutionStatus.SUCCESS
+    assert res.purged is True
+    assert res.data.result.classification is None
+    assert res.data.result.extraction is None
+    assert res.data.result.barcodes == []
+    assert res.data.result.workflow_metadata is None
+
+
+def test_get_event_model_failed_purged(service: ExecutionService):
+    failed = WorkflowExecutionFailedEvent(
+        event_id=uuid4(),
+        organization_id=uuid4(),
+        workflow_id="wf",
+        execution_id="exec",
+        created_at=datetime.now(UTC),
+        version=1,
+        error_type="ProcessingError",
+        error_message="[PURGED]",
+        failed_step="ocr",
+        retry_count=0,
+    )
+    dto = EventDTO(
+        id=uuid4(),
+        organization_id=failed.organization_id,
+        workflow_id="wf",
+        execution_id="exec",
+        created_at=failed.created_at,
+        event_type=EventType.WORKFLOW_EXECUTION_FAILED,
+        event=failed.model_dump(mode="json"),
+        anonymization_status=AnonymizationStatus.DONE,
+    )
+    res = service.get_event_model(dto, execution_id="exec", is_debug_mode=False)
+    assert res.status == ExecutionStatus.FAILED
+    assert res.purged is True
+    assert res.data.error_message == "[PURGED]"

@@ -11,7 +11,8 @@
           "presigned_url": "https://example.com/document.pdf"
         },
         "file_url": null
-      }
+      },
+      "purged": false
     },
     "true": {
       "id": "exec-historical",
@@ -24,7 +25,8 @@
           "presigned_url": "https://example.com/document.pdf"
         },
         "file_url": null
-      }
+      },
+      "purged": false
     }
   },
   "started_v2": {
@@ -35,7 +37,8 @@
         "created_at": "2026-01-01T12:00:00Z",
         "s3_file_info": null,
         "file_url": "https://example.com/input.pdf"
-      }
+      },
+      "purged": false
     },
     "true": {
       "id": "exec-historical",
@@ -44,7 +47,8 @@
         "created_at": "2026-01-01T12:00:00Z",
         "s3_file_info": null,
         "file_url": "https://example.com/input.pdf"
-      }
+      },
+      "purged": false
     }
   },
   "completed_v1": {
@@ -112,7 +116,8 @@
           "barcodes": [],
           "workflow_metadata": null
         }
-      }
+      },
+      "purged": false
     },
     "true": {
       "id": "exec-historical",
@@ -178,7 +183,8 @@
           "barcodes": [],
           "workflow_metadata": null
         }
-      }
+      },
+      "purged": false
     }
   },
   "completed_v2": {
@@ -279,7 +285,8 @@
           ],
           "workflow_metadata": null
         }
-      }
+      },
+      "purged": false
     },
     "true": {
       "id": "exec-historical",
@@ -383,7 +390,8 @@
             }
           ]
         }
-      }
+      },
+      "purged": false
     }
   },
   "failed_v1": {
@@ -396,7 +404,8 @@
         "retry_count": 0,
         "workflow_id": "wf-historical",
         "error_message": "Invalid document"
-      }
+      },
+      "purged": false
     },
     "true": {
       "id": "exec-historical",
@@ -407,7 +416,8 @@
         "retry_count": 0,
         "workflow_id": "wf-historical",
         "error_message": "Invalid document"
-      }
+      },
+      "purged": false
     }
   },
   "failed_v2": {
@@ -420,7 +430,8 @@
         "retry_count": 2,
         "workflow_id": "wf-historical",
         "error_message": "Service unavailable"
-      }
+      },
+      "purged": false
     },
     "true": {
       "id": "exec-historical",
@@ -431,7 +442,8 @@
         "retry_count": 2,
         "workflow_id": "wf-historical",
         "error_message": "Service unavailable"
-      }
+      },
+      "purged": false
     }
   }
 }

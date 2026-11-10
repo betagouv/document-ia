@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from document_ia_api.api.contracts.execution.types import ExecutionStatus
 from document_ia_infra.core.model.types.secret import SecretPayloadStr
@@ -23,3 +23,7 @@ class ExecutionStartedModel(BaseModel):
     id: str
     status: Literal[ExecutionStatus.STARTED]
     data: ExecutionStartedData
+    purged: bool = Field(
+        default=False,
+        description="Whether sensitive event data has been purged",
+    )

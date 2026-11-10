@@ -30,3 +30,7 @@ class ExecutionSuccessModel(BaseModel):
     id: str
     status: Literal[ExecutionStatus.SUCCESS]
     data: SuccessData
+    purged: bool = Field(
+        default=False,
+        description="Whether sensitive event data has been purged",
+    )
