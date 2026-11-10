@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Optional
 from uuid import UUID
 import uuid
@@ -44,8 +45,11 @@ from document_ia_api.core.idempotency import (
     validate_idempotency_key,
 )
 from document_ia_api.infra.idempotency_service import (
+    IdempotencyReservation,
     build_idempotency_redis_key,
+    hold_reservation,
     idempotency_service,
+    mark_completed_or_retain,
 )
 from document_ia_api.schemas.workflow import WorkflowExecutionDataV2
 
@@ -64,6 +68,7 @@ async def _start_workflow_v2_execution(
     override: str | None,
     metadata: Optional[str],
     execution_id: str | None = None,
+    before_publish: Callable[[], Awaitable[None]] | None = None,
 ) -> WorkflowExecutionDataV2:
     if (file is None and file_url is None) or (
         file is not None and file_url is not None
@@ -106,6 +111,7 @@ async def _start_workflow_v2_execution(
         metadata_json=metadata,
         override_payload=parsed_override,
         execution_id=execution_id,
+        before_publish=before_publish,
     )
 
 
@@ -635,29 +641,32 @@ async def execute_workflow_v2(
                 message="Workflow execution started successfully",
             )
 
-    try:
-        execution_data = await _start_workflow_v2_execution(
-            workflow_v2_service=workflow_v2_service,
-            organization_id=current_org.id,
-            workflow_id=workflow_id_normalized,
-            file=file,
-            file_url=file_url,
-            override=override,
-            metadata=metadata,
+    # Admission (upload, database work, publication) can outlast the lock TTL.
+    # The reservation is renewed for as long as it is held, and its ownership is
+    # re-checked just before publication so a lost lease cannot publish a
+    # duplicate execution.
+    reservation: IdempotencyReservation | None = None
+    if redis_key is not None and pre_generated_execution_id is not None:
+        reservation = IdempotencyReservation(
+            idempotency_service,
+            key=redis_key,
             execution_id=pre_generated_execution_id,
         )
 
-        if redis_key is not None and pre_generated_execution_id is not None:
-            await idempotency_service.mark_completed(
-                key=redis_key,
+    try:
+        async with hold_reservation(reservation):
+            execution_data = await _start_workflow_v2_execution(
+                workflow_v2_service=workflow_v2_service,
+                organization_id=current_org.id,
+                workflow_id=workflow_id_normalized,
+                file=file,
+                file_url=file_url,
+                override=override,
+                metadata=metadata,
                 execution_id=pre_generated_execution_id,
+                before_publish=reservation.ensure_owned if reservation else None,
             )
 
-        return WorkflowV2ExecuteResponse(
-            status="success",
-            data=execution_data,
-            message="Workflow execution started successfully",
-        )
     except Exception as exc:
         if redis_key is not None and pre_generated_execution_id is not None:
             try:
@@ -677,6 +686,21 @@ async def execute_workflow_v2(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unexpected error while starting workflow execution",
         ) from exc
+
+    # The execution is accepted and published from here on: tracking failures
+    # must not turn an accepted job into an error, nor let its key lapse.
+    if redis_key is not None and pre_generated_execution_id is not None:
+        await mark_completed_or_retain(
+            idempotency_service,
+            key=redis_key,
+            execution_id=pre_generated_execution_id,
+        )
+
+    return WorkflowV2ExecuteResponse(
+        status="success",
+        data=execution_data,
+        message="Workflow execution started successfully",
+    )
 
 
 @router.post(

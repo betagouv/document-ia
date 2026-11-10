@@ -3,6 +3,7 @@ import json
 import logging
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Dict, Any, Optional
 
@@ -68,6 +69,7 @@ class WorkflowService:
         ],
         request_extraction_parameter: Optional[WorkflowExtractionParameterRequest],
         execution_id: Optional[str] = None,
+        before_publish: Callable[[], Awaitable[None]] | None = None,
     ) -> WorkflowExecutionData:
         """
         Execute a workflow with file upload and metadata processing.
@@ -165,6 +167,11 @@ class WorkflowService:
                 # Don't fail the workflow execution if event emission fails
 
             try:
+                # Last-moment ownership check: a reservation that was lost or
+                # re-acquired must not publish a second execution.
+                if before_publish is not None:
+                    await before_publish()
+
                 await self.redis_producer.publish_message(
                     WorkflowExecutionMessage(workflow_execution_id=execution_id)
                 )

@@ -1,5 +1,7 @@
 from fastapi import HTTPException
 
+from document_ia_infra.redis.redis_settings import redis_settings
+
 
 class InvalidIdempotencyKeyException(HTTPException):
     def __init__(
@@ -44,5 +46,33 @@ class IdempotencyInProgressException(HTTPException):
                 "error": "idempotency_in_progress",
                 "execution_id": execution_id,
                 "message": message,
+            },
+        )
+
+
+class IdempotencyReservationLostException(HTTPException):
+    """The reservation expired or was re-acquired before this request published.
+
+    The request must not create its execution: the key now protects another
+    caller, and publishing here would produce the duplicate the key exists to
+    prevent. The error carries `Retry-After` so the client retries rather than
+    treating the request as permanently refused.
+    """
+
+    def __init__(
+        self,
+        message: str = (
+            "The idempotency reservation was lost before the execution was "
+            "scheduled. Retry the request."
+        ),
+    ) -> None:
+        super().__init__(
+            status_code=503,
+            detail={
+                "error": "idempotency_reservation_lost",
+                "message": message,
+            },
+            headers={
+                "Retry-After": str(redis_settings.PUBLISH_RETRY_AFTER_SECONDS),
             },
         )

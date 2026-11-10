@@ -399,6 +399,85 @@ class TestIdempotencyIntegration:
         assert data_retry["data"]["execution_id"]
 
     @pytest.mark.asyncio
+    async def test_accepted_execution_survives_completion_tracking_failure(
+        self,
+        async_client: httpx.AsyncClient,
+        standard_api_key_value: str,
+    ):
+        """A Redis tracking failure must not turn an accepted execution into an error.
+
+        The started event is persisted and the message published before
+        completion tracking runs, so releasing the key or returning 5xx would let
+        a retry schedule a duplicate execution.
+        """
+        idempotency_key = f"key-tracking-fail-{uuid4()}"
+        file_url = "https://example.com/tracking_failure.pdf"
+        override = json.dumps({"llm_extract_data": [{"param": "document_type", "value": "cni"}]})
+        headers = {
+            "X-API-KEY": standard_api_key_value,
+            "Idempotency-Key": idempotency_key,
+        }
+
+        with patch(
+            "document_ia_api.infra.idempotency_service.IdempotencyService.mark_completed",
+            new=AsyncMock(side_effect=RuntimeError("redis unreachable")),
+        ):
+            response = await async_client.post(
+                "/api/v2/workflows/document-extraction-v2/execute",
+                data={"file_url": file_url, "override": override},
+                headers=headers,
+            )
+
+        assert response.status_code == 200
+        execution_id = response.json()["data"]["execution_id"]
+        assert execution_id
+
+        # The accepted execution is never duplicated: the reservation stays held,
+        # so a retry is refused as in-progress rather than scheduling a second
+        # execution. The only response that would be a defect here is a new
+        # execution being created.
+        replay = await async_client.post(
+            "/api/v2/workflows/document-extraction-v2/execute",
+            data={"file_url": file_url, "override": override},
+            headers=headers,
+        )
+        assert replay.status_code == 409
+        assert replay.json()["errors"]["error"] == "idempotency_in_progress"
+        assert replay.json()["errors"]["execution_id"] == execution_id
+
+    @pytest.mark.asyncio
+    async def test_lost_reservation_blocks_duplicate_publication(
+        self,
+        async_client: httpx.AsyncClient,
+        standard_api_key_value: str,
+    ):
+        """A reservation lost before publication must not publish an execution."""
+        idempotency_key = f"key-lost-reservation-{uuid4()}"
+        file_url = "https://example.com/lost_reservation.pdf"
+        override = json.dumps({"llm_extract_data": [{"param": "document_type", "value": "cni"}]})
+        headers = {
+            "X-API-KEY": standard_api_key_value,
+            "Idempotency-Key": idempotency_key,
+        }
+
+        with patch(
+            "document_ia_api.infra.idempotency_service.IdempotencyService.is_reservation_owned",
+            new=AsyncMock(return_value=False),
+        ), patch(
+            "document_ia_api.application.services.workflow_v2_service.Publisher.publish_message",
+            new=AsyncMock(return_value="1-0"),
+        ) as publish:
+            response = await async_client.post(
+                "/api/v2/workflows/document-extraction-v2/execute",
+                data={"file_url": file_url, "override": override},
+                headers=headers,
+            )
+
+        assert response.status_code == 503
+        assert response.json()["errors"]["error"] == "idempotency_reservation_lost"
+        publish.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_cross_organization_isolation(
         self,
         async_client: httpx.AsyncClient,

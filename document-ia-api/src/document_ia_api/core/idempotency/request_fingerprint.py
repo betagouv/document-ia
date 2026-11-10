@@ -8,32 +8,62 @@ from pydantic import BaseModel
 
 
 def _canonicalize_value(val: Any) -> Any:
-    """Recursively canonicalize arbitrary values for deterministic serialization."""
-    if val is None:
-        return None
-    if isinstance(val, str):
-        trimmed = val.strip()
-        if (trimmed.startswith("{") and trimmed.endswith("}")) or (
-            trimmed.startswith("[") and trimmed.endswith("]")
-        ):
-            try:
-                parsed: Any = json.loads(trimmed)
-                return _canonicalize_value(parsed)
-            except Exception:
-                return trimmed
-        return trimmed
+    """Recursively order mapping keys, leaving every value and its type untouched.
+
+    Only key ordering is normalized: two payloads share a fingerprint when they
+    are the same JSON document, never because a value was dropped or converted.
+    A nested `null`, and a string that happens to contain JSON, must survive as
+    they are — `{"source": "{}"}` and `{"source": {}}` are different requests
+    even though they serialize alike once parsed loosely.
+    """
     if isinstance(val, BaseModel):
-        return _canonicalize_value(val.model_dump(mode="json", exclude_none=True))
+        return _canonicalize_value(val.model_dump(mode="json"))
     if isinstance(val, Mapping):
         mapping = cast(Mapping[object, object], val)
         sorted_pairs = sorted(mapping.items(), key=lambda pair: str(pair[0]))
-        return {
-            str(k): _canonicalize_value(v) for k, v in sorted_pairs if v is not None
-        }
+        return {str(k): _canonicalize_value(v) for k, v in sorted_pairs}
     if isinstance(val, Sequence) and not isinstance(val, (str, bytes)):
         seq = cast(Sequence[object], val)
         return [_canonicalize_value(item) for item in seq]
     return val
+
+
+def _parse_form_json_field(raw: Any) -> Any:
+    """Parse a multipart form field that carries a JSON document.
+
+    Form values arrive as text. Parsing happens once, at the field boundary, so
+    that key ordering rather than textual formatting decides the fingerprint and
+    nested values keep their JSON types. A field that is not valid JSON is kept
+    verbatim: request validation rejects it later, and the fingerprint must still
+    be deterministic.
+    """
+    if not isinstance(raw, str):
+        return raw
+
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return raw
+
+
+def _canonicalize_params(params: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Canonicalize the multipart form parameters of an execution request.
+
+    Only the outer form fields are normalized: an absent field arrives as `None`
+    and is dropped, because FastAPI reports an omitted field and an empty one
+    identically. Every value is then parsed once from its JSON text and only
+    key-sorted, so distinct payloads keep distinct types.
+    """
+    if not params:
+        return {}
+
+    canonical: dict[str, Any] = {}
+    for key in sorted(params, key=str):
+        raw = params[key]
+        if raw is None:
+            continue
+        canonical[str(key)] = _canonicalize_value(_parse_form_json_field(raw))
+    return canonical
 
 
 async def compute_request_fingerprint(
@@ -66,7 +96,7 @@ async def compute_request_fingerprint(
     hasher.update(b"\n")
 
     # Canonical params
-    normalized_params = _canonicalize_value(params or {})
+    normalized_params = _canonicalize_params(params)
     params_bytes = json.dumps(
         normalized_params, sort_keys=True, separators=(",", ":")
     ).encode("utf-8")

@@ -1,5 +1,6 @@
 import logging
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any, cast
 
@@ -57,6 +58,7 @@ class WorkflowV2Service:
         metadata_json: str | None,
         override_payload: WorkflowV2OverridePayload | None,
         execution_id: str | None = None,
+        before_publish: Callable[[], Awaitable[None]] | None = None,
     ) -> WorkflowExecutionDataV2:
         if self.db_session is None:
             raise HTTPException(
@@ -108,6 +110,11 @@ class WorkflowV2Service:
         )
 
         try:
+            # Last-moment ownership check: a reservation that was lost or
+            # re-acquired must not publish a second execution.
+            if before_publish is not None:
+                await before_publish()
+
             await self.redis_producer.publish_message(
                 WorkflowExecutionMessage(workflow_execution_id=execution_id)
             )
