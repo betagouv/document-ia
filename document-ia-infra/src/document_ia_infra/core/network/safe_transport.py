@@ -27,14 +27,15 @@ logger = logging.getLogger(__name__)
 DEFAULT_LIMITS = httpx.Limits(max_connections=100, max_keepalive_connections=20)
 
 
-async def resolve_and_pin_ip(
+async def resolve_validated_ips(
     hostname: str,
     port: int,
     allow_local: bool = False,
-) -> str:
+) -> list[str]:
     """Resolve DNS records for hostname and ensure ALL returned IPs are safe.
 
-    Returns the first validated IP address to pin the connection.
+    Returns every validated address, in resolver order, so callers can try them
+    in turn without resolving the hostname again.
 
     Raises:
         BlockedAddressException: If resolution fails or any resolved IP is forbidden.
@@ -45,7 +46,7 @@ async def resolve_and_pin_ip(
     try:
         ip_obj = ipaddress.ip_address(hostname)
         validate_ip(ip_obj, allow_local=allow_local)
-        return hostname
+        return [hostname]
     except ValueError:
         pass
 
@@ -71,7 +72,34 @@ async def resolve_and_pin_ip(
         sockaddr = info[4]
         raw_ip = str(sockaddr[0])
         validate_ip(raw_ip, allow_local=allow_local)
-        validated_ips.append(raw_ip)
+        if raw_ip not in validated_ips:
+            validated_ips.append(raw_ip)
+
+    return validated_ips
+
+
+async def resolve_and_pin_ip(
+    hostname: str,
+    port: int,
+    allow_local: bool = False,
+    timeout: float | None = None,
+) -> str:
+    """Resolve and validate hostname, returning the first safe address to pin.
+
+    `timeout` bounds the lookup itself: name resolution runs on the loop's
+    executor, so it must be raced against the request's connect deadline rather
+    than left to the system resolver.
+    """
+    try:
+        validated_ips = await asyncio.wait_for(
+            resolve_validated_ips(hostname, port, allow_local=allow_local),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError as exc:
+        raise httpcore.ConnectTimeout(
+            f"DNS resolution for hostname '{hostname}' exceeded the connect "
+            f"timeout of {timeout}s"
+        ) from exc
 
     pinned_ip = validated_ips[0]
     logger.debug(
@@ -110,13 +138,57 @@ class SafeAsyncNetworkBackend(httpcore.AsyncNetworkBackend):
         ]
         | None = None,
     ) -> httpcore.AsyncNetworkStream:
-        pinned_ip = await resolve_and_pin_ip(host, port, allow_local=self.allow_local)
-        return await self._backend.connect_tcp(
-            host=pinned_ip,
-            port=port,
-            timeout=timeout,
-            local_address=local_address,
-            socket_options=socket_options,
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout if timeout is not None else None
+
+        def remaining() -> float | None:
+            if deadline is None:
+                return None
+            return max(0.0, deadline - loop.time())
+
+        try:
+            validated_ips = await asyncio.wait_for(
+                resolve_validated_ips(host, port, allow_local=self.allow_local),
+                timeout=remaining(),
+            )
+        except asyncio.TimeoutError as exc:
+            raise httpcore.ConnectTimeout(
+                f"DNS resolution for '{host}' exceeded the connect timeout of "
+                f"{timeout}s"
+            ) from exc
+
+        # Try every validated address, never re-resolving: a first unreachable
+        # address (for example IPv6 without working connectivity) must not fail
+        # the download when another resolved address is reachable.
+        last_error: Exception | None = None
+        for index, pinned_ip in enumerate(validated_ips):
+            if index > 0:
+                logger.debug(
+                    "Connection to %s failed; trying next validated address %s",
+                    host,
+                    pinned_ip,
+                )
+
+            attempt_timeout = remaining()
+            if attempt_timeout is not None and attempt_timeout <= 0:
+                break
+
+            try:
+                return await self._backend.connect_tcp(
+                    host=pinned_ip,
+                    port=port,
+                    timeout=attempt_timeout,
+                    local_address=local_address,
+                    socket_options=socket_options,
+                )
+            except (httpcore.ConnectError, httpcore.ConnectTimeout) as exc:
+                last_error = exc
+
+        if last_error is not None:
+            raise last_error
+
+        raise httpcore.ConnectTimeout(
+            f"Could not connect to '{host}' within {timeout}s"
         )
 
     async def connect_unix_socket(
@@ -194,7 +266,21 @@ class SafeAsyncHTTPTransport(httpx.AsyncHTTPTransport):
 
         # Pre-resolve and validate to catch IP/DNS errors before pool
         port = request.url.port or (443 if scheme == "https" else 80)
-        await resolve_and_pin_ip(request.url.host, port, allow_local=self.allow_local)
+        timeouts = request.extensions.get("timeout") or {}
+        connect_timeout = (
+            timeouts.get("connect") if isinstance(timeouts, dict) else None
+        )
+        try:
+            await resolve_and_pin_ip(
+                request.url.host,
+                port,
+                allow_local=self.allow_local,
+                timeout=connect_timeout,
+            )
+        except httpcore.ConnectTimeout as exc:
+            # This pre-flight resolution runs outside the pool, so HTTPX does not
+            # translate its exceptions: raise the public httpx type directly.
+            raise httpx.ConnectTimeout(str(exc), request=request) from exc
 
         response = await super().handle_async_request(request)
 

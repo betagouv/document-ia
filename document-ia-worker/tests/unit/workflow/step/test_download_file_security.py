@@ -1,17 +1,21 @@
 """Comprehensive security test suite for DownloadFileStep and file confinement."""
 
+import asyncio
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 import httpx
+import httpcore
 import pytest
 
 from document_ia_infra.core.file.file_settings import file_settings
 from document_ia_infra.core.network.safe_transport import (
+    SafeAsyncNetworkBackend,
     SafeAsyncHTTPTransport,
     resolve_and_pin_ip,
+    resolve_validated_ips,
 )
 from document_ia_infra.exception.security_exception import (
     BlockedAddressException,
@@ -159,6 +163,159 @@ async def test_dns_rebinding_simulation():
 
         with pytest.raises(BlockedAddressException):
             await resolve_and_pin_ip("rebinding.example.com", 443)
+
+
+@pytest.mark.asyncio
+async def test_transport_bounds_dns_with_the_client_timeout():
+    """The DownloadFileStep 30s connect timeout must bound DNS through HTTPX."""
+
+    async def hanging_resolution(*args, **kwargs):
+        await asyncio.sleep(10)
+        return ["93.184.216.34"]
+
+    seen_timeout: list[float | None] = []
+
+    original = SafeAsyncHTTPTransport.handle_async_request
+
+    async def capture(self, request):
+        seen_timeout.append(
+            (request.extensions.get("timeout") or {}).get("connect")
+        )
+        return await original(self, request)
+
+    transport = SafeAsyncHTTPTransport()
+    async with httpx.AsyncClient(transport=transport) as client:
+        with patch(
+            "document_ia_infra.core.network.safe_transport.resolve_validated_ips",
+            new=hanging_resolution,
+        ), patch.object(
+            SafeAsyncHTTPTransport, "handle_async_request", capture
+        ):
+            with pytest.raises(httpx.ConnectTimeout):
+                await client.get("https://slow.example.com/doc.pdf", timeout=0.2)
+
+    # The transport sees the client's connect budget rather than an unbounded call.
+    assert seen_timeout == [0.2]
+
+
+@pytest.mark.asyncio
+async def test_all_validated_addresses_are_exposed_for_fallback():
+    """Every resolved address is returned, not just the first, so callers can retry."""
+    mock_addr_info = [
+        (2, 1, 6, "", ("93.184.216.34", 443)),
+        (2, 1, 6, "", ("93.184.216.35", 443)),
+    ]
+    with patch("asyncio.get_running_loop") as mock_loop:
+        mock_instance = AsyncMock()
+        mock_instance.getaddrinfo.return_value = mock_addr_info
+        mock_loop.return_value = mock_instance
+
+        ips = await resolve_validated_ips("example.com", 443)
+
+    assert ips == ["93.184.216.34", "93.184.216.35"]
+
+
+@pytest.mark.asyncio
+async def test_unreachable_first_address_falls_back_to_next():
+    """An unreachable first address must not fail the connection if another works.
+
+    Typical case: a dual-stack hostname where IPv6 is unreachable but IPv4 works.
+    """
+    backend = SafeAsyncNetworkBackend()
+    attempted: list[str] = []
+
+    async def fake_connect_tcp(
+        host, port, timeout=None, local_address=None, socket_options=None
+    ):
+        attempted.append(host)
+        if host == "93.184.216.34":
+            raise httpcore.ConnectError("network unreachable")
+        return "stream"
+
+    with patch(
+        "document_ia_infra.core.network.safe_transport.resolve_validated_ips",
+        new=AsyncMock(return_value=["93.184.216.34", "93.184.216.35"]),
+    ):
+        backend._backend = AsyncMock()
+        backend._backend.connect_tcp.side_effect = fake_connect_tcp
+        stream = await backend.connect_tcp("example.com", 443, timeout=30.0)
+
+    assert stream == "stream"
+    assert attempted == ["93.184.216.34", "93.184.216.35"]
+
+
+@pytest.mark.asyncio
+async def test_all_addresses_unreachable_reports_connect_error():
+    """When every validated address fails, the last error is surfaced."""
+    backend = SafeAsyncNetworkBackend()
+
+    with patch(
+        "document_ia_infra.core.network.safe_transport.resolve_validated_ips",
+        new=AsyncMock(return_value=["93.184.216.34", "93.184.216.35"]),
+    ):
+        backend._backend = AsyncMock()
+        backend._backend.connect_tcp.side_effect = httpcore.ConnectError(
+            "network unreachable"
+        )
+        with pytest.raises(httpcore.ConnectError):
+            await backend.connect_tcp("example.com", 443, timeout=30.0)
+
+    assert backend._backend.connect_tcp.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_slow_dns_is_bounded_by_the_connect_timeout():
+    """A hanging resolver must not outlive the request's connect timeout."""
+
+    async def hanging_resolution(*args, **kwargs):
+        await asyncio.sleep(10)
+        return ["93.184.216.34"]
+
+    backend = SafeAsyncNetworkBackend()
+    loop = asyncio.get_running_loop()
+
+    with patch(
+        "document_ia_infra.core.network.safe_transport.resolve_validated_ips",
+        new=hanging_resolution,
+    ):
+        started = loop.time()
+        with pytest.raises(httpcore.ConnectTimeout):
+            await backend.connect_tcp("slow.example.com", 443, timeout=0.2)
+        elapsed = loop.time() - started
+
+    assert elapsed < 2.0
+
+
+@pytest.mark.asyncio
+async def test_slow_dns_is_bounded_in_pinning_helper():
+    """`resolve_and_pin_ip` also honours the deadline it is given."""
+
+    async def hanging_resolution(*args, **kwargs):
+        await asyncio.sleep(10)
+        return ["93.184.216.34"]
+
+    with patch(
+        "document_ia_infra.core.network.safe_transport.resolve_validated_ips",
+        new=hanging_resolution,
+    ):
+        with pytest.raises(httpcore.ConnectTimeout):
+            await resolve_and_pin_ip("slow.example.com", 443, timeout=0.2)
+
+
+@pytest.mark.asyncio
+async def test_private_address_still_blocks_before_any_connect():
+    """Falling back across addresses must not weaken the anti-SSRF check."""
+    backend = SafeAsyncNetworkBackend()
+
+    with patch(
+        "document_ia_infra.core.network.safe_transport.resolve_validated_ips",
+        side_effect=BlockedAddressException("blocked"),
+    ):
+        backend._backend = AsyncMock()
+        with pytest.raises(BlockedAddressException):
+            await backend.connect_tcp("example.com", 443, timeout=30.0)
+
+    backend._backend.connect_tcp.assert_not_awaited()
 
 
 @pytest.mark.asyncio
