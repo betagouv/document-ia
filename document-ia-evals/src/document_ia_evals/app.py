@@ -2,10 +2,18 @@
 
 import streamlit as st
 
+from document_ia_evals.components.auth_ui import (
+    render_access_denied_screen,
+    render_login_screen,
+    render_sidebar_user_profile,
+)
+from document_ia_evals.services.auth_service import verify_user_access
+from document_ia_evals.utils.auth_secrets import generate_secrets_toml
 from document_ia_evals.utils.config import config
 
-# Initialize configuration
+# Ensure directories and secrets configuration exist
 config.ensure_directories()
+generate_secrets_toml()
 
 # Page configuration
 st.set_page_config(
@@ -16,14 +24,56 @@ st.set_page_config(
 )
 
 
+def authenticate_and_authorize() -> bool:
+    """Verify user identity and database authorization.
+
+    Returns True if user is authorized, stops execution otherwise.
+    """
+    # 1. Local development offline bypass
+    if config.AUTH_BYPASS_LOCAL:
+        bypass_email = "nicolas.sagon@beta.gouv.fr"
+        st.session_state["current_user_email"] = bypass_email
+        st.session_state["current_user_role"] = "admin"
+        return True
+
+    # 2. Check Streamlit native OIDC login status
+    if not st.user.is_logged_in:
+        render_login_screen()
+        st.stop()
+
+    # 3. Retrieve user email from ProConnect claims
+    user_email = getattr(st.user, "email", None)
+    if not user_email:
+        render_access_denied_screen(
+            email="Inconnu",
+            reason="Aucune adresse email n'a été fournie par le fournisseur d'identité ProConnect.",
+        )
+        st.stop()
+
+    # 4. Verify authorization against evals_users database
+    is_allowed, user, reason = verify_user_access(user_email)
+    if not is_allowed or user is None:
+        render_access_denied_screen(email=user_email, reason=reason)
+        st.stop()
+
+    # 5. Populate session state
+    st.session_state["current_user_email"] = user.email
+    st.session_state["current_user_role"] = user.role
+    st.session_state["current_user_id"] = str(user.id)
+    return True
+
+
 def main():
     """Main application function."""
-
     st.logo(
         "src/document_ia_evals/assets/logo.svg",
         link="https://beta.gouv.fr/startups/document-ia",
         size="large",
     )
+
+    # Enforce authentication & RBAC check before exposing pages
+    authenticate_and_authorize()
+    render_sidebar_user_profile()
 
     pages = {
         "Home": [

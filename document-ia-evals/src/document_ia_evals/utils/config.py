@@ -69,6 +69,18 @@ class Config(BaseSettings):
         default="document-classification-v2"
     )
 
+    # ProConnect / OpenID Connect Authentication
+    AUTH_BYPASS_LOCAL: bool = Field(default=False)
+    PROCONNECT_CLIENT_ID: str | None = Field(default=None)
+    PROCONNECT_CLIENT_SECRET: str | None = Field(default=None)
+    PROCONNECT_METADATA_URL: str = Field(
+        default="https://fca.integ01.dev-agentconnect.fr/api/v2/.well-known/openid-configuration"
+    )
+    PROCONNECT_REDIRECT_URI: str = Field(default="http://localhost:8501/oauth2callback")
+    PROCONNECT_COOKIE_SECRET: str | None = Field(default=None)
+    PROCONNECT_SCOPES: str = Field(default="openid email profile")
+    PROCONNECT_POST_LOGOUT_REDIRECT_URI: str = Field(default="http://localhost:8501/")
+
     def ensure_directories(self):
         """Ensure necessary directories exist."""
         self.DATA_DIR.mkdir(exist_ok=True)
