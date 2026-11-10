@@ -98,7 +98,7 @@ def enforce_page_auth(required_role: str | None = None) -> None:
 
 
 def render_sidebar_user_profile() -> None:
-    """Render current user profile badge and logout button in Streamlit sidebar."""
+    """Render current user profile badge and logout button at the top of Streamlit sidebar."""
     email = st.session_state.get("current_user_email", "Utilisateur")
     role = st.session_state.get("current_user_role", "user")
     name = getattr(st.user, "name", None) or (
@@ -107,17 +107,68 @@ def render_sidebar_user_profile() -> None:
 
     role_label = "👑 Administrateur" if role == "admin" else "👤 Évaluateur"
 
-    st.sidebar.markdown("---")
-    if name:
-        st.sidebar.markdown(f"**Connecté :** {name}")
-        st.sidebar.caption(f"`{email}`")
-    else:
-        st.sidebar.markdown(f"**Connecté :** `{email}`")
-    st.sidebar.markdown(f"**Rôle :** {role_label}")
+    # CSS to position stSidebarUserContent (which hosts this profile) at the very top of the sidebar
+    st.markdown(
+        """
+        <style>
+        /* Force sidebar content to flex and reorder user profile above navigation */
+        [data-testid="stSidebarContent"] {
+            display: flex !important;
+            flex-direction: column !important;
+        }
+        [data-testid="stSidebarHeader"] {
+            order: 0 !important;
+        }
+        [data-testid="stSidebarUserContent"] {
+            order: 1 !important;
+            padding-top: 0.25rem !important;
+            padding-bottom: 0.5rem !important;
+        }
+        [data-testid="stSidebarNav"] {
+            order: 2 !important;
+        }
+        .user-profile-card {
+            background-color: rgba(128, 128, 128, 0.08);
+            border-left: 4px solid #000091;
+            border-radius: 6px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+        }
+        .user-profile-title {
+            font-weight: 600;
+            font-size: 0.95rem;
+            color: inherit;
+        }
+        .user-profile-meta {
+            font-size: 0.8rem;
+            color: #666;
+            margin-top: 2px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    display_name = name if name else email
+    display_sub = f"{email} • {role_label}" if name else role_label
+
+    st.sidebar.markdown(
+        f"""
+        <div class="user-profile-card">
+            <div class="user-profile-title">👤 {display_name}</div>
+            <div class="user-profile-meta">{display_sub}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     if st.sidebar.button(
-        "Se déconnecter", key="sidebar_logout_btn", use_container_width=True
+        "🚪 Se déconnecter",
+        key="sidebar_logout_btn",
+        use_container_width=True,
     ):
         record_logout(email)
         st.session_state.clear()
         st.logout()
+
+    st.sidebar.markdown("---")

@@ -30,12 +30,6 @@ st.set_page_config(
 
 def main():
     """Main application function."""
-    st.logo(
-        "src/document_ia_evals/assets/logo.svg",
-        link="https://beta.gouv.fr/startups/document-ia",
-        size="large",
-    )
-
     # 1. Local development offline bypass
     if config.AUTH_BYPASS_LOCAL:
         st.session_state["current_user_email"] = "nicolas.sagon@beta.gouv.fr"
@@ -89,7 +83,12 @@ def main():
     # 4. Verify authorization against database
     user_role = "admin"
     if not config.AUTH_BYPASS_LOCAL:
-        is_allowed, user, reason = verify_user_access(user_email)
+        # Record login_success in audit logs ONLY ONCE per session
+        should_record_login = not st.session_state.get("auth_session_logged", False)
+        is_allowed, user, reason = verify_user_access(
+            user_email,
+            record_login=should_record_login,
+        )
         if not is_allowed or user is None:
             denied_page = st.Page(
                 lambda: render_access_denied_screen(
@@ -104,65 +103,102 @@ def main():
             pg.run()
             return
 
+        st.session_state["auth_session_logged"] = True
         st.session_state["current_user_email"] = user.email
         st.session_state["current_user_role"] = user.role
         st.session_state["current_user_id"] = str(user.id)
         user_role = user.role
 
-    # 5. User is authenticated and authorized -> render sidebar profile and navigation
+    # 5. User is authenticated and authorized -> render sidebar profile at top
     render_sidebar_user_profile()
 
-    pages = {
-        "Home": [
-            st.Page("pages/home.py", title="🏠 Home"),
-        ],
-        "API Playground": [
-            st.Page(
-                "pages/run_api_workflow.py", title="📄 Execute Workflow (Deprecated)"
-            ),
-            st.Page("pages/run_api_workflow_v2.py", title="📄 Execute Workflow V2"),
-            st.Page(
-                "pages/retrieve_api_execution.py", title="🔍 Retrieve Past Execution"
-            ),
-        ],
-        "Pipeline Evaluation": [
-            st.Page(
-                "pages/create_dataset.py", title="📝 Create Ground Truth (Deprecated)"
-            ),
-            st.Page("pages/create_dataset_v2.py", title="📝 Create Ground Truth V2"),
-            st.Page(
-                "pages/create_predictions.py",
-                title="🔄 Create New Predictions (Deprecated)",
-            ),
-            st.Page(
-                "pages/create_predictions_v2.py", title="🔄 Create New Predictions V2"
-            ),
-            st.Page(
-                "pages/evaluate_metrics.py",
-                title="🎯 Evaluate Predictions Metrics (Deprecated)",
-            ),
-            st.Page(
-                "pages/evaluate_metrics_v2.py",
-                title="🎯 Evaluate Predictions Metrics V2",
-            ),
-            st.Page("pages/list_experiments.py", title="📚 List Previous Evaluations"),
-        ],
-        "Prompt Playground": [
-            st.Page("pages/prompt_playground.py", title="⚙️ Prompt Playground"),
-        ],
-        "Data": [
-            st.Page("pages/export_dataset.py", title="📤 Export Dataset"),
-        ],
-        "Tool": [
-            st.Page("pages/workflow_generator.py", title="🛠️ Workflow Generator"),
-        ],
-    }
-
-    # Administration page is ONLY registered for users with admin role
+    # 6. Role-Based Access Control: Admins see all pages, users see only API Playground
     if user_role == "admin":
-        pages["Administration"] = [
-            st.Page("pages/administration.py", title="⚙️ Administration"),
-        ]
+        pages = {
+            "Home": [
+                st.Page("pages/home.py", title="🏠 Home", default=True),
+            ],
+            "API Playground": [
+                st.Page(
+                    "pages/run_api_workflow_v2.py", title="📄 Execute Workflow V2"
+                ),
+                st.Page(
+                    "pages/retrieve_api_execution.py",
+                    title="🔍 Retrieve Past Execution",
+                ),
+                st.Page(
+                    "pages/run_api_workflow.py",
+                    title="📄 Execute Workflow (Deprecated)",
+                ),
+            ],
+            "Pipeline Evaluation": [
+                st.Page(
+                    "pages/create_dataset_v2.py", title="📝 Create Ground Truth V2"
+                ),
+                st.Page(
+                    "pages/create_dataset.py",
+                    title="📝 Create Ground Truth (Deprecated)",
+                ),
+                st.Page(
+                    "pages/create_predictions_v2.py",
+                    title="🔄 Create New Predictions V2",
+                ),
+                st.Page(
+                    "pages/create_predictions.py",
+                    title="🔄 Create New Predictions (Deprecated)",
+                ),
+                st.Page(
+                    "pages/evaluate_metrics_v2.py",
+                    title="🎯 Evaluate Predictions Metrics V2",
+                ),
+                st.Page(
+                    "pages/evaluate_metrics.py",
+                    title="🎯 Evaluate Predictions Metrics (Deprecated)",
+                ),
+                st.Page(
+                    "pages/list_experiments.py",
+                    title="📚 List Previous Evaluations",
+                ),
+            ],
+            "Prompt Playground": [
+                st.Page(
+                    "pages/prompt_playground.py", title="⚙️ Prompt Playground"
+                ),
+            ],
+            "Data": [
+                st.Page("pages/export_dataset.py", title="📤 Export Dataset"),
+            ],
+            "Tool": [
+                st.Page(
+                    "pages/workflow_generator.py", title="🛠️ Workflow Generator"
+                ),
+            ],
+            "Administration": [
+                st.Page("pages/admin_users.py", title="👥 Accès Console"),
+                st.Page(
+                    "pages/admin_api_keys.py", title="🔑 Organisation & Clés API"
+                ),
+            ],
+        }
+    else:
+        # Non-admin users are restricted exclusively to the API Playground
+        pages = {
+            "API Playground": [
+                st.Page(
+                    "pages/run_api_workflow_v2.py",
+                    title="📄 Execute Workflow V2",
+                    default=True,
+                ),
+                st.Page(
+                    "pages/retrieve_api_execution.py",
+                    title="🔍 Retrieve Past Execution",
+                ),
+                st.Page(
+                    "pages/run_api_workflow.py",
+                    title="📄 Execute Workflow (Deprecated)",
+                ),
+            ],
+        }
 
     pg = st.navigation(pages, position="sidebar")
     pg.run()

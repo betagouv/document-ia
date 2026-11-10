@@ -127,7 +127,9 @@ def test_verify_user_access_success(in_memory_db) -> None:
     """Test successful user login."""
     add_evals_user("nicolas.sagon@beta.gouv.fr", role="admin")
 
-    is_allowed, user, reason = verify_user_access("nicolas.sagon@beta.gouv.fr")
+    is_allowed, user, reason = verify_user_access(
+        "nicolas.sagon@beta.gouv.fr", record_login=True
+    )
 
     assert is_allowed
     assert user is not None
@@ -138,6 +140,21 @@ def test_verify_user_access_success(in_memory_db) -> None:
     logs = list_recent_access_logs()
     assert len(logs) == 1
     assert logs[0].action == "login_success"
+
+
+def test_verify_user_access_without_duplicate_login_log(in_memory_db) -> None:
+    """Test that page reruns with record_login=False do not produce duplicate audit logs."""
+    add_evals_user("agent@beta.gouv.fr", role="user")
+
+    # Initial login records log
+    is_allowed, user, _ = verify_user_access("agent@beta.gouv.fr", record_login=True)
+    assert is_allowed is True
+    assert len(list_recent_access_logs()) == 1
+
+    # Subsequent page view with record_login=False does NOT record another log
+    is_allowed, user, _ = verify_user_access("agent@beta.gouv.fr", record_login=False)
+    assert is_allowed is True
+    assert len(list_recent_access_logs()) == 1
 
 
 def test_record_logout(in_memory_db) -> None:

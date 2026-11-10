@@ -19,12 +19,15 @@ INITIAL_ADMIN_EMAILS = {
 
 def verify_user_access(
     email: str,
+    record_login: bool = False,
     ip_address: str | None = None,
     user_agent: str | None = None,
 ) -> tuple[bool, EvalsUser | None, str]:
     """Verify if a user identified by email is allowed to access the application.
 
-    Logs the attempt into evals_access_logs and updates last_login_at on success.
+    If record_login is True (e.g. on new session establishment), updates last_login_at
+    and writes a single 'login_success' entry in evals_access_logs. On subsequent page
+    reruns within the same session, only verifies active status without writing duplicate logs.
     Automatically provisions initial project administrators on their first connection.
     """
     clean_email = email.strip().lower()
@@ -79,18 +82,20 @@ def verify_user_access(
                 "Accès refusé : votre compte a été désactivé par un administrateur.",
             )
 
-        # Successful login
-        user.last_login_at = datetime.now(timezone.utc)
-        log = EvalsAccessLog(
-            user_id=user.id,
-            email=clean_email,
-            action="login_success",
-            ip_address=ip_address,
-            user_agent=user_agent,
-        )
-        session.add(log)
-        session.commit()
-        session.refresh(user)
+        # Successful authorization - write audit log and update timestamp ONLY when requested
+        if record_login:
+            user.last_login_at = datetime.now(timezone.utc)
+            log = EvalsAccessLog(
+                user_id=user.id,
+                email=clean_email,
+                action="login_success",
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
+            session.add(log)
+            session.commit()
+            session.refresh(user)
+
         return True, user, "Accès autorisé."
 
 
