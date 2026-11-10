@@ -32,10 +32,10 @@ class RemovePPI(BaseScheduledJob):
             oldest_age = await event_repository.get_oldest_pending_event_age_seconds(
                 before_date=cutoff_date
             )
-            if oldest_age is not None:
-                logger.info(
-                    f"event_purge operation=lag outcome=oldest_pending_age_seconds value={oldest_age:.2f}"
-                )
+            lag_value = oldest_age if oldest_age is not None else 0.0
+            logger.info(
+                f"event_purge operation=lag outcome=oldest_pending_age_seconds value={lag_value:.2f}"
+            )
 
             while True:
                 events = await event_repository.get_events_to_anonymize(

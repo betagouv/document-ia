@@ -147,6 +147,11 @@ async def test_remove_ppi_job_handles_individual_errors_resiliently(
 
         # Check outcome metrics
         assert any(
+            "event_purge operation=lag outcome=oldest_pending_age_seconds value=0.00"
+            in record.message
+            for record in caplog.records
+        )
+        assert any(
             "event_purge operation=purge outcome=success value=1" in record.message
             for record in caplog.records
         )

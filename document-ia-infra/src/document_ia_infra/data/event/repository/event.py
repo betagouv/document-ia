@@ -429,6 +429,8 @@ class EventRepository:
                 payload["workflow_metadata"] = None
             case EventType.WORKFLOW_EXECUTION_FAILED.value:
                 payload["error_message"] = "[PURGED]"
+            case _:
+                pass
         return payload
 
     async def anonymize_event(self, event: EventEntity) -> None:
@@ -438,16 +440,19 @@ class EventRepository:
         Args:
             event: EventEntity to anonymize
         """
+        try:
+            self.anonymize_payload(event.event_type, event.event)
 
-        self.anonymize_payload(event.event_type, event.event)
+            # We need to flag the event as modified to trigger the change listener because self.anonymize_payload() modifie the inner objet but the memory address is still the same. That will not trigger dirty cheking of sqlAlchemy
+            flag_modified(event, "event")
 
-        # We need to flag the event as modified to trigger the change listener because self.anonymize_payload() modifie the inner objet but the memory address is still the same. That will not trigger dirty cheking of sqlAlchemy
-        flag_modified(event, "event")
-
-        event.anonymization_status = AnonymizationStatus.DONE.value
-        self.session.add(event)
-        await self.session.flush()
-        await self.session.commit()
+            event.anonymization_status = AnonymizationStatus.DONE.value
+            self.session.add(event)
+            await self.session.flush()
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            raise
 
     async def get_replication_cursor(self) -> Optional[datetime]:
         """Return the latest ``created_at`` replicated on the destination.
@@ -525,7 +530,11 @@ class EventRepository:
         Args:
             event: entity of the event to mark as failed
         """
-        event.anonymization_status = AnonymizationStatus.ERROR.value
-        self.session.add(event)
-        await self.session.flush()
-        await self.session.commit()
+        try:
+            event.anonymization_status = AnonymizationStatus.ERROR.value
+            self.session.add(event)
+            await self.session.flush()
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            raise

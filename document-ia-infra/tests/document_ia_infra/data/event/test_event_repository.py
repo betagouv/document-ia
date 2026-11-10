@@ -601,3 +601,48 @@ class TestGetCreatedEventIfExecutionNotCompletedOrFailed:
         assert "ON CONFLICT" in stmt_str
         assert "DO UPDATE" in stmt_str
         assert "anonymization_status" in stmt_str
+
+    async def test_anonymize_event_rollback_on_failure(
+        self, event_repository, mock_session
+    ):
+        entity = EventEntity(
+            id=uuid4(),
+            workflow_id="wf_1",
+            execution_id="exec_1",
+            organization_id=uuid4(),
+            created_at=datetime.now(timezone.utc),
+            event_type="WorkflowExecutionCompleted",
+            event={"final_result": {}},
+            anonymization_status="PENDING",
+        )
+        mock_session.commit.side_effect = RuntimeError("DB commit failed")
+
+        with pytest.raises(RuntimeError, match="DB commit failed"):
+            await event_repository.anonymize_event(entity)
+
+        mock_session.rollback.assert_awaited_once()
+
+    async def test_save_failed_anonymization_rollback_on_failure(
+        self, event_repository, mock_session
+    ):
+        entity = EventEntity(
+            id=uuid4(),
+            workflow_id="wf_1",
+            execution_id="exec_1",
+            organization_id=uuid4(),
+            created_at=datetime.now(timezone.utc),
+            event_type="WorkflowExecutionCompleted",
+            event={},
+            anonymization_status="PENDING",
+        )
+        mock_session.commit.side_effect = RuntimeError("DB commit failed")
+
+        with pytest.raises(RuntimeError, match="DB commit failed"):
+            await event_repository.save_failed_anonymization(entity)
+
+        mock_session.rollback.assert_awaited_once()
+
+    def test_anonymize_payload_unknown_event_type_noop(self):
+        payload = {"data": "preserved"}
+        res = EventRepository.anonymize_payload("UnknownEventType", payload)
+        assert res == {"data": "preserved"}
