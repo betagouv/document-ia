@@ -40,22 +40,22 @@ st.set_page_config(
 )
 
 
-def load_env_from_params() -> None:
-    qp = st.query_params
-    env_url = qp.get("env_url")
-    env_key = qp.get("env_key")
+# S4 / Issue #155: Purge active et systématique de tout reliquat historique d'env_key dans l'URL
+if "env_key" in st.query_params:
+    st.query_params.pop("env_key", None)
 
-    if env_url and env_key:
-        configure_service(env_url, env_key)
-
-
-load_env_from_params()
+# Prise en compte éventuelle d'une URL personnalisée transmise sans clé
+if "env_url" in st.query_params and not st.session_state.get("custom_document_ia_url"):
+    st.session_state["custom_document_ia_url"] = str(st.query_params["env_url"]).rstrip(
+        "/"
+    )
 
 
 @st.dialog("Configuration de l'environnement")
 def dialog_configure_env() -> None:
     st.write(
-        "Définissez l'environnement cible. Ces informations seront conservées dans l'URL."
+        "Définissez l'environnement cible pour votre session courante. "
+        "Pour des raisons de sécurité, les clés API ne sont jamais transmises ni conservées dans l'URL."
     )
 
     current = get_current_config()
@@ -83,19 +83,20 @@ def dialog_configure_env() -> None:
 
         if submitted:
             if new_url and new_key:
-                st.query_params["env_url"] = new_url
-                st.query_params["env_key"] = new_key
-                st.success("Configuration sauvegardée ! Rechargement...")
+                configure_service(new_url, new_key)
+                st.query_params["env_url"] = new_url.rstrip("/")
+                # Purge proactive de toute clé présente dans l'URL
+                st.query_params.pop("env_key", None)
+                st.success("Configuration sauvegardée pour la session en cours !")
                 st.rerun()
             else:
                 st.error("L'URL et la Clé sont requises.")
 
         if reset:
-            st.query_params.clear()
-            configure_service(
-                config.DOCUMENT_IA_BASE_URL, config.DOCUMENT_IA_API_KEY or ""
-            )
-
+            st.query_params.pop("env_url", None)
+            st.query_params.pop("env_key", None)
+            st.session_state.pop("custom_document_ia_url", None)
+            st.session_state.pop("custom_document_ia_api_key", None)
             st.session_state.pop("env_config_url", None)
             st.session_state.pop("env_config_key", None)
 
@@ -149,18 +150,25 @@ def render_header(orgs: list[Any]):
     with col_title:
         st.title("🔑 Organisation & Clés API")
     with col_config:
-        is_custom = "env_url" in st.query_params
+        is_custom = bool(
+            st.session_state.get("custom_document_ia_url")
+            or st.session_state.get("custom_document_ia_api_key")
+            or "env_url" in st.query_params
+        )
         btn_type = "primary" if is_custom else "secondary"
         help_text = (
-            "Environnement personnalisé actif" if is_custom else "Config par défaut"
+            "Environnement de session personnalisé actif"
+            if is_custom
+            else "Config par défaut"
         )
         if st.button("⚙️ Env", type=btn_type, help=help_text, use_container_width=True):
             dialog_configure_env()
 
     st.caption("Gestion des accès et des configurations par organisation.")
 
-    if "env_url" in st.query_params:
-        st.info(f"🌐 Connecté à : `{st.query_params['env_url']}`", icon="🔗")
+    active_cfg = get_current_config()
+    if is_custom:
+        st.info(f"🌐 Connecté à : `{active_cfg['base_url']}` (Session)", icon="🔗")
 
     if not orgs:
         return None

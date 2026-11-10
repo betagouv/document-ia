@@ -18,36 +18,63 @@ from document_ia_api.api.contracts.webhook.webhook import (
 )
 from document_ia_evals.utils.config import config
 
-# --- DYNAMIC CONFIGURATION ---
-# On stocke la configuration active ici. Par défaut, c'est celle du fichier config.
-_active_config = {
-    "base_url": config.DOCUMENT_IA_BASE_URL,
-    "api_key": config.DOCUMENT_IA_API_KEY,
-}
+# --- DYNAMIC CONFIGURATION (SESSION ISOLATED) ---
+# S4 / Issue #155: Remplacer la configuration globale mutable par un état propre à chaque session.
+# Aucune configuration mutable n'est stockée au niveau du module Python.
 
 
-def configure_service(base_url: str, api_key: str):
-    """Permet de changer l'environnement cible dynamiquement."""
-    global _active_config
-    # On s'assure qu'il n'y a pas de slash à la fin pour les joins propres
-    _active_config["base_url"] = base_url.rstrip("/")
-    _active_config["api_key"] = api_key
+def get_current_config() -> dict[str, str]:
+    """Retrieve active Document IA API configuration isolated per Streamlit session.
 
+    Falls back to config.DOCUMENT_IA_* if no custom environment is set in the current session.
+    """
+    base_url: str = config.DOCUMENT_IA_BASE_URL
+    api_key: str = config.DOCUMENT_IA_API_KEY or ""
 
-def get_current_config():
-    """Récupère la config active pour l'affichage UI si besoin."""
-    return _active_config
+    try:
+        import streamlit as st
 
+        if hasattr(st, "session_state"):
+            custom_url = st.session_state.get("custom_document_ia_url")
+            if custom_url:
+                base_url = str(custom_url)
+            custom_key = st.session_state.get("custom_document_ia_api_key")
+            if custom_key:
+                api_key = str(custom_key)
+    except Exception:
+        pass
 
-def _get_headers():
     return {
-        "Accept": "application/json",
-        "X-Api-Key": _active_config["api_key"],
+        "base_url": base_url.rstrip("/"),
+        "api_key": api_key,
     }
 
 
-def _get_url(path: str):
-    return urljoin(_active_config["base_url"], path)
+def configure_service(base_url: str, api_key: str) -> None:
+    """Configure target Document IA environment for the current user session only."""
+    clean_url = base_url.rstrip("/")
+    try:
+        import streamlit as st
+
+        if hasattr(st, "session_state"):
+            st.session_state["custom_document_ia_url"] = clean_url
+            st.session_state["custom_document_ia_api_key"] = api_key
+            return
+    except Exception:
+        pass
+
+
+def _get_headers() -> dict[str, str]:
+    cfg = get_current_config()
+    return {
+        "Accept": "application/json",
+        "X-Api-Key": cfg["api_key"],
+    }
+
+
+def _get_url(path: str) -> str:
+    cfg = get_current_config()
+    return urljoin(cfg["base_url"] + "/", path.lstrip("/"))
 
 
 # --- API METHODS ---

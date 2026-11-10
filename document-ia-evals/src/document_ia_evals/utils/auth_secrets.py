@@ -9,6 +9,7 @@ and bridges DINUM / ProConnect specificities:
    and contains no personal data.
 """
 
+import asyncio
 import base64
 import json
 import logging
@@ -227,7 +228,9 @@ def patch_streamlit_oidc() -> None:
                 if isinstance(token, dict):
                     userinfo = dict(token.get("userinfo") or {})
                     if not userinfo.get("email"):
-                        extra_claims = fetch_proconnect_userinfo(self, token)
+                        extra_claims = await asyncio.to_thread(
+                            fetch_proconnect_userinfo, self, token
+                        )
                         if extra_claims:
                             userinfo.update(extra_claims)
                             token["userinfo"] = userinfo
@@ -248,8 +251,11 @@ def patch_streamlit_oidc() -> None:
                                 if hasattr(headers, "get")
                                 else None
                             )
-                            record_login_event(
-                                str(user_email), ip_address=ip, user_agent=ua
+                            await asyncio.to_thread(
+                                record_login_event,
+                                str(user_email),
+                                ip_address=ip,
+                                user_agent=ua,
                             )
                         except Exception as exc:
                             logger.warning("Could not record login event: %s", exc)
