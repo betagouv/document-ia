@@ -14,6 +14,7 @@ Entry point for API documentation.
 - [Workflow Idempotency-Key](./WORKFLOW_IDEMPOTENCY_KEY.md)
 - [Rate Limiting](./RATE_LIMITING.md)
 - [Security (File Confinement & Anti-SSRF)](./SECURITY_FILE_NETWORK.md)
+- [Event Data Minimization & Retention](./EVENT_PURGE_AND_RETENTION.md)
 
 ## Quick navigation
 
