@@ -91,6 +91,15 @@ All ProConnect routes start with `/api/v2/`:
 3. **ID Token**: Signed JWT verified against the `nonce` stored in the session.
 4. **Federated Logout**: Redirects the agent's browser to `GET /api/v2/session/end?id_token_hint=<id_token>&state=<state>&post_logout_redirect_uri=<url>`.
 
+### 3.4. UserInfo Retrieval (DINUM Privacy Model)
+> [!IMPORTANT]
+> In accordance with the DINUM specification, ProConnect's `id_token` is intentionally minimal (`sub`, `aud`, `iss`, `acr`, `amr`, `nonce`) and **contains no personal identifiable information (PII)** such as email or names.
+>
+> To obtain the civil servant's verified email and identity:
+> 1. The server performs a back-channel request to `GET /api/v2/userinfo` with header `Authorization: Bearer <access_token>`.
+> 2. Both `application/json` and signed `application/jwt` responses are parsed.
+> 3. The resulting claims (`email`, `given_name`, `usual_name`, `siret`) are merged into the session credentials.
+
 ---
 
 ## 4. Database Schema & RBAC

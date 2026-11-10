@@ -10,10 +10,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from document_ia_infra.data.data_settings import database_settings
+from document_ia_infra.data.data_settings import database_settings  # noqa: E402
 
 # Import models for autogenerate support
-from document_ia_evals.database.models import Base
+from document_ia_evals.database.models import Base  # noqa: E402
 
 # this is the Alembic Config object
 config = context.config

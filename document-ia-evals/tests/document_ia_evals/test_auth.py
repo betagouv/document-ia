@@ -19,7 +19,9 @@ from document_ia_evals.services.auth_service import (
     verify_user_access,
 )
 from document_ia_evals.utils.auth_secrets import (
+    fetch_proconnect_userinfo,
     generate_secrets_toml,
+    patch_streamlit_oidc,
     patch_streamlit_oidc_prompt,
 )
 
@@ -28,9 +30,12 @@ from document_ia_evals.utils.auth_secrets import (
 def in_memory_db():
     """Create an isolated in-memory SQLite database for authentication testing."""
     engine = create_engine("sqlite:///:memory:")
+    from typing import cast
+    from sqlalchemy import Table
+
     Base.metadata.create_all(
         bind=engine,
-        tables=[EvalsUser.__table__, EvalsAccessLog.__table__],
+        tables=cast(list[Table], [EvalsUser.__table__, EvalsAccessLog.__table__]),
     )
     Session = sessionmaker(bind=engine)
 
@@ -184,3 +189,132 @@ def test_patch_streamlit_oidc_prompt() -> None:
 
     client, _ = routes.create_oauth_client("proconnect")
     assert "prompt" not in client.client_kwargs
+
+
+def test_verify_user_access_initial_admins_auto_provisioning(in_memory_db) -> None:
+    """Test that initial administrators are automatically provisioned as ADMIN on first login."""
+    # Ensure neither account exists initially
+    assert len(list_evals_users()) == 0
+
+    # First login with nicolas.sagon@ext.beta.gouv.fr
+    is_allowed, user, reason = verify_user_access("nicolas.sagon@ext.beta.gouv.fr")
+    assert is_allowed is True
+    assert user is not None
+    assert user.email == "nicolas.sagon@ext.beta.gouv.fr"
+    assert user.role == UserRole.ADMIN.value
+    assert user.is_active is True
+
+    # User is now persisted in the database
+    users = list_evals_users()
+    assert len(users) == 1
+    assert users[0].email == "nicolas.sagon@ext.beta.gouv.fr"
+    assert users[0].role == UserRole.ADMIN.value
+
+
+def test_fetch_proconnect_userinfo_json() -> None:
+    """Test fetching and parsing JSON userinfo claims."""
+    from unittest.mock import MagicMock
+
+    mock_client = MagicMock()
+    mock_client.load_server_metadata.return_value = {
+        "userinfo_endpoint": "https://fca.integ01.dev-agentconnect.fr/api/v2/userinfo"
+    }
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "sub": "user-sub-123",
+        "email": "nicolas.sagon@ext.beta.gouv.fr",
+        "given_name": "Nicolas",
+        "usual_name": "Sagon",
+    }
+    mock_client.get.return_value = mock_resp
+
+    token = {"access_token": "valid_token"}
+    claims = fetch_proconnect_userinfo(mock_client, token)
+
+    assert claims["email"] == "nicolas.sagon@ext.beta.gouv.fr"
+    assert claims["given_name"] == "Nicolas"
+    assert claims["usual_name"] == "Sagon"
+    assert claims["name"] == "Nicolas Sagon"
+
+
+def test_fetch_proconnect_userinfo_jwt() -> None:
+    """Test fetching and decoding signed JWT userinfo claims."""
+    import base64
+    import json
+    from unittest.mock import MagicMock
+
+    mock_client = MagicMock()
+    mock_client.load_server_metadata.return_value = {
+        "userinfo_endpoint": "https://fca.integ01.dev-agentconnect.fr/api/v2/userinfo"
+    }
+
+    raw_payload = {
+        "sub": "user-sub-456",
+        "email": "agent@education.gouv.fr",
+        "given_name": "Camille",
+        "family_name": "Dupont",
+    }
+    header = base64.urlsafe_b64encode(b'{"alg":"RS256"}').decode().rstrip("=")
+    payload = (
+        base64.urlsafe_b64encode(json.dumps(raw_payload).encode()).decode().rstrip("=")
+    )
+    jwt_string = f"{header}.{payload}.mocksignature"
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.side_effect = Exception("Not valid JSON")
+    mock_resp.text = jwt_string
+    mock_client.get.return_value = mock_resp
+
+    token = {"access_token": "valid_token"}
+    claims = fetch_proconnect_userinfo(mock_client, token)
+
+    assert claims["email"] == "agent@education.gouv.fr"
+    assert claims["given_name"] == "Camille"
+    assert claims["name"] == "Camille Dupont"
+
+
+def test_patched_authorize_access_token_enriches_userinfo() -> None:
+    """Test that TornadoOAuth2App.authorize_access_token enriches userinfo with userinfo_endpoint claims."""
+    from unittest.mock import MagicMock, patch
+    from streamlit.web.server.oidc_mixin import TornadoOAuth
+
+    patch_streamlit_oidc()
+
+    oauth = TornadoOAuth({
+        "proconnect": {
+            "client_id": "test",
+            "client_secret": "test",
+            "server_metadata_url": "https://fca.integ01.dev-agentconnect.fr/api/v2/.well-known/openid-configuration",
+        }
+    })
+    oauth.register("proconnect")
+    client = oauth.create_client("proconnect")
+
+    fake_handler = MagicMock()
+    fake_handler.get_argument.side_effect = lambda arg, default=None: {
+        "code": "test_code",
+        "state": "test_state",
+    }.get(arg, default)
+
+    # Mock internal methods of TornadoOAuth2App
+    with patch.object(client.framework, "get_state_data", return_value={"nonce": "test_nonce"}), \
+         patch.object(client.framework, "clear_state_data"), \
+         patch.object(client, "fetch_access_token", return_value={"access_token": "tok123", "id_token": "id123"}), \
+         patch.object(client, "parse_id_token", return_value={"sub": "sub123"}), \
+         patch("document_ia_evals.utils.auth_secrets.fetch_proconnect_userinfo") as mock_fetch:
+
+        mock_fetch.return_value = {
+            "email": "nicolas.sagon@ext.beta.gouv.fr",
+            "given_name": "Nicolas",
+            "usual_name": "Sagon",
+            "name": "Nicolas Sagon",
+        }
+
+        token = client.authorize_access_token(fake_handler)
+        assert "userinfo" in token
+        assert token["userinfo"]["email"] == "nicolas.sagon@ext.beta.gouv.fr"
+        assert token["userinfo"]["name"] == "Nicolas Sagon"
+        assert token["userinfo"]["sub"] == "sub123"

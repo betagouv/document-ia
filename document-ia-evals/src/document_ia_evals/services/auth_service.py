@@ -11,6 +11,11 @@ from document_ia_evals.database.models import EvalsAccessLog, EvalsUser, UserRol
 
 logger = logging.getLogger(__name__)
 
+INITIAL_ADMIN_EMAILS = {
+    "nicolas.sagon@beta.gouv.fr",
+    "nicolas.sagon@ext.beta.gouv.fr",
+}
+
 
 def verify_user_access(
     email: str,
@@ -20,6 +25,7 @@ def verify_user_access(
     """Verify if a user identified by email is allowed to access the application.
 
     Logs the attempt into evals_access_logs and updates last_login_at on success.
+    Automatically provisions initial project administrators on their first connection.
     """
     clean_email = email.strip().lower()
 
@@ -28,21 +34,33 @@ def verify_user_access(
         user = session.scalars(stmt).first()
 
         if not user:
-            logger.warning("Access denied: user %s not found in database", clean_email)
-            log = EvalsAccessLog(
-                user_id=None,
-                email=clean_email,
-                action="access_denied_unknown_user",
-                ip_address=ip_address,
-                user_agent=user_agent,
-            )
-            session.add(log)
-            session.commit()
-            return (
-                False,
-                None,
-                f"Accès refusé : l'adresse '{clean_email}' n'est pas habilitée sur Document IA.",
-            )
+            # Resilient auto-provisioning for initial project administrators
+            if clean_email in INITIAL_ADMIN_EMAILS:
+                logger.info("Auto-provisioning initial admin user: %s", clean_email)
+                user = EvalsUser(
+                    email=clean_email,
+                    role=UserRole.ADMIN.value,
+                    is_active=True,
+                )
+                session.add(user)
+                session.commit()
+                session.refresh(user)
+            else:
+                logger.warning("Access denied: user %s not found in database", clean_email)
+                log = EvalsAccessLog(
+                    user_id=None,
+                    email=clean_email,
+                    action="access_denied_unknown_user",
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                )
+                session.add(log)
+                session.commit()
+                return (
+                    False,
+                    None,
+                    f"Accès refusé : l'adresse '{clean_email}' n'est pas habilitée sur Document IA.",
+                )
 
         if not user.is_active:
             logger.warning("Access denied: user %s is disabled", clean_email)

@@ -66,6 +66,8 @@ def main():
         else (
             getattr(st.user, "email", None)
             or (st.user.get("email") if hasattr(st.user, "get") else None)
+            or getattr(st.user, "preferred_username", None)
+            or (st.user.get("preferred_username") if hasattr(st.user, "get") else None)
         )
     )
     user_email = str(raw_email).strip().lower() if raw_email else None

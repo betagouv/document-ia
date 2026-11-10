@@ -101,11 +101,18 @@ def render_sidebar_user_profile() -> None:
     """Render current user profile badge and logout button in Streamlit sidebar."""
     email = st.session_state.get("current_user_email", "Utilisateur")
     role = st.session_state.get("current_user_role", "user")
+    name = getattr(st.user, "name", None) or (
+        st.user.get("name") if hasattr(st.user, "get") else None
+    )
 
     role_label = "👑 Administrateur" if role == "admin" else "👤 Évaluateur"
 
     st.sidebar.markdown("---")
-    st.sidebar.markdown(f"**Connecté :** `{email}`")
+    if name:
+        st.sidebar.markdown(f"**Connecté :** {name}")
+        st.sidebar.caption(f"`{email}`")
+    else:
+        st.sidebar.markdown(f"**Connecté :** `{email}`")
     st.sidebar.markdown(f"**Rôle :** {role_label}")
 
     if st.sidebar.button(

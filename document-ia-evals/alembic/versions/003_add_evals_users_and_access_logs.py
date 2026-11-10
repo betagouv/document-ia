@@ -95,7 +95,7 @@ def upgrade() -> None:
         ["created_at"],
     )
 
-    # 3. Seed initial admin user
+    # 3. Seed initial admin users
     op.bulk_insert(
         evals_users_table,
         [
@@ -104,7 +104,13 @@ def upgrade() -> None:
                 "email": "nicolas.sagon@beta.gouv.fr",
                 "role": "admin",
                 "is_active": True,
-            }
+            },
+            {
+                "id": uuid.uuid4(),
+                "email": "nicolas.sagon@ext.beta.gouv.fr",
+                "role": "admin",
+                "is_active": True,
+            },
         ],
     )
 
