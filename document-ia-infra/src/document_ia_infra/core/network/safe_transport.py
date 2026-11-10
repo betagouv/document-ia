@@ -270,17 +270,47 @@ class SafeAsyncHTTPTransport(httpx.AsyncHTTPTransport):
         connect_timeout = (
             timeouts.get("connect") if isinstance(timeouts, dict) else None
         )
-        try:
-            await resolve_and_pin_ip(
-                request.url.host,
-                port,
-                allow_local=self.allow_local,
-                timeout=connect_timeout,
-            )
-        except httpcore.ConnectTimeout as exc:
-            # This pre-flight resolution runs outside the pool, so HTTPX does not
-            # translate its exceptions: raise the public httpx type directly.
-            raise httpx.ConnectTimeout(str(exc), request=request) from exc
+
+        # The connect budget spans the pre-flight lookup, the backend's own
+        # lookup, and TLS. HTTPX would hand the full timeout to each step
+        # independently, letting one request cost a multiple of what the caller
+        # configured, so the deadline is established once here and only the
+        # remainder is delegated.
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + connect_timeout if connect_timeout else None
+
+        def remaining() -> float | None:
+            if deadline is None:
+                return connect_timeout
+            return max(0.0, deadline - loop.time())
+
+        if connect_timeout is not None:
+            try:
+                await resolve_and_pin_ip(
+                    request.url.host,
+                    port,
+                    allow_local=self.allow_local,
+                    timeout=remaining(),
+                )
+            except httpcore.ConnectTimeout as exc:
+                # This pre-flight resolution runs outside the pool, so HTTPX does
+                # not translate its exceptions: raise the public type directly.
+                raise httpx.ConnectTimeout(str(exc), request=request) from exc
+
+            # Delegate only what is left of the budget: the backend's DNS lookup
+            # and the TLS handshake share the same deadline instead of restarting
+            # it.
+            leftover = remaining()
+            extensions_timeout = dict(timeouts) if isinstance(timeouts, dict) else {}
+            extensions_timeout["connect"] = leftover
+            request.extensions = dict(request.extensions)
+            request.extensions["timeout"] = extensions_timeout
+            if leftover is not None and leftover <= 0:
+                raise httpx.ConnectTimeout(
+                    f"Connect budget of {connect_timeout}s exhausted before "
+                    f"connecting to '{request.url.host}'",
+                    request=request,
+                )
 
         response = await super().handle_async_request(request)
 

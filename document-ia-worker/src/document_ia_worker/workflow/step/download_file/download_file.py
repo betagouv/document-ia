@@ -6,7 +6,10 @@ import httpx
 import magic
 
 from document_ia_infra.core.file.file_settings import file_settings
-from document_ia_infra.core.file.safe_path import validate_safe_path
+from document_ia_infra.core.file.safe_path import (
+    open_confined_directory,
+    validate_safe_path,
+)
 from document_ia_infra.core.model.file_info import FileInfo
 from document_ia_infra.core.network.safe_transport import SafeAsyncHTTPTransport
 from document_ia_infra.exception.retryable_exception import RetryableException
@@ -76,9 +79,12 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
         # Security F1: Generate purely random unique filename on worker side.
         # NEVER reuse Content-Disposition header or URL path name.
         random_token = uuid4().hex
-        tmp_file: Path = validate_safe_path(
-            tmp_dir / f"{random_token}.tmp", self.sandbox_root
-        )
+        tmp_name = f"{random_token}.tmp"
+        # Anchor every write on a descriptor opened after validation, so replacing
+        # the execution directory with a symlink cannot redirect the download.
+        # A pathname checked here and opened later is not a boundary.
+        confined = open_confined_directory(tmp_dir, self.sandbox_root)
+        tmp_file: Path = confined.path / tmp_name
         final_path: Path | None = None
         success = False
 
@@ -105,7 +111,7 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
                     detected_mime: str | None = None
                     head_buffer = bytearray()
 
-                    with open(tmp_file, "wb") as f:
+                    with confined.open_file(tmp_name, "wb") as f:
                         async for chunk in response.aiter_bytes(CHUNK_SIZE):
                             content_size += len(chunk)
 
@@ -143,7 +149,7 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
                             raise ValueError(
                                 f"Detected MIME type not allowed: {detected_mime}"
                             )
-                        with open(tmp_file, "wb") as f:
+                        with confined.open_file(tmp_name, "wb") as f:
                             f.write(head_buffer)
 
                     if not detected_mime:
@@ -156,12 +162,11 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
                             )
 
             extension = file_settings.ALLOWED_MIME_TYPES[detected_mime][0]
-            final_path = validate_safe_path(
-                tmp_dir / f"{random_token}{extension}", self.sandbox_root
-            )
+            final_name = f"{random_token}{extension}"
 
-            # Atomic replace within the confined sandbox
-            tmp_file.replace(final_path)
+            # Atomic replace inside the descriptor's directory, never via a path.
+            confined.replace(tmp_name, final_name)
+            final_path = confined.path / final_name
             success = True
 
             return (
@@ -177,11 +182,12 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
 
         finally:
             # Cleanup temp file if operation failed
-            if not success and tmp_file and tmp_file.exists():
+            if not success:
                 try:
-                    tmp_file.unlink()
+                    confined.unlink(tmp_name)
                 except Exception:
                     pass
+            confined.close()
 
     async def _handle_s3_file(
         self, file_info: FileInfo

@@ -199,6 +199,37 @@ async def test_transport_bounds_dns_with_the_client_timeout():
 
 
 @pytest.mark.asyncio
+async def test_connect_budget_is_not_spent_twice():
+    """The connect timeout must bound the whole connect, not each step.
+
+    The transport resolves DNS before delegating, and the backend resolves again.
+    Handing the full timeout to both let a 0.1s request take 0.216s.
+    """
+    resolutions: list[float] = []
+
+    async def slow_resolution(hostname, port, allow_local=False):
+        resolutions.append(asyncio.get_running_loop().time())
+        await asyncio.sleep(0.08)
+        return ["93.184.216.34"]
+
+    transport = SafeAsyncHTTPTransport()
+    loop = asyncio.get_running_loop()
+
+    async with httpx.AsyncClient(transport=transport) as client:
+        with patch(
+            "document_ia_infra.core.network.safe_transport.resolve_validated_ips",
+            new=slow_resolution,
+        ):
+            started = loop.time()
+            with pytest.raises((httpx.ConnectTimeout, httpx.ConnectError)):
+                await client.get("https://example.com/doc.pdf", timeout=0.1)
+            elapsed = loop.time() - started
+
+    # Two lookups at 0.08s each would take 0.16s+ if the budget restarted.
+    assert elapsed < 0.15, f"connect budget was spent more than once: {elapsed:.3f}s"
+
+
+@pytest.mark.asyncio
 async def test_all_validated_addresses_are_exposed_for_fallback():
     """Every resolved address is returned, not just the first, so callers can retry."""
     mock_addr_info = [
@@ -525,3 +556,112 @@ async def test_presigned_url_query_parameters_preserved(
     assert Path(result.file_path).exists()
 
     await step.cleanup(is_last_cleanup=True)
+
+
+# ==============================================================================
+# 3. Directory replacement (TOCTOU) — descriptor-anchored confinement
+# ==============================================================================
+
+
+@pytest.mark.asyncio
+async def test_directory_swap_after_open_does_not_leak(
+    mock_context: MainWorkflowContext, tmp_path: Path
+):
+    """Replacing the execution directory after validation must not redirect writes.
+
+    A pathname validated and later reopened is not a boundary: the directory can
+    be swapped for a symlink in between, and a re-resolving check would approve
+    the external location. The descriptor taken at validation time is what the
+    write is anchored to.
+    """
+    from document_ia_infra.core.file import safe_path
+
+    outside = tmp_path / "outside_target"
+    outside.mkdir()
+    step = DownloadFileStep(
+        main_workflow_context=mock_context, file_url="https://example.com/inv.pdf"
+    )
+    root = Path(step.sandbox_root)
+    root.mkdir(parents=True, exist_ok=True)
+
+    real_open = safe_path.open_confined_directory
+
+    def swapping_open(path, sandbox_root):
+        confined = real_open(path, sandbox_root)
+        # The attacker replaces the directory after it was validated.
+        import shutil
+
+        shutil.rmtree(root, ignore_errors=True)
+        root.symlink_to(outside, target_is_directory=True)
+        return confined
+
+    mock_resp = httpx.Response(
+        status_code=200,
+        headers={"Content-Type": "application/pdf"},
+        stream=httpx.ByteStream(VALID_PDF_BYTES),
+        request=httpx.Request("GET", "https://example.com/inv.pdf"),
+    )
+    step._transport = httpx.MockTransport(lambda req: mock_resp)
+    await step._prepare_step()
+
+    with patch.object(safe_path, "open_confined_directory", swapping_open):
+        result, _ = await step._execute_internal()
+
+    # Nothing may be written into the directory the symlink points at.
+    assert list(outside.iterdir()) == []
+    assert Path(result.file_path).exists()
+
+
+def test_open_confined_directory_refuses_a_symlinked_root(tmp_path: Path):
+    """A sandbox root that is already a symlink is refused, not followed."""
+    from document_ia_infra.core.file.safe_path import open_confined_directory
+    from document_ia_infra.exception.security_exception import (
+        PathTraversalException,
+    )
+
+    sandbox = tmp_path / "sandbox"
+    sandbox.mkdir()
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    (sandbox / "exec").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(PathTraversalException):
+        open_confined_directory(sandbox / "exec", sandbox)
+
+
+def test_open_confined_directory_rejects_an_escaping_name(tmp_path: Path):
+    from document_ia_infra.core.file.safe_path import open_confined_directory
+    from document_ia_infra.exception.security_exception import (
+        PathTraversalException,
+    )
+
+    sandbox = tmp_path / "sandbox2"
+    sandbox.mkdir()
+    with open_confined_directory(sandbox, sandbox) as confined:
+        with pytest.raises(PathTraversalException):
+            confined.open_file("../escape.pdf", "wb")
+        with pytest.raises(PathTraversalException):
+            confined.unlink("../escape.pdf")
+
+
+def test_cleanup_never_deletes_through_a_replaced_directory(tmp_path: Path):
+    """Cleanup must not delete anything behind a swapped-in symlink.
+
+    Either it refuses, or it removes the link itself; what it must never do is
+    walk through the link and delete the external contents.
+    """
+    from document_ia_infra.core.file.safe_path import safe_cleanup_directory
+
+    sandbox = tmp_path / "sandbox3"
+    sandbox.mkdir()
+    outside = tmp_path / "keep"
+    outside.mkdir()
+    (outside / "KEEP.txt").write_text("must survive")
+
+    execution_dir = sandbox / "exec3"
+    execution_dir.symlink_to(outside, target_is_directory=True)
+
+    safe_cleanup_directory(execution_dir / "preprocess", sandbox_root=execution_dir)
+
+    # The external file survived; nothing was deleted through the link.
+    assert (outside / "KEEP.txt").exists()
