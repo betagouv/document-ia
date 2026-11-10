@@ -37,6 +37,11 @@ class RedisSettings(BaseDocumentIaSettings):
     # Operator-enabled, shared across instances; 0 keeps normal throughput.
     STREAM_RECOVERY_INTERVAL_MS: int = Field(default=0, ge=0, le=60000)
 
+    # Watchdog & Execution lease defaults
+    DEFAULT_MAX_PROCESSING_TIME_S: float = Field(default=120.0, ge=1.0)
+    DEFAULT_STEP_PROGRESS_TIMEOUT_S: float = Field(default=90.0, ge=1.0)
+    DEFAULT_LEASE_TTL_MS: int = Field(default=60000, ge=1000)
+
     @model_validator(mode="after")
     def validate_admission_thresholds(self):
         if self.ADMISSION_RESUME_OUTSTANDING >= self.ADMISSION_MAX_OUTSTANDING:
