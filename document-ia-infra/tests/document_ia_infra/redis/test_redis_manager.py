@@ -1,6 +1,8 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from redis.exceptions import AuthenticationError
+
 from document_ia_infra.redis.redis_manager import RedisManager
 
 
@@ -169,6 +171,81 @@ class TestRedisManager:
         # Ne doit pas lever
         await manager.close()
         assert manager.redis is None
+
+    @pytest.mark.asyncio
+    async def test_auth_fallback_keeps_the_configured_endpoint(self):
+        """Reconnecting without a password must not move to another server.
+
+        When `REDIS_URL` supplies the endpoint, the fallback used to rebuild the
+        URL from `REDIS_HOST`/`REDIS_PORT`/`REDIS_DB`, silently switching to
+        localhost database 0.
+        """
+        manager = RedisManager()
+        rejected = MagicMock()
+        rejected.ping = AsyncMock(
+            side_effect=AuthenticationError("without any password configured")
+        )
+        rejected.aclose = AsyncMock()
+        accepted = MagicMock()
+        accepted.ping = AsyncMock(return_value=True)
+
+        with (
+            patch(
+                "document_ia_infra.redis.redis_manager.redis_settings",
+                new=MagicMock(
+                    get_redis_url=lambda: "redis://:secret@redis.internal:6390/4",
+                    get_redis_url_without_credentials=lambda: (
+                        "redis://redis.internal:6390/4"
+                    ),
+                ),
+            ),
+            patch(
+                "document_ia_infra.redis.redis_manager.ConnectionPool.from_url"
+            ) as pool_mock,
+            patch(
+                "document_ia_infra.redis.redis_manager.Redis",
+                side_effect=[rejected, accepted],
+            ),
+        ):
+            conn = await manager.get_connection()
+
+        assert conn is accepted
+        urls = [call.args[0] for call in pool_mock.call_args_list]
+        assert urls == [
+            "redis://:secret@redis.internal:6390/4",
+            "redis://redis.internal:6390/4",
+        ]
+        # The remote endpoint, port and database survive the fallback.
+        assert not any("localhost" in url for url in urls)
+
+    def test_url_without_credentials_preserves_endpoint(self):
+        """Credential stripping keeps host, port, database, scheme and options."""
+        from document_ia_infra.redis.redis_settings import RedisSettings
+
+        settings = RedisSettings(
+            REDIS_URL="rediss://user:pw@redis.internal:6390/4?ssl_cert_reqs=none",
+            REDIS_PASSWORD="pw",
+        )
+
+        assert (
+            settings.get_redis_url_without_credentials()
+            == "rediss://redis.internal:6390/4?ssl_cert_reqs=none"
+        )
+
+    def test_url_without_credentials_from_individual_settings(self):
+        from document_ia_infra.redis.redis_settings import RedisSettings
+
+        settings = RedisSettings(
+            REDIS_HOST="10.1.2.3",
+            REDIS_PORT=6380,
+            REDIS_DB=2,
+            REDIS_PASSWORD="p@ss word",
+        )
+
+        stripped = settings.get_redis_url_without_credentials()
+        assert stripped == "redis://10.1.2.3:6380/2"
+        # The password materialises only in the credentialed form.
+        assert "p%40ss%20word" in settings.get_redis_url()
 
     @pytest.mark.asyncio
     async def test_recovers_on_next_call_after_exhausting_retries(self):

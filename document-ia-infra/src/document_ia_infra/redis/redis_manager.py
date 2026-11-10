@@ -24,19 +24,23 @@ class RedisManager:
         jitter = delay * 0.25 * random.uniform(-1, 1)
         return max(0.1, delay + jitter)
 
+    @staticmethod
+    def _build_pool(url: str) -> Redis:
+        pool = ConnectionPool.from_url(  # type: ignore[UnknownMemberType]
+            url,
+            decode_responses=True,
+            max_connections=20,
+            socket_connect_timeout=5,
+        )
+        return Redis(connection_pool=pool)
+
     async def get_connection(self) -> Redis | None:
         """Ensure Redis connection with retry logic."""
         # A previous outage must not disable recovery on every future request.
         for attempt in range(self.max_retries):
             try:
                 if self.redis is None:
-                    pool = ConnectionPool.from_url(  # type: ignore[UnknownMemberType]
-                        redis_settings.get_redis_url(),
-                        decode_responses=True,
-                        max_connections=20,
-                        socket_connect_timeout=5,
-                    )
-                    self.redis = Redis(connection_pool=pool)
+                    self.redis = self._build_pool(redis_settings.get_redis_url())
 
                 await asyncio.wait_for(self.redis.ping(), timeout=5)  # type: ignore[misc]
                 if self.connection_attempts > 0:
@@ -54,14 +58,11 @@ class RedisManager:
                     )
                     if self.redis is not None:
                         await self.redis.aclose(close_connection_pool=True)
-                    unauth_url = f"redis://{redis_settings.REDIS_HOST}:{redis_settings.REDIS_PORT}/{redis_settings.REDIS_DB}"
-                    pool = ConnectionPool.from_url(  # type: ignore[UnknownMemberType]
-                        unauth_url,
-                        decode_responses=True,
-                        max_connections=20,
-                        socket_connect_timeout=5,
+                    # Keep the endpoint get_redis_url() selected (host, port,
+                    # database, scheme, options) and drop only the credentials.
+                    self.redis = self._build_pool(
+                        redis_settings.get_redis_url_without_credentials()
                     )
-                    self.redis = Redis(connection_pool=pool)
                     await asyncio.wait_for(self.redis.ping(), timeout=5)  # type: ignore[misc]
                     self.connection_attempts = 0
                     return self.redis

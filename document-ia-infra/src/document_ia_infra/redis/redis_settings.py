@@ -1,5 +1,5 @@
 from pydantic import Field, SecretStr, model_validator
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from document_ia_infra.core.BaseDocumentIaSettings import BaseDocumentIaSettings
 
@@ -70,6 +70,27 @@ class RedisSettings(BaseDocumentIaSettings):
         password = quote(self.REDIS_PASSWORD.get_secret_value(), safe="")
         return (
             f"redis://:{password}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+        )
+
+    def get_redis_url_without_credentials(self) -> str:
+        """Effective Redis URL with any userinfo removed.
+
+        Used when the server answers `AUTH` with "without any password
+        configured": the fallback must keep the host, port, database, scheme and
+        connection options selected by `get_redis_url()`, and drop only the
+        credentials. Rebuilding the URL from `REDIS_HOST`/`REDIS_PORT`/`REDIS_DB`
+        would silently move the connection to another server whenever
+        `REDIS_URL` is the source of the endpoint.
+        """
+        parts = urlsplit(self.get_redis_url())
+        netloc = parts.hostname or ""
+        if parts.hostname and ":" in parts.hostname:
+            # IPv6 literals must keep their brackets.
+            netloc = f"[{parts.hostname}]"
+        if parts.port is not None:
+            netloc = f"{netloc}:{parts.port}"
+        return urlunsplit(
+            (parts.scheme, netloc, parts.path, parts.query, parts.fragment)
         )
 
 
