@@ -525,6 +525,50 @@ class TestIdempotencyIntegration:
         assert events[-1].event.error_type == "idempotency_reservation_lost"
 
     @pytest.mark.asyncio
+    async def test_capacity_rejection_releases_the_new_reservation(
+        self,
+        async_client: httpx.AsyncClient,
+        standard_api_key_value: str,
+    ):
+        """A capacity refusal must not leave the key reserved.
+
+        The reservation is created before the preflight; if it is not released,
+        every retry with the same key gets `idempotency_in_progress` until the
+        lock expires, pointing at an execution that was never persisted.
+        """
+        from document_ia_infra.redis.admission import AdmissionUnavailableError
+
+        idempotency_key = f"key-capacity-release-{uuid4()}"
+        file_url = "https://example.com/capacity_release.pdf"
+        override = json.dumps({"llm_extract_data": [{"param": "document_type", "value": "cni"}]})
+        headers = {
+            "X-API-KEY": standard_api_key_value,
+            "Idempotency-Key": idempotency_key,
+        }
+
+        with patch(
+            "document_ia_api.api.middleware.execution_admission.admit_execution",
+            new=AsyncMock(side_effect=AdmissionUnavailableError("full")),
+        ):
+            refused = await async_client.post(
+                "/api/v2/workflows/document-extraction-v2/execute",
+                data={"file_url": file_url, "override": override},
+                headers=headers,
+            )
+        assert refused.status_code == 503
+        assert refused.json()["errors"]["error"] == "execution_capacity_unavailable"
+
+        # Capacity recovered: the same key must be accepted immediately, not
+        # rejected as in-progress on a reservation that protects nothing.
+        accepted = await async_client.post(
+            "/api/v2/workflows/document-extraction-v2/execute",
+            data={"file_url": file_url, "override": override},
+            headers=headers,
+        )
+        assert accepted.status_code == 200
+        assert accepted.json()["data"]["execution_id"]
+
+    @pytest.mark.asyncio
     async def test_replay_is_served_while_capacity_is_saturated(
         self,
         async_client: httpx.AsyncClient,

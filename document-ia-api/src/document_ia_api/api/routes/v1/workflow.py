@@ -436,12 +436,6 @@ async def execute_workflow(
                 message="Workflow execution started successfully",
             )
 
-    # Capacity preflight runs after replay detection: replaying an accepted
-    # request needs no queue capacity, and a saturated queue must not hide an
-    # execution the client already scheduled. The publisher keeps its own
-    # atomic capacity check for the actual admission.
-    await check_execution_admission()
-
     # Admission (upload, database work, publication) can outlast the lock TTL.
     # The reservation is renewed for as long as it is held, and its ownership is
     # re-checked just before publication so a lost lease cannot publish a
@@ -455,6 +449,14 @@ async def execute_workflow(
         )
 
     try:
+        # Capacity preflight runs after replay detection: replaying an accepted
+        # request needs no queue capacity, and a saturated queue must not hide an
+        # execution the client already scheduled. It stays inside the failure
+        # handling so a refusal releases the reservation it would otherwise
+        # leave blocking retries. The publisher keeps its own atomic capacity
+        # check for the actual admission.
+        await check_execution_admission()
+
         parsed_classification_parameters: Optional[
             WorkflowClassificationParameterRequest
         ] = None
