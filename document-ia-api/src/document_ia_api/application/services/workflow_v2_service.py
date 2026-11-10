@@ -13,9 +13,14 @@ from document_ia_api.api.exceptions.entity_not_found_exception import (
     HttpEntityNotFoundException,
 )
 from document_ia_api.application.services.execution_acceptance import (
+    EXECUTION_RESERVATION_LOST_ERROR,
+    fail_abandoned_execution,
     fail_unscheduled_execution,
     scheduling_log_context,
     scheduling_unavailable,
+)
+from document_ia_api.core.idempotency.exceptions import (
+    IdempotencyReservationLostException,
 )
 from document_ia_api.core.file_validator import validate_uploaded_file
 from document_ia_api.infra.s3_service import s3_service
@@ -109,12 +114,30 @@ class WorkflowV2Service:
             workflow_version=2,
         )
 
-        try:
-            # Last-moment ownership check: a reservation that was lost or
-            # re-acquired must not publish a second execution.
-            if before_publish is not None:
+        # Last-moment ownership check: a reservation that was lost or re-acquired
+        # must not publish a second execution. The started event is already
+        # committed by this point, so the execution is closed explicitly rather
+        # than left as a `STARTED` that will never progress.
+        if before_publish is not None:
+            try:
                 await before_publish()
+            except IdempotencyReservationLostException as lost_error:
+                await fail_abandoned_execution(
+                    self.db_session,
+                    execution_id=execution_id,
+                    workflow_id=workflow_id,
+                    organization_id=organization_id,
+                    error_type=EXECUTION_RESERVATION_LOST_ERROR,
+                    error_message=(
+                        "The idempotency reservation was lost before this "
+                        "execution was scheduled; nothing is pending. Retry the "
+                        "request."
+                    ),
+                    workflow_version=2,
+                )
+                raise lost_error
 
+        try:
             await self.redis_producer.publish_message(
                 WorkflowExecutionMessage(workflow_execution_id=execution_id)
             )

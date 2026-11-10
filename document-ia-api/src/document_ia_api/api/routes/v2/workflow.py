@@ -234,7 +234,6 @@ async def list_available_workflows() -> WorkflowV2ListResponse:
     dependencies=[
         Depends(verify_api_key),
         Depends(check_rate_limit),
-        Depends(check_execution_admission),
     ],
     response_model=WorkflowV2ExecuteResponse,
     summary="Execute Workflow (v2)",
@@ -640,6 +639,12 @@ async def execute_workflow_v2(
                 data=replayed_execution,
                 message="Workflow execution started successfully",
             )
+
+    # Capacity preflight runs after replay detection: replaying an accepted
+    # request needs no queue capacity, and a saturated queue must not hide an
+    # execution the client already scheduled. The publisher keeps its own
+    # atomic capacity check for the actual admission.
+    await check_execution_admission()
 
     # Admission (upload, database work, publication) can outlast the lock TTL.
     # The reservation is renewed for as long as it is held, and its ownership is

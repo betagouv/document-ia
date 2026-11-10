@@ -61,17 +61,24 @@ class IdempotencyReservationLostException(HTTPException):
 
     def __init__(
         self,
+        execution_id: str | None = None,
         message: str = (
             "The idempotency reservation was lost before the execution was "
             "scheduled. Retry the request."
         ),
     ) -> None:
+        detail: dict[str, str] = {
+            "error": "idempotency_reservation_lost",
+            "message": message,
+        }
+        if execution_id is not None:
+            # The started event is committed before publication, so the caller
+            # can inspect the execution this request closed.
+            detail["execution_id"] = execution_id
+
         super().__init__(
             status_code=503,
-            detail={
-                "error": "idempotency_reservation_lost",
-                "message": message,
-            },
+            detail=detail,
             headers={
                 "Retry-After": str(redis_settings.PUBLISH_RETRY_AFTER_SECONDS),
             },

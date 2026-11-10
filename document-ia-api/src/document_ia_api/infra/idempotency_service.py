@@ -433,7 +433,7 @@ class IdempotencyReservation:
         promised to prevent.
         """
         if self._lost:
-            raise IdempotencyReservationLostException()
+            raise IdempotencyReservationLostException(execution_id=self._execution_id)
 
         owned = await self._service.is_reservation_owned(
             key=self._key,
@@ -441,4 +441,4 @@ class IdempotencyReservation:
         )
         if not owned:
             self._lost = True
-            raise IdempotencyReservationLostException()
+            raise IdempotencyReservationLostException(execution_id=self._execution_id)

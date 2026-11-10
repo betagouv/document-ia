@@ -478,6 +478,113 @@ class TestIdempotencyIntegration:
         publish.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_lost_reservation_closes_started_execution(
+        self,
+        async_client: httpx.AsyncClient,
+        standard_api_key_value: str,
+        isolated_database_manager,
+    ):
+        """The started event is committed before publication, so losing the
+        reservation afterwards must close the execution instead of leaving it
+        permanently `STARTED` with nothing to advance it."""
+        idempotency_key = f"key-lost-closed-{uuid4()}"
+        file_url = "https://example.com/lost_closed.pdf"
+        override = json.dumps({"llm_extract_data": [{"param": "document_type", "value": "cni"}]})
+        headers = {
+            "X-API-KEY": standard_api_key_value,
+            "Idempotency-Key": idempotency_key,
+        }
+
+        with patch(
+            "document_ia_api.infra.idempotency_service.IdempotencyService.is_reservation_owned",
+            new=AsyncMock(return_value=False),
+        ):
+            response = await async_client.post(
+                "/api/v2/workflows/document-extraction-v2/execute",
+                data={"file_url": file_url, "override": override},
+                headers=headers,
+            )
+
+        assert response.status_code == 503
+        execution_id = response.json()["errors"]["execution_id"]
+        assert execution_id
+
+        # The abandoned execution must be terminal, never a lingering STARTED.
+        from document_ia_infra.service.event_store_service import EventStoreService
+
+        async with isolated_database_manager.local_session() as session:
+            events = await EventStoreService(session).get_events_by_execution_id(
+                execution_id
+            )
+
+        from document_ia_infra.data.event.dto.event_type_enum import EventType
+
+        event_types = [event.event_type for event in events]
+        assert EventType.WORKFLOW_EXECUTION_STARTED in event_types
+        assert events[-1].event_type == EventType.WORKFLOW_EXECUTION_FAILED
+        assert events[-1].event.error_type == "idempotency_reservation_lost"
+
+    @pytest.mark.asyncio
+    async def test_replay_is_served_while_capacity_is_saturated(
+        self,
+        async_client: httpx.AsyncClient,
+        standard_api_key_value: str,
+    ):
+        """An accepted request must be replayable even when the queue is full.
+
+        Replay needs no queue capacity, so a saturated queue must not hide an
+        execution the client already scheduled.
+        """
+        from document_ia_infra.redis.admission import AdmissionUnavailableError
+
+        idempotency_key = f"key-capacity-replay-{uuid4()}"
+        file_url = "https://example.com/capacity_replay.pdf"
+        override = json.dumps({"llm_extract_data": [{"param": "document_type", "value": "cni"}]})
+        headers = {
+            "X-API-KEY": standard_api_key_value,
+            "Idempotency-Key": idempotency_key,
+        }
+
+        first = await async_client.post(
+            "/api/v2/workflows/document-extraction-v2/execute",
+            data={"file_url": file_url, "override": override},
+            headers=headers,
+        )
+        assert first.status_code == 200
+        accepted_id = first.json()["data"]["execution_id"]
+
+        with patch(
+            "document_ia_api.api.middleware.execution_admission.admit_execution",
+            new=AsyncMock(side_effect=AdmissionUnavailableError("full")),
+        ):
+            replay = await async_client.post(
+                "/api/v2/workflows/document-extraction-v2/execute",
+                data={"file_url": file_url, "override": override},
+                headers=headers,
+            )
+
+        assert replay.status_code == 200
+        assert replay.headers.get("Idempotent-Replay") == "true"
+        assert replay.json()["data"]["execution_id"] == accepted_id
+
+        # A new submission still meets the saturated queue.
+        with patch(
+            "document_ia_api.api.middleware.execution_admission.admit_execution",
+            new=AsyncMock(side_effect=AdmissionUnavailableError("full")),
+        ):
+            fresh = await async_client.post(
+                "/api/v2/workflows/document-extraction-v2/execute",
+                data={"file_url": file_url + "?new=1", "override": override},
+                headers={
+                    "X-API-KEY": standard_api_key_value,
+                    "Idempotency-Key": f"key-capacity-fresh-{uuid4()}",
+                },
+            )
+
+        assert fresh.status_code == 503
+        assert fresh.json()["errors"]["error"] == "execution_capacity_unavailable"
+
+    @pytest.mark.asyncio
     async def test_cross_organization_isolation(
         self,
         async_client: httpx.AsyncClient,

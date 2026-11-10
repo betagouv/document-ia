@@ -7,6 +7,7 @@ jamais observer un `STARTED` définitif sans traitement programmé.
 """
 
 import json
+from contextlib import ExitStack
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -34,8 +35,17 @@ def db_client(isolated_database_manager, mock_redis_service, monkeypatch):
     rl_mod.redis_service = mock_redis_service
     app = create_test_app()
     # This test exercises publication compensation on real PostgreSQL, not
-    # admission. Inject capacity just like the standard route-client fixtures.
+    # admission. Inject capacity just like the standard route-client fixtures,
+    # in both places the `execute` route can evaluate the preflight.
     app.dependency_overrides[check_execution_admission] = lambda: None
+    admission_patch = ExitStack()
+    for module in (
+        "document_ia_api.api.routes.v1.workflow",
+        "document_ia_api.api.routes.v2.workflow",
+    ):
+        admission_patch.enter_context(
+            patch(f"{module}.check_execution_admission", new=AsyncMock())
+        )
     redis_connection = AsyncMock(
         side_effect=AssertionError("Redis is outside this test boundary")
     )
@@ -47,6 +57,7 @@ def db_client(isolated_database_manager, mock_redis_service, monkeypatch):
         isolated_database_manager.async_get_db
     )
     yield TestClient(app)
+    admission_patch.close()
     redis_connection.assert_not_awaited()
     rl_mod.redis_service = original
 
