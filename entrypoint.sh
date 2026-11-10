@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+export PATH="/root/.nix-profile/bin:/usr/local/bin:/root/.local/bin:${PATH}"
+
 INSTANCE_ID=${AGENT_ID:-"agent-$(date +%s)"}
 export COMPOSE_PROJECT_NAME="stack_${INSTANCE_ID}"
 TARGET_BRANCH=${BRANCH:-"wip/ia-agent-env"}
@@ -95,7 +97,7 @@ POSTGRES_CONTAINER_ID=$(docker compose -f "$COMPOSE_FILE" ps -q postgres 2>/dev/
 AGENT_CONTAINER_ID=$(cat /etc/hostname)
 
 if [ -n "$MINIO_CONTAINER_ID" ]; then
-    COMPOSE_NETWORK=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' "$MINIO_CONTAINER_ID" 2>/dev/null | awk '{print $1}')
+    COMPOSE_NETWORK=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$MINIO_CONTAINER_ID" 2>/dev/null | head -n 1)
     if [ -n "$COMPOSE_NETWORK" ] && [ -n "$AGENT_CONTAINER_ID" ]; then
         echo "==> [${INSTANCE_ID}] Connexion de l'agent ($AGENT_CONTAINER_ID) au réseau : $COMPOSE_NETWORK..."
         docker network connect "$COMPOSE_NETWORK" "$AGENT_CONTAINER_ID" 2>/dev/null || true

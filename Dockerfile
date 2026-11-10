@@ -16,20 +16,32 @@ RUN nix profile install \
     nixpkgs#libGL \
     nixpkgs#glib.out \
     nixpkgs#zlib \
+    nixpkgs#gnused \
+    nixpkgs#gawk \
+    nixpkgs#coreutils \
+    nixpkgs#patchelf \
     nixpkgs#tesseract5
 
-# 2. Liens symboliques standard pour les scripts et outils
+# 2. Liens symboliques standard
 RUN mkdir -p /bin /usr/local/bin && \
     ln -sf $(which bash) /bin/bash && \
     ln -sf $(which python3.13) /usr/local/bin/python3 && \
     ln -sf $(which python3.13) /usr/local/bin/python
 
-# 3. Forcer uv à utiliser le Python Nix et configurer l'environnement d'exécution (C/C++ libs)
-ENV UV_PYTHON_PREFERENCE="only-system"
-ENV LD_LIBRARY_PATH="/root/.nix-profile/lib:/usr/local/lib"
-ENV PATH="/root/.nix-profile/bin:/usr/local/bin:/root/.local/bin:$PATH"
+# 3. Installation et patch natif de la CLI agy
+RUN curl -fsSL https://antigravity.google/cli/install.sh | bash && \
+    GLIBC_LD=$(find /nix/store -name "ld-linux-aarch64.so.1" 2>/dev/null | head -n 1) && \
+    GLIBC_DIR=$(dirname "$GLIBC_LD") && \
+    patchelf --set-interpreter "$GLIBC_LD" --set-rpath "$GLIBC_DIR" /root/.local/bin/agy && \
+    ln -sf /root/.local/bin/agy /usr/local/bin/agy && \
+    ln -sf /root/.local/bin/agy /usr/local/bin/antigravity
 
-# 4. Dossiers de travail et clés SSH
+# 4. Variables d'environnement
+ENV UV_PYTHON_PREFERENCE="only-system"
+ENV PATH="/root/.nix-profile/bin:/root/.local/bin:/usr/local/bin:$PATH"
+ENV LD_LIBRARY_PATH="/root/.nix-profile/lib:/usr/local/lib"
+
+# 5. Répertoires de travail et clés SSH
 RUN mkdir -p /root/.antigravity /workspace /root/.ssh
 WORKDIR /workspace
 

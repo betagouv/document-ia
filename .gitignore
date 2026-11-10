@@ -19,6 +19,8 @@ node_modules/
 
 .env.agent
 
+.uv-cache/
+
 # Distribution / packaging
 .Python
 build/
