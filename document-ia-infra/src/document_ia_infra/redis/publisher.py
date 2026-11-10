@@ -12,6 +12,7 @@ from typing import TypeVar, Generic, cast
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
 from redis.exceptions import ResponseError as RedisReplyError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 from redis.typing import EncodableT
 
 from document_ia_infra.redis.redis_manager import redis_manager, RedisManager
@@ -55,6 +56,10 @@ class PublicationOutcomeUnknownError(PublishFailedError):
     caller must not report a scheduling failure: doing so invites a retry that
     would publish the same work twice.
     """
+
+    def __init__(self, stream_name: str, reason: str) -> None:
+        super().__init__(stream_name, reason)
+        self.execution_id: str | None = None
 
 
 class Publisher(Generic[T]):
@@ -188,13 +193,18 @@ class Publisher(Generic[T]):
             # the caller mark an unpublished execution as accepted.
             logger.error("❌ Fenced publication rejected by Redis: %s", e)
             raise PublishFailedError(self.stream_name, type(e).__name__) from e
-        except (asyncio.TimeoutError, ConnectionError, RedisConnectionError) as e:
+        except (
+            asyncio.TimeoutError,
+            ConnectionError,
+            RedisConnectionError,
+            RedisTimeoutError,
+        ) as e:
             # No reply arrived. The script may have committed, so the outcome is
             # genuinely unknown and must not be reported as a failure.
             logger.error("❌ Publication outcome unknown: %s", e)
-            raise PublicationOutcomeUnknownError(
-                self.stream_name, type(e).__name__
-            ) from e
+            unknown = PublicationOutcomeUnknownError(self.stream_name, type(e).__name__)
+            unknown.execution_id = reservation_execution_id
+            raise unknown from e
         except Exception as e:
             logger.error("❌ Error publishing fenced message: %s", e)
             raise PublishFailedError(self.stream_name, type(e).__name__) from e
@@ -207,3 +217,39 @@ class Publisher(Generic[T]):
         if not isinstance(message_id, str):
             raise PublishFailedError(self.stream_name, "invalid_publication_response")
         return message_id
+
+    async def execution_is_queued(self, execution_id: str) -> bool:
+        """Report whether a message for `execution_id` is on this stream.
+
+        Resolves an unknown publication outcome: the fenced script's reply may be
+        lost after Redis committed, so presence on the stream is the evidence
+        that the work was actually scheduled.
+        """
+        try:
+            connection = await self.current_redis_manager.get_connection()
+        except Exception:
+            return False
+        if connection is None:
+            return False
+        try:
+            entries = await connection.xrange(  # type: ignore[UnknownMemberType]
+                self.stream_name, min="-", max="+", count=1000
+            )
+        except Exception as exc:
+            logger.warning(
+                "Unable to inspect stream %s to reconcile execution %s: %s",
+                self.stream_name,
+                execution_id,
+                exc,
+            )
+            return False
+        for _entry_id, fields in entries:
+            raw = fields.get("data")
+            if not raw:
+                continue
+            try:
+                if json.loads(raw).get("workflow_execution_id") == execution_id:
+                    return True
+            except (ValueError, AttributeError):
+                continue
+        return False

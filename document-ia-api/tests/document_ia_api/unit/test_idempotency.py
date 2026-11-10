@@ -806,3 +806,77 @@ class TestRejectionVersusUnknownOutcome:
                 reservation_execution_id="exec-A",
                 reservation_ttl_seconds=60,
             )
+
+
+class TestUnknownOutcomeIsReconciled:
+    """A lost reply must be resolved from the stream, not assumed either way.
+
+    Accepting blindly marks an execution that was never queued as accepted, so
+    every retry replays a `STARTED` with no work. Failing blindly invites a
+    duplicate. Presence on the stream settles it.
+    """
+
+    @pytest.mark.asyncio
+    async def test_queued_message_is_accepted(self):
+        from document_ia_infra.redis.publisher import PublicationOutcomeUnknownError
+
+        service = AsyncMock(spec=IdempotencyService)
+        publisher = AsyncMock()
+        publisher.publish_message_fenced.side_effect = PublicationOutcomeUnknownError(
+            "event_stream", "TimeoutError"
+        )
+        publisher.execution_is_queued.return_value = True
+        reservation = IdempotencyReservation(
+            service, key="k", execution_id="exec-A", lock_ttl_seconds=60
+        )
+
+        await reservation.publish(publisher, "message")
+
+        publisher.execution_is_queued.assert_awaited_once_with("exec-A")
+
+    @pytest.mark.asyncio
+    async def test_unqueued_message_still_fails(self):
+        from document_ia_infra.redis.publisher import PublicationOutcomeUnknownError
+
+        service = AsyncMock(spec=IdempotencyService)
+        publisher = AsyncMock()
+        publisher.publish_message_fenced.side_effect = PublicationOutcomeUnknownError(
+            "event_stream", "TimeoutError"
+        )
+        publisher.execution_is_queued.return_value = False
+        reservation = IdempotencyReservation(
+            service, key="k", execution_id="exec-A", lock_ttl_seconds=60
+        )
+
+        with pytest.raises(PublicationOutcomeUnknownError):
+            await reservation.publish(publisher, "message")
+
+
+class TestRedisClientTimeoutIsAmbiguous:
+    """redis-py's socket timeout means the reply was lost, not that Redis refused."""
+
+    @pytest.mark.asyncio
+    async def test_redis_timeout_error_is_unknown(self):
+        from redis.exceptions import TimeoutError as RedisTimeoutError
+
+        from document_ia_infra.redis.model.workflow_execution_message import (
+            WorkflowExecutionMessage,
+        )
+        from document_ia_infra.redis.publisher import (
+            PublicationOutcomeUnknownError,
+            Publisher,
+        )
+
+        connection = AsyncMock()
+        connection.eval.side_effect = RedisTimeoutError("Timeout reading from socket")
+        manager = AsyncMock()
+        manager.get_connection.return_value = connection
+        publisher = Publisher("event_stream", current_redis_manager=manager)
+
+        with pytest.raises(PublicationOutcomeUnknownError):
+            await publisher.publish_message_fenced(
+                WorkflowExecutionMessage(workflow_execution_id="exec-A"),
+                reservation_key="k",
+                reservation_execution_id="exec-A",
+                reservation_ttl_seconds=60,
+            )

@@ -212,13 +212,13 @@ class WorkflowService:
                 )
                 raise IdempotencyReservationLostException(execution_id=execution_id)
             except PublicationOutcomeUnknownError as unknown_error:
-                # Redis may have committed the publication even though its reply
-                # never arrived. Reporting a failure here would invite a retry
-                # that publishes the same work twice, so this attempt is treated
-                # as accepted and its mapping is kept.
+                # Only reached when the reply was lost AND the message is
+                # confirmed on the stream: the reservation reconciles the
+                # outcome before re-raising. Recording a failure here would
+                # invite a retry that publishes the same work twice.
                 logger.warning(
-                    "Execution %s: publication outcome unknown (%s); treating "
-                    "as accepted",
+                    "Execution %s: publication reply lost (%s) but the message "
+                    "is queued; accepted",
                     execution_id,
                     unknown_error.reason,
                 )

@@ -21,7 +21,10 @@ from document_ia_api.core.idempotency.models import (
     IdempotencyResult,
     IdempotencyStatus,
 )
-from document_ia_infra.redis.publisher import ReservationLostError
+from document_ia_infra.redis.publisher import (
+    PublicationOutcomeUnknownError,
+    ReservationLostError,
+)
 from document_ia_infra.redis.redis_manager import redis_manager
 from document_ia_infra.redis.redis_settings import redis_settings
 
@@ -490,4 +493,16 @@ class IdempotencyReservation:
             raise IdempotencyReservationLostException(
                 execution_id=self._execution_id
             ) from exc
+        except PublicationOutcomeUnknownError:
+            # The reply was lost: Redis may or may not have queued the work.
+            # Accepting blindly marks an unscheduled execution as accepted;
+            # failing blindly invites a duplicate. Ask the stream which it is.
+            if await publisher.execution_is_queued(self._execution_id):
+                logger.warning(
+                    "Execution %s: publication reply was lost but the message is "
+                    "on the stream; accepted",
+                    self._execution_id,
+                )
+                return ""
+            raise
         return message_id
