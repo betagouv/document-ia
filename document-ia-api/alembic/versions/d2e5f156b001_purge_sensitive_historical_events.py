@@ -1,4 +1,4 @@
-"""Purge sensitive historical events in event_store
+"""Add index on anonymization_status in event_store
 
 Revision ID: d2e5f156b001
 Revises: 659b01a59fc4
@@ -19,48 +19,17 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    """Purge sensitive fields from historical events and set anonymization_status to DONE."""
-    # WorkflowExecutionStarted : purge file_url, s3_file_info et metadata
-    op.execute(
-        """
-        UPDATE event_store
-        SET event = event - 'file_url' - 's3_file_info' || '{"s3_file_info": null, "file_url": null, "metadata": {}}'::jsonb,
-            anonymization_status = 'DONE'
-        WHERE event_type = 'WorkflowExecutionStarted' AND anonymization_status IN ('DONE', 'ERROR');
-        """
-    )
-
-    # WorkflowExecutionStepCompleted : purge step_result et output_data
-    op.execute(
-        """
-        UPDATE event_store
-        SET event = event - 'output_data' || '{"step_result": {}, "output_data": null}'::jsonb,
-            anonymization_status = 'DONE'
-        WHERE event_type = 'WorkflowExecutionStepCompleted' AND anonymization_status IN ('DONE', 'ERROR');
-        """
-    )
-
-    # WorkflowExecutionCompleted : purge output_summary et workflow_metadata
-    op.execute(
-        """
-        UPDATE event_store
-        SET event = event - 'workflow_metadata' || '{"final_result": {}, "output_summary": {}, "workflow_metadata": null}'::jsonb,
-            anonymization_status = 'DONE'
-        WHERE event_type = 'WorkflowExecutionCompleted' AND anonymization_status IN ('DONE', 'ERROR');
-        """
-    )
-
-    # WorkflowExecutionFailed : purge error_message
-    op.execute(
-        """
-        UPDATE event_store
-        SET event = jsonb_set(event, '{error_message}', '"[PURGED]"'::jsonb),
-            anonymization_status = 'DONE'
-        WHERE event_type = 'WorkflowExecutionFailed' AND anonymization_status IN ('DONE', 'ERROR');
-        """
+    """Create index on anonymization_status to optimize purge queries."""
+    op.create_index(
+        "idx_event_store_anonymization_status",
+        "event_store",
+        ["anonymization_status"],
     )
 
 
 def downgrade() -> None:
-    """Downgrade schema (data purge is irreversible)."""
-    pass
+    """Drop index on anonymization_status."""
+    op.drop_index(
+        "idx_event_store_anonymization_status",
+        table_name="event_store",
+    )

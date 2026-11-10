@@ -89,8 +89,6 @@ The `RemovePPI` job runs nightly as a background scheduled task. It includes the
 
 ## 3. Analytics Replication & Historical Reconciliation
 
-Replication to the analytics database is performed incrementally by `ReplicateAnalytics`:
-
 1. **Idempotent Upsert (`ON CONFLICT (id) DO UPDATE`)**:
    Rather than `ON CONFLICT DO NOTHING`, `bulk_insert_events` performs an upsert:
    ```sql
@@ -101,8 +99,10 @@ Replication to the analytics database is performed incrementally by `ReplicateAn
        anonymization_status = EXCLUDED.anonymization_status;
    ```
    This guarantees that historical replays or re-purged source records propagate updates to the destination analytics store without generating duplicates.
-2. **Schema & Migration Parity**:
-   The analytics database schema is maintained in strict lockstep with the primary operational database via `migration_service.auto_migrate_analytics()`.
+2. **Schema & Indexing Parity**:
+   The analytics database schema is maintained in strict lockstep with the primary operational database via `migration_service.auto_migrate_analytics()`. An index on `anonymization_status` (`idx_event_store_anonymization_status`) accelerates both the nightly `RemovePPI` job and historical backfill operations.
+3. **Historical Reconciliation Script (`reconcile_historical_purged_events`)**:
+   To remediate legacy events processed prior to updated minimization rules without causing startup timeouts or table bloat during deployment, a dedicated CLI backfill script is provided under `document-ia-worker/src/document_ia_task_scheduler/task/reconcile_historical_events/main.py`. It operates in batches of 1000 items with live progress monitoring and throttled commits.
 
 ---
 

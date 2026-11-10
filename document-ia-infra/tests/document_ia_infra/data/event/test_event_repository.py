@@ -646,3 +646,35 @@ class TestGetCreatedEventIfExecutionNotCompletedOrFailed:
         payload = {"data": "preserved"}
         res = EventRepository.anonymize_payload("UnknownEventType", payload)
         assert res == {"data": "preserved"}
+
+    async def test_count_events_by_statuses(self, event_repository, mock_session):
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = 42
+        mock_session.execute.return_value = mock_result
+
+        count = await event_repository.count_events_by_statuses(["DONE", "ERROR"])
+        assert count == 42
+        mock_session.execute.assert_called_once()
+
+    async def test_get_events_by_cursor(self, event_repository, mock_session):
+        entity = EventEntity(
+            id=uuid4(),
+            workflow_id="wf_1",
+            execution_id="exec_1",
+            organization_id=uuid4(),
+            created_at=datetime.now(timezone.utc),
+            event_type="WorkflowExecutionCompleted",
+            event={},
+            anonymization_status="DONE",
+        )
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [entity]
+        mock_session.execute.return_value = mock_result
+
+        events = await event_repository.get_events_by_cursor(
+            statuses=["DONE", "ERROR"],
+            limit=50,
+            after_id=uuid4(),
+        )
+        assert len(events) == 1
+        assert events[0].id == entity.id

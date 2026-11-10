@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any, Sequence
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -492,6 +492,31 @@ class EventRepository:
             query = query.where(EventEntity.created_at >= after)
         query = query.order_by(EventEntity.created_at.asc()).limit(limit)
 
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
+
+    async def count_events_by_statuses(self, statuses: Sequence[str]) -> int:
+        """Count total events matching the given anonymization statuses."""
+        query = select(func.count(EventEntity.id)).where(
+            EventEntity.anonymization_status.in_(statuses)
+        )
+        result = await self.session.execute(query)
+        val = result.scalar_one_or_none()
+        return val if val is not None else 0
+
+    async def get_events_by_cursor(
+        self,
+        statuses: Sequence[str],
+        limit: int = 1000,
+        after_id: Optional[UUID] = None,
+    ) -> List[EventEntity]:
+        """Fetch a page of events matching statuses ordered by id ascending."""
+        query = select(EventEntity).where(
+            EventEntity.anonymization_status.in_(statuses)
+        )
+        if after_id is not None:
+            query = query.where(EventEntity.id > after_id)
+        query = query.order_by(EventEntity.id.asc()).limit(limit)
         result = await self.session.execute(query)
         return list(result.scalars().all())
 
