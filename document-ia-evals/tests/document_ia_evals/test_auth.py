@@ -213,10 +213,16 @@ def test_patch_streamlit_oidc_prompt() -> None:
     """Test that patch_streamlit_oidc_prompt removes prompt parameter from client_kwargs."""
     patch_streamlit_oidc_prompt()
 
-    import streamlit.web.server.oauth_authlib_routes as routes
+    try:
+        import streamlit.web.server.starlette.starlette_auth_routes as s_routes
 
-    client, _ = routes.create_oauth_client("proconnect")
-    assert "prompt" not in client.client_kwargs
+        client, _ = s_routes._create_oauth_client("proconnect")  # pyright: ignore [reportPrivateUsage]
+        assert "prompt" not in client.client_kwargs
+    except (ImportError, AttributeError):
+        import streamlit.web.server.oauth_authlib_routes as routes  # pyright: ignore [reportMissingImports]
+
+        client, _ = routes.create_oauth_client("proconnect")
+        assert "prompt" not in client.client_kwargs
 
 
 def test_verify_user_access_initial_admins_auto_provisioning(in_memory_db) -> None:
@@ -241,10 +247,10 @@ def test_verify_user_access_initial_admins_auto_provisioning(in_memory_db) -> No
 
 def test_fetch_proconnect_userinfo_json() -> None:
     """Test fetching and parsing JSON userinfo claims."""
-    from unittest.mock import MagicMock
+    from unittest.mock import MagicMock, patch
 
     mock_client = MagicMock()
-    mock_client.load_server_metadata.return_value = {
+    mock_client.server_metadata = {
         "userinfo_endpoint": "https://fca.integ01.dev-agentconnect.fr/api/v2/userinfo"
     }
 
@@ -256,25 +262,25 @@ def test_fetch_proconnect_userinfo_json() -> None:
         "given_name": "Nicolas",
         "usual_name": "Sagon",
     }
-    mock_client.get.return_value = mock_resp
 
-    token = {"access_token": "valid_token"}
-    claims = fetch_proconnect_userinfo(mock_client, token)
+    with patch("requests.get", return_value=mock_resp):
+        token = {"access_token": "valid_token"}
+        claims = fetch_proconnect_userinfo(mock_client, token)
 
-    assert claims["email"] == "nicolas.sagon@ext.beta.gouv.fr"
-    assert claims["given_name"] == "Nicolas"
-    assert claims["usual_name"] == "Sagon"
-    assert claims["name"] == "Nicolas Sagon"
+        assert claims["email"] == "nicolas.sagon@ext.beta.gouv.fr"
+        assert claims["given_name"] == "Nicolas"
+        assert claims["usual_name"] == "Sagon"
+        assert claims["name"] == "Nicolas Sagon"
 
 
 def test_fetch_proconnect_userinfo_jwt() -> None:
     """Test fetching and decoding signed JWT userinfo claims."""
     import base64
     import json
-    from unittest.mock import MagicMock
+    from unittest.mock import MagicMock, patch
 
     mock_client = MagicMock()
-    mock_client.load_server_metadata.return_value = {
+    mock_client.server_metadata = {
         "userinfo_endpoint": "https://fca.integ01.dev-agentconnect.fr/api/v2/userinfo"
     }
 
@@ -294,47 +300,62 @@ def test_fetch_proconnect_userinfo_jwt() -> None:
     mock_resp.status_code = 200
     mock_resp.json.side_effect = Exception("Not valid JSON")
     mock_resp.text = jwt_string
-    mock_client.get.return_value = mock_resp
 
-    token = {"access_token": "valid_token"}
-    claims = fetch_proconnect_userinfo(mock_client, token)
+    with patch("requests.get", return_value=mock_resp):
+        token = {"access_token": "valid_token"}
+        claims = fetch_proconnect_userinfo(mock_client, token)
 
-    assert claims["email"] == "agent@education.gouv.fr"
-    assert claims["given_name"] == "Camille"
-    assert claims["name"] == "Camille Dupont"
+        assert claims["email"] == "agent@education.gouv.fr"
+        assert claims["given_name"] == "Camille"
+        assert claims["name"] == "Camille Dupont"
 
 
 def test_patched_authorize_access_token_enriches_userinfo() -> None:
-    """Test that TornadoOAuth2App.authorize_access_token enriches userinfo with userinfo_endpoint claims."""
-    from unittest.mock import MagicMock, patch
-    from streamlit.web.server.oidc_mixin import TornadoOAuth
+    """Test that authorize_access_token enriches userinfo with userinfo_endpoint claims and records login."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from authlib.integrations.starlette_client import StarletteOAuth2App
 
     patch_streamlit_oidc()
 
-    oauth = TornadoOAuth({
-        "proconnect": {
-            "client_id": "test",
-            "client_secret": "test",
-            "server_metadata_url": "https://fca.integ01.dev-agentconnect.fr/api/v2/.well-known/openid-configuration",
-        }
-    })
-    oauth.register("proconnect")
-    client = oauth.create_client("proconnect")
+    app = StarletteOAuth2App(
+        MagicMock(),
+        "proconnect",
+        client_id="test",
+        client_secret="test",
+        server_metadata_url="https://fca.integ01.dev-agentconnect.fr/api/v2/.well-known/openid-configuration",
+    )
 
-    fake_handler = MagicMock()
-    fake_handler.get_argument.side_effect = lambda arg, default=None: {
-        "code": "test_code",
-        "state": "test_state",
-    }.get(arg, default)
+    fake_request = MagicMock()
+    fake_request.scope = {"method": "GET"}
+    fake_request.query_params = {"code": "test_code", "state": "test_state"}
+    fake_request.client.host = "192.168.1.50"
+    fake_request.headers = {"user-agent": "pytest-browser"}
 
-    # Mock internal methods of TornadoOAuth2App
-    with patch.object(client.framework, "get_state_data", return_value={"nonce": "test_nonce"}), \
-         patch.object(client.framework, "clear_state_data"), \
-         patch.object(client, "fetch_access_token", return_value={"access_token": "tok123", "id_token": "id123"}), \
-         patch.object(client, "parse_id_token", return_value={"sub": "sub123"}), \
-         patch("document_ia_evals.utils.auth_secrets.fetch_proconnect_userinfo") as mock_fetch, \
-         patch("document_ia_evals.services.auth_service.record_login_event") as mock_login_event:
-
+    with (
+        patch.object(
+            app.framework,
+            "get_state_data",
+            new=AsyncMock(return_value={"nonce": "test_nonce"}),
+        ),
+        patch.object(app.framework, "clear_state_data", new=AsyncMock()),
+        patch.object(
+            app,
+            "fetch_access_token",
+            new=AsyncMock(
+                return_value={"access_token": "tok123", "id_token": "id123"}
+            ),
+        ),
+        patch.object(
+            app, "parse_id_token", new=AsyncMock(return_value={"sub": "sub123"})
+        ),
+        patch(
+            "document_ia_evals.utils.auth_secrets.fetch_proconnect_userinfo"
+        ) as mock_fetch,
+        patch(
+            "document_ia_evals.services.auth_service.record_login_event"
+        ) as mock_login_event,
+    ):
         mock_fetch.return_value = {
             "email": "nicolas.sagon@ext.beta.gouv.fr",
             "given_name": "Nicolas",
@@ -342,10 +363,13 @@ def test_patched_authorize_access_token_enriches_userinfo() -> None:
             "name": "Nicolas Sagon",
         }
 
-        token = client.authorize_access_token(fake_handler)
+        token = asyncio.run(app.authorize_access_token(fake_request))
         assert "userinfo" in token
         assert token["userinfo"]["email"] == "nicolas.sagon@ext.beta.gouv.fr"
         assert token["userinfo"]["name"] == "Nicolas Sagon"
         assert token["userinfo"]["sub"] == "sub123"
-        mock_login_event.assert_called_once()
-        assert mock_login_event.call_args[0][0] == "nicolas.sagon@ext.beta.gouv.fr"
+        mock_login_event.assert_called_once_with(
+            "nicolas.sagon@ext.beta.gouv.fr",
+            ip_address="192.168.1.50",
+            user_agent="pytest-browser",
+        )

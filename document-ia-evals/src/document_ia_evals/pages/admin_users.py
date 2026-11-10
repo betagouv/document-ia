@@ -20,6 +20,17 @@ st.set_page_config(
 )
 
 
+def _handle_role_change(email: str, widget_key: str) -> None:
+    """Callback when an administrator updates a user role via dropdown."""
+    new_role = st.session_state.get(widget_key)
+    if new_role:
+        try:
+            update_evals_user(email, role=str(new_role))
+            st.toast(f"Rôle de {email} mis à jour : {new_role}")
+        except Exception as e:
+            st.error(f"Erreur lors du changement de rôle : {e}")
+
+
 def render_users_and_rights_page() -> None:
     """Render management interface for Evals authorized users and roles."""
     st.title("👥 Accès Console & Droits")
@@ -63,22 +74,39 @@ def render_users_and_rights_page() -> None:
     else:
         st.markdown(f"**{len(users)} utilisateur(s) habilité(s)**")
         col_email, col_role, col_status, col_login, col_actions = st.columns(
-            [3, 2, 1.5, 2.5, 2]
+            [3, 2.2, 1.2, 2, 1.6], vertical_alignment="center"
         )
         col_email.markdown("**Email**")
         col_role.markdown("**Rôle**")
         col_status.markdown("**Statut**")
         col_login.markdown("**Dernière Connexion**")
-        col_actions.markdown("**Actions**")
+        col_actions.markdown("**Accès**")
         st.markdown("---")
 
+        role_options = [UserRole.ADMIN.value, UserRole.USER.value]
+
         for u in users:
-            c_email, c_role, c_status, c_login, c_act = st.columns([3, 2, 1.5, 2.5, 2])
+            c_email, c_role, c_status, c_login, c_act = st.columns(
+                [3, 2.2, 1.2, 2, 1.6], vertical_alignment="center"
+            )
             with c_email:
                 st.code(u.email, language="text")
             with c_role:
-                badge = "👑 Admin" if u.role == "admin" else "👤 User"
-                st.markdown(badge)
+                current_role_idx = (
+                    role_options.index(u.role) if u.role in role_options else 1
+                )
+                st.selectbox(
+                    "Rôle",
+                    options=role_options,
+                    index=current_role_idx,
+                    key=f"role_select_{u.id}",
+                    label_visibility="collapsed",
+                    format_func=lambda r: (
+                        "👑 Administrateur" if r == "admin" else "👤 Utilisateur"
+                    ),
+                    on_change=_handle_role_change,
+                    args=(u.email, f"role_select_{u.id}"),
+                )
             with c_status:
                 if u.is_active:
                     st.success("Actif")
@@ -91,29 +119,21 @@ def render_users_and_rights_page() -> None:
                     else "Jamais"
                 )
             with c_act:
-                btn_cols = st.columns(2)
-                with btn_cols[0]:
-                    toggle_label = "⛔" if u.is_active else "✅"
-                    toggle_help = (
-                        "Désactiver l'accès" if u.is_active else "Activer l'accès"
-                    )
-                    if st.button(
-                        toggle_label,
-                        key=f"toggle_active_{u.id}",
-                        help=toggle_help,
-                    ):
-                        update_evals_user(u.email, is_active=not u.is_active)
-                        st.rerun()
-                with btn_cols[1]:
-                    new_role = "user" if u.role == "admin" else "admin"
-                    role_help = (
-                        "Rétrograder en Utilisateur"
-                        if u.role == "admin"
-                        else "Promouvoir Administrateur"
-                    )
-                    if st.button("🔄", key=f"toggle_role_{u.id}", help=role_help):
-                        update_evals_user(u.email, role=new_role)
-                        st.rerun()
+                toggle_label = "⛔ Désactiver" if u.is_active else "✅ Activer"
+                toggle_help = (
+                    "Désactiver l'accès de cet agent"
+                    if u.is_active
+                    else "Réactiver l'accès de cet agent"
+                )
+                if st.button(
+                    toggle_label,
+                    key=f"toggle_active_{u.id}",
+                    help=toggle_help,
+                    type="secondary" if u.is_active else "primary",
+                    use_container_width=True,
+                ):
+                    update_evals_user(u.email, is_active=not u.is_active)
+                    st.rerun()
             st.divider()
 
     # Section Logs d'accès récents

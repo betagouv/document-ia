@@ -35,12 +35,54 @@ def fetch_proconnect_userinfo(client: Any, token: dict[str, Any]) -> dict[str, A
         return {}
 
     try:
-        metadata = client.load_server_metadata()
-        userinfo_endpoint = metadata.get("userinfo_endpoint")
-        if not userinfo_endpoint:
-            return {}
+        import requests
 
-        resp = client.get(userinfo_endpoint, token=token)
+        userinfo_endpoint: str | None = None
+
+        # 1. From client.server_metadata dict if present
+        if hasattr(client, "server_metadata") and isinstance(
+            client.server_metadata, dict
+        ):
+            userinfo_endpoint = client.server_metadata.get("userinfo_endpoint")
+
+        # 2. Check if client has load_server_metadata that can be called synchronously
+        if not userinfo_endpoint and hasattr(client, "load_server_metadata"):
+            try:
+                import inspect
+
+                if not inspect.iscoroutinefunction(client.load_server_metadata):
+                    meta = client.load_server_metadata()
+                    if isinstance(meta, dict):
+                        userinfo_endpoint = meta.get("userinfo_endpoint")
+            except Exception:
+                pass
+
+        # 3. Fallback to querying metadata URL via requests
+        if not userinfo_endpoint:
+            metadata_url = (
+                getattr(client, "_server_metadata_url", None)
+                or config.PROCONNECT_METADATA_URL
+                or os.getenv("PROCONNECT_METADATA_URL")
+            )
+            if metadata_url:
+                try:
+                    m_resp = requests.get(str(metadata_url), timeout=5)
+                    if m_resp.status_code == 200:
+                        userinfo_endpoint = m_resp.json().get("userinfo_endpoint")
+                except Exception:
+                    pass
+
+        # 4. Ultimate fallback to standard ProConnect integ/prod userinfo endpoint
+        if not userinfo_endpoint:
+            userinfo_endpoint = (
+                "https://fca.integ01.dev-agentconnect.fr/api/v2/userinfo"
+            )
+
+        headers = {
+            "Authorization": f"Bearer {token['access_token']}",
+            "Accept": "application/json, application/jwt",
+        }
+        resp = requests.get(userinfo_endpoint, headers=headers, timeout=10)
         if getattr(resp, "status_code", None) != 200:
             logger.warning(
                 "ProConnect userinfo endpoint returned HTTP %s: %s",
@@ -50,13 +92,13 @@ def fetch_proconnect_userinfo(client: Any, token: dict[str, Any]) -> dict[str, A
             return {}
 
         data: dict[str, Any] | None = None
-        # 1. Attempt standard JSON parsing
+        # Attempt standard JSON parsing
         try:
             data = resp.json()
         except Exception:
             pass
 
-        # 2. If not a dict, check for signed JWT payload (e.g. eyJhbGciOi...)
+        # If not a dict, check for signed JWT payload (e.g. eyJhbGciOi...)
         if not isinstance(data, dict):
             text = str(getattr(resp, "text", "")).strip().strip('"')
             if text.count(".") == 2:
@@ -89,7 +131,7 @@ def patch_streamlit_oidc() -> None:
     """
     # 1. Patch Tornado create_oauth_client to drop prompt
     try:
-        import streamlit.web.server.oauth_authlib_routes as routes
+        import streamlit.web.server.oauth_authlib_routes as routes  # pyright: ignore [reportMissingImports]
 
         if not getattr(routes, "_proconnect_prompt_patched", False):
             original_create_oauth_client = routes.create_oauth_client
@@ -107,7 +149,9 @@ def patch_streamlit_oidc() -> None:
 
     # 2. Patch TornadoOAuth2App.authorize_access_token to fetch userinfo
     try:
-        from streamlit.web.server.oidc_mixin import TornadoOAuth2App
+        from streamlit.web.server.oidc_mixin import (  # pyright: ignore [reportMissingImports]
+            TornadoOAuth2App,
+        )
 
         if not getattr(TornadoOAuth2App, "_proconnect_patched", False):
             original_tornado_authorize = TornadoOAuth2App.authorize_access_token
