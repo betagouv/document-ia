@@ -150,6 +150,17 @@ class _DeadlineBoundedStream(httpcore.AsyncNetworkStream):
     async def aclose(self) -> None:
         await self._stream.aclose()
 
+    def get_extra_info(self, info: str) -> Any:
+        """Delegate stream metadata to the wrapped stream.
+
+        HTTP Core's connection pool asks the stream whether an idle socket is
+        readable (`get_extra_info("is_readable")`) to detect a server-initiated
+        disconnect. The base implementation returns None, so without this the
+        pool would reuse a dead keep-alive connection and the next request would
+        fail with `RemoteProtocolError`.
+        """
+        return self._stream.get_extra_info(info)
+
 
 class SafeAsyncNetworkBackend(httpcore.AsyncNetworkBackend):
     """Network backend wrapping the default backend with socket pinning and SSRF checks."""

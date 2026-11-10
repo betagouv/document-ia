@@ -768,3 +768,73 @@ async def test_pooled_request_does_not_depend_on_dns():
 
     # The transport no longer resolves before delegating to the pool.
     assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_wrapped_stream_forwards_metadata():
+    """The deadline wrapper must not hide stream metadata from the pool.
+
+    HTTP Core asks an idle socket whether it is readable to detect a
+    server-initiated disconnect. The base `AsyncNetworkStream` returns None, so
+    a wrapper that does not delegate makes the pool reuse dead keep-alive
+    connections and the next request fails with RemoteProtocolError.
+    """
+    from document_ia_infra.core.network.safe_transport import _DeadlineBoundedStream
+
+    class Inner:
+        def get_extra_info(self, info):
+            return {"is_readable": True, "socket": "inner"}[info]
+
+        async def read(self, max_bytes, timeout=None):
+            return b""
+
+        async def write(self, buffer, timeout=None):
+            return None
+
+        async def aclose(self):
+            return None
+
+        async def start_tls(self, ssl_context, server_hostname=None, timeout=None):
+            return self
+
+    stream = _DeadlineBoundedStream(Inner(), lambda: 1.0)
+
+    assert stream.get_extra_info("is_readable") is True
+    assert stream.get_extra_info("socket") == "inner"
+
+
+@pytest.mark.asyncio
+async def test_idle_connection_is_discarded_and_retried():
+    """A server that closes after each response must not break the next request."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def do_GET(self):
+            body = b"ok"
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            self.close_connection = True
+
+        def log_message(self, *args):
+            return None
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        transport = SafeAsyncHTTPTransport(allow_http=True, allow_local=True)
+        async with httpx.AsyncClient(transport=transport, timeout=5.0) as client:
+            first = await client.get(f"http://127.0.0.1:{port}/a")
+            await asyncio.sleep(0.2)
+            second = await client.get(f"http://127.0.0.1:{port}/b")
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+    finally:
+        server.shutdown()
