@@ -744,3 +744,65 @@ class TestPublicationTimeout:
         elapsed = loop.time() - started
 
         assert elapsed < 5, f"fenced publication was not bounded: {elapsed:.2f}s"
+
+
+class TestRejectionVersusUnknownOutcome:
+    """A Redis error reply is a confirmed rejection, not an ambiguous outcome.
+
+    Treating a rejection as unknown makes the caller mark a never-published
+    execution as accepted, so the client gets success for work that was not
+    queued and every retry replays it for the whole retention period.
+    """
+
+    @staticmethod
+    async def _attempt(error):
+        from document_ia_infra.redis.model.workflow_execution_message import (
+            WorkflowExecutionMessage,
+        )
+        from document_ia_infra.redis.publisher import Publisher
+
+        connection = AsyncMock()
+        connection.eval.side_effect = error
+        manager = AsyncMock()
+        manager.get_connection.return_value = connection
+        publisher = Publisher("event_stream", current_redis_manager=manager)
+        return publisher, WorkflowExecutionMessage(workflow_execution_id="exec-A")
+
+    @pytest.mark.asyncio
+    async def test_redis_error_reply_is_a_rejection(self):
+        from redis.exceptions import ResponseError
+
+        from document_ia_infra.redis.publisher import (
+            PublicationOutcomeUnknownError,
+            PublishFailedError,
+        )
+
+        publisher, message = await self._attempt(ResponseError("OOM command not allowed"))
+        with pytest.raises(PublishFailedError) as exc_info:
+            await publisher.publish_message_fenced(
+                message,
+                reservation_key="k",
+                reservation_execution_id="exec-A",
+                reservation_ttl_seconds=60,
+            )
+
+        assert not isinstance(exc_info.value, PublicationOutcomeUnknownError)
+
+    @pytest.mark.asyncio
+    async def test_transport_failure_is_unknown(self):
+        from redis.exceptions import ConnectionError as RedisConnectionError
+
+        from document_ia_infra.redis.publisher import (
+            PublicationOutcomeUnknownError,
+        )
+
+        publisher, message = await self._attempt(
+            RedisConnectionError("connection reset by peer")
+        )
+        with pytest.raises(PublicationOutcomeUnknownError):
+            await publisher.publish_message_fenced(
+                message,
+                reservation_key="k",
+                reservation_execution_id="exec-A",
+                reservation_ttl_seconds=60,
+            )

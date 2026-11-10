@@ -9,7 +9,9 @@ from collections.abc import Awaitable
 from datetime import datetime
 from typing import TypeVar, Generic, cast
 
+from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
+from redis.exceptions import ResponseError as RedisReplyError
 from redis.typing import EncodableT
 
 from document_ia_infra.redis.redis_manager import redis_manager, RedisManager
@@ -179,10 +181,16 @@ class Publisher(Generic[T]):
                 ),
                 timeout=redis_settings.PUBLISH_TIMEOUT_SECONDS,
             )
-        except (asyncio.TimeoutError, ConnectionError, RedisError) as e:
-            # The write may have landed. Redis error replies (a Lua failure or a
-            # malformed request) mean it did not, so only ambiguous transport
-            # failures are reported as unknown.
+        except RedisReplyError as e:
+            # Redis answered and rejected the command (OOM, READONLY after a
+            # failover, a Lua error). The write definitively did not happen, so
+            # this is a confirmed rejection: reporting it as unknown would let
+            # the caller mark an unpublished execution as accepted.
+            logger.error("❌ Fenced publication rejected by Redis: %s", e)
+            raise PublishFailedError(self.stream_name, type(e).__name__) from e
+        except (asyncio.TimeoutError, ConnectionError, RedisConnectionError) as e:
+            # No reply arrived. The script may have committed, so the outcome is
+            # genuinely unknown and must not be reported as a failure.
             logger.error("❌ Publication outcome unknown: %s", e)
             raise PublicationOutcomeUnknownError(
                 self.stream_name, type(e).__name__
