@@ -43,7 +43,11 @@ from document_ia_infra.data.workflow.repository.workflow import workflow_reposit
 from document_ia_infra.redis.model.workflow_execution_message import (
     WorkflowExecutionMessage,
 )
-from document_ia_infra.redis.publisher import PublishFailedError, Publisher
+from document_ia_infra.redis.publisher import (
+    PublishFailedError,
+    Publisher,
+    ReservationLostError,
+)
 from document_ia_infra.redis.redis_settings import redis_settings
 from document_ia_infra.service.event_store_service import EventStoreService
 from document_ia_infra.exception.entity_not_found_exception import (
@@ -74,7 +78,7 @@ class WorkflowService:
         ],
         request_extraction_parameter: Optional[WorkflowExtractionParameterRequest],
         execution_id: Optional[str] = None,
-        before_publish: Callable[[], Awaitable[None]] | None = None,
+        before_publish: Callable[[Any, Any], Awaitable[str]] | None = None,
     ) -> WorkflowExecutionData:
         """
         Execute a workflow with file upload and metadata processing.
@@ -171,32 +175,35 @@ class WorkflowService:
                 logger.error(f"Failed to emit workflow started event: {e}")
                 # Don't fail the workflow execution if event emission fails
 
-            # Last-moment ownership check: a reservation that was lost or
-            # re-acquired must not publish a second execution. The started event
-            # is already committed by this point, so the execution is closed
-            # explicitly rather than left as a `STARTED` that never progresses.
-            if before_publish is not None:
-                try:
-                    await before_publish()
-                except IdempotencyReservationLostException as lost_error:
-                    await fail_abandoned_execution(
-                        self.db_session,
-                        execution_id=execution_id,
-                        workflow_id=workflow_id,
-                        organization_id=organization_id,
-                        error_type=EXECUTION_RESERVATION_LOST_ERROR,
-                        error_message=(
-                            "The idempotency reservation was lost before this "
-                            "execution was scheduled; nothing is pending. Retry "
-                            "the request."
-                        ),
-                    )
-                    raise lost_error
-
+            # Publication is fenced by reservation ownership in one Redis
+            # operation: a stale request must not publish a second execution.
+            # The started event is already committed by this point, so a lost
+            # reservation closes the execution explicitly.
             try:
-                await self.redis_producer.publish_message(
-                    WorkflowExecutionMessage(workflow_execution_id=execution_id)
+                execution_message = WorkflowExecutionMessage(
+                    workflow_execution_id=execution_id
                 )
+                if before_publish is not None:
+                    await before_publish(self.redis_producer, execution_message)
+                else:
+                    await self.redis_producer.publish_message(execution_message)
+            except (
+                ReservationLostError,
+                IdempotencyReservationLostException,
+            ):
+                await fail_abandoned_execution(
+                    self.db_session,
+                    execution_id=execution_id,
+                    workflow_id=workflow_id,
+                    organization_id=organization_id,
+                    error_type=EXECUTION_RESERVATION_LOST_ERROR,
+                    error_message=(
+                        "The idempotency reservation was lost before this "
+                        "execution was scheduled; nothing is pending. Retry the "
+                        "request."
+                    ),
+                )
+                raise IdempotencyReservationLostException(execution_id=execution_id)
             except PublishFailedError as publish_error:
                 # Aucun message ne programme le traitement : ne pas annoncer une
                 # exécution acceptée en `processing` (issue #120).

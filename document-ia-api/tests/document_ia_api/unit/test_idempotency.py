@@ -29,6 +29,25 @@ from document_ia_api.infra.idempotency_service import (
 )
 
 
+@pytest.fixture
+async def real_redis():
+    """A real Redis connection: these assertions are about stored state."""
+    from redis.asyncio import Redis
+
+    from document_ia_infra.redis.redis_settings import redis_settings
+
+    client = Redis(
+        host=redis_settings.REDIS_HOST,
+        port=redis_settings.REDIS_PORT,
+        db=redis_settings.REDIS_DB,
+        decode_responses=True,
+    )
+    try:
+        yield client
+    finally:
+        await client.aclose()
+
+
 class TestIdempotencyKeyValidator:
     def test_key_none_is_valid(self):
         # Optional header: None passes without error
@@ -401,128 +420,95 @@ class TestIdempotencyServiceUnit:
         service = IdempotencyService(redis_client=mock_redis)
         assert await service.renew(key="test-key", execution_id="exec-123") is False
 
-    @pytest.mark.asyncio
-    async def test_is_reservation_owned(self):
-        mock_redis = AsyncMock()
-        service = IdempotencyService(redis_client=mock_redis)
 
-        mock_redis.eval.return_value = 1
-        assert (
-            await service.is_reservation_owned(key="k", execution_id="e") is True
-        )
-
-        mock_redis.eval.return_value = 0
-        assert (
-            await service.is_reservation_owned(key="k", execution_id="e") is False
-        )
-
-    @pytest.mark.asyncio
-    async def test_is_reservation_owned_treats_redis_failure_as_not_owned(self):
-        mock_redis = AsyncMock()
-        mock_redis.eval.side_effect = RuntimeError("redis down")
-
-        service = IdempotencyService(redis_client=mock_redis)
-        assert (
-            await service.is_reservation_owned(key="k", execution_id="e") is False
-        )
 
 
 class TestIdempotencyReservation:
     @pytest.mark.asyncio
-    async def test_renewal_keeps_lease_alive_past_lock_ttl(self):
+    async def test_renewal_keeps_the_lease_alive_during_admission(self):
         """A slow admission must keep renewing instead of letting the key lapse."""
         service = AsyncMock(spec=IdempotencyService)
         service.renew.return_value = True
-        service.is_reservation_owned.return_value = True
 
         reservation = IdempotencyReservation(
             service,
             key="k",
             execution_id="e",
-            lock_ttl_seconds=60,
+            lock_ttl_seconds=0.03,
             renewal_interval_seconds=0.01,
         )
 
         async with reservation:
             await asyncio.sleep(0.05)
-            await reservation.ensure_owned()
 
         assert reservation.is_lost is False
         assert service.renew.await_count >= 2
 
     @pytest.mark.asyncio
-    async def test_renewal_failure_marks_reservation_lost(self):
+    async def test_renewal_failure_marks_the_reservation_lost(self):
+        """Losing renewal must mark the reservation lost, so publish refuses."""
         service = AsyncMock(spec=IdempotencyService)
         service.renew.return_value = False
 
-        reservation = IdempotencyReservation(
+        async with IdempotencyReservation(
             service,
             key="k",
             execution_id="e",
             renewal_interval_seconds=0.01,
-        )
-
-        async with reservation:
+        ) as reservation:
             await asyncio.sleep(0.05)
+            publisher = AsyncMock()
             with pytest.raises(IdempotencyReservationLostException):
-                await reservation.ensure_owned()
+                await reservation.publish(publisher, "m")
 
         assert reservation.is_lost is True
-
-    @pytest.mark.asyncio
-    async def test_ensure_owned_blocks_publication_after_reacquisition(self):
-        """A key re-acquired by another request must stop this publication."""
-        service = AsyncMock(spec=IdempotencyService)
-        service.renew.return_value = True
-        service.is_reservation_owned.return_value = False
-
-        reservation = IdempotencyReservation(
-            service,
-            key="k",
-            execution_id="e",
-            renewal_interval_seconds=60,
-        )
-
-        async with reservation:
-            with pytest.raises(IdempotencyReservationLostException) as exc_info:
-                await reservation.ensure_owned()
-
-        assert exc_info.value.status_code == 503
-        assert exc_info.value.detail["error"] == "idempotency_reservation_lost"
+        publisher.publish_message_fenced.assert_not_awaited()
 
 
 class TestPostAcceptanceTracking:
+    """Completion is one atomic write: complete, or recreate the mapping.
+
+    The previous design completed first and fell back to extending the TTL. That
+    left two holes, both now covered here: if both writes failed the key lapsed
+    and a retry scheduled the execution twice, and if only completion failed the
+    entry stayed IN_PROGRESS for the whole retention, answering every retry with
+    409 instead of replaying it.
+    """
+
     @pytest.mark.asyncio
-    async def test_completed_key_needs_no_fallback(self):
+    async def test_accepted_execution_is_recorded(self):
         service = AsyncMock(spec=IdempotencyService)
-        service.mark_completed.return_value = True
+        service.complete_or_retain.return_value = True
 
-        await mark_completed_or_retain(service, key="k", execution_id="e")
+        await mark_completed_or_retain(
+            service, key="k", execution_id="e", fingerprint="fp", created_at="t"
+        )
 
-        service.mark_completed.assert_awaited_once()
-        service.renew.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_tracking_failure_retains_accepted_execution(self):
-        """A failed completion must extend retention, not surface an error."""
-        service = AsyncMock(spec=IdempotencyService)
-        service.mark_completed.return_value = False
-        service.renew.return_value = True
-
-        await mark_completed_or_retain(service, key="k", execution_id="e")
-
-        service.renew.assert_awaited_once()
-        assert service.renew.await_args.kwargs["lock_ttl_seconds"] > 3600
+        service.complete_or_retain.assert_awaited_once()
+        kwargs = service.complete_or_retain.await_args.kwargs
+        assert kwargs["fingerprint"] == "fp"
+        assert kwargs["created_at"] == "t"
 
     @pytest.mark.asyncio
     async def test_unreachable_redis_does_not_raise(self):
         """Tracking must never turn an accepted execution into an error."""
         service = AsyncMock(spec=IdempotencyService)
-        service.mark_completed.side_effect = RuntimeError("redis down")
-        service.renew.side_effect = RuntimeError("redis down")
+        service.complete_or_retain.side_effect = RuntimeError("redis down")
 
-        # The route relies on this never raising after an execution is accepted.
-        await mark_completed_or_retain(service, key="k", execution_id="e")
+        await mark_completed_or_retain(
+            service, key="k", execution_id="e", fingerprint="fp", created_at="t"
+        )
+
+    @pytest.mark.asyncio
+    async def test_key_taken_by_another_request_is_logged_not_raised(self):
+        service = AsyncMock(spec=IdempotencyService)
+        service.complete_or_retain.return_value = False
+
+        await mark_completed_or_retain(
+            service, key="k", execution_id="e", fingerprint="fp", created_at="t"
+        )
+
+        service.complete_or_retain.assert_awaited_once()
 
 
 class TestMarkCompletedConnectionFailures:
@@ -537,3 +523,136 @@ class TestMarkCompletedConnectionFailures:
             new=AsyncMock(side_effect=RuntimeError("redis unreachable")),
         ):
             assert await service.mark_completed(key="k", execution_id="e") is False
+
+
+class TestAtomicCompletion:
+    """Completion must be one write, never "complete then maybe extend".
+
+    Both holes found in review are pinned here against real Redis.
+    """
+
+    @pytest.mark.asyncio
+    async def test_lapsed_reservation_is_recreated_as_completed(self, real_redis):
+        service = IdempotencyService(redis_client=real_redis)
+        key = f"idem-atomic-{uuid4()}"
+        recorded = await service.complete_or_retain(
+            key=key,
+            execution_id="exec-A",
+            fingerprint="fp",
+            created_at="2026-11-10T00:00:00Z",
+        )
+        assert recorded is True
+
+        stored = IdempotencyEntry.model_validate_json(await real_redis.get(key))
+        assert stored.status == IdempotencyStatus.COMPLETED
+        assert stored.execution_id == "exec-A"
+        # Retained for the completion TTL, not the short lock TTL.
+        assert await real_redis.ttl(key) > 3600
+
+        # A retry replays the accepted execution instead of scheduling it again.
+        result = await service.acquire_or_check(
+            key=key, fingerprint="fp", execution_id="exec-B"
+        )
+        assert result.is_replay is True
+        assert result.execution_id == "exec-A"
+        await real_redis.delete(key)
+
+    @pytest.mark.asyncio
+    async def test_in_progress_entry_is_completed_not_left_blocking(self, real_redis):
+        service = IdempotencyService(redis_client=real_redis)
+        key = f"idem-inprog-{uuid4()}"
+        await service.acquire_or_check(
+            key=key, fingerprint="fp", execution_id="exec-A", lock_ttl_seconds=60
+        )
+
+        recorded = await service.complete_or_retain(
+            key=key,
+            execution_id="exec-A",
+            fingerprint="fp",
+            created_at="2026-11-10T00:00:00Z",
+        )
+        assert recorded is True
+
+        stored = IdempotencyEntry.model_validate_json(await real_redis.get(key))
+        assert stored.status == IdempotencyStatus.COMPLETED
+
+        result = await service.acquire_or_check(
+            key=key, fingerprint="fp", execution_id="exec-B"
+        )
+        assert result.is_replay is True
+        await real_redis.delete(key)
+
+    @pytest.mark.asyncio
+    async def test_does_not_clobber_a_key_owned_by_another_request(self, real_redis):
+        service = IdempotencyService(redis_client=real_redis)
+        key = f"idem-owned-{uuid4()}"
+        await service.acquire_or_check(
+            key=key, fingerprint="fp", execution_id="exec-B", lock_ttl_seconds=60
+        )
+
+        recorded = await service.complete_or_retain(
+            key=key,
+            execution_id="exec-A",
+            fingerprint="fp",
+            created_at="2026-11-10T00:00:00Z",
+        )
+
+        assert recorded is False
+        stored = IdempotencyEntry.model_validate_json(await real_redis.get(key))
+        assert stored.execution_id == "exec-B"
+        await real_redis.delete(key)
+
+
+class TestFencedPublicationContract:
+    @pytest.mark.asyncio
+    async def test_reservation_publishes_through_the_fence(self):
+        """Production must never publish outside the ownership fence."""
+        service = AsyncMock(spec=IdempotencyService)
+        publisher = AsyncMock()
+        publisher.publish_message_fenced.return_value = "1-0"
+        reservation = IdempotencyReservation(
+            service, key="k", execution_id="exec-A", lock_ttl_seconds=60
+        )
+
+        await reservation.publish(publisher, "message")
+
+        publisher.publish_message_fenced.assert_awaited_once()
+        # A separate, unfenced publication would reopen the race.
+        publisher.publish_message.assert_not_awaited()
+        kwargs = publisher.publish_message_fenced.await_args.kwargs
+        assert kwargs["reservation_key"] == "k"
+        assert kwargs["reservation_execution_id"] == "exec-A"
+
+    @pytest.mark.asyncio
+    async def test_lost_fence_raises_and_marks_lost(self):
+        from document_ia_infra.redis.publisher import ReservationLostError
+
+        service = AsyncMock(spec=IdempotencyService)
+        publisher = AsyncMock()
+        publisher.publish_message_fenced.side_effect = ReservationLostError()
+        reservation = IdempotencyReservation(
+            service, key="k", execution_id="exec-A", lock_ttl_seconds=60
+        )
+
+        with pytest.raises(IdempotencyReservationLostException) as exc_info:
+            await reservation.publish(publisher, "message")
+
+        assert exc_info.value.status_code == 503
+        assert reservation.is_lost is True
+
+    @pytest.mark.asyncio
+    async def test_publish_after_loss_never_reaches_redis(self):
+        from document_ia_infra.redis.publisher import ReservationLostError
+
+        service = AsyncMock(spec=IdempotencyService)
+        publisher = AsyncMock()
+        publisher.publish_message_fenced.side_effect = ReservationLostError()
+        reservation = IdempotencyReservation(
+            service, key="k", execution_id="exec-A", lock_ttl_seconds=60
+        )
+        with pytest.raises(IdempotencyReservationLostException):
+            await reservation.publish(publisher, "m")
+
+        with pytest.raises(IdempotencyReservationLostException):
+            await reservation.publish(publisher, "m")
+        assert publisher.publish_message_fenced.await_count == 1

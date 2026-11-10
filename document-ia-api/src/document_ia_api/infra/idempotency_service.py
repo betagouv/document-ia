@@ -21,6 +21,7 @@ from document_ia_api.core.idempotency.models import (
     IdempotencyResult,
     IdempotencyStatus,
 )
+from document_ia_infra.redis.publisher import ReservationLostError
 from document_ia_infra.redis.redis_manager import redis_manager
 from document_ia_infra.redis.redis_settings import redis_settings
 
@@ -49,6 +50,32 @@ end
 return 0
 """
 
+# Completion tracking must not fail open, and must never leave an accepted
+# execution recorded as IN_PROGRESS (that would return 409 forever instead of
+# replaying). One atomic operation: complete our entry, recreate it as COMPLETED
+# if it lapsed, and never clobber a key another request now owns.
+# Returns 1 when an accepted mapping was written, 0 when the key belongs to
+# another request and nothing could be recorded.
+COMPLETE_OR_RETAIN_LUA = """
+local existing = redis.call('GET', KEYS[1])
+if existing then
+    local ok, data = pcall(cjson.decode, existing)
+    if not ok then return 0 end
+    if data['execution_id'] ~= ARGV[1] then
+        -- Another request owns the key now; publishing here would have been a
+        -- duplicate, so there is nothing safe to record.
+        return 0
+    end
+    data['status'] = 'COMPLETED'
+    redis.call('SET', KEYS[1], cjson.encode(data), 'EX', tonumber(ARGV[2]))
+    return 1
+end
+-- The reservation lapsed after acceptance: recreate the mapping so the
+-- accepted execution stays replayable instead of being scheduled twice.
+redis.call('SET', KEYS[1], ARGV[3], 'EX', tonumber(ARGV[2]))
+return 1
+"""
+
 # Renew only while the entry is still ours and still in progress: a completed
 # entry must keep its retention TTL, and a re-acquired key belongs to someone
 # else.
@@ -63,16 +90,6 @@ end
 return 0
 """
 
-RESERVATION_OWNED_LUA = """
-local existing = redis.call('GET', KEYS[1])
-if existing then
-    local ok, data = pcall(cjson.decode, existing)
-    if ok and data['execution_id'] == ARGV[1] and data['status'] == 'IN_PROGRESS' then
-        return 1
-    end
-end
-return 0
-"""
 
 RELEASE_KEY_LUA = """
 if ARGV[1] ~= '' then
@@ -255,31 +272,50 @@ class IdempotencyService:
             logger.warning("Failed to renew idempotency key %s: %s", key, exc)
             return False
 
-    async def is_reservation_owned(
+    async def complete_or_retain(
         self,
         *,
         key: str,
         execution_id: str,
+        fingerprint: str,
+        created_at: str,
+        ttl_seconds: int | None = None,
     ) -> bool:
-        """Report whether this request still owns an in-progress reservation."""
+        """Record an accepted execution as completed, or recreate its mapping.
+
+        Never leaves an accepted execution recorded as `IN_PROGRESS`, which would
+        answer every retry with 409 instead of replaying it, and never lapses,
+        which would let a retry schedule the work twice. Returns False only when
+        another request owns the key.
+        """
         try:
             connection = await self._get_connection()
+            ttl = ttl_seconds or redis_settings.IDEMPOTENCY_KEY_TTL_SECONDS
+            entry = IdempotencyEntry(
+                fingerprint=fingerprint,
+                execution_id=execution_id,
+                status=IdempotencyStatus.COMPLETED,
+                created_at=created_at,
+            )
             result = await asyncio.wait_for(
                 cast(
                     Awaitable[Any],
                     connection.eval(  # type: ignore[UnknownMemberType]
-                        RESERVATION_OWNED_LUA,
+                        COMPLETE_OR_RETAIN_LUA,
                         1,
                         key,
                         execution_id,
+                        str(ttl),
+                        entry.model_dump_json(),
                     ),
                 ),
                 timeout=5,
             )
             return bool(result == 1)
         except Exception as exc:
-            logger.warning(
-                "Failed to verify idempotency reservation ownership for %s: %s",
+            logger.error(
+                "Failed to record accepted execution %s under key %s: %s",
+                execution_id,
                 key,
                 exc,
             )
@@ -333,29 +369,31 @@ async def mark_completed_or_retain(
     *,
     key: str,
     execution_id: str,
+    fingerprint: str,
+    created_at: str,
 ) -> None:
     """Record completion after acceptance without ever weakening the key.
 
     Once the execution is published it is accepted: a tracking failure must not
-    surface as an error to the caller. The entry is left as-is if completion
-    cannot be recorded, and its retention is extended so the accepted execution
-    stays replayable for the completion TTL instead of lapsing with the lock.
+    surface as an error to the caller. One atomic write either completes the
+    entry or recreates it as completed if it lapsed, so the accepted execution
+    always stays replayable and is never left blocking retries as `IN_PROGRESS`.
     """
     try:
-        completed = await service.mark_completed(key=key, execution_id=execution_id)
-        if completed:
+        recorded = await service.complete_or_retain(
+            key=key,
+            execution_id=execution_id,
+            fingerprint=fingerprint,
+            created_at=created_at,
+        )
+        if recorded:
             return
 
         logger.warning(
-            "Idempotency key %s accepted for execution %s but could not be marked "
-            "completed; extending its retention to keep the replay mapping",
+            "Idempotency key %s was taken by another request while execution %s "
+            "was being accepted; nothing could be recorded for it",
             key,
             execution_id,
-        )
-        await service.renew(
-            key=key,
-            execution_id=execution_id,
-            lock_ttl_seconds=redis_settings.IDEMPOTENCY_KEY_TTL_SECONDS,
         )
     except Exception:
         # The execution is already accepted and published; nothing here may
@@ -372,8 +410,8 @@ class IdempotencyReservation:
 
     Admission covers file upload, database work and stream publication, which
     can outlast the short lock TTL. Renewing in the background keeps the key
-    reserved, and `ensure_owned` gives the publisher a last-moment check so a
-    reservation that was lost can never be published as a duplicate execution.
+    reserved, and `publish` fences the stream write on ownership inside Redis, so
+    a reservation that was lost can never be published as a duplicate execution.
     """
 
     def __init__(
@@ -425,20 +463,27 @@ class IdempotencyReservation:
                 self._lost = True
                 return
 
-    async def ensure_owned(self) -> None:
-        """Raise when this request no longer owns the reservation.
+    async def publish(self, publisher: Any, message: Any) -> str:
+        """Publish the execution only while this request still owns the key.
 
-        Called immediately before publication: once the key belongs to another
-        request, publishing would create a duplicate execution that the key
-        promised to prevent.
+        Ownership, capacity admission and the stream write happen in one Redis
+        script. Re-checking ownership separately is not enough: the publisher
+        awaits its connection in between, and a stale request would then publish
+        a second execution after another one had taken the key.
         """
         if self._lost:
             raise IdempotencyReservationLostException(execution_id=self._execution_id)
 
-        owned = await self._service.is_reservation_owned(
-            key=self._key,
-            execution_id=self._execution_id,
-        )
-        if not owned:
+        try:
+            message_id = await publisher.publish_message_fenced(
+                message,
+                reservation_key=self._key,
+                reservation_execution_id=self._execution_id,
+                reservation_ttl_seconds=redis_settings.IDEMPOTENCY_KEY_TTL_SECONDS,
+            )
+        except ReservationLostError as exc:
             self._lost = True
-            raise IdempotencyReservationLostException(execution_id=self._execution_id)
+            raise IdempotencyReservationLostException(
+                execution_id=self._execution_id
+            ) from exc
+        return message_id

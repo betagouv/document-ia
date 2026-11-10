@@ -1,6 +1,7 @@
 import logging
 from typing import Optional
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import (
     APIRouter,
@@ -441,6 +442,7 @@ async def execute_workflow(
     # re-checked just before publication so a lost lease cannot publish a
     # duplicate execution.
     reservation: IdempotencyReservation | None = None
+    reservation_created_at = datetime.now(timezone.utc).isoformat()
     if redis_key is not None and pre_generated_execution_id is not None:
         reservation = IdempotencyReservation(
             idempotency_service,
@@ -495,7 +497,7 @@ async def execute_workflow(
                 request_classification_parameter=parsed_classification_parameters,
                 request_extraction_parameter=parsed_extraction_parameters,
                 execution_id=pre_generated_execution_id,
-                before_publish=reservation.ensure_owned if reservation else None,
+                before_publish=reservation.publish if reservation else None,
             )
 
         logger.info(
@@ -532,6 +534,8 @@ async def execute_workflow(
             idempotency_service,
             key=redis_key,
             execution_id=pre_generated_execution_id,
+            fingerprint=fingerprint,
+            created_at=reservation_created_at,
         )
 
     return WorkflowExecuteResponse(

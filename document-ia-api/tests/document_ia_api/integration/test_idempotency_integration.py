@@ -30,7 +30,10 @@ from document_ia_infra.data.organization.enum.platform_role import PlatformRole
 from document_ia_infra.data.organization.repository.organization_repository import (
     OrganizationRepository,
 )
-from document_ia_infra.redis.publisher import PublishFailedError
+from document_ia_infra.redis.publisher import (
+    PublishFailedError,
+    ReservationLostError,
+)
 from tests.document_ia_api.conftest import create_test_app
 
 
@@ -92,12 +95,19 @@ async def redis_client() -> AsyncGenerator[Redis, None]:
 
 @pytest.fixture(autouse=True)
 def mock_publish_success():
-    """Default mocked publish for success scenarios in integration tests."""
+    """Default mocked publish for success scenarios in integration tests.
+
+    Idempotent requests publish through the ownership-fenced path, so both the
+    plain and the fenced publisher must be stubbed.
+    """
     with patch(
         "document_ia_api.application.services.workflow_service.Publisher.publish_message",
         new=AsyncMock(return_value="1-0"),
     ), patch(
         "document_ia_api.application.services.workflow_v2_service.Publisher.publish_message",
+        new=AsyncMock(return_value="1-0"),
+    ), patch(
+        "document_ia_infra.redis.publisher.Publisher.publish_message_fenced",
         new=AsyncMock(return_value="1-0"),
     ):
         yield
@@ -376,7 +386,7 @@ class TestIdempotencyIntegration:
 
         # 1. First request fails during stream publish
         with patch(
-            "document_ia_api.application.services.workflow_v2_service.Publisher.publish_message",
+            "document_ia_infra.redis.publisher.Publisher.publish_message_fenced",
             new=AsyncMock(side_effect=PublishFailedError("event_stream", "simulated_broker_down")),
         ):
             resp_fail = await async_client.post(
@@ -419,7 +429,7 @@ class TestIdempotencyIntegration:
         }
 
         with patch(
-            "document_ia_api.infra.idempotency_service.IdempotencyService.mark_completed",
+            "document_ia_api.infra.idempotency_service.IdempotencyService.complete_or_retain",
             new=AsyncMock(side_effect=RuntimeError("redis unreachable")),
         ):
             response = await async_client.post(
@@ -461,11 +471,8 @@ class TestIdempotencyIntegration:
         }
 
         with patch(
-            "document_ia_api.infra.idempotency_service.IdempotencyService.is_reservation_owned",
-            new=AsyncMock(return_value=False),
-        ), patch(
-            "document_ia_api.application.services.workflow_v2_service.Publisher.publish_message",
-            new=AsyncMock(return_value="1-0"),
+            "document_ia_infra.redis.publisher.Publisher.publish_message_fenced",
+            new=AsyncMock(side_effect=ReservationLostError()),
         ) as publish:
             response = await async_client.post(
                 "/api/v2/workflows/document-extraction-v2/execute",
@@ -475,7 +482,12 @@ class TestIdempotencyIntegration:
 
         assert response.status_code == 503
         assert response.json()["errors"]["error"] == "idempotency_reservation_lost"
-        publish.assert_not_awaited()
+        # The fence lives inside the publication call, which reported that the
+        # reservation was lost and wrote nothing to the stream.
+        publish.assert_awaited_once()
+        publish.await_args.kwargs["reservation_execution_id"]
+        # The reply must not announce an accepted execution.
+        assert "data" not in response.json()
 
     @pytest.mark.asyncio
     async def test_lost_reservation_closes_started_execution(
@@ -496,8 +508,8 @@ class TestIdempotencyIntegration:
         }
 
         with patch(
-            "document_ia_api.infra.idempotency_service.IdempotencyService.is_reservation_owned",
-            new=AsyncMock(return_value=False),
+            "document_ia_infra.redis.publisher.Publisher.publish_message_fenced",
+            new=AsyncMock(side_effect=ReservationLostError()),
         ):
             response = await async_client.post(
                 "/api/v2/workflows/document-extraction-v2/execute",

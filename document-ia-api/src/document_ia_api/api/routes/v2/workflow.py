@@ -1,6 +1,7 @@
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Optional
+from typing import Any, Optional
+from datetime import datetime, timezone
 from uuid import UUID
 import uuid
 
@@ -68,7 +69,7 @@ async def _start_workflow_v2_execution(
     override: str | None,
     metadata: Optional[str],
     execution_id: str | None = None,
-    before_publish: Callable[[], Awaitable[None]] | None = None,
+    before_publish: Callable[[Any, Any], Awaitable[str]] | None = None,
 ) -> WorkflowExecutionDataV2:
     if (file is None and file_url is None) or (
         file is not None and file_url is not None
@@ -645,6 +646,7 @@ async def execute_workflow_v2(
     # re-checked just before publication so a lost lease cannot publish a
     # duplicate execution.
     reservation: IdempotencyReservation | None = None
+    reservation_created_at = datetime.now(timezone.utc).isoformat()
     if redis_key is not None and pre_generated_execution_id is not None:
         reservation = IdempotencyReservation(
             idempotency_service,
@@ -671,7 +673,7 @@ async def execute_workflow_v2(
                 override=override,
                 metadata=metadata,
                 execution_id=pre_generated_execution_id,
-                before_publish=reservation.ensure_owned if reservation else None,
+                before_publish=reservation.publish if reservation else None,
             )
 
     except Exception as exc:
@@ -701,6 +703,8 @@ async def execute_workflow_v2(
             idempotency_service,
             key=redis_key,
             execution_id=pre_generated_execution_id,
+            fingerprint=fingerprint,
+            created_at=reservation_created_at,
         )
 
     return WorkflowV2ExecuteResponse(

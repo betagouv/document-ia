@@ -33,7 +33,11 @@ from document_ia_infra.data.workflow.dto.workflow_v2_dto import WorkflowV2Dto
 from document_ia_infra.redis.model.workflow_execution_message import (
     WorkflowExecutionMessage,
 )
-from document_ia_infra.redis.publisher import PublishFailedError, Publisher
+from document_ia_infra.redis.publisher import (
+    PublishFailedError,
+    Publisher,
+    ReservationLostError,
+)
 from document_ia_infra.redis.redis_settings import redis_settings
 from document_ia_infra.service.event_store_service import EventStoreService
 
@@ -63,7 +67,7 @@ class WorkflowV2Service:
         metadata_json: str | None,
         override_payload: WorkflowV2OverridePayload | None,
         execution_id: str | None = None,
-        before_publish: Callable[[], Awaitable[None]] | None = None,
+        before_publish: Callable[[Any, Any], Awaitable[str]] | None = None,
     ) -> WorkflowExecutionDataV2:
         if self.db_session is None:
             raise HTTPException(
@@ -114,33 +118,33 @@ class WorkflowV2Service:
             workflow_version=2,
         )
 
-        # Last-moment ownership check: a reservation that was lost or re-acquired
-        # must not publish a second execution. The started event is already
-        # committed by this point, so the execution is closed explicitly rather
-        # than left as a `STARTED` that will never progress.
-        if before_publish is not None:
-            try:
-                await before_publish()
-            except IdempotencyReservationLostException as lost_error:
-                await fail_abandoned_execution(
-                    self.db_session,
-                    execution_id=execution_id,
-                    workflow_id=workflow_id,
-                    organization_id=organization_id,
-                    error_type=EXECUTION_RESERVATION_LOST_ERROR,
-                    error_message=(
-                        "The idempotency reservation was lost before this "
-                        "execution was scheduled; nothing is pending. Retry the "
-                        "request."
-                    ),
-                    workflow_version=2,
-                )
-                raise lost_error
-
+        # Publication is fenced by reservation ownership in one Redis operation:
+        # a stale request must not publish a second execution. The started event
+        # is already committed by this point, so a lost reservation closes the
+        # execution explicitly rather than leaving a `STARTED` that never
+        # progresses.
         try:
-            await self.redis_producer.publish_message(
-                WorkflowExecutionMessage(workflow_execution_id=execution_id)
+            execution_message = WorkflowExecutionMessage(
+                workflow_execution_id=execution_id
             )
+            if before_publish is not None:
+                await before_publish(self.redis_producer, execution_message)
+            else:
+                await self.redis_producer.publish_message(execution_message)
+        except (ReservationLostError, IdempotencyReservationLostException):
+            await fail_abandoned_execution(
+                self.db_session,
+                execution_id=execution_id,
+                workflow_id=workflow_id,
+                organization_id=organization_id,
+                error_type=EXECUTION_RESERVATION_LOST_ERROR,
+                error_message=(
+                    "The idempotency reservation was lost before this execution "
+                    "was scheduled; nothing is pending. Retry the request."
+                ),
+                workflow_version=2,
+            )
+            raise IdempotencyReservationLostException(execution_id=execution_id)
         except PublishFailedError as publish_error:
             # Le fichier et l'événement de démarrage existent déjà : l'exécution
             # est clôturée explicitement plutôt qu'annoncée en `processing`

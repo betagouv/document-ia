@@ -264,3 +264,128 @@ class TestRedisManager:
             assert await manager.get_connection() is None
             assert await manager.get_connection() is client
         assert client.ping.await_count == 2
+
+
+class TestFencedPublication:
+    """Publication must be gated by reservation ownership in one Redis op."""
+
+    @pytest.fixture
+    async def client(self):
+        from redis.asyncio import Redis
+
+        from document_ia_infra.redis.redis_settings import redis_settings
+
+        redis_client = Redis(
+            host=redis_settings.REDIS_HOST,
+            port=redis_settings.REDIS_PORT,
+            db=redis_settings.REDIS_DB,
+            decode_responses=True,
+        )
+        yield redis_client
+        for key in await redis_client.keys("fenced:*"):
+            await redis_client.delete(key)
+        await redis_client.aclose()
+
+    @pytest.mark.asyncio
+    async def test_stale_owner_cannot_publish(self, client, monkeypatch):
+        """A request whose key was re-acquired must not write a second entry."""
+        import json
+
+        from document_ia_infra.redis.model.workflow_execution_message import (
+            WorkflowExecutionMessage,
+        )
+        from document_ia_infra.redis.publisher import (
+            Publisher,
+            ReservationLostError,
+        )
+        from document_ia_infra.redis.redis_settings import redis_settings
+
+        stream = "fenced:jobs"
+        key = "fenced:reservation"
+        monkeypatch.setattr(redis_settings, "EVENT_STREAM_NAME", stream)
+        monkeypatch.setattr(redis_settings, "WEBHOOK_STREAM_NAME", stream + ":webhooks")
+
+        manager = AsyncMock()
+        manager.get_connection.return_value = client
+        publisher = Publisher(stream, current_redis_manager=manager)
+
+        # The key now belongs to another request.
+        await client.set(
+            key,
+            json.dumps(
+                {
+                    "fingerprint": "fp",
+                    "execution_id": "exec-B",
+                    "status": "IN_PROGRESS",
+                    "created_at": "t",
+                }
+            ),
+            ex=60,
+        )
+
+        with pytest.raises(ReservationLostError):
+            await publisher.publish_message_fenced(
+                WorkflowExecutionMessage(workflow_execution_id="exec-A"),
+                reservation_key=key,
+                reservation_execution_id="exec-A",
+                reservation_ttl_seconds=43200,
+            )
+
+        assert await client.xlen(stream) == 0
+
+    @pytest.mark.asyncio
+    async def test_owner_publishes_and_records_completion(self, client, monkeypatch):
+        import json
+
+        from document_ia_infra.redis.model.workflow_execution_message import (
+            WorkflowExecutionMessage,
+        )
+        from document_ia_infra.redis.publisher import Publisher
+        from document_ia_infra.redis.redis_settings import redis_settings
+
+        stream = "fenced:jobs2"
+        key = "fenced:reservation2"
+        monkeypatch.setattr(redis_settings, "EVENT_STREAM_NAME", stream)
+        monkeypatch.setattr(redis_settings, "WEBHOOK_STREAM_NAME", stream + ":webhooks")
+
+        manager = AsyncMock()
+        manager.get_connection.return_value = client
+        publisher = Publisher(stream, current_redis_manager=manager)
+
+        await client.set(
+            key,
+            json.dumps(
+                {
+                    "fingerprint": "fp",
+                    "execution_id": "exec-A",
+                    "status": "IN_PROGRESS",
+                    "created_at": "t",
+                }
+            ),
+            ex=60,
+        )
+
+        message_id = await publisher.publish_message_fenced(
+            WorkflowExecutionMessage(workflow_execution_id="exec-A"),
+            reservation_key=key,
+            reservation_execution_id="exec-A",
+            reservation_ttl_seconds=43200,
+        )
+
+        assert message_id
+        assert await client.xlen(stream) == 1
+        entry = json.loads(await client.get(key))
+        assert entry["status"] == "COMPLETED"
+        assert await client.ttl(key) > 3600
+
+        # Replaying the same request cannot publish a second entry.
+        from document_ia_infra.redis.publisher import ReservationLostError
+
+        with pytest.raises(ReservationLostError):
+            await publisher.publish_message_fenced(
+                WorkflowExecutionMessage(workflow_execution_id="exec-A"),
+                reservation_key=key,
+                reservation_execution_id="exec-A",
+                reservation_ttl_seconds=43200,
+            )
+        assert await client.xlen(stream) == 1

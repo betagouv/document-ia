@@ -14,6 +14,7 @@ from document_ia_infra.redis.redis_manager import redis_manager, RedisManager
 from document_ia_infra.redis.redis_settings import redis_settings
 from document_ia_infra.redis.serializable_message import SerializableMessage
 from document_ia_infra.redis.admission import admit_execution
+from document_ia_infra.redis.idempotent_publish import IDEMPOTENT_PUBLISH_SCRIPT
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,15 @@ class PublishFailedError(Exception):
         self.stream_name = stream_name
         self.reason = reason
         super().__init__(f"Publication on Redis stream {stream_name} failed: {reason}")
+
+
+class ReservationLostError(Exception):
+    """The idempotency reservation was lost before the publication.
+
+    Raised by the fenced publication when the ownership check inside the same
+    Redis operation failed: another request owns the key, so nothing was
+    written. Publishing here would duplicate the execution.
+    """
 
 
 class Publisher(Generic[T]):
@@ -87,3 +97,77 @@ class Publisher(Generic[T]):
         except Exception as e:
             logger.error(f"❌ Error publishing message in Redis stream: {e}")
             raise PublishFailedError(self.stream_name, type(e).__name__) from e
+
+    async def publish_message_fenced(
+        self,
+        message: T,
+        *,
+        reservation_key: str,
+        reservation_execution_id: str,
+        reservation_ttl_seconds: int,
+    ) -> str:
+        """Publish only while this request still owns its idempotency reservation.
+
+        Ownership, capacity admission and the stream write happen in one Redis
+        script, so the key cannot expire or be re-acquired between the check and
+        the XADD. A separate pre-check is not enough: the publisher awaits its
+        connection in between, and a stale request would then publish a second
+        execution.
+
+        Raises:
+            ReservationLostError: the reservation is no longer ours; nothing was
+                written.
+            PublishFailedError: no connection, or capacity was exhausted.
+        """
+        try:
+            connection = await self.current_redis_manager.get_connection()
+        except RedisError as e:
+            logger.error("❌ Redis connection failed: %s", e)
+            raise PublishFailedError(self.stream_name, type(e).__name__) from e
+
+        if connection is None:
+            logger.error("❌ No Redis connection available")
+            raise PublishFailedError(self.stream_name, "no_connection")
+
+        stream_data = {
+            "data": json.dumps(message.to_dict()),
+            "timestamp": datetime.now().isoformat(),
+        }
+        args = [
+            reservation_execution_id,
+            str(reservation_ttl_seconds),
+            redis_settings.EVENT_CONSUMER_GROUP,
+            redis_settings.WEBHOOK_CONSUMER_GROUP,
+            str(redis_settings.ADMISSION_MAX_OUTSTANDING),
+            str(redis_settings.ADMISSION_RESUME_OUTSTANDING),
+            str(redis_settings.ADMISSION_MAX_AGE_SECONDS),
+            str(redis_settings.ADMISSION_RESUME_AGE_SECONDS),
+            "publish",
+            stream_data["data"],
+            stream_data["timestamp"],
+            str(redis_settings.ADMISSION_MAX_RETAINED),
+            str(redis_settings.ADMISSION_RESUME_RETAINED),
+        ]
+        keys = [
+            reservation_key,
+            redis_settings.EVENT_STREAM_NAME,
+            redis_settings.WEBHOOK_STREAM_NAME,
+            f"{redis_settings.EVENT_STREAM_NAME}:admission",
+            f"{redis_settings.WEBHOOK_STREAM_NAME}:admission",
+        ]
+        try:
+            result = await connection.eval(  # type: ignore[UnknownMemberType]
+                IDEMPOTENT_PUBLISH_SCRIPT, len(keys), *keys, *args
+            )
+        except Exception as e:
+            logger.error("❌ Error publishing fenced message: %s", e)
+            raise PublishFailedError(self.stream_name, type(e).__name__) from e
+
+        if not result or result[0] == 0:
+            raise ReservationLostError()
+        if result[0] != 1:
+            raise PublishFailedError(self.stream_name, "capacity_exhausted")
+        message_id = result[1]
+        if not isinstance(message_id, str):
+            raise PublishFailedError(self.stream_name, "invalid_publication_response")
+        return message_id
