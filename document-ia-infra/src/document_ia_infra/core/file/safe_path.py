@@ -162,11 +162,30 @@ def get_execution_sandbox_root(
     """
     valid_uuid = validate_execution_id(execution_id)
     base_path = Path(base_dir).resolve()
-    sandbox_path = (base_path / str(valid_uuid)).resolve()
+
+    # The execution directory must be exactly the entry for this execution, not a
+    # path that resolves somewhere else. Resolving a symlinked entry would adopt
+    # its target as the trusted boundary — a link to the shared base passes
+    # `is_relative_to` and makes this execution's cleanup delete other
+    # executions' files.
+    execution_dir = base_path / str(valid_uuid)
+    if execution_dir.is_symlink():
+        raise PathTraversalException(
+            f"Execution sandbox {execution_dir} is a symlink; refusing to use it"
+        )
+
+    sandbox_path = execution_dir.resolve()
 
     if not sandbox_path.is_relative_to(base_path):
         raise PathTraversalException(
             f"Sandbox root {sandbox_path} escapes base directory {base_path}"
+        )
+
+    # A link in a parent component could still move it out of the base; the entry
+    # itself must resolve to the expected child of the base.
+    if sandbox_path.parent != base_path:
+        raise PathTraversalException(
+            f"Sandbox root {sandbox_path} is not directly under {base_path}"
         )
 
     return sandbox_path

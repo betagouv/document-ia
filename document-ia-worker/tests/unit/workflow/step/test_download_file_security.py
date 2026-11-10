@@ -838,3 +838,62 @@ async def test_idle_connection_is_discarded_and_retried():
         assert second.status_code == 200
     finally:
         server.shutdown()
+
+
+def test_symlinked_execution_root_is_rejected(tmp_path: Path):
+    """An execution directory that is a symlink must not become the boundary.
+
+    Resolving it would adopt the link's target as this execution's sandbox — a
+    link to the shared base passes `is_relative_to` — and cleanup would then
+    delete other executions' files.
+    """
+    from document_ia_infra.core.file.safe_path import get_execution_sandbox_root
+    from document_ia_infra.exception.security_exception import PathTraversalException
+
+    base = tmp_path / "base"
+    base.mkdir()
+    execution_id = str(uuid4())
+    (base / execution_id).symlink_to(base, target_is_directory=True)
+
+    with pytest.raises(PathTraversalException):
+        get_execution_sandbox_root(execution_id, base_dir=base)
+
+
+def test_symlinked_root_cannot_delete_a_sibling(tmp_path: Path):
+    """The reproduction: cleanup must not remove another execution's document."""
+    from document_ia_infra.core.file.safe_path import (
+        get_execution_sandbox_root,
+        safe_cleanup_directory,
+    )
+    from document_ia_infra.exception.security_exception import PathTraversalException
+
+    base = tmp_path / "base"
+    base.mkdir()
+    victim_id, attacker_id = str(uuid4()), str(uuid4())
+    victim = base / victim_id
+    victim.mkdir()
+    document = victim / "DOCUMENT.pdf"
+    document.write_text("victim's document")
+
+    (base / attacker_id).symlink_to(base, target_is_directory=True)
+
+    with pytest.raises(PathTraversalException):
+        root = get_execution_sandbox_root(attacker_id, base_dir=base)
+        safe_cleanup_directory(root, sandbox_root=root)
+
+    assert document.exists(), "cleanup deleted another execution's document"
+    assert victim.exists()
+
+
+def test_normal_execution_root_still_works(tmp_path: Path):
+    """A legitimate execution directory resolves to exactly that directory."""
+    from document_ia_infra.core.file.safe_path import get_execution_sandbox_root
+
+    base = tmp_path / "base"
+    base.mkdir()
+    execution_id = str(uuid4())
+
+    root = get_execution_sandbox_root(execution_id, base_dir=base)
+
+    assert root == (base / execution_id).resolve()
+    assert root.parent == base.resolve()
