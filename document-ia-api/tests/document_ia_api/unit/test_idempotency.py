@@ -656,3 +656,91 @@ class TestFencedPublicationContract:
         with pytest.raises(IdempotencyReservationLostException):
             await reservation.publish(publisher, "m")
         assert publisher.publish_message_fenced.await_count == 1
+
+
+class TestReleaseNeverDeletesAcceptedMapping:
+    """Route cleanup must not undo an accepted execution.
+
+    The route releases the key on any failure. If the publication actually
+    succeeded but its reply was lost, the mapping records an accepted execution
+    and deleting it lets the next retry schedule the work a second time.
+    """
+
+    @pytest.mark.asyncio
+    async def test_completed_mapping_survives_release(self, real_redis):
+        service = IdempotencyService(redis_client=real_redis)
+        key = f"idem-release-completed-{uuid4()}"
+        await service.acquire_or_check(
+            key=key, fingerprint="fp", execution_id="exec-A", lock_ttl_seconds=60
+        )
+        await service.complete_or_retain(
+            key=key,
+            execution_id="exec-A",
+            fingerprint="fp",
+            created_at="2026-11-10T00:00:00Z",
+        )
+
+        released = await service.release_key(key=key, execution_id="exec-A")
+
+        assert released is False
+        stored = IdempotencyEntry.model_validate_json(await real_redis.get(key))
+        assert stored.status == IdempotencyStatus.COMPLETED
+        # And the retry still replays rather than scheduling again.
+        result = await service.acquire_or_check(
+            key=key, fingerprint="fp", execution_id="exec-B"
+        )
+        assert result.is_replay is True
+        await real_redis.delete(key)
+
+    @pytest.mark.asyncio
+    async def test_in_progress_reservation_is_still_released(self, real_redis):
+        service = IdempotencyService(redis_client=real_redis)
+        key = f"idem-release-inprog-{uuid4()}"
+        await service.acquire_or_check(
+            key=key, fingerprint="fp", execution_id="exec-A", lock_ttl_seconds=60
+        )
+
+        released = await service.release_key(key=key, execution_id="exec-A")
+
+        assert released is True
+        assert await real_redis.get(key) is None
+
+
+class TestPublicationTimeout:
+    @pytest.mark.asyncio
+    async def test_fenced_publish_is_bounded_and_reports_unknown(self):
+        """A stalled Redis must neither hang the request nor look like a rejection."""
+        import asyncio
+
+        from document_ia_infra.redis.model.workflow_execution_message import (
+            WorkflowExecutionMessage,
+        )
+        from document_ia_infra.redis.publisher import (
+            PublicationOutcomeUnknownError,
+            Publisher,
+        )
+        from document_ia_infra.redis.redis_settings import redis_settings
+
+        connection = AsyncMock()
+
+        async def never(*args, **kwargs):
+            await asyncio.sleep(30)
+
+        connection.eval.side_effect = never
+        manager = AsyncMock()
+        manager.get_connection.return_value = connection
+        publisher = Publisher("event_stream", current_redis_manager=manager)
+
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        with patch.object(redis_settings, "PUBLISH_TIMEOUT_SECONDS", 0.2):
+            with pytest.raises(PublicationOutcomeUnknownError):
+                await publisher.publish_message_fenced(
+                    WorkflowExecutionMessage(workflow_execution_id="exec-A"),
+                    reservation_key="k",
+                    reservation_execution_id="exec-A",
+                    reservation_ttl_seconds=60,
+                )
+        elapsed = loop.time() - started
+
+        assert elapsed < 5, f"fenced publication was not bounded: {elapsed:.2f}s"

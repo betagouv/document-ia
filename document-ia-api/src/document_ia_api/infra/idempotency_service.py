@@ -91,12 +91,16 @@ return 0
 """
 
 
+# Release only un-published reservations. A COMPLETED entry records an execution
+# that was accepted: deleting it lets the next retry schedule the work again, so
+# cleanup must never touch it. That matters most when a publication succeeded but
+# its reply was lost, which looks like a failure to the caller.
 RELEASE_KEY_LUA = """
 if ARGV[1] ~= '' then
     local existing = redis.call('GET', KEYS[1])
     if existing then
         local ok, data = pcall(cjson.decode, existing)
-        if ok and data['execution_id'] == ARGV[1] then
+        if ok and data['execution_id'] == ARGV[1] and data['status'] == 'IN_PROGRESS' then
             redis.call('DEL', KEYS[1])
             return 1
         end

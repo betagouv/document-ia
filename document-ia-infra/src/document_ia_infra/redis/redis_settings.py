@@ -58,6 +58,8 @@ class RedisSettings(BaseDocumentIaSettings):
     # peut pas être programmée. Bornée pour ne pas inviter le client à attendre
     # indéfiniment une indisponibilité prolongée.
     PUBLISH_RETRY_AFTER_SECONDS: int = Field(default=5, ge=1, le=120)
+    # Bounds the fenced publication, matching the unfenced admission path.
+    PUBLISH_TIMEOUT_SECONDS: float = Field(default=5.0, gt=0, le=60)
 
     # Durée de rétention des clés d'idempotence (12 heures par défaut).
     IDEMPOTENCY_KEY_TTL_SECONDS: int = Field(default=43200, ge=1)

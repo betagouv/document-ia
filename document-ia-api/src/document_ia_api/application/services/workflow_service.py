@@ -44,6 +44,7 @@ from document_ia_infra.redis.model.workflow_execution_message import (
     WorkflowExecutionMessage,
 )
 from document_ia_infra.redis.publisher import (
+    PublicationOutcomeUnknownError,
     PublishFailedError,
     Publisher,
     ReservationLostError,
@@ -210,6 +211,17 @@ class WorkflowService:
                     ),
                 )
                 raise IdempotencyReservationLostException(execution_id=execution_id)
+            except PublicationOutcomeUnknownError as unknown_error:
+                # Redis may have committed the publication even though its reply
+                # never arrived. Reporting a failure here would invite a retry
+                # that publishes the same work twice, so this attempt is treated
+                # as accepted and its mapping is kept.
+                logger.warning(
+                    "Execution %s: publication outcome unknown (%s); treating "
+                    "as accepted",
+                    execution_id,
+                    unknown_error.reason,
+                )
             except PublishFailedError as publish_error:
                 # Aucun message ne programme le traitement : ne pas annoncer une
                 # exécution acceptée en `processing` (issue #120).

@@ -2,10 +2,12 @@
 Class Publisher for Redis Stream
 """
 
+import asyncio
 import json
 import logging
+from collections.abc import Awaitable
 from datetime import datetime
-from typing import TypeVar, Generic
+from typing import TypeVar, Generic, cast
 
 from redis.exceptions import RedisError
 from redis.typing import EncodableT
@@ -40,6 +42,16 @@ class ReservationLostError(Exception):
     Raised by the fenced publication when the ownership check inside the same
     Redis operation failed: another request owns the key, so nothing was
     written. Publishing here would duplicate the execution.
+    """
+
+
+class PublicationOutcomeUnknownError(PublishFailedError):
+    """The publication may or may not have been applied.
+
+    Raised when the fenced script's reply is lost (timeout, dropped connection).
+    Redis may have committed the XADD and marked the reservation COMPLETED. The
+    caller must not report a scheduling failure: doing so invites a retry that
+    would publish the same work twice.
     """
 
 
@@ -155,10 +167,26 @@ class Publisher(Generic[T]):
             f"{redis_settings.EVENT_STREAM_NAME}:admission",
             f"{redis_settings.WEBHOOK_STREAM_NAME}:admission",
         ]
+        # Bounded like the unfenced path (`admit_execution`): without a deadline a
+        # stalled Redis holds the request and its pooled connection open.
         try:
-            result = await connection.eval(  # type: ignore[UnknownMemberType]
-                IDEMPOTENT_PUBLISH_SCRIPT, len(keys), *keys, *args
+            result = await asyncio.wait_for(
+                cast(
+                    Awaitable[list[object]],
+                    connection.eval(  # type: ignore[UnknownMemberType]
+                        IDEMPOTENT_PUBLISH_SCRIPT, len(keys), *keys, *args
+                    ),
+                ),
+                timeout=redis_settings.PUBLISH_TIMEOUT_SECONDS,
             )
+        except (asyncio.TimeoutError, ConnectionError, RedisError) as e:
+            # The write may have landed. Redis error replies (a Lua failure or a
+            # malformed request) mean it did not, so only ambiguous transport
+            # failures are reported as unknown.
+            logger.error("❌ Publication outcome unknown: %s", e)
+            raise PublicationOutcomeUnknownError(
+                self.stream_name, type(e).__name__
+            ) from e
         except Exception as e:
             logger.error("❌ Error publishing fenced message: %s", e)
             raise PublishFailedError(self.stream_name, type(e).__name__) from e
