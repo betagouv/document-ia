@@ -463,8 +463,10 @@ def render_api_keys_tab(org_details: OrganizationDetailsResult) -> None:
                 label = None
                 new_status = None
 
-            if label and new_status and st.button(
-                label, key=f"toggle_{key.id}", use_container_width=True
+            if (
+                label
+                and new_status
+                and st.button(label, key=f"toggle_{key.id}", use_container_width=True)
             ):
                 try:
                     req = UpdateAPIKeyStatusRequest(status=new_status)

@@ -17,18 +17,83 @@ INITIAL_ADMIN_EMAILS = {
 }
 
 
-def verify_user_access(
+def record_login_event(
     email: str,
-    record_login: bool = False,
     ip_address: str | None = None,
     user_agent: str | None = None,
-) -> tuple[bool, EvalsUser | None, str]:
-    """Verify if a user identified by email is allowed to access the application.
+) -> None:
+    """Record an authentication event in evals_access_logs and update last_login_at.
 
-    If record_login is True (e.g. on new session establishment), updates last_login_at
-    and writes a single 'login_success' entry in evals_access_logs. On subsequent page
-    reruns within the same session, only verifies active status without writing duplicate logs.
-    Automatically provisions initial project administrators on their first connection.
+    This function is called EXCLUSIVELY during the OIDC token exchange callback
+    (/oauth2callback) upon receiving a verified access token from ProConnect.
+    It is NEVER called on page refreshes (F5), page navigations, or widget reruns.
+    """
+    clean_email = email.strip().lower()
+
+    with get_session() as session:
+        stmt = select(EvalsUser).where(func.lower(EvalsUser.email) == clean_email)
+        user = session.scalars(stmt).first()
+
+        # Resilient auto-provisioning for initial project administrators
+        if not user and clean_email in INITIAL_ADMIN_EMAILS:
+            logger.info("Auto-provisioning initial admin user: %s", clean_email)
+            user = EvalsUser(
+                email=clean_email,
+                role=UserRole.ADMIN.value,
+                is_active=True,
+            )
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+
+        if not user:
+            logger.warning(
+                "OAuth login denied: user %s not found in database", clean_email
+            )
+            log = EvalsAccessLog(
+                user_id=None,
+                email=clean_email,
+                action="access_denied_unknown_user",
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
+            session.add(log)
+            session.commit()
+            return
+
+        if not user.is_active:
+            logger.warning("OAuth login denied: user %s is disabled", clean_email)
+            log = EvalsAccessLog(
+                user_id=user.id,
+                email=clean_email,
+                action="access_denied_disabled_user",
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
+            session.add(log)
+            session.commit()
+            return
+
+        # Successful login
+        user.last_login_at = datetime.now(timezone.utc)
+        log = EvalsAccessLog(
+            user_id=user.id,
+            email=clean_email,
+            action="login_success",
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        session.add(log)
+        session.commit()
+
+
+def verify_user_access(
+    email: str,
+) -> tuple[bool, EvalsUser | None, str]:
+    """Verify if a user identified by email is currently allowed to access the application.
+
+    This function acts as a pure read-only authorization guard. It NEVER writes to
+    evals_access_logs to prevent log flooding during page reloads (F5) or user interactions.
     """
     clean_email = email.strip().lower()
 
@@ -37,7 +102,6 @@ def verify_user_access(
         user = session.scalars(stmt).first()
 
         if not user:
-            # Resilient auto-provisioning for initial project administrators
             if clean_email in INITIAL_ADMIN_EMAILS:
                 logger.info("Auto-provisioning initial admin user: %s", clean_email)
                 user = EvalsUser(
@@ -49,16 +113,6 @@ def verify_user_access(
                 session.commit()
                 session.refresh(user)
             else:
-                logger.warning("Access denied: user %s not found in database", clean_email)
-                log = EvalsAccessLog(
-                    user_id=None,
-                    email=clean_email,
-                    action="access_denied_unknown_user",
-                    ip_address=ip_address,
-                    user_agent=user_agent,
-                )
-                session.add(log)
-                session.commit()
                 return (
                     False,
                     None,
@@ -66,35 +120,11 @@ def verify_user_access(
                 )
 
         if not user.is_active:
-            logger.warning("Access denied: user %s is disabled", clean_email)
-            log = EvalsAccessLog(
-                user_id=user.id,
-                email=clean_email,
-                action="access_denied_disabled_user",
-                ip_address=ip_address,
-                user_agent=user_agent,
-            )
-            session.add(log)
-            session.commit()
             return (
                 False,
                 None,
                 "Accès refusé : votre compte a été désactivé par un administrateur.",
             )
-
-        # Successful authorization - write audit log and update timestamp ONLY when requested
-        if record_login:
-            user.last_login_at = datetime.now(timezone.utc)
-            log = EvalsAccessLog(
-                user_id=user.id,
-                email=clean_email,
-                action="login_success",
-                ip_address=ip_address,
-                user_agent=user_agent,
-            )
-            session.add(log)
-            session.commit()
-            session.refresh(user)
 
         return True, user, "Accès autorisé."
 

@@ -37,9 +37,9 @@ def render_users_and_rights_page() -> None:
             new_role = st.selectbox(
                 "Rôle",
                 options=[r.value for r in UserRole],
-                format_func=lambda x: "👑 Administrateur"
-                if x == "admin"
-                else "👤 Utilisateur",
+                format_func=lambda x: (
+                    "👑 Administrateur" if x == "admin" else "👤 Utilisateur"
+                ),
             )
             submit_user = st.form_submit_button("Habiliter l'agent", type="primary")
 

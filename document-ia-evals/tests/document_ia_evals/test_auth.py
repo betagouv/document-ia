@@ -14,6 +14,7 @@ from document_ia_evals.services.auth_service import (
     delete_evals_user,
     list_evals_users,
     list_recent_access_logs,
+    record_login_event,
     record_logout,
     update_evals_user,
     verify_user_access,
@@ -94,21 +95,20 @@ def test_generate_secrets_toml_bypass_mode(tmp_path: Path) -> None:
 
 
 def test_verify_user_access_unknown_user(in_memory_db) -> None:
-    """Test access verification for an unregistered user."""
+    """Test access verification for an unregistered user (read-only, no logs)."""
     is_allowed, user, reason = verify_user_access("unknown@beta.gouv.fr")
 
     assert not is_allowed
     assert user is None
     assert "Accès refusé" in reason
 
+    # verify_user_access is read-only and does not write access logs
     logs = list_recent_access_logs()
-    assert len(logs) == 1
-    assert logs[0].action == "access_denied_unknown_user"
-    assert logs[0].email == "unknown@beta.gouv.fr"
+    assert len(logs) == 0
 
 
 def test_verify_user_access_disabled_user(in_memory_db) -> None:
-    """Test access verification for a deactivated user."""
+    """Test access verification for a deactivated user (read-only, no logs)."""
     user = add_evals_user("inactive@beta.gouv.fr", role="user")
     update_evals_user(user.email, is_active=False)
 
@@ -119,42 +119,53 @@ def test_verify_user_access_disabled_user(in_memory_db) -> None:
     assert "désactivé" in reason
 
     logs = list_recent_access_logs()
-    assert len(logs) == 1
-    assert logs[0].action == "access_denied_disabled_user"
+    assert len(logs) == 0
 
 
-def test_verify_user_access_success(in_memory_db) -> None:
-    """Test successful user login."""
+def test_verify_user_access_success_is_read_only(in_memory_db) -> None:
+    """Test successful user authorization check does NOT flood audit logs (e.g. on F5)."""
     add_evals_user("nicolas.sagon@beta.gouv.fr", role="admin")
 
-    is_allowed, user, reason = verify_user_access(
-        "nicolas.sagon@beta.gouv.fr", record_login=True
-    )
+    # Simulate 5 page refreshes (F5) or reruns
+    for _ in range(5):
+        is_allowed, user, reason = verify_user_access("nicolas.sagon@beta.gouv.fr")
+        assert is_allowed
+        assert user is not None
+        assert user.email == "nicolas.sagon@beta.gouv.fr"
 
-    assert is_allowed
-    assert user is not None
-    assert user.email == "nicolas.sagon@beta.gouv.fr"
-    assert user.role == UserRole.ADMIN.value
-    assert user.last_login_at is not None
+    # Exactly 0 logs created by page visits/reruns
+    logs = list_recent_access_logs()
+    assert len(logs) == 0
+
+
+def test_record_login_event_success(in_memory_db) -> None:
+    """Test recording login_success event upon OAuth2 callback."""
+    add_evals_user("agent@beta.gouv.fr", role="user")
+    record_login_event("agent@beta.gouv.fr", ip_address="192.168.1.1", user_agent="Mozilla/5.0")
 
     logs = list_recent_access_logs()
     assert len(logs) == 1
     assert logs[0].action == "login_success"
+    assert logs[0].email == "agent@beta.gouv.fr"
+    assert logs[0].ip_address == "192.168.1.1"
+    assert logs[0].user_agent == "Mozilla/5.0"
 
 
-def test_verify_user_access_without_duplicate_login_log(in_memory_db) -> None:
-    """Test that page reruns with record_login=False do not produce duplicate audit logs."""
-    add_evals_user("agent@beta.gouv.fr", role="user")
+def test_record_login_event_denials(in_memory_db) -> None:
+    """Test recording access denial logs during OAuth2 callback."""
+    # 1. Unknown user
+    record_login_event("stranger@beta.gouv.fr")
+    logs = list_recent_access_logs()
+    assert len(logs) == 1
+    assert logs[0].action == "access_denied_unknown_user"
 
-    # Initial login records log
-    is_allowed, user, _ = verify_user_access("agent@beta.gouv.fr", record_login=True)
-    assert is_allowed is True
-    assert len(list_recent_access_logs()) == 1
-
-    # Subsequent page view with record_login=False does NOT record another log
-    is_allowed, user, _ = verify_user_access("agent@beta.gouv.fr", record_login=False)
-    assert is_allowed is True
-    assert len(list_recent_access_logs()) == 1
+    # 2. Disabled user
+    user = add_evals_user("banned@beta.gouv.fr", role="user")
+    update_evals_user(user.email, is_active=False)
+    record_login_event("banned@beta.gouv.fr")
+    logs = list_recent_access_logs()
+    assert len(logs) == 2
+    assert logs[0].action == "access_denied_disabled_user"
 
 
 def test_record_logout(in_memory_db) -> None:
@@ -321,7 +332,8 @@ def test_patched_authorize_access_token_enriches_userinfo() -> None:
          patch.object(client.framework, "clear_state_data"), \
          patch.object(client, "fetch_access_token", return_value={"access_token": "tok123", "id_token": "id123"}), \
          patch.object(client, "parse_id_token", return_value={"sub": "sub123"}), \
-         patch("document_ia_evals.utils.auth_secrets.fetch_proconnect_userinfo") as mock_fetch:
+         patch("document_ia_evals.utils.auth_secrets.fetch_proconnect_userinfo") as mock_fetch, \
+         patch("document_ia_evals.services.auth_service.record_login_event") as mock_login_event:
 
         mock_fetch.return_value = {
             "email": "nicolas.sagon@ext.beta.gouv.fr",
@@ -335,3 +347,5 @@ def test_patched_authorize_access_token_enriches_userinfo() -> None:
         assert token["userinfo"]["email"] == "nicolas.sagon@ext.beta.gouv.fr"
         assert token["userinfo"]["name"] == "Nicolas Sagon"
         assert token["userinfo"]["sub"] == "sub123"
+        mock_login_event.assert_called_once()
+        assert mock_login_event.call_args[0][0] == "nicolas.sagon@ext.beta.gouv.fr"

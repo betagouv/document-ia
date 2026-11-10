@@ -80,15 +80,10 @@ def main():
         pg.run()
         return
 
-    # 4. Verify authorization against database
+    # 4. Verify authorization against database (read-only guard)
     user_role = "admin"
     if not config.AUTH_BYPASS_LOCAL:
-        # Record login_success in audit logs ONLY ONCE per session
-        should_record_login = not st.session_state.get("auth_session_logged", False)
-        is_allowed, user, reason = verify_user_access(
-            user_email,
-            record_login=should_record_login,
-        )
+        is_allowed, user, reason = verify_user_access(user_email)
         if not is_allowed or user is None:
             denied_page = st.Page(
                 lambda: render_access_denied_screen(
@@ -103,7 +98,6 @@ def main():
             pg.run()
             return
 
-        st.session_state["auth_session_logged"] = True
         st.session_state["current_user_email"] = user.email
         st.session_state["current_user_role"] = user.role
         st.session_state["current_user_id"] = str(user.id)
@@ -119,9 +113,7 @@ def main():
                 st.Page("pages/home.py", title="🏠 Home", default=True),
             ],
             "API Playground": [
-                st.Page(
-                    "pages/run_api_workflow_v2.py", title="📄 Execute Workflow V2"
-                ),
+                st.Page("pages/run_api_workflow_v2.py", title="📄 Execute Workflow V2"),
                 st.Page(
                     "pages/retrieve_api_execution.py",
                     title="🔍 Retrieve Past Execution",
@@ -161,23 +153,17 @@ def main():
                 ),
             ],
             "Prompt Playground": [
-                st.Page(
-                    "pages/prompt_playground.py", title="⚙️ Prompt Playground"
-                ),
+                st.Page("pages/prompt_playground.py", title="⚙️ Prompt Playground"),
             ],
             "Data": [
                 st.Page("pages/export_dataset.py", title="📤 Export Dataset"),
             ],
             "Tool": [
-                st.Page(
-                    "pages/workflow_generator.py", title="🛠️ Workflow Generator"
-                ),
+                st.Page("pages/workflow_generator.py", title="🛠️ Workflow Generator"),
             ],
             "Administration": [
                 st.Page("pages/admin_users.py", title="👥 Accès Console"),
-                st.Page(
-                    "pages/admin_api_keys.py", title="🔑 Organisation & Clés API"
-                ),
+                st.Page("pages/admin_api_keys.py", title="🔑 Organisation & Clés API"),
             ],
         }
     else:

@@ -121,9 +121,34 @@ def patch_streamlit_oidc() -> None:
                         if extra_claims:
                             userinfo.update(extra_claims)
                             token["userinfo"] = userinfo
+
+                    # Record login event strictly at the OAuth callback completion
+                    user_email = userinfo.get("email")
+                    if user_email:
+                        try:
+                            from document_ia_evals.services.auth_service import (
+                                record_login_event,
+                            )
+
+                            req = getattr(request_handler, "request", None)
+                            ip = getattr(req, "remote_ip", None)
+                            headers = getattr(req, "headers", {})
+                            ua = (
+                                headers.get("User-Agent")
+                                if hasattr(headers, "get")
+                                else None
+                            )
+                            record_login_event(
+                                str(user_email), ip_address=ip, user_agent=ua
+                            )
+                        except Exception as exc:
+                            logger.warning("Could not record login event: %s", exc)
+
                 return token
 
-            TornadoOAuth2App.authorize_access_token = patched_tornado_authorize_access_token
+            TornadoOAuth2App.authorize_access_token = (
+                patched_tornado_authorize_access_token
+            )
             setattr(TornadoOAuth2App, "_proconnect_patched", True)
     except Exception as e:
         logger.debug("[auth_secrets] Note: could not patch TornadoOAuth2App: %s", e)
@@ -162,9 +187,34 @@ def patch_streamlit_oidc() -> None:
                         if extra_claims:
                             userinfo.update(extra_claims)
                             token["userinfo"] = userinfo
+
+                    # Record login event strictly at the OAuth callback completion
+                    user_email = userinfo.get("email")
+                    if user_email:
+                        try:
+                            from document_ia_evals.services.auth_service import (
+                                record_login_event,
+                            )
+
+                            client = getattr(request, "client", None)
+                            ip = getattr(client, "host", None)
+                            headers = getattr(request, "headers", {})
+                            ua = (
+                                headers.get("user-agent")
+                                if hasattr(headers, "get")
+                                else None
+                            )
+                            record_login_event(
+                                str(user_email), ip_address=ip, user_agent=ua
+                            )
+                        except Exception as exc:
+                            logger.warning("Could not record login event: %s", exc)
+
                 return token
 
-            StarletteOAuth2App.authorize_access_token = patched_starlette_authorize_access_token
+            StarletteOAuth2App.authorize_access_token = (
+                patched_starlette_authorize_access_token
+            )
             setattr(StarletteOAuth2App, "_proconnect_patched", True)
     except Exception:
         pass
