@@ -1,7 +1,7 @@
 """Dashboard page with interactive visualizations."""
 
 import streamlit as st
-
+from document_ia_evals.components.auth_ui import enforce_page_auth
 from document_ia_evals.utils.config import config
 
 # Page configuration
@@ -14,6 +14,8 @@ st.set_page_config(
 
 def main():
     """Main dashboard page function."""
+    enforce_page_auth()
+
     # Main content
     st.title("🏠 Welcome to Document IA Evals")
 

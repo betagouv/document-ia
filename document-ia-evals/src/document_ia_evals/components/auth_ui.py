@@ -46,20 +46,55 @@ def render_access_denied_screen(email: str, reason: str) -> None:
 
     with col2:
         st.markdown("<br><br>", unsafe_allow_html=True)
-        st.error("⛔ Accès non autorisé")
-        st.markdown(f"**Identité ProConnect** : `{email}`")
+        st.error("⛔ 401 — Accès non autorisé")
+        st.markdown(f"**Identité ProConnect :** `{email}`")
         st.warning(reason)
 
         st.markdown(
-            "Votre compte n'a pas été enrôlé dans la liste des utilisateurs autorisés de Document IA. "
-            "Veuillez vous rapprocher d'un administrateur du projet pour obtenir les accès."
+            "Votre compte est authentifié auprès de ProConnect mais n'est pas autorisé "
+            "à accéder à la console Document IA. Rapprochez-vous d'un administrateur du projet."
         )
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        if st.button("Se déconnecter", type="secondary", use_container_width=True):
+        if st.button(
+            "🚪 Se déconnecter de ProConnect",
+            type="primary",
+            use_container_width=True,
+            key="btn_denied_logout",
+        ):
             record_logout(email)
+            st.session_state.clear()
             st.logout()
+
+
+def enforce_page_auth(required_role: str | None = None) -> None:
+    """Defense-in-depth security guard for individual page execution."""
+    from document_ia_evals.utils.config import config
+
+    if config.AUTH_BYPASS_LOCAL:
+        return
+
+    is_logged_in = bool(getattr(st.user, "is_logged_in", False))
+    if not is_logged_in:
+        st.error("🔒 Authentification requise. Veuillez vous connecter.")
+        if st.button("Se connecter avec ProConnect", type="primary"):
+            st.login("proconnect")
+        st.stop()
+
+    email = st.session_state.get("current_user_email")
+    role = st.session_state.get("current_user_role")
+
+    if not email:
+        st.error("⛔ Session invalide. Veuillez vous reconnecter.")
+        if st.button("Se déconnecter", type="secondary"):
+            st.session_state.clear()
+            st.logout()
+        st.stop()
+
+    if required_role == "admin" and role != "admin":
+        st.error("⛔ Accès refusé : cette page est réservée aux administrateurs.")
+        st.stop()
 
 
 def render_sidebar_user_profile() -> None:

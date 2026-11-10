@@ -2,6 +2,7 @@ from typing import Any
 
 import pandas as pd
 import streamlit as st
+from document_ia_evals.components.auth_ui import enforce_page_auth
 from document_ia_evals.database.models import UserRole
 from document_ia_evals.services.administration_service import (
     configure_service,
@@ -694,18 +695,15 @@ def _render_orgs_and_api() -> None:
 
 
 def main() -> None:
-    is_admin = st.session_state.get("current_user_role") == "admin"
+    enforce_page_auth(required_role="admin")
 
-    if is_admin:
-        tab_orgs, tab_users = st.tabs(
-            ["🏢 Organisations & Clés API", "👥 Utilisateurs & Droits Evals"]
-        )
-        with tab_orgs:
-            _render_orgs_and_api()
-        with tab_users:
-            render_evals_users_tab()
-    else:
+    tab_orgs, tab_users = st.tabs(
+        ["🏢 Organisations & Clés API", "👥 Utilisateurs & Droits Evals"]
+    )
+    with tab_orgs:
         _render_orgs_and_api()
+    with tab_users:
+        render_evals_users_tab()
 
 
 if __name__ == "__main__":
