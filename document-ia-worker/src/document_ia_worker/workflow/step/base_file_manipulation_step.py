@@ -8,9 +8,9 @@ from document_ia_infra.core.file.safe_path import (
     safe_cleanup_directory,
     validate_safe_path,
 )
+from document_ia_infra.redis.progress_tracker import get_current_progress_tracker
 from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
 from document_ia_worker.workflow.step.base_step import BaseStep
-from document_ia_infra.redis.progress_tracker import get_current_progress_tracker
 
 T = TypeVar("T")
 
@@ -32,8 +32,10 @@ class BaseFileManipulationStep(BaseStep[T], ABC):
             self.tmp_folder_path: str = str(
                 validate_safe_path(candidate_path, self.sandbox_root)
             )
+        else:
+            self.tmp_folder_path = str(self.sandbox_root)
 
-    async def cleanup(self, is_last_cleanup: bool = False):
+    async def cleanup(self, is_last_cleanup: bool = False) -> None:
         tracker = get_current_progress_tracker()
         if tracker is not None and tracker.is_aborted:
             # Tentative avortée par le watchdog : un redémarrage du même
@@ -44,23 +46,7 @@ class BaseFileManipulationStep(BaseStep[T], ABC):
                 "Skipping temp cleanup for aborted execution %s", self.execution_id
             )
             return
-        tmp_dir = Path(self.tmp_folder_path)
-        if tmp_dir.exists() and tmp_dir.is_dir():
-            for file in tmp_dir.iterdir():
-                try:
-                    file.unlink()
-                    logger.info(f"Deleted temp file: {file}")
-                except Exception as e:
-                    logger.error(f"Failed to delete temp file {file}: {e}")
-            try:
-                tmp_dir.rmdir()
-                logger.info(f"Deleted temp directory: {tmp_dir}")
-            except Exception as e:
-                logger.error(f"Failed to delete temp directory {tmp_dir}: {e}")
-        else:
-            self.tmp_folder_path = str(self.sandbox_root)
 
-    async def cleanup(self, is_last_cleanup: bool = False) -> None:
         target_path = Path(
             self.sandbox_root if is_last_cleanup else self.tmp_folder_path
         )
