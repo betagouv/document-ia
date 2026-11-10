@@ -1,6 +1,7 @@
 """Filesystem confinement utilities for Document IA."""
 
 import errno
+import stat
 import logging
 import os
 from pathlib import Path
@@ -94,7 +95,16 @@ def open_confined_directory(
         PathTraversalException: if the directory escapes the sandbox, or if any
             component was replaced by a symlink.
     """
-    resolved = validate_safe_path(directory_path, sandbox_root)
+    # The boundary must be a real directory, not a path that resolves somewhere
+    # else. Resolving it would silently adopt the attacker's target, and every
+    # later comparison would then be relative to that same wrong place.
+    root_path = Path(sandbox_root)
+    if root_path.is_symlink():
+        raise PathTraversalException(
+            f"Sandbox root {root_path} was replaced by a symlink"
+        )
+    root_resolved = root_path.resolve()
+    resolved = validate_safe_path(directory_path, root_resolved)
     try:
         fd = os.open(
             resolved,
@@ -107,14 +117,13 @@ def open_confined_directory(
             ) from exc
         raise
 
-    # Re-check confinement on the descriptor we actually hold: if the parent was
-    # swapped for a symlink, the resolved path and the real directory disagree.
+    # Re-check confinement on the descriptor actually held, against the boundary
+    # captured before the open: a parent swapped in between then disagrees.
     try:
         held = Path(os.readlink(f"/proc/self/fd/{fd}"))
     except OSError:
         held = resolved
-    root_resolved = Path(sandbox_root).resolve()
-    if not held.resolve().is_relative_to(root_resolved):
+    if not held.is_relative_to(root_resolved):
         os.close(fd)
         raise PathTraversalException(
             f"Sandbox directory {held} escapes sandbox {root_resolved}"
@@ -188,6 +197,58 @@ def validate_safe_path(
     return resolved_target
 
 
+def _remove_tree_relative(dir_fd: int) -> None:
+    """Delete a directory's contents relative to an open descriptor.
+
+    Every step is descriptor-relative with `O_NOFOLLOW`, so a child swapped for a
+    symlink is removed as a link and never traversed. Nothing here resolves a
+    pathname, which is what a walk-based implementation would do.
+    """
+    try:
+        entries = os.listdir(dir_fd)
+    except OSError as exc:
+        logger.error("Failed to list directory for cleanup: %s", exc)
+        return
+
+    for name in entries:
+        try:
+            stat_result = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+        except OSError as exc:
+            logger.error("Failed to inspect %s during cleanup: %s", name, exc)
+            continue
+
+        if stat.S_ISDIR(stat_result.st_mode):
+            child_fd = -1
+            try:
+                child_fd = os.open(
+                    name,
+                    os.O_RDONLY | _O_DIRECTORY | _O_NOFOLLOW | _O_CLOEXEC,
+                    dir_fd=dir_fd,
+                )
+            except OSError as exc:
+                # A directory replaced by a symlink is unlinked, never entered.
+                logger.info("Removing non-directory entry %s: %s", name, exc)
+                try:
+                    os.unlink(name, dir_fd=dir_fd)
+                except OSError as unlink_exc:
+                    logger.error("Failed to unlink %s: %s", name, unlink_exc)
+                continue
+            try:
+                _remove_tree_relative(child_fd)
+                os.rmdir(name, dir_fd=dir_fd)
+            except OSError as exc:
+                logger.error("Failed to remove directory %s: %s", name, exc)
+            finally:
+                os.close(child_fd)
+            continue
+
+        try:
+            os.unlink(name, dir_fd=dir_fd)
+            logger.debug("Deleted file/link: %s", name)
+        except OSError as exc:
+            logger.error("Failed to delete %s: %s", name, exc)
+
+
 def safe_cleanup_directory(
     directory_path: Path | str,
     sandbox_root: Path | str | None = None,
@@ -195,7 +256,9 @@ def safe_cleanup_directory(
     """Safely and recursively remove directory contents without following external symlinks.
 
     If a symlink is encountered inside the directory, the symlink itself is removed
-    without touching the external target it points to.
+    without touching the external target it points to. Deletion is descriptor
+    relative throughout: deleting via pathnames would let a directory swapped
+    after validation redirect the walk outside the sandbox.
 
     Args:
         directory_path: Path to the directory to clean up.
@@ -212,73 +275,39 @@ def safe_cleanup_directory(
             logger.error("Failed to remove symlink %s: %s", raw_path, exc)
         return
 
-    if sandbox_root is not None:
-        # Anchor the walk on a descriptor: a boundary re-resolved per entry
-        # would follow a directory that was swapped for a symlink after the
-        # check, deleting files outside the sandbox.
-        try:
-            confined = open_confined_directory(raw_path, sandbox_root)
-        except FileNotFoundError:
-            logger.debug("Directory does not exist for cleanup: %s", raw_path)
-            return
-        resolved_dir = confined.path
-    else:
-        confined = None
-        resolved_dir = raw_path.resolve()
-
-    if not resolved_dir.exists():
-        logger.debug("Directory does not exist for cleanup: %s", resolved_dir)
-        if confined is not None:
-            confined.close()
+    # Open the target itself with no-follow semantics, then work only through
+    # descriptors. The confinement re-check happens on the descriptor held.
+    try:
+        confined = open_confined_directory(
+            raw_path, sandbox_root if sandbox_root is not None else raw_path.parent
+        )
+    except FileNotFoundError:
+        logger.debug("Directory does not exist for cleanup: %s", raw_path)
         return
-
-    if not resolved_dir.is_dir():
+    except NotADirectoryError:
         try:
-            resolved_dir.unlink()
-            logger.info("Deleted file: %s", resolved_dir)
+            raw_path.unlink()
+            logger.info("Deleted file: %s", raw_path)
         except OSError as exc:
-            logger.error("Failed to delete file %s: %s", resolved_dir, exc)
-        if confined is not None:
-            confined.close()
+            logger.error("Failed to delete file %s: %s", raw_path, exc)
+        return
+    except PathTraversalException as exc:
+        logger.error("Refusing to clean up %s: %s", raw_path, exc)
         return
 
-    # Bottom-up walk with followlinks=False to never traverse symlink targets
+    parent_fd = -1
     try:
-        _remove_tree_bottom_up(resolved_dir)
-    finally:
-        if confined is not None:
-            confined.close()
-
-    # Finally, remove the top-level directory itself
-    try:
-        resolved_dir.rmdir()
-        logger.info("Removed sandbox directory: %s", resolved_dir)
+        _remove_tree_relative(confined._fd)
+        # Remove the directory itself through its parent, still no-follow.
+        parent_fd = os.open(
+            os.path.dirname(confined.path) or ".",
+            os.O_RDONLY | _O_DIRECTORY | _O_CLOEXEC,
+        )
+        os.rmdir(os.path.basename(confined.path), dir_fd=parent_fd)
+        logger.info("Removed sandbox directory: %s", confined.path)
     except OSError as exc:
-        logger.error("Failed to remove root directory %s: %s", resolved_dir, exc)
-
-
-def _remove_tree_bottom_up(resolved_dir: Path) -> None:
-    """Delete the contents of an already-confined directory, never following links."""
-    for root, dirs, files in os.walk(
-        str(resolved_dir), topdown=False, followlinks=False
-    ):
-        for fname in files:
-            fpath = Path(root) / fname
-            try:
-                # unlink() removes the file or the symlink itself without following
-                fpath.unlink()
-                logger.debug("Deleted file/link: %s", fpath)
-            except OSError as exc:
-                logger.error("Failed to delete %s: %s", fpath, exc)
-
-        for dname in dirs:
-            dpath = Path(root) / dname
-            try:
-                if dpath.is_symlink():
-                    dpath.unlink()
-                    logger.debug("Deleted directory symlink: %s", dpath)
-                else:
-                    dpath.rmdir()
-                    logger.debug("Removed directory: %s", dpath)
-            except OSError as exc:
-                logger.error("Failed to remove directory %s: %s", dpath, exc)
+        logger.error("Failed to remove %s: %s", confined.path, exc)
+    finally:
+        if parent_fd >= 0:
+            os.close(parent_fd)
+        confined.close()

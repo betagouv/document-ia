@@ -5,6 +5,7 @@ import ipaddress
 import logging
 import socket
 import ssl
+from collections.abc import Callable
 from typing import Any, Iterable, Union
 
 import httpcore
@@ -111,6 +112,45 @@ async def resolve_and_pin_ip(
     return pinned_ip
 
 
+class _DeadlineBoundedStream(httpcore.AsyncNetworkStream):
+    """Wraps a stream so the TLS handshake shares the connect deadline.
+
+    HTTP Core hands the same `timeout` to `connect_tcp` and then to
+    `start_tls`, so the handshake restarts the budget after DNS and TCP have
+    already spent part of it. This wrapper recomputes the remainder at the
+    moment TLS starts.
+    """
+
+    def __init__(
+        self,
+        stream: httpcore.AsyncNetworkStream,
+        remaining: Callable[[], float | None],
+    ) -> None:
+        self._stream = stream
+        self._remaining = remaining
+
+    async def start_tls(
+        self,
+        ssl_context: ssl.SSLContext,
+        server_hostname: str | None = None,
+        timeout: float | None = None,
+    ) -> httpcore.AsyncNetworkStream:
+        return await self._stream.start_tls(
+            ssl_context=ssl_context,
+            server_hostname=server_hostname,
+            timeout=self._remaining(),
+        )
+
+    async def read(self, max_bytes: int, timeout: float | None = None) -> bytes:
+        return await self._stream.read(max_bytes=max_bytes, timeout=timeout)
+
+    async def write(self, buffer: bytes, timeout: float | None = None) -> None:
+        await self._stream.write(buffer, timeout=timeout)
+
+    async def aclose(self) -> None:
+        await self._stream.aclose()
+
+
 class SafeAsyncNetworkBackend(httpcore.AsyncNetworkBackend):
     """Network backend wrapping the default backend with socket pinning and SSRF checks."""
 
@@ -174,13 +214,15 @@ class SafeAsyncNetworkBackend(httpcore.AsyncNetworkBackend):
                 break
 
             try:
-                return await self._backend.connect_tcp(
+                stream = await self._backend.connect_tcp(
                     host=pinned_ip,
                     port=port,
                     timeout=attempt_timeout,
                     local_address=local_address,
                     socket_options=socket_options,
                 )
+                # TLS gets the true remainder rather than the attempt timeout.
+                return _DeadlineBoundedStream(stream, remaining)
             except (httpcore.ConnectError, httpcore.ConnectTimeout) as exc:
                 last_error = exc
 
@@ -261,56 +303,12 @@ class SafeAsyncHTTPTransport(httpx.AsyncHTTPTransport):
                 f"Disallowed protocol scheme: '{scheme}'. Only HTTPS is permitted."
             )
 
-        # Early hostname check
+        # Reject forbidden hostnames before any connection is attempted. Address
+        # validation itself belongs to the backend, which resolves and validates
+        # every resolved address and then pins the socket: duplicating the lookup
+        # here made the budget restart, charged DNS on pooled connections that
+        # needed none, and made TLS inherit a stale remainder.
         validate_hostname(request.url.host, allow_local=self.allow_local)
-
-        # Pre-resolve and validate to catch IP/DNS errors before pool
-        port = request.url.port or (443 if scheme == "https" else 80)
-        timeouts = request.extensions.get("timeout") or {}
-        connect_timeout = (
-            timeouts.get("connect") if isinstance(timeouts, dict) else None
-        )
-
-        # The connect budget spans the pre-flight lookup, the backend's own
-        # lookup, and TLS. HTTPX would hand the full timeout to each step
-        # independently, letting one request cost a multiple of what the caller
-        # configured, so the deadline is established once here and only the
-        # remainder is delegated.
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + connect_timeout if connect_timeout else None
-
-        def remaining() -> float | None:
-            if deadline is None:
-                return connect_timeout
-            return max(0.0, deadline - loop.time())
-
-        if connect_timeout is not None:
-            try:
-                await resolve_and_pin_ip(
-                    request.url.host,
-                    port,
-                    allow_local=self.allow_local,
-                    timeout=remaining(),
-                )
-            except httpcore.ConnectTimeout as exc:
-                # This pre-flight resolution runs outside the pool, so HTTPX does
-                # not translate its exceptions: raise the public type directly.
-                raise httpx.ConnectTimeout(str(exc), request=request) from exc
-
-            # Delegate only what is left of the budget: the backend's DNS lookup
-            # and the TLS handshake share the same deadline instead of restarting
-            # it.
-            leftover = remaining()
-            extensions_timeout = dict(timeouts) if isinstance(timeouts, dict) else {}
-            extensions_timeout["connect"] = leftover
-            request.extensions = dict(request.extensions)
-            request.extensions["timeout"] = extensions_timeout
-            if leftover is not None and leftover <= 0:
-                raise httpx.ConnectTimeout(
-                    f"Connect budget of {connect_timeout}s exhausted before "
-                    f"connecting to '{request.url.host}'",
-                    request=request,
-                )
 
         response = await super().handle_async_request(request)
 

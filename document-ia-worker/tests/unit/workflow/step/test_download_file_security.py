@@ -271,7 +271,8 @@ async def test_unreachable_first_address_falls_back_to_next():
         backend._backend.connect_tcp.side_effect = fake_connect_tcp
         stream = await backend.connect_tcp("example.com", 443, timeout=30.0)
 
-    assert stream == "stream"
+    # The returned stream is wrapped so the TLS handshake can be re-bounded.
+    assert type(stream).__name__ == "_DeadlineBoundedStream"
     assert attempted == ["93.184.216.34", "93.184.216.35"]
 
 
@@ -645,10 +646,11 @@ def test_open_confined_directory_rejects_an_escaping_name(tmp_path: Path):
 
 
 def test_cleanup_never_deletes_through_a_replaced_directory(tmp_path: Path):
-    """Cleanup must not delete anything behind a swapped-in symlink.
+    """Cleanup must not delete anything behind a destroyed sandbox root.
 
-    Either it refuses, or it removes the link itself; what it must never do is
-    walk through the link and delete the external contents.
+    The external target must actually exist here: an earlier version of this
+    test pointed at a missing directory, so it passed while the code happily
+    deleted real external files.
     """
     from document_ia_infra.core.file.safe_path import safe_cleanup_directory
 
@@ -656,12 +658,113 @@ def test_cleanup_never_deletes_through_a_replaced_directory(tmp_path: Path):
     sandbox.mkdir()
     outside = tmp_path / "keep"
     outside.mkdir()
-    (outside / "KEEP.txt").write_text("must survive")
+    (outside / "preprocess").mkdir()
+    kept = outside / "preprocess" / "KEEP.txt"
+    kept.write_text("must survive")
 
     execution_dir = sandbox / "exec3"
     execution_dir.symlink_to(outside, target_is_directory=True)
 
-    safe_cleanup_directory(execution_dir / "preprocess", sandbox_root=execution_dir)
+    safe_cleanup_directory(
+        execution_dir / "preprocess", sandbox_root=execution_dir
+    )
 
-    # The external file survived; nothing was deleted through the link.
-    assert (outside / "KEEP.txt").exists()
+    assert kept.exists(), "cleanup deleted a file outside the sandbox"
+
+
+def test_open_confined_directory_refuses_a_replaced_sandbox_root(tmp_path: Path):
+    """A sandbox root that is itself a symlink must be refused.
+
+    Resolving it would adopt the attacker's target, and every later comparison
+    would then be relative to that same wrong place, which is how a parent
+    replacement used to escape.
+    """
+    from document_ia_infra.core.file.safe_path import open_confined_directory
+    from document_ia_infra.exception.security_exception import PathTraversalException
+
+    sandbox = tmp_path / "root_sandbox"
+    sandbox.mkdir()
+    outside = tmp_path / "root_outside"
+    outside.mkdir()
+    (outside / "sub").mkdir()
+
+    replaced_root = sandbox / "exec"
+    replaced_root.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(PathTraversalException):
+        open_confined_directory(replaced_root / "sub", replaced_root)
+
+
+@pytest.mark.asyncio
+async def test_tls_handshake_gets_the_remaining_budget():
+    """TLS must inherit the leftover connect budget, not the original value."""
+    from document_ia_infra.core.network.safe_transport import (
+        SafeAsyncNetworkBackend,
+    )
+
+    seen: dict[str, float | None] = {}
+
+    class FakeStream:
+        async def start_tls(self, ssl_context, server_hostname=None, timeout=None):
+            seen["tls_timeout"] = timeout
+            return self
+
+        async def read(self, max_bytes, timeout=None):
+            return b""
+
+        async def write(self, buffer, timeout=None):
+            return None
+
+        async def aclose(self):
+            return None
+
+    backend = SafeAsyncNetworkBackend()
+    backend._backend = AsyncMock()
+    backend._backend.connect_tcp.return_value = FakeStream()
+
+    with patch(
+        "document_ia_infra.core.network.safe_transport.resolve_validated_ips",
+        new=AsyncMock(return_value=["93.184.216.34"]),
+    ):
+        stream = await backend.connect_tcp("example.com", 443, timeout=1.0)
+        await asyncio.sleep(0.2)
+        await stream.start_tls(ssl_context=None)
+
+    # Strictly less than the original budget: the elapsed DNS/dial time is gone.
+    assert seen["tls_timeout"] is not None
+    assert seen["tls_timeout"] < 0.9
+
+
+@pytest.mark.asyncio
+async def test_pooled_request_does_not_depend_on_dns():
+    """A reused connection must not perform, or wait on, a DNS lookup.
+
+    The pre-flight resolve ran before the pool could reuse a live connection, so
+    a hanging resolver failed requests that needed no name resolution at all.
+    """
+    from document_ia_infra.core.network import safe_transport
+
+    calls: list[str] = []
+    real = safe_transport.resolve_validated_ips
+
+    async def counting(hostname, port, allow_local=False):
+        calls.append(hostname)
+        return await real(hostname, port, allow_local=allow_local)
+
+    transport = safe_transport.SafeAsyncHTTPTransport(allow_local=True)
+    handler_response = httpx.Response(
+        200,
+        content=b"ok",
+        request=httpx.Request("GET", "https://127.0.0.1:1/x"),
+    )
+    with patch.object(
+        safe_transport.SafeAsyncHTTPTransport,
+        "handle_async_request",
+        new=AsyncMock(return_value=handler_response),
+    ):
+        async with httpx.AsyncClient(transport=transport) as client:
+            with patch.object(safe_transport, "resolve_validated_ips", counting):
+                await client.get("https://example.com/a.pdf")
+
+    # The transport no longer resolves before delegating to the pool.
+    assert calls == []
