@@ -50,17 +50,15 @@ def test_generate_secrets_toml(tmp_path: Path) -> None:
     """Test generating .streamlit/secrets.toml from configuration."""
     target_file = tmp_path / "secrets.toml"
 
-    with patch.dict(
-        "os.environ",
-        {
-            "PROCONNECT_CLIENT_ID": "test-client-id",
-            "PROCONNECT_CLIENT_SECRET": "test-client-secret",
-            "PROCONNECT_METADATA_URL": "https://fca.integ01.dev-agentconnect.fr/api/v2/.well-known/openid-configuration",
-            "PROCONNECT_REDIRECT_URI": "http://localhost:8501/oauth2callback",
-            "PROCONNECT_COOKIE_SECRET": "test-cookie-secret-1234567890",
-            "AUTH_BYPASS_LOCAL": "false",
-        },
-    ):
+    with patch("document_ia_evals.utils.auth_secrets.config") as mock_config:
+        mock_config.AUTH_BYPASS_LOCAL = False
+        mock_config.PROCONNECT_CLIENT_ID = "test-client-id"
+        mock_config.PROCONNECT_CLIENT_SECRET = "test-client-secret"
+        mock_config.PROCONNECT_METADATA_URL = "https://fca.integ01.dev-agentconnect.fr/api/v2/.well-known/openid-configuration"
+        mock_config.PROCONNECT_REDIRECT_URI = "http://localhost:8501/oauth2callback"
+        mock_config.PROCONNECT_COOKIE_SECRET = "test-cookie-secret-1234567890"
+        mock_config.PROCONNECT_SCOPES = "openid email profile"
+
         result_path = generate_secrets_toml(target_path=target_file)
         assert result_path is not None
         assert result_path.exists()

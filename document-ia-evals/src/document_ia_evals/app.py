@@ -36,13 +36,16 @@ def authenticate_and_authorize() -> bool:
         st.session_state["current_user_role"] = "admin"
         return True
 
-    # 2. Check Streamlit native OIDC login status
-    if not st.user.is_logged_in:
+    # 2. Check Streamlit native OIDC login status safely
+    is_logged_in = bool(getattr(st.user, "is_logged_in", False))
+    if not is_logged_in:
         render_login_screen()
         st.stop()
 
     # 3. Retrieve user email from ProConnect claims
-    user_email = getattr(st.user, "email", None)
+    user_email = getattr(st.user, "email", None) or (
+        st.user.get("email") if hasattr(st.user, "get") else None
+    )
     if not user_email:
         render_access_denied_screen(
             email="Inconnu",

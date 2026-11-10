@@ -29,7 +29,7 @@ class Config(BaseSettings):
     )
 
     # Project paths
-    ROOT_DIR: Path = Field(default_factory=lambda: Path(__file__).parent.parent.parent)
+    ROOT_DIR: Path = Field(default_factory=lambda: Path(__file__).resolve().parents[3])
 
     @property
     def SRC_DIR(self) -> Path:
