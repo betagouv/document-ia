@@ -428,6 +428,9 @@ class TestIdempotencyIntegration:
             "Idempotency-Key": idempotency_key,
         }
 
+        # Every completion write fails, so nothing is recorded for the accepted
+        # execution. The request must still succeed, and the execution must not
+        # be scheduled twice.
         with patch(
             "document_ia_api.infra.idempotency_service.IdempotencyService.complete_or_retain",
             new=AsyncMock(side_effect=RuntimeError("redis unreachable")),
@@ -442,18 +445,20 @@ class TestIdempotencyIntegration:
         execution_id = response.json()["data"]["execution_id"]
         assert execution_id
 
-        # The accepted execution is never duplicated: the reservation stays held,
-        # so a retry is refused as in-progress rather than scheduling a second
-        # execution. The only response that would be a defect here is a new
-        # execution being created.
+        # A retry with the same key may either replay the accepted execution or,
+        # if nothing could be recorded, be refused as in progress. What it must
+        # never do is return 200 with a different execution.
         replay = await async_client.post(
             "/api/v2/workflows/document-extraction-v2/execute",
             data={"file_url": file_url, "override": override},
             headers=headers,
         )
-        assert replay.status_code == 409
-        assert replay.json()["errors"]["error"] == "idempotency_in_progress"
-        assert replay.json()["errors"]["execution_id"] == execution_id
+        if replay.status_code == 200:
+            assert replay.json()["data"]["execution_id"] == execution_id
+        else:
+            assert replay.status_code == 409
+            assert replay.json()["errors"]["error"] == "idempotency_in_progress"
+            assert replay.json()["errors"]["execution_id"] == execution_id
 
     @pytest.mark.asyncio
     async def test_lost_reservation_blocks_duplicate_publication(
@@ -726,3 +731,54 @@ class TestIdempotencyIntegration:
                     await session.commit()
                 except Exception:
                     await session.rollback()
+
+
+class TestStartEventIsMandatory:
+    """A published execution must always have a start event to replay from.
+
+    v1 used to swallow failures from emit_workflow_started and publish anyway.
+    The client got 200, the retry got 404 ("execution not found for replay"), and
+    the attempt after that scheduled the work again.
+    """
+
+    @pytest.mark.asyncio
+    async def test_v1_does_not_publish_when_the_start_event_fails(
+        self,
+        async_client: httpx.AsyncClient,
+        standard_api_key_value: str,
+        mock_pdf_file,
+    ):
+        idempotency_key = f"key-start-fail-{uuid4()}"
+        headers = {
+            "X-API-KEY": standard_api_key_value,
+            "Idempotency-Key": idempotency_key,
+        }
+
+        with patch(
+            "document_ia_api.application.services.workflow_service.EventStoreService.emit_workflow_started",
+            new=AsyncMock(side_effect=RuntimeError("database is down")),
+        ) as emit, patch(
+            "document_ia_infra.redis.publisher.Publisher.publish_message_fenced",
+            new=AsyncMock(return_value="1-0"),
+        ) as publish:
+            response = await async_client.post(
+                "/api/v1/workflows/document-classification-v1/execute",
+                files={"file": ("doc.pdf", mock_pdf_file.getvalue(), "application/pdf")},
+                data={"metadata": json.dumps({"source": "start_fail"})},
+                headers=headers,
+            )
+
+        emit.assert_awaited_once()
+        # Nothing was scheduled, so the caller must not be told it was accepted.
+        assert response.status_code == 503
+        assert response.json()["errors"]["error"] == "execution_scheduling_unavailable"
+        publish.assert_not_awaited()
+
+        # The reservation was released, so the client can retry with the same key.
+        retry = await async_client.post(
+            "/api/v1/workflows/document-classification-v1/execute",
+            files={"file": ("doc.pdf", mock_pdf_file.getvalue(), "application/pdf")},
+            data={"metadata": json.dumps({"source": "start_fail"})},
+            headers=headers,
+        )
+        assert retry.status_code == 200

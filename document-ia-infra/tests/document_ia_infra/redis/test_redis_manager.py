@@ -389,3 +389,48 @@ class TestFencedPublication:
                 reservation_ttl_seconds=43200,
             )
         assert await client.xlen(stream) == 1
+
+
+class TestAdmissionScriptShifting:
+    """The inlined admission body must never be silently mis-shifted."""
+
+    def test_generated_script_has_one_xadd_and_no_bare_indexes(self):
+        import re
+
+        from document_ia_infra.redis.idempotent_publish import (
+            IDEMPOTENT_PUBLISH_SCRIPT,
+        )
+
+        script = IDEMPOTENT_PUBLISH_SCRIPT
+        assert script.count("XADD") == 1
+        assert re.findall(r"\bKEYS\[i\]", script) == []
+        assert re.findall(r"\bARGV\[i\]", script) == []
+        # Nested EVAL is forbidden by Redis.
+        assert "EVAL" not in script
+
+    def test_new_key_and_argument_indexes_are_shifted(self):
+        from document_ia_infra.redis.idempotent_publish import (
+            build_idempotent_publish_script,
+        )
+
+        body = "local a = KEYS[5]\nlocal b = ARGV[12]\nreturn {a, b}"
+        script = build_idempotent_publish_script(body)
+        assert "KEYS[6]" in script
+        assert "ARGV[14]" in script
+
+    def test_new_relative_form_is_shifted(self):
+        from document_ia_infra.redis.idempotent_publish import (
+            build_idempotent_publish_script,
+        )
+
+        script = build_idempotent_publish_script("local v = KEYS[i + 3]\nreturn v")
+        assert "KEYS[i + 4]" in script
+
+    def test_unshiftable_reference_fails_loudly(self):
+        from document_ia_infra.redis.idempotent_publish import (
+            build_idempotent_publish_script,
+        )
+
+        # A form the mapping cannot handle must raise, never emit wrong Lua.
+        with pytest.raises(ValueError):
+            build_idempotent_publish_script("local x = KEYS[#KEYS]\nreturn x")

@@ -149,10 +149,13 @@ class WorkflowService:
                     f"(workflow: {workflow_id}, file_url: {file_url})"
                 )
 
-            # Emit workflow started event
+            # Emit workflow started event. This is mandatory: the started event
+            # is what a replay reads back and what a reader consults to learn
+            # that the execution exists. Publishing without it returns 200 for an
+            # execution that cannot be replayed (the retry 404s) and lets the next
+            # retry schedule the same work again, so a failure aborts here.
+            event_store_service = EventStoreService(self.db_session)
             try:
-                event_store_service = EventStoreService(self.db_session)
-
                 await event_store_service.emit_workflow_started(
                     workflow_id=workflow_id,
                     execution_id=execution_id,
@@ -167,13 +170,16 @@ class WorkflowService:
                         request_extraction_parameter
                     ),
                 )
-                logger.debug(
-                    f"Workflow started event emitted for execution {execution_id}"
+            except Exception as emit_error:
+                logger.error(
+                    "Workflow execution %s: started event could not be persisted",
+                    execution_id,
                 )
-
-            except Exception as e:
-                logger.error(f"Failed to emit workflow started event: {e}")
-                # Don't fail the workflow execution if event emission fails
+                # Nothing is scheduled, so the caller must not be told the
+                # execution was accepted; the route releases the reservation and
+                # the client can retry with the same key.
+                raise scheduling_unavailable(execution_id) from emit_error
+            logger.debug(f"Workflow started event emitted for execution {execution_id}")
 
             # Publication is fenced by reservation ownership in one Redis
             # operation: a stale request must not publish a second execution.
