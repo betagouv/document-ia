@@ -18,7 +18,10 @@ from document_ia_evals.services.auth_service import (
     update_evals_user,
     verify_user_access,
 )
-from document_ia_evals.utils.auth_secrets import generate_secrets_toml
+from document_ia_evals.utils.auth_secrets import (
+    generate_secrets_toml,
+    patch_streamlit_oidc_prompt,
+)
 
 
 @pytest.fixture
@@ -171,3 +174,13 @@ def test_user_management_crud(in_memory_db) -> None:
     # 6. Delete user
     assert delete_evals_user("alice@beta.gouv.fr") is True
     assert len(list_evals_users()) == 0
+
+
+def test_patch_streamlit_oidc_prompt() -> None:
+    """Test that patch_streamlit_oidc_prompt removes prompt parameter from client_kwargs."""
+    patch_streamlit_oidc_prompt()
+
+    import streamlit.web.server.oauth_authlib_routes as routes
+
+    client, _ = routes.create_oauth_client("proconnect")
+    assert "prompt" not in client.client_kwargs

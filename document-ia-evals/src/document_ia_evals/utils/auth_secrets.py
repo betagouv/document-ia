@@ -11,11 +11,50 @@ from pathlib import Path
 from document_ia_evals.utils.config import config
 
 
+def patch_streamlit_oidc_prompt() -> None:
+    """Ensure Streamlit does not inject 'prompt=select_account' for ProConnect.
+
+    ProConnect returns 'invalid_request: unsupported prompt value requested'
+    if prompt=select_account is passed. By stripping 'prompt' from client_kwargs,
+    Authlib generates a clean authorization URL conforming to the DINUM specification.
+    """
+    try:
+        import streamlit.web.server.oauth_authlib_routes as routes
+
+        original_create_oauth_client = routes.create_oauth_client
+
+        def safe_create_oauth_client(provider: str):
+            client, redirect_uri = original_create_oauth_client(provider)
+            if provider == "proconnect" and hasattr(client, "client_kwargs"):
+                client.client_kwargs.pop("prompt", None)
+            return client, redirect_uri
+
+        routes.create_oauth_client = safe_create_oauth_client
+    except Exception as e:
+        print(f"[auth_secrets] Note: could not patch Tornado oauth routes: {e}")
+
+    try:
+        import streamlit.web.server.starlette.starlette_auth_routes as s_routes
+
+        original_s_create = s_routes._create_oauth_client  # pyright: ignore [reportPrivateUsage]
+
+        def safe_s_create_oauth_client(provider: str):
+            client, redirect_uri = original_s_create(provider)
+            if provider == "proconnect" and hasattr(client, "client_kwargs"):
+                client.client_kwargs.pop("prompt", None)
+            return client, redirect_uri
+
+        s_routes._create_oauth_client = safe_s_create_oauth_client  # pyright: ignore [reportPrivateUsage]
+    except Exception:
+        pass
+
+
 def generate_secrets_toml(target_path: Path | None = None) -> Path | None:
     """Generate or update .streamlit/secrets.toml from configuration/environment.
 
     Returns the path to the written file, or None if bypass is active without credentials.
     """
+    patch_streamlit_oidc_prompt()
     if target_path is None:
         target_path = config.ROOT_DIR / ".streamlit" / "secrets.toml"
 
@@ -66,6 +105,10 @@ client_kwargs = {{ scope = "{scopes}" }}
     target_path.write_text(toml_content, encoding="utf-8")
     print(f"[auth_secrets] Successfully wrote OIDC configuration to {target_path}")
     return target_path
+
+
+# Automatically patch when module is loaded
+patch_streamlit_oidc_prompt()
 
 
 if __name__ == "__main__":

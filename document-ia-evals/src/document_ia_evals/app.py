@@ -8,10 +8,14 @@ from document_ia_evals.components.auth_ui import (
     render_sidebar_user_profile,
 )
 from document_ia_evals.services.auth_service import verify_user_access
-from document_ia_evals.utils.auth_secrets import generate_secrets_toml
+from document_ia_evals.utils.auth_secrets import (
+    generate_secrets_toml,
+    patch_streamlit_oidc_prompt,
+)
 from document_ia_evals.utils.config import config
 
-# Ensure directories and secrets configuration exist
+# Ensure directories, prompt patch and secrets configuration exist
+patch_streamlit_oidc_prompt()
 config.ensure_directories()
 generate_secrets_toml()
 
