@@ -7,7 +7,7 @@ import json
 import logging
 from collections.abc import Awaitable
 from datetime import datetime
-from typing import TypeVar, Generic, cast
+from typing import Any, TypeVar, Generic, cast
 
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
@@ -218,31 +218,44 @@ class Publisher(Generic[T]):
             raise PublishFailedError(self.stream_name, "invalid_publication_response")
         return message_id
 
-    async def execution_is_queued(self, execution_id: str) -> bool:
+    async def execution_is_queued(self, execution_id: str) -> bool | None:
         """Report whether a message for `execution_id` is on this stream.
 
         Resolves an unknown publication outcome: the fenced script's reply may be
         lost after Redis committed, so presence on the stream is the evidence
         that the work was actually scheduled.
+
+        Returns None when the stream could not be read. That must not be
+        confused with absence: the outcome is still unresolved.
         """
         try:
             connection = await self.current_redis_manager.get_connection()
         except Exception:
-            return False
+            return None
         if connection is None:
-            return False
+            return None
         try:
-            entries = await connection.xrange(  # type: ignore[UnknownMemberType]
-                self.stream_name, min="-", max="+", count=1000
+            # Bounded like the publication itself: a stalled Redis would
+            # otherwise hold the request, its pooled connection and the
+            # reservation renewal open on this read.
+            entries = await asyncio.wait_for(
+                cast(
+                    Awaitable[Any],
+                    connection.xrange(  # type: ignore[UnknownMemberType]
+                        self.stream_name, min="-", max="+", count=1000
+                    ),
+                ),
+                timeout=redis_settings.PUBLISH_TIMEOUT_SECONDS,
             )
         except Exception as exc:
             logger.warning(
-                "Unable to inspect stream %s to reconcile execution %s: %s",
+                "Unable to inspect stream %s to reconcile execution %s: %s; "
+                "outcome remains unresolved",
                 self.stream_name,
                 execution_id,
                 exc,
             )
-            return False
+            return None
         for _entry_id, fields in entries:
             raw = fields.get("data")
             if not raw:

@@ -441,10 +441,16 @@ class IdempotencyReservation:
         )
         self._renewal_task: asyncio.Task[None] | None = None
         self._lost = False
+        self._outcome_unresolved = False
 
     @property
     def is_lost(self) -> bool:
         return self._lost
+
+    @property
+    def outcome_unresolved(self) -> bool:
+        """The publication may or may not have landed and could not be checked."""
+        return self._outcome_unresolved
 
     async def __aenter__(self) -> "IdempotencyReservation":
         self._renewal_task = asyncio.create_task(self._renew_until_closed())
@@ -497,10 +503,24 @@ class IdempotencyReservation:
             # The reply was lost: Redis may or may not have queued the work.
             # Accepting blindly marks an unscheduled execution as accepted;
             # failing blindly invites a duplicate. Ask the stream which it is.
-            if await publisher.execution_is_queued(self._execution_id):
+            queued = await publisher.execution_is_queued(self._execution_id)
+            if queued is True:
                 logger.warning(
                     "Execution %s: publication reply was lost but the message is "
                     "on the stream; accepted",
+                    self._execution_id,
+                )
+                return ""
+            if queued is None:
+                # The stream could not be read either, so the outcome is still
+                # unresolved. The reservation is kept IN_PROGRESS — not marked
+                # completed, which would assert an execution that may not exist —
+                # so a retry is refused as in-progress instead of publishing a
+                # duplicate, and the lease expiry lets the client recover.
+                self._outcome_unresolved = True
+                logger.warning(
+                    "Execution %s: publication outcome still unresolved; keeping "
+                    "the reservation in progress",
                     self._execution_id,
                 )
                 return ""

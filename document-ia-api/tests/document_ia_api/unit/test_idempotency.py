@@ -835,6 +835,30 @@ class TestUnknownOutcomeIsReconciled:
         publisher.execution_is_queued.assert_awaited_once_with("exec-A")
 
     @pytest.mark.asyncio
+    async def test_unresolved_lookup_keeps_the_reservation_in_progress(self):
+        """If the stream cannot be read, the outcome stays unresolved.
+
+        Marking it completed would assert an execution that may not exist; the
+        reservation is left in progress so a retry is refused rather than
+        duplicating the work.
+        """
+        from document_ia_infra.redis.publisher import PublicationOutcomeUnknownError
+
+        service = AsyncMock(spec=IdempotencyService)
+        publisher = AsyncMock()
+        publisher.publish_message_fenced.side_effect = PublicationOutcomeUnknownError(
+            "event_stream", "TimeoutError"
+        )
+        publisher.execution_is_queued.return_value = None
+        reservation = IdempotencyReservation(
+            service, key="k", execution_id="exec-A", lock_ttl_seconds=60
+        )
+
+        await reservation.publish(publisher, "message")
+
+        assert reservation.outcome_unresolved is True
+
+    @pytest.mark.asyncio
     async def test_unqueued_message_still_fails(self):
         from document_ia_infra.redis.publisher import PublicationOutcomeUnknownError
 
@@ -880,3 +904,44 @@ class TestRedisClientTimeoutIsAmbiguous:
                 reservation_execution_id="exec-A",
                 reservation_ttl_seconds=60,
             )
+
+
+class TestReconciliationReadIsBounded:
+    @pytest.mark.asyncio
+    async def test_stalled_stream_read_is_bounded(self):
+        """A stalled Redis must not hold the request open on the reconciliation."""
+        import asyncio
+
+        from document_ia_infra.redis.publisher import Publisher
+        from document_ia_infra.redis.redis_settings import redis_settings
+
+        connection = AsyncMock()
+
+        async def never(*args, **kwargs):
+            await asyncio.sleep(30)
+
+        connection.xrange.side_effect = never
+        manager = AsyncMock()
+        manager.get_connection.return_value = connection
+        publisher = Publisher("event_stream", current_redis_manager=manager)
+
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        with patch.object(redis_settings, "PUBLISH_TIMEOUT_SECONDS", 0.2):
+            result = await publisher.execution_is_queued("exec-A")
+        elapsed = loop.time() - started
+
+        assert result is None, "unresolved must not be reported as absence"
+        assert elapsed < 5, f"reconciliation was not bounded: {elapsed:.2f}s"
+
+    @pytest.mark.asyncio
+    async def test_absent_message_is_reported_as_absent(self):
+        from document_ia_infra.redis.publisher import Publisher
+
+        connection = AsyncMock()
+        connection.xrange.return_value = []
+        manager = AsyncMock()
+        manager.get_connection.return_value = connection
+        publisher = Publisher("event_stream", current_redis_manager=manager)
+
+        assert await publisher.execution_is_queued("exec-A") is False

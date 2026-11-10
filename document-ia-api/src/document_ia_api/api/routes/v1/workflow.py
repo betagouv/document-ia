@@ -528,8 +528,15 @@ async def execute_workflow(
         raise
 
     # The execution is accepted and published from here on: tracking failures
-    # must not turn an accepted job into an error, nor let its key lapse.
-    if redis_key is not None and pre_generated_execution_id is not None:
+    # must not turn an accepted job into an error, nor let its key lapse. An
+    # unresolved outcome is the exception: the publication may never have
+    # happened, so the reservation stays IN_PROGRESS rather than being marked
+    # completed for an execution that might not exist.
+    if (
+        redis_key is not None
+        and pre_generated_execution_id is not None
+        and not (reservation is not None and reservation.outcome_unresolved)
+    ):
         await mark_completed_or_retain(
             idempotency_service,
             key=redis_key,
