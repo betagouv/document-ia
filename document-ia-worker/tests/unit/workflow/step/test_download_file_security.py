@@ -897,3 +897,52 @@ def test_normal_execution_root_still_works(tmp_path: Path):
 
     assert root == (base / execution_id).resolve()
     assert root.parent == base.resolve()
+
+
+def test_root_is_not_canonicalised_so_a_swap_cannot_redirect_it(tmp_path: Path):
+    """The boundary must never be derived from the filesystem.
+
+    Swapping the execution directory for a symlink to a *sibling* execution
+    between the symlink check and resolution kept `resolve()` inside the base and
+    passed the parent check, so the sibling's files were deleted.
+    """
+    import shutil
+
+    from document_ia_infra.core.file.safe_path import (
+        get_execution_sandbox_root,
+        safe_cleanup_directory,
+    )
+
+    base = tmp_path / "base"
+    base.mkdir()
+    victim_id, attacker_id = str(uuid4()), str(uuid4())
+    victim = base / victim_id
+    victim.mkdir()
+    document = victim / "DOCUMENT.pdf"
+    document.write_text("victim's document")
+
+    attacker_dir = base / attacker_id
+    attacker_dir.mkdir()
+
+    real_is_symlink = Path.is_symlink
+    swapped = {"done": False}
+
+    def swapping_is_symlink(self):
+        result = real_is_symlink(self)
+        if not swapped["done"] and str(self) == str(attacker_dir):
+            swapped["done"] = True
+            shutil.rmtree(attacker_dir, ignore_errors=True)
+            attacker_dir.symlink_to(victim, target_is_directory=True)
+        return result
+
+    with patch.object(Path, "is_symlink", swapping_is_symlink):
+        root = get_execution_sandbox_root(attacker_id, base_dir=base)
+
+    # The boundary is the execution's own path, never the symlink's target.
+    assert root == base / attacker_id
+    assert victim not in root.parents
+
+    safe_cleanup_directory(root, sandbox_root=root)
+
+    assert document.exists(), "cleanup followed a swapped root into a sibling"
+    assert victim.exists()

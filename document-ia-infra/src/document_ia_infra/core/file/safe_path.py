@@ -95,15 +95,13 @@ def open_confined_directory(
         PathTraversalException: if the directory escapes the sandbox, or if any
             component was replaced by a symlink.
     """
-    # The boundary must be a real directory, not a path that resolves somewhere
-    # else. Resolving it would silently adopt the attacker's target, and every
-    # later comparison would then be relative to that same wrong place.
+    # The boundary is taken as given (it is built as `<base>/<execution_id>`, not
+    # derived from the filesystem) and is only normalised lexically. Resolving it
+    # would adopt whatever a symlink points at, which is exactly how a replaced
+    # execution directory escaped. The real guarantee is the O_NOFOLLOW open plus
+    # the descriptor check below.
     root_path = Path(sandbox_root)
-    if root_path.is_symlink():
-        raise PathTraversalException(
-            f"Sandbox root {root_path} was replaced by a symlink"
-        )
-    root_resolved = root_path.resolve()
+    root_resolved = Path(os.path.normpath(root_path.absolute()))
     resolved = validate_safe_path(directory_path, root_resolved)
     try:
         fd = os.open(
@@ -163,57 +161,56 @@ def get_execution_sandbox_root(
     valid_uuid = validate_execution_id(execution_id)
     base_path = Path(base_dir).resolve()
 
-    # The execution directory must be exactly the entry for this execution, not a
-    # path that resolves somewhere else. Resolving a symlinked entry would adopt
-    # its target as the trusted boundary — a link to the shared base passes
-    # `is_relative_to` and makes this execution's cleanup delete other
-    # executions' files.
+    # The boundary is `<base>/<execution_id>` by construction, never a value
+    # derived from the filesystem. Canonicalising the entry would adopt whatever
+    # a symlink points at — a link to the shared base passes `is_relative_to` and
+    # makes this execution's cleanup delete other executions' files. Checking
+    # `is_symlink()` first and resolving afterwards is still a race, because the
+    # two are separate operations on a mutable path; the path is therefore never
+    # canonicalised at all.
     execution_dir = base_path / str(valid_uuid)
+
+    # Reject a symlinked entry when it is observable. This is not the guarantee —
+    # the operations that touch the directory open it with O_NOFOLLOW — but it
+    # fails early and legibly for the common case.
     if execution_dir.is_symlink():
         raise PathTraversalException(
             f"Execution sandbox {execution_dir} is a symlink; refusing to use it"
         )
 
-    sandbox_path = execution_dir.resolve()
-
-    if not sandbox_path.is_relative_to(base_path):
-        raise PathTraversalException(
-            f"Sandbox root {sandbox_path} escapes base directory {base_path}"
-        )
-
-    # A link in a parent component could still move it out of the base; the entry
-    # itself must resolve to the expected child of the base.
-    if sandbox_path.parent != base_path:
-        raise PathTraversalException(
-            f"Sandbox root {sandbox_path} is not directly under {base_path}"
-        )
-
-    return sandbox_path
+    return execution_dir
 
 
 def validate_safe_path(
     target_path: Path | str,
     sandbox_root: Path | str,
 ) -> Path:
-    """Canonicalize and verify that target_path remains strictly confined within sandbox_root.
+    """Verify lexically that target_path stays confined within sandbox_root.
+
+    The comparison is deliberately lexical, not resolved: resolving both sides
+    makes them move together when a component is replaced by a symlink, so the
+    check passes against the attacker's directory. This is a cheap, legible
+    pre-check for `..` segments and absolute escapes; the binding guarantee is
+    the `O_NOFOLLOW` open plus the descriptor comparison in
+    `open_confined_directory`.
 
     Raises:
-        PathTraversalException: If target_path escapes sandbox_root or symlinks outside.
+        PathTraversalException: If target_path escapes sandbox_root lexically.
     """
-    sandbox_root_resolved = Path(sandbox_root).resolve()
+    sandbox_root_resolved = Path(os.path.normpath(Path(sandbox_root).absolute()))
     target_raw = Path(target_path)
 
     if target_raw.is_absolute():
-        resolved_target = target_raw.resolve()
+        normalized_target = Path(os.path.normpath(target_raw))
     else:
-        resolved_target = (sandbox_root_resolved / target_raw).resolve()
+        normalized_target = Path(os.path.normpath(sandbox_root_resolved / target_raw))
 
-    if not resolved_target.is_relative_to(sandbox_root_resolved):
+    if not normalized_target.is_relative_to(sandbox_root_resolved):
         raise PathTraversalException(
             f"Path traversal detected: {target_path} escapes sandbox {sandbox_root_resolved}"
         )
 
-    return resolved_target
+    return normalized_target
 
 
 def _remove_tree_relative(dir_fd: int) -> None:
