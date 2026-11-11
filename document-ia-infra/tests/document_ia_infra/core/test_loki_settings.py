@@ -1,12 +1,17 @@
 import logging
 from queue import Queue
+from unittest.mock import MagicMock
+
 from pydantic import SecretStr
+import requests
 from requests import PreparedRequest
 
 from document_ia_infra.core.loki_settings import (
+    DEFAULT_LOKI_TIMEOUT_S,
     BoundedLokiQueueHandler,
     LokiBearerAuth,
     LoggingSettings,
+    _TimeoutSession,
     build_loki_auth,
     build_loki_handler,
 )
@@ -69,3 +74,59 @@ def test_bounded_loki_queue_handler_drops_overflow_records() -> None:
     # The 3rd record should be dropped silently without raising Full
     handler.enqueue(record3)
     assert bounded_queue.qsize() == 2
+
+
+def test_timeout_session_sets_default_timeout(monkeypatch) -> None:
+    session = _TimeoutSession()
+    mock_request = MagicMock()
+    monkeypatch.setattr(requests.Session, "request", mock_request)
+
+    session.request("POST", "https://loki.example/loki/api/v1/push", json={})
+    mock_request.assert_called_once_with(
+        "POST",
+        "https://loki.example/loki/api/v1/push",
+        json={},
+        timeout=DEFAULT_LOKI_TIMEOUT_S,
+    )
+
+    # Explicit timeout should be preserved
+    mock_request.reset_mock()
+    session.request(
+        "POST", "https://loki.example/loki/api/v1/push", json={}, timeout=10.0
+    )
+    mock_request.assert_called_once_with(
+        "POST", "https://loki.example/loki/api/v1/push", json={}, timeout=10.0
+    )
+
+
+def test_bounded_loki_queue_handler_configures_timeout_session() -> None:
+    queue: Queue[logging.LogRecord] = Queue(maxsize=10)
+    handler = BoundedLokiQueueHandler(queue, url="https://loki.example/push")
+    try:
+        assert handler.handler.emitter.session_class is _TimeoutSession
+    finally:
+        handler.listener.stop()
+
+
+def test_bounded_loki_queue_handler_skips_prepare_when_full(monkeypatch) -> None:
+    queue: Queue[logging.LogRecord] = Queue(maxsize=1)
+    handler = BoundedLokiQueueHandler.__new__(BoundedLokiQueueHandler)
+    handler.queue = queue
+
+    record1 = logging.LogRecord("test", logging.INFO, "path", 1, "msg1", (), None)
+    record2 = logging.LogRecord("test", logging.INFO, "path", 2, "msg2", (), None)
+
+    mock_prepare = MagicMock(return_value=record2)
+    monkeypatch.setattr(handler, "prepare", mock_prepare)
+
+    # First record fits in queue
+    handler.emit(record1)
+    assert queue.qsize() == 1
+    assert queue.full()
+    assert mock_prepare.call_count == 1
+
+    # Second record when queue is full: prepare must NOT be called
+    mock_prepare.reset_mock()
+    handler.emit(record2)
+    mock_prepare.assert_not_called()
+    assert queue.qsize() == 1

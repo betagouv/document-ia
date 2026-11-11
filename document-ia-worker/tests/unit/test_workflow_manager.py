@@ -409,6 +409,40 @@ class TestWorkflowManager:
             current_progress_tracker.reset(token)
 
     @pytest.mark.asyncio
+    async def test_execute_workflow_clears_context_and_steps_before_gc(
+        self, mock_workflow_message, mock_dependencies
+    ):
+        manager = WorkflowManager(mock_workflow_message, retry_count=0)
+        manager.main_workflow_context = MagicMock()
+        mock_step = MagicMock()
+        mock_step.execute = AsyncMock(return_value=("result", MagicMock()))
+        mock_step.cleanup = AsyncMock()
+        mock_step.get_context_result_key.return_value = "StepResult"
+        manager.step_list = [mock_step]
+        manager.workflow_context = {"StepResult": "result", "huge_data": [1] * 1000}
+
+        cleared_before_release = False
+
+        def mock_release():
+            nonlocal cleared_before_release
+            if len(manager.workflow_context) == 0 and len(manager.step_list) == 0:
+                cleared_before_release = True
+
+        try:
+            with patch(
+                "document_ia_worker.workflow.workflow_manager._release_worker_memory",
+                side_effect=mock_release,
+            ) as mock_rel:
+                await manager._execute_workflow()
+
+                assert mock_rel.called
+                assert cleared_before_release is True
+                assert manager.workflow_context == {}
+                assert manager.step_list == []
+        finally:
+            await manager._webhook_redis_manager.close()
+
+    @pytest.mark.asyncio
     async def test_execute_workflow_invokes_gc_and_malloc_trim_on_linux(
         self, mock_workflow_message, mock_dependencies
     ):
@@ -421,16 +455,18 @@ class TestWorkflowManager:
         manager.step_list = [mock_step]
 
         mock_libc = MagicMock()
-        with (
-            patch("sys.platform", "linux"),
-            patch("gc.collect") as mock_gc,
-            patch("ctypes.CDLL", return_value=mock_libc) as mock_cdll,
-        ):
-            await manager._execute_workflow()
+        try:
+            with (
+                patch(
+                    "document_ia_worker.workflow.workflow_manager._LIBC",
+                    mock_libc,
+                ),
+                patch("gc.collect") as mock_gc,
+            ):
+                await manager._execute_workflow()
 
-            mock_gc.assert_called()
-            mock_cdll.assert_called_with("libc.so.6")
-            mock_libc.malloc_trim.assert_called_once_with(0)
-
-        # Satisfy mock_dependencies fixture teardown assertion
-        await manager._webhook_redis_manager.close()
+                mock_gc.assert_called()
+                mock_libc.malloc_trim.assert_called_once_with(0)
+        finally:
+            # Satisfy mock_dependencies fixture teardown assertion
+            await manager._webhook_redis_manager.close()

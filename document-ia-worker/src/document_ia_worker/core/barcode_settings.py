@@ -15,7 +15,7 @@ class BarcodeSettings(BaseDocumentIaSettings):
         description="Directory path containing pre-downloaded weights for QRDet model.",
     )
     MAX_BARCODE_IMAGE_DIM: int = Field(
-        default=2048,
+        default=2400,
         description="Maximum dimension (width or height) in pixels for the whole page image during barcode scanning. Images exceeding this will be downscaled with INTER_AREA.",
     )
     MAX_CROP_DIM_FOR_UPSCALE: int = Field(

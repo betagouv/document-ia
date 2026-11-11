@@ -60,6 +60,27 @@ from document_ia_worker.workflow.step_factory_v2 import prepareStepListsV2
 logger = logging.getLogger(__name__)
 
 
+def _load_libc() -> Any:
+    if sys.platform.startswith("linux"):
+        try:
+            return ctypes.CDLL("libc.so.6")
+        except Exception:
+            return None
+    return None
+
+
+_LIBC: Any = _load_libc()
+
+
+def _release_worker_memory() -> None:
+    gc.collect()
+    if _LIBC is not None:
+        try:
+            _LIBC.malloc_trim(0)
+        except Exception:
+            pass
+
+
 class WorkflowManager:
     event_dto: Optional[EventDTO]
     event_data: Optional[WorkflowExecutionStartedEvent]
@@ -234,6 +255,9 @@ class WorkflowManager:
                     await self._webhook_redis_manager.close()
                 except Exception as e:
                     logger.error(f"Error while closing workflow Redis manager: {e}")
+                finally:
+                    self.main_workflow_context = None
+                    _release_worker_memory()
 
     async def _prepare_workflow(self, session: AsyncSession) -> bool:
         try:
@@ -446,12 +470,9 @@ class WorkflowManager:
             for step in reversed(self.step_list):
                 await step.cleanup(is_last_cleanup)
 
-            gc.collect()
-            if sys.platform.startswith("linux"):
-                try:
-                    ctypes.CDLL("libc.so.6").malloc_trim(0)
-                except Exception:
-                    pass
+            self.workflow_context.clear()
+            self.step_list.clear()
+            _release_worker_memory()
 
     async def _save_failure_event(self, db: AsyncSession, exception: Exception):
         if self.event_dto is None:
