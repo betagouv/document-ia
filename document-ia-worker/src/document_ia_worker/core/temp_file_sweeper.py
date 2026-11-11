@@ -7,12 +7,16 @@ are deterministically and securely removed from the host filesystem.
 
 import asyncio
 import logging
+import os
+import stat
 import threading
 import time
+from collections import Counter
 from pathlib import Path
 
 from document_ia_infra.core.file.safe_path import (
     DEFAULT_SANDBOX_BASE,
+    open_confined_directory,
     safe_cleanup_directory,
     validate_execution_id,
 )
@@ -33,52 +37,55 @@ DEFAULT_REPLAY_RETENTION_HOURS: float = 24.0  # 24 hours
 class ActiveExecutionTracker:
     """Thread-safe in-memory registry of execution IDs currently being processed on this worker.
 
-    Used by the sweeper to guarantee that files belonging to an in-flight workflow
-    are never swept.
+    Uses reference counting to handle overlapping executions (e.g., when a retry starts
+    while a previous thread fenced by the watchdog is still completing).
     """
 
-    _active_ids: set[str] = set()
+    _active_counts: Counter[str] = Counter()
     _lock: threading.Lock = threading.Lock()
 
     @classmethod
     def add(cls, execution_id: str) -> None:
         """Register an execution_id as actively running."""
         with cls._lock:
-            cls._active_ids.add(execution_id)
+            cls._active_counts[execution_id] += 1
             logger.debug(
-                "ActiveExecutionTracker: added %s (total: %d)",
+                "ActiveExecutionTracker: added %s (count: %d)",
                 execution_id,
-                len(cls._active_ids),
+                cls._active_counts[execution_id],
             )
 
     @classmethod
     def remove(cls, execution_id: str) -> None:
         """Deregister an execution_id when its processing completes or terminates."""
         with cls._lock:
-            cls._active_ids.discard(execution_id)
+            if execution_id in cls._active_counts:
+                cls._active_counts[execution_id] -= 1
+                if cls._active_counts[execution_id] <= 0:
+                    del cls._active_counts[execution_id]
             logger.debug(
-                "ActiveExecutionTracker: removed %s (total: %d)",
+                "ActiveExecutionTracker: removed %s (count: %d)",
                 execution_id,
-                len(cls._active_ids),
+                cls._active_counts.get(execution_id, 0),
             )
 
     @classmethod
     def is_active(cls, execution_id: str) -> bool:
         """Check whether an execution_id is currently active on this worker."""
         with cls._lock:
-            return execution_id in cls._active_ids
+            return cls._active_counts.get(execution_id, 0) > 0
 
     @classmethod
     def active_ids(cls) -> set[str]:
         """Return a copy of all active execution IDs."""
         with cls._lock:
-            return set(cls._active_ids)
+            return {k for k, v in cls._active_counts.items() if v > 0}
 
     @classmethod
     def clear(cls) -> None:
         """Clear all active executions (useful for test isolation)."""
         with cls._lock:
-            cls._active_ids.clear()
+            cls._active_counts.clear()
 
 
 class TempFileSweeper:
@@ -90,7 +97,7 @@ class TempFileSweeper:
         replay_dir: Path | str | None = None,
         redis_manager: RedisManager | None = None,
         grace_period_s: float = DEFAULT_ORPHAN_GRACE_PERIOD_S,
-        replay_retention_hours: float = DEFAULT_REPLAY_RETENTION_HOURS,
+        replay_retention_hours: float | None = None,
     ) -> None:
         self.sandbox_base: Path = Path(sandbox_base)
         self.replay_dir: Path = Path(
@@ -100,7 +107,11 @@ class TempFileSweeper:
         )
         self.redis_manager: RedisManager | None = redis_manager
         self.grace_period_s: float = grace_period_s
-        self.replay_retention_hours: float = replay_retention_hours
+        self.replay_retention_hours: float = (
+            float(replay_retention_hours)
+            if replay_retention_hours is not None
+            else float(llm_settings.OPENAI_REPLAY_RETENTION_HOURS)
+        )
 
     async def is_execution_active(
         self,
@@ -151,6 +162,10 @@ class TempFileSweeper:
             max_age_seconds if max_age_seconds is not None else self.grace_period_s
         )
         rm = redis_manager or self.redis_manager
+
+        if base.is_symlink():
+            logger.error("Sandbox base %s is a symlink; refusing to sweep", base)
+            return 0
 
         if not base.exists():
             return 0
@@ -214,8 +229,8 @@ class TempFileSweeper:
                 grace_period,
             )
             try:
-                safe_cleanup_directory(entry, sandbox_root=entry)
-                purged_count += 1
+                if safe_cleanup_directory(entry, sandbox_root=base):
+                    purged_count += 1
             except Exception as exc:
                 logger.warning("Failed to sweep orphaned directory %s: %s", entry, exc)
 
@@ -237,6 +252,12 @@ class TempFileSweeper:
         )
         max_age_seconds = retention_hours * 3600.0
 
+        if target_dir.is_symlink():
+            logger.error(
+                "Replay directory %s is a symlink; refusing to sweep", target_dir
+            )
+            return 0
+
         if not target_dir.exists():
             return 0
 
@@ -244,43 +265,36 @@ class TempFileSweeper:
         now = time.time()
 
         try:
-            files = list(target_dir.glob("*.json"))
-        except OSError as exc:
-            logger.warning("Could not list replay directory %s: %s", target_dir, exc)
-            return 0
-
-        for file_path in files:
-            if file_path.is_symlink():
-                logger.warning(
-                    "Removing unexpected symlink in replay dir: %s", file_path
-                )
-                try:
-                    file_path.unlink()
-                except OSError as exc:
-                    logger.warning("Failed to remove symlink %s: %s", file_path, exc)
-                continue
-
-            try:
-                mtime = file_path.stat().st_mtime
-            except OSError as exc:
-                logger.warning("Failed to stat replay file %s: %s", file_path, exc)
-                continue
-
-            age_seconds = now - mtime
-            if age_seconds > max_age_seconds:
-                logger.info(
-                    "Purging expired OpenAI replay payload: %s (age=%.1fh > %.1fh)",
-                    file_path.name,
-                    age_seconds / 3600.0,
-                    retention_hours,
-                )
-                try:
-                    file_path.unlink(missing_ok=True)
-                    purged_count += 1
-                except OSError as exc:
-                    logger.warning(
-                        "Failed to unlink replay payload %s: %s", file_path, exc
-                    )
+            with open_confined_directory(target_dir, target_dir) as confined:
+                for name in os.listdir(confined.fd):
+                    if not name.endswith(".json"):
+                        continue
+                    try:
+                        st = os.stat(name, dir_fd=confined.fd, follow_symlinks=False)
+                    except OSError as exc:
+                        logger.warning("Failed to stat replay entry %s: %s", name, exc)
+                        continue
+                    if stat.S_ISLNK(st.st_mode):
+                        logger.warning(
+                            "Removing unexpected symlink in replay dir: %s", name
+                        )
+                        confined.unlink(name)
+                        continue
+                    if not stat.S_ISREG(st.st_mode):
+                        continue
+                    age_seconds = now - st.st_mtime
+                    if age_seconds > max_age_seconds:
+                        logger.info(
+                            "Purging expired OpenAI replay payload: %s (age=%.1fh > %.1fh)",
+                            name,
+                            age_seconds / 3600.0,
+                            retention_hours,
+                        )
+                        confined.unlink(name)
+                        purged_count += 1
+        except Exception as exc:
+            logger.warning("Could not sweep replay directory %s: %s", target_dir, exc)
+            return purged_count
 
         return purged_count
 

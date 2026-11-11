@@ -7,7 +7,8 @@ from pydantic import BaseModel
 
 from document_ia_infra.core.file.safe_path import (
     ensure_directory_permissions,
-    ensure_file_permissions,
+    open_confined_directory,
+    validate_execution_id,
 )
 from document_ia_infra.data.document.schema.document_extraction import (
     DocumentExtraction,
@@ -109,6 +110,7 @@ class LLMExtractDocumentStep(BaseStep[LLMExtractionResult]):
         model: str,
         document_type: SupportedDocumentType,
     ) -> None:
+        valid_uuid = validate_execution_id(self.execution_id)
         replay_dir = Path(settings.OPENAI_REPLAY_PAYLOAD_SAVE_PATH)
         ensure_directory_permissions(replay_dir, 0o700)
 
@@ -118,18 +120,20 @@ class LLMExtractDocumentStep(BaseStep[LLMExtractionResult]):
             else str(document_type)
         )
         replay_payload = {
-            "execution_id": self.execution_id,
+            "execution_id": str(valid_uuid),
             "document_type": document_type_name,
             "model": model,
             "system_prompt": system_prompt,
             "user_prompt": user_prompt,
         }
-        replay_file = replay_dir / f"{self.execution_id}.json"
-        replay_file.write_text(
-            json.dumps(replay_payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        payload_bytes = json.dumps(replay_payload, ensure_ascii=False, indent=2).encode(
+            "utf-8"
         )
-        ensure_file_permissions(replay_file, 0o600)
-        logger.info("OpenAI replay payload saved to %s", replay_file)
+        filename = f"{valid_uuid}.json"
+        with open_confined_directory(replay_dir, replay_dir) as confined:
+            with confined.open_file(filename, "wb") as f:
+                f.write(payload_bytes)
+        logger.info("OpenAI replay payload saved to %s/%s", replay_dir, filename)
 
     async def _execute_internal(self) -> tuple[LLMExtractionResult, StepMetadata]:
         assert self.ocr_result is not None

@@ -371,9 +371,10 @@ async def test_workflow_manager_lifecycle_tracks_execution():
 
 
 @pytest.mark.asyncio
-async def test_workflow_manager_terminal_failure_clears_tracker_and_cleans_sandbox(
+async def test_workflow_manager_terminal_failure_cleans_sandbox_when_inactive(
     tmp_path: Path,
 ):
+    """When no local attempt is active, watchdog terminal failure cleans the sandbox."""
     from types import SimpleNamespace
     from document_ia_infra.redis.model.workflow_execution_message import (
         WorkflowExecutionMessage,
@@ -384,11 +385,7 @@ async def test_workflow_manager_terminal_failure_clears_tracker_and_cleans_sandb
     msg = WorkflowExecutionMessage(workflow_execution_id=exec_id)
     manager = WorkflowManager(msg, retry_count=2, is_last_retry=True)
 
-    # Pre-register in tracker to simulate in-flight execution
-    ActiveExecutionTracker.add(exec_id)
-    assert ActiveExecutionTracker.is_active(exec_id)
-
-    # Create sandbox folder
+    # Sandbox folder exists, but no local thread in tracker
     sandbox_dir = tmp_path / exec_id
     sandbox_dir.mkdir()
     (sandbox_dir / "temp.pdf").write_bytes(b"data")
@@ -445,7 +442,194 @@ async def test_workflow_manager_terminal_failure_clears_tracker_and_cleans_sandb
     ):
         await manager.record_watchdog_terminal_failure("workflow_timeout")
 
-    assert not ActiveExecutionTracker.is_active(exec_id)
     assert not sandbox_dir.exists(), (
-        "Sandbox must be cleaned up on watchdog terminal failure"
+        "Sandbox must be cleaned up on watchdog terminal failure when inactive"
     )
+
+
+@pytest.mark.asyncio
+async def test_workflow_manager_terminal_failure_preserves_sandbox_if_local_attempt_active(
+    tmp_path: Path,
+):
+    """If another local attempt is active, watchdog terminal failure does not remove it or purge its sandbox."""
+    from types import SimpleNamespace
+    from document_ia_infra.redis.model.workflow_execution_message import (
+        WorkflowExecutionMessage,
+    )
+    from document_ia_worker.workflow.workflow_manager import WorkflowManager
+
+    exec_id = str(uuid4())
+    msg = WorkflowExecutionMessage(workflow_execution_id=exec_id)
+    manager = WorkflowManager(msg, retry_count=2, is_last_retry=True)
+
+    # Simulate an active thread running
+    ActiveExecutionTracker.add(exec_id)
+    assert ActiveExecutionTracker.is_active(exec_id)
+
+    sandbox_dir = tmp_path / exec_id
+    sandbox_dir.mkdir()
+    (sandbox_dir / "temp.pdf").write_bytes(b"data")
+
+    fake_event = SimpleNamespace(
+        event_type="WorkflowExecutionStarted",
+        event={},
+        execution_id=exec_id,
+        workflow_id=f"wf-{uuid4()}",
+        organization_id=uuid4(),
+    )
+
+    class FakeEventStore:
+        def __init__(self, _session):
+            pass
+
+        async def get_last_event_for_execution_id(self, _id):
+            return fake_event
+
+        async def emit_workflow_failed(self, **kwargs):
+            pass
+
+    class FakeDbManager:
+        def __init__(self, **kwargs):
+            pass
+
+        def local_session(self):
+            class _Ctx:
+                async def __aenter__(self):
+                    return MagicMock()
+
+                async def __aexit__(self, *args):
+                    return False
+
+            return _Ctx()
+
+        async def dispose_async(self):
+            pass
+
+    with (
+        patch(
+            "document_ia_worker.workflow.workflow_manager.get_execution_sandbox_root",
+            return_value=sandbox_dir,
+        ),
+        patch(
+            "document_ia_worker.workflow.workflow_manager.DatabaseManager",
+            FakeDbManager,
+        ),
+        patch(
+            "document_ia_worker.workflow.workflow_manager.EventStoreService",
+            FakeEventStore,
+        ),
+        patch.object(manager, "_notify_webhook_execution_finished", new=AsyncMock()),
+    ):
+        await manager.record_watchdog_terminal_failure("workflow_timeout")
+
+    # The in-flight attempt must NOT be deregistered
+    assert ActiveExecutionTracker.is_active(exec_id)
+    # The sandbox must NOT be prematurely purged while in-flight
+    assert sandbox_dir.exists()
+
+
+def test_active_execution_tracker_reference_counting_overlapping_retries():
+    """Verify reference counting when multiple attempts/threads overlap."""
+    exec_id = str(uuid4())
+    assert not ActiveExecutionTracker.is_active(exec_id)
+
+    # First attempt starts
+    ActiveExecutionTracker.add(exec_id)
+    assert ActiveExecutionTracker.is_active(exec_id)
+    assert ActiveExecutionTracker.active_ids() == {exec_id}
+
+    # Second retry attempt starts concurrently before first terminates
+    ActiveExecutionTracker.add(exec_id)
+    assert ActiveExecutionTracker.is_active(exec_id)
+
+    # First attempt finishes and decrements count
+    ActiveExecutionTracker.remove(exec_id)
+    assert ActiveExecutionTracker.is_active(exec_id), (
+        "Execution must remain active while second attempt is still running"
+    )
+    assert ActiveExecutionTracker.active_ids() == {exec_id}
+
+    # Second attempt finishes
+    ActiveExecutionTracker.remove(exec_id)
+    assert not ActiveExecutionTracker.is_active(exec_id)
+    assert len(ActiveExecutionTracker.active_ids()) == 0
+
+
+@pytest.mark.asyncio
+async def test_sweep_sandbox_and_replay_refuse_symlinked_root_dirs(tmp_path: Path):
+    """If sandbox_base or replay_dir is a symlink, sweeper must refuse to sweep and delete nothing."""
+    outside_sandbox = tmp_path / "outside_sandbox"
+    outside_sandbox.mkdir()
+    outside_uuid_dir = outside_sandbox / str(uuid4())
+    outside_uuid_dir.mkdir()
+    (outside_uuid_dir / "secret.pdf").write_bytes(b"victim doc")
+    past = time.time() - 3600
+    os.utime(outside_uuid_dir, (past, past))
+
+    outside_replay = tmp_path / "outside_replay"
+    outside_replay.mkdir()
+    outside_json = outside_replay / "expired.json"
+    outside_json.write_text('{"secret": "data"}', encoding="utf-8")
+    os.utime(outside_json, (past, past))
+
+    symlinked_base = tmp_path / "sym_sandbox"
+    symlinked_base.symlink_to(outside_sandbox, target_is_directory=True)
+
+    symlinked_replay = tmp_path / "sym_replay"
+    symlinked_replay.symlink_to(outside_replay, target_is_directory=True)
+
+    sweeper = TempFileSweeper(
+        sandbox_base=symlinked_base,
+        replay_dir=symlinked_replay,
+        grace_period_s=0.0,
+        replay_retention_hours=0.01,
+    )
+
+    purged_sandboxes = await sweeper.sweep_sandbox()
+    assert purged_sandboxes == 0
+    assert outside_uuid_dir.exists(), (
+        "Outside directory must not be deleted through symlink"
+    )
+    assert (outside_uuid_dir / "secret.pdf").exists()
+
+    purged_replays = sweeper.sweep_replay_payloads()
+    assert purged_replays == 0
+    assert outside_json.exists(), (
+        "Outside replay payload must not be deleted through symlink"
+    )
+
+
+@pytest.mark.asyncio
+async def test_sweep_sandbox_does_not_increment_purged_count_on_cleanup_failure(
+    tmp_path: Path,
+):
+    """If safe_cleanup_directory fails, purged_count must not be incremented."""
+    sweeper = TempFileSweeper(sandbox_base=tmp_path, grace_period_s=0.0)
+
+    orphan_id = str(uuid4())
+    exec_dir = tmp_path / orphan_id
+    exec_dir.mkdir()
+    past = time.time() - 3600
+    os.utime(exec_dir, (past, past))
+
+    with patch(
+        "document_ia_worker.core.temp_file_sweeper.safe_cleanup_directory",
+        return_value=False,
+    ) as mock_cleanup:
+        purged = await sweeper.sweep_sandbox()
+        assert purged == 0
+        mock_cleanup.assert_called_once_with(exec_dir, sandbox_root=tmp_path)
+
+
+def test_sweeper_uses_settings_replay_retention_hours(monkeypatch: pytest.MonkeyPatch):
+    """TempFileSweeper must read llm_settings.OPENAI_REPLAY_RETENTION_HOURS by default."""
+    from document_ia_worker.workflow.step.llm_extract_document.settings import (
+        settings as llm_settings,
+    )
+
+    monkeypatch.setattr(llm_settings, "OPENAI_REPLAY_RETENTION_HOURS", 48.0)
+    sweeper = TempFileSweeper()
+    assert sweeper.replay_retention_hours == 48.0
+
+    custom_sweeper = TempFileSweeper(replay_retention_hours=12.0)
+    assert custom_sweeper.replay_retention_hours == 12.0

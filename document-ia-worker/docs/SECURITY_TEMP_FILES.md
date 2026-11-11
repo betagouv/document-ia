@@ -26,7 +26,7 @@ This document formalizes the architecture, permission model, and lifecycle gover
 | :--- | :--- | :--- | :--- |
 | **Information Disclosure via Shared `/tmp`** | A01:2021 | Default umask (`0022` or `0002`) creates world- or group-readable temporary directories (`0755` / `0777`). Local untrusted processes can inspect extracted documents. | Explicit permission enforcement: sandbox root and execution directories are created with `0o700` (`rwx------`); generated files are opened with `0o600` (`rw-------`). |
 | **Sandbox Inode Accumulation (Disk DoS)** | A04:2021 | Unhandled exceptions, watchdog fencing, or hard process termination (`SIGKILL`) leave orphaned files in `/tmp/document_ia_worker.tmp/`, eventually exhausting disk space or inodes. | Background `TempFileSweeper` sweeps directories older than `ORPHAN_DIR_GRACE_PERIOD_S` (15 min) with no active local handler and no active Redis lease. |
-| **Premature Deletion of Retried Tasks** | A04:2021 | A naive startup cleaner or aggressive sweeper deletes files of a workflow currently executing or scheduled for an immediate retry. | In-flight tracking via `ActiveExecutionTracker` and distributed Redis lease checks (`StreamDelivery.is_lease_active`) prevent deletion of active workflows. |
+| **Premature Deletion of Retried Tasks** | A04:2021 | A naive startup cleaner or aggressive sweeper deletes files of a workflow currently executing or scheduled for an immediate retry. | In-flight tracking via `ActiveExecutionTracker` and distributed Redis lease checks (`StreamDelivery.execution_lease_key`) prevent deletion of active workflows. |
 | **Model Cache Confusion / Tampering** | A01:2021 | A sweeper blindly deleting under `/tmp` or root inadvertently purges YOLO-World or QRDet model weights (`.models/`, `~/.cache`), forcing re-downloads or breaking offline container boot. | Sweeper is strictly confined to `DEFAULT_SANDBOX_BASE` and `OPENAI_REPLAY_PAYLOAD_SAVE_PATH`. Subdirectories must strictly match standard UUID patterns; non-UUID entries are ignored. |
 | **Replay Payload Leakage** | A01:2021 | Prompts and extracted text saved under `/tmp/document-ia-openai-replay` remain permanently on disk with permissive rights. | Replay feature remains disabled by default (`OPENAI_REPLAY_PAYLOAD_SAVE_ENABLED=False`). When enabled, writes are enforced at `0o700`/`0o600` and pruned after 24 hours. |
 | **Cleanup Failure Silent Disregard** | A04:2021 | Transient file locks or `OSError` during step cleanup are ignored, leaving sensitive documents permanently on disk without operator visibility. | Immediate error logging (`WARNING`), failure recording, and deferral to the background sweeper without stalling the worker thread. |
@@ -82,8 +82,8 @@ flowchart TD
 1. **Local Worker In-Flight Tracker (`ActiveExecutionTracker`)**:
    - Thread-safe registry tracking all `execution_id` currently handled by the local thread pool.
    - Any directory matching an active execution is exempt from cleanup.
-2. **Distributed Redis Lease (`StreamDelivery.is_lease_active`)**:
-   - Workflows in a cluster hold a distributed lease key (`stream:{stream}:lease:{execution_id}`).
+2. **Distributed Redis Lease (`StreamDelivery.execution_lease_key`)**:
+   - Workflows in a cluster hold a distributed lease key (`lock:workflow_execution:{execution_id}`).
    - If a valid lease is found in Redis, the execution is considered active on another worker.
 3. **Grace Period Threshold (`ORPHAN_DIR_GRACE_PERIOD_S = 900`)**:
    - With a maximal workflow processing timeout of 120 seconds, a 15-minute grace period provides a conservative safety margin to absorb transient retries before concluding that a directory is abandoned.
@@ -92,8 +92,8 @@ flowchart TD
 
 ## 5. Background Sweeper (`TempFileSweeper`)
 
-### Scalingo Container Optimization
-On Scalingo Linux containers, each deployment or container restart boots from a fresh slug with an empty ephemeral `/tmp` filesystem. Consequently, startup cleanup is unnecessary for reboot recovery.
+### Startup & Scalingo Container Lifecycle
+At worker boot, an initial sweep pass (`TempFileSweeper.startup_cleanup()`) re-evaluates all existing temporary directories and expired replay payloads to recover from abrupt host or container crashes.
 
 The primary role of the background cleaner is **in-process lifecycle cleanup**:
 - Runs as an asynchronous background task (`asyncio.create_task`) spawned inside `document-ia-worker/main.py`.

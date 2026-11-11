@@ -178,18 +178,17 @@ async def test_transport_bounds_dns_with_the_client_timeout():
     original = SafeAsyncHTTPTransport.handle_async_request
 
     async def capture(self, request):
-        seen_timeout.append(
-            (request.extensions.get("timeout") or {}).get("connect")
-        )
+        seen_timeout.append((request.extensions.get("timeout") or {}).get("connect"))
         return await original(self, request)
 
     transport = SafeAsyncHTTPTransport()
     async with httpx.AsyncClient(transport=transport) as client:
-        with patch(
-            "document_ia_infra.core.network.safe_transport.resolve_validated_ips",
-            new=hanging_resolution,
-        ), patch.object(
-            SafeAsyncHTTPTransport, "handle_async_request", capture
+        with (
+            patch(
+                "document_ia_infra.core.network.safe_transport.resolve_validated_ips",
+                new=hanging_resolution,
+            ),
+            patch.object(SafeAsyncHTTPTransport, "handle_async_request", capture),
         ):
             with pytest.raises(httpx.ConnectTimeout):
                 await client.get("https://slow.example.com/doc.pdf", timeout=0.2)
@@ -665,9 +664,7 @@ def test_cleanup_never_deletes_through_a_replaced_directory(tmp_path: Path):
     execution_dir = sandbox / "exec3"
     execution_dir.symlink_to(outside, target_is_directory=True)
 
-    safe_cleanup_directory(
-        execution_dir / "preprocess", sandbox_root=execution_dir
-    )
+    safe_cleanup_directory(execution_dir / "preprocess", sandbox_root=execution_dir)
 
     assert kept.exists(), "cleanup deleted a file outside the sandbox"
 
@@ -946,3 +943,49 @@ def test_root_is_not_canonicalised_so_a_swap_cannot_redirect_it(tmp_path: Path):
 
     assert document.exists(), "cleanup followed a swapped root into a sibling"
     assert victim.exists()
+
+
+def test_open_confined_directory_blocks_toctou_root_swap_on_subdir(tmp_path: Path):
+    """If sandbox_root is swapped for a symlink to an outside directory containing
+
+    a matching subdirectory before opening the subdirectory, open_confined_directory
+    must reject it and raise PathTraversalException rather than resolving both sides.
+    """
+    import os
+    import shutil
+    from document_ia_infra.core.file.safe_path import (
+        PathTraversalException,
+        open_confined_directory,
+    )
+
+    base = tmp_path / "sandbox"
+    base.mkdir()
+    execution_dir = base / str(uuid4())
+    execution_dir.mkdir()
+    subdir = execution_dir / "preprocess"
+    subdir.mkdir()
+
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    outside_subdir = outside_dir / "preprocess"
+    outside_subdir.mkdir()
+    secret = outside_subdir / "secret.txt"
+    secret.write_text("critical host data")
+
+    real_os_open = os.open
+    swapped = False
+
+    def swapping_open(path, flags, *args, **kwargs):
+        nonlocal swapped
+        if not swapped and str(path) == str(execution_dir):
+            swapped = True
+            shutil.rmtree(execution_dir)
+            execution_dir.symlink_to(outside_dir, target_is_directory=True)
+        return real_os_open(path, flags, *args, **kwargs)
+
+    with patch("os.open", side_effect=swapping_open):
+        with pytest.raises(PathTraversalException):
+            open_confined_directory(subdir, sandbox_root=execution_dir)
+
+    assert secret.exists(), "outside secret must not be affected"
+    assert secret.read_text() == "critical host data"
