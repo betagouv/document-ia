@@ -1,26 +1,28 @@
+import gc
 import logging
+import threading
 from typing import (
-    Optional,
     Any,
-    cast,
     Iterable,
+    Optional,
     TypedDict,
+    cast,
 )
 
 import cv2
 import numpy as np
 import zxingcpp
-import threading
 from numpy.typing import NDArray
 from qrdet import QRDetector
 
+from document_ia_infra.data.event.schema.barcode import BarcodePosition
 from document_ia_worker.core.barcode_settings import barcode_settings
 from document_ia_worker.workflow.main_workflow_context import StepMetadata
-from document_ia_worker.workflow.step.extract_barcode_data.base_extract_barcode_2ddoc import (
-    BaseExtractBarcode2DDoc,
-)
 from document_ia_worker.workflow.step.extract_barcode_data.base_extract_barcode import (
     BarcodeLike,
+)
+from document_ia_worker.workflow.step.extract_barcode_data.base_extract_barcode_2ddoc import (
+    BaseExtractBarcode2DDoc,
 )
 from document_ia_worker.workflow.step.step_result.barcode_result import (
     BarcodeResult,
@@ -40,7 +42,30 @@ class QRDetDetection(TypedDict, total=False):
 
 ZXINGCPP: Any = zxingcpp
 _qrdet_detector: Optional[QRDetector] = None
-_QRDET_LOCK = threading.Lock()
+_BARCODE_LOCK = threading.Lock()
+_QRDET_LOCK = _BARCODE_LOCK  # Backwards compatibility alias
+
+
+def _rescale_barcode_position(
+    position: BarcodePosition,
+    scale: float,
+) -> BarcodePosition:
+    """
+    Rescale barcode corner coordinates from a downscaled image space (scale < 1.0)
+    back to the original document's coordinate space.
+    """
+    if scale >= 1.0 or scale <= 0:
+        return position
+
+    def rescale_point(pt: tuple[int, int]) -> tuple[int, int]:
+        return (int(round(pt[0] / scale)), int(round(pt[1] / scale)))
+
+    return BarcodePosition(
+        top_left=rescale_point(position.top_left),
+        top_right=rescale_point(position.top_right),
+        bottom_right=rescale_point(position.bottom_right),
+        bottom_left=rescale_point(position.bottom_left),
+    )
 
 
 # This method is used to read barcodes using ZXingCPP, with some compatibility handling for different return types and optional upscaling for crops.
@@ -50,26 +75,40 @@ def _read_barcodes_compat(
     is_from_crops: bool = False,
 ) -> list[BarcodeLike]:
     if is_from_crops:
-        image_scaled = _upscale_crop(cast(ImageArray, image), scale=2)
-        barcodes = cast(
-            list[BarcodeLike],
-            ZXINGCPP.read_barcodes(image_scaled, formats=formats),
-        )
-        has_datamatrix = any(
-            getattr(barcode.format, "name", str(barcode.format))
-            in ("DataMatrix", "BarcodeFormat.DataMatrix", "Data Matrix")
-            for barcode in barcodes
-        )
-        if not has_datamatrix:
-            logger.info(
-                "Last chance we try upscaling 3x for better QR code detection in crops..."
-            )
-            image_scaled = _upscale_crop(cast(ImageArray, image), scale=3)
+        crop_h, crop_w = image.shape[:2]
+        crop_dim = max(crop_h, crop_w)
+        if crop_dim > barcode_settings.MAX_CROP_DIM_FOR_UPSCALE:
             return cast(
+                list[BarcodeLike],
+                ZXINGCPP.read_barcodes(image, formats=formats),
+            )
+
+        image_scaled = _upscale_crop(cast(ImageArray, image), scale=2)
+        try:
+            barcodes = cast(
                 list[BarcodeLike],
                 ZXINGCPP.read_barcodes(image_scaled, formats=formats),
             )
-        return barcodes
+            has_datamatrix = any(
+                getattr(barcode.format, "name", str(barcode.format))
+                in ("DataMatrix", "BarcodeFormat.DataMatrix", "Data Matrix")
+                for barcode in barcodes
+            )
+            if not has_datamatrix:
+                logger.info(
+                    "Last chance we try upscaling 3x for better QR code detection in crops..."
+                )
+                image_scaled_3x = _upscale_crop(cast(ImageArray, image), scale=3)
+                try:
+                    return cast(
+                        list[BarcodeLike],
+                        ZXINGCPP.read_barcodes(image_scaled_3x, formats=formats),
+                    )
+                finally:
+                    del image_scaled_3x
+            return barcodes
+        finally:
+            del image_scaled
 
     return cast(
         list[BarcodeLike],
@@ -171,57 +210,97 @@ class ExtractBarcode2DDocData(BaseExtractBarcode2DDoc):
         target_formats: Any = ZXINGCPP.barcode_formats_from_str("DataMatrix|QRCode")
 
         for idx, file in enumerate(self.preprocess_file_result.output_files_path):
-            img_raw = cv2.imread(file)
-            if img_raw is None:
-                logger.error(f"Impossible de lire l'image: {file}")
-                continue
-            img = cast(ImageArray, img_raw)
-
-            barcodes: list[BarcodeLike] = _read_barcodes_compat(
-                img,
-                target_formats,
-                False,
-            )
-            page_barcode_data, seen_keys, has_ants = self._decode_barcodes_batch(
-                barcodes,
-                idx + 1,
-            )
-
-            if not has_ants:
+            with _BARCODE_LOCK:
+                img_raw: MatLike | None = None
+                img: ImageArray | None = None
+                rois: list[ImageArray] = []
                 try:
-                    logger.info(
-                        "No suitable barcode found, trying QRDet for better QR code detection..."
-                    )
-                    with _QRDET_LOCK:
-                        detector = cast(Any, _get_qrdet_detector())
-                        detections = cast(
-                            list[QRDetDetection],
-                            detector.detect(image=img, is_bgr=True),
-                        )
-                except Exception as exc:
-                    logger.warning(f"QRDet detection failed: {exc}")
-                    detections = []
-
-                rois = _iter_qrdet_crops(img, detections)
-
-                for crop in rois:
-                    crop_barcodes = _read_barcodes_compat(
-                        crop,
-                        target_formats,
-                        True,
-                    )
-                    if not crop_barcodes:
+                    img_raw = cv2.imread(file)
+                    if img_raw is None:
+                        logger.error(f"Impossible de lire l'image: {file}")
                         continue
-                    crop_variants, seen_keys, _ = self._decode_barcodes_batch(
-                        crop_barcodes,
-                        idx + 1,
-                        seen_keys,
-                    )
-                    page_barcode_data.extend(crop_variants)
 
-            if not page_barcode_data:
-                continue
-            barcodes_data.append(
-                PageResult(page_number=idx + 1, barcodes=page_barcode_data)
-            )
+                    height, width = img_raw.shape[:2]
+                    max_dim = max(height, width)
+                    scale = 1.0
+
+                    if max_dim > barcode_settings.MAX_BARCODE_IMAGE_DIM:
+                        scale = barcode_settings.MAX_BARCODE_IMAGE_DIM / max_dim
+                        new_width = int(round(width * scale))
+                        new_height = int(round(height * scale))
+                        img_resized = cv2.resize(
+                            img_raw,
+                            (new_width, new_height),
+                            interpolation=cv2.INTER_AREA,
+                        )
+                        img_raw = None
+                        img = cast(ImageArray, img_resized)
+                    else:
+                        img = cast(ImageArray, img_raw)
+
+                    barcodes: list[BarcodeLike] = _read_barcodes_compat(
+                        img,
+                        target_formats,
+                        False,
+                    )
+                    page_barcode_data, seen_keys, has_ants = (
+                        self._decode_barcodes_batch(
+                            barcodes,
+                            idx + 1,
+                        )
+                    )
+
+                    if scale < 1.0:
+                        for variant in page_barcode_data:
+                            variant.position = _rescale_barcode_position(
+                                variant.position, scale
+                            )
+
+                    if not has_ants:
+                        try:
+                            logger.info(
+                                "No suitable barcode found, trying QRDet for better QR code detection..."
+                            )
+                            detector = cast(Any, _get_qrdet_detector())
+                            detections = cast(
+                                list[QRDetDetection],
+                                detector.detect(image=img, is_bgr=True),
+                            )
+                        except Exception as exc:
+                            logger.warning(f"QRDet detection failed: {exc}")
+                            detections = []
+
+                        rois = _iter_qrdet_crops(img, detections)
+
+                        for crop in rois:
+                            crop_barcodes = _read_barcodes_compat(
+                                crop,
+                                target_formats,
+                                True,
+                            )
+                            if not crop_barcodes:
+                                continue
+                            crop_variants, seen_keys, _ = self._decode_barcodes_batch(
+                                crop_barcodes,
+                                idx + 1,
+                                seen_keys,
+                            )
+                            if scale < 1.0:
+                                for variant in crop_variants:
+                                    variant.position = _rescale_barcode_position(
+                                        variant.position, scale
+                                    )
+                            page_barcode_data.extend(crop_variants)
+
+                    if not page_barcode_data:
+                        continue
+                    barcodes_data.append(
+                        PageResult(page_number=idx + 1, barcodes=page_barcode_data)
+                    )
+                finally:
+                    del img
+                    del img_raw
+                    del rois
+                    gc.collect()
+
         return BarcodeResult(pages=barcodes_data), None

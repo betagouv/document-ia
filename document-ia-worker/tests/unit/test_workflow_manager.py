@@ -381,15 +381,15 @@ class TestWorkflowManager:
                 patch.object(
                     manager, "_prepare_workflow", new_callable=AsyncMock
                 ) as mock_prepare,
-                patch.object(
-                    manager, "_parse_start_event", return_value=parsed_event
-                ),
+                patch.object(manager, "_parse_start_event", return_value=parsed_event),
                 patch.object(manager, "_prepare_executor"),
                 patch.object(
                     manager, "_execute_workflow", new_callable=AsyncMock
                 ) as mock_execute,
                 patch.object(
-                    manager, "_notify_webhook_execution_finished", new_callable=AsyncMock
+                    manager,
+                    "_notify_webhook_execution_finished",
+                    new_callable=AsyncMock,
                 ) as mock_notify,
                 patch.object(
                     manager, "_save_failure_event", new_callable=AsyncMock
@@ -407,3 +407,30 @@ class TestWorkflowManager:
             mock_dependencies["handle_finish"].assert_not_called()
         finally:
             current_progress_tracker.reset(token)
+
+    @pytest.mark.asyncio
+    async def test_execute_workflow_invokes_gc_and_malloc_trim_on_linux(
+        self, mock_workflow_message, mock_dependencies
+    ):
+        manager = WorkflowManager(mock_workflow_message, retry_count=0)
+        manager.main_workflow_context = MagicMock()
+        mock_step = MagicMock()
+        mock_step.execute = AsyncMock(return_value=("result", MagicMock()))
+        mock_step.cleanup = AsyncMock()
+        mock_step.get_context_result_key.return_value = "StepResult"
+        manager.step_list = [mock_step]
+
+        mock_libc = MagicMock()
+        with (
+            patch("sys.platform", "linux"),
+            patch("gc.collect") as mock_gc,
+            patch("ctypes.CDLL", return_value=mock_libc) as mock_cdll,
+        ):
+            await manager._execute_workflow()
+
+            mock_gc.assert_called()
+            mock_cdll.assert_called_with("libc.so.6")
+            mock_libc.malloc_trim.assert_called_once_with(0)
+
+        # Satisfy mock_dependencies fixture teardown assertion
+        await manager._webhook_redis_manager.close()

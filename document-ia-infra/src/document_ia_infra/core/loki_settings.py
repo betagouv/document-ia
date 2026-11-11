@@ -1,5 +1,5 @@
 from logging import Filter, LogRecord
-from queue import Queue
+from queue import Full, Queue
 
 from logging_loki import LokiQueueHandler
 from pydantic import Field, SecretStr
@@ -57,6 +57,20 @@ def build_loki_auth(token: SecretStr | None) -> LokiBearerAuth | None:
     return LokiBearerAuth(value)
 
 
+class BoundedLokiQueueHandler(LokiQueueHandler):
+    """
+    Asynchronous Loki queue handler with a bounded buffer.
+    Silently drops excess records when the queue is full (e.g. during Loki downtime)
+    to prevent memory exhaustion or application blocking.
+    """
+
+    def enqueue(self, record: LogRecord) -> None:
+        try:
+            self.queue.put_nowait(record)
+        except Full:
+            pass  # Silently drop log records when queue is saturated
+
+
 def build_loki_handler(app_name: str) -> LokiQueueHandler:
     """
     Asynchronous Loki handler (queue) for Scalingo.
@@ -67,8 +81,8 @@ def build_loki_handler(app_name: str) -> LokiQueueHandler:
     """
     url = logging_settings.LOKI_URL
     base_tags = {"app": app_name, "env": logging_settings.APP_ENV}
-    return LokiQueueHandler(
-        Queue(-1),
+    return BoundedLokiQueueHandler(
+        Queue(maxsize=1000),
         url=url,
         auth=build_loki_auth(logging_settings.LOKI_BEARER_TOKEN),
         tags=base_tags,

@@ -1,4 +1,7 @@
+import ctypes
+import gc
 import logging
+import sys
 from datetime import datetime, UTC
 from typing import Optional, Any
 
@@ -442,6 +445,13 @@ class WorkflowManager:
             # We clean up the data in the reverse order because the first step need to be the last
             for step in reversed(self.step_list):
                 await step.cleanup(is_last_cleanup)
+
+            gc.collect()
+            if sys.platform.startswith("linux"):
+                try:
+                    ctypes.CDLL("libc.so.6").malloc_trim(0)
+                except Exception:
+                    pass
 
     async def _save_failure_event(self, db: AsyncSession, exception: Exception):
         if self.event_dto is None:

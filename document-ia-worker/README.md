@@ -170,7 +170,7 @@ Network I/O steps (downloading from S3, HTTP OCR, LLM API calls) use virtually z
 However, local PDF rasterization and PyTorch inference are heavy in RAM. Thread locks serialize only these brief C/RAM intensive phases:
 - `_PDF_LOCK` in `PreprocessFileStep` (PyMuPDF PDF page rendering)
 - `_YOLO_LOCK` in `yoloworld_crop.py` (YOLO-World object detection)
-- `_QRDET_LOCK` in `extract_barcode_2ddoc_data.py` (QRDet barcode detection)
+- `_BARCODE_LOCK` in `extract_barcode_2ddoc_data.py` (image reading, downscaling, ZXing and QRDet barcode detection)
 
 This allows high Redis concurrency (`REDIS_WORKER_NUMBER = 10`) for I/O bound waiting while keeping peak RAM footprint under 1.5 GB.
 
