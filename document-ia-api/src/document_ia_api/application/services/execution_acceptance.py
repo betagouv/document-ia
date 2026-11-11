@@ -136,3 +136,30 @@ async def fail_abandoned_execution(
 def scheduling_log_context(error: PublishFailedError) -> dict[str, Any]:
     """Contexte de log sans contenu de document ni charge utile publiée."""
     return {"stream": error.stream_name, "reason": error.reason}
+
+
+async def compensate_s3_upload(
+    s3_key: str | None,
+    execution_id: str,
+) -> None:
+    """Supprime immédiatement un fichier S3 téléversé en cas d'échec de programmation.
+
+    Ne lève jamais d'exception pour ne pas masquer l'erreur métier d'origine.
+    Ne logue jamais la clé S3 brute pour respecter la règle de sécurité absolue.
+    """
+    if not s3_key:
+        return
+    try:
+        from document_ia_api.infra.s3_service import s3_service
+
+        await s3_service.delete_file(s3_key)
+        logger.info(
+            "Compensated orphaned S3 upload for execution %s",
+            execution_id,
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to compensate S3 upload for execution %s: %s",
+            execution_id,
+            e,
+        )

@@ -14,6 +14,7 @@ from document_ia_api.api.exceptions.entity_not_found_exception import (
 )
 from document_ia_api.application.services.execution_acceptance import (
     EXECUTION_RESERVATION_LOST_ERROR,
+    compensate_s3_upload,
     fail_abandoned_execution,
     fail_unscheduled_execution,
     scheduling_log_context,
@@ -88,6 +89,7 @@ class WorkflowV2Service:
         execution_id = execution_id or str(uuid.uuid4())
 
         file_info: FileInfo | None = None
+        s3_key_to_compensate: str | None = None
         if file is not None:
             detected_mime_type = validate_uploaded_file(file)
             file_content = await self._read_file_content(file)
@@ -97,6 +99,7 @@ class WorkflowV2Service:
                 content_type=detected_mime_type,
                 metadata=metadata,
             )
+            s3_key_to_compensate = s3_upload_result["s3_key"]
 
             file_info = FileInfo(
                 filename=file.filename or "unknown",
@@ -108,16 +111,24 @@ class WorkflowV2Service:
             )
 
         event_store_service = EventStoreService(self.db_session)
-        await event_store_service.emit_workflow_started(
-            workflow_id=workflow_id,
-            execution_id=execution_id,
-            organization_id=organization_id,
-            file_info=file_info,
-            file_url=file_url,
-            metadata=metadata,
-            workflow_configuration=resolved_workflow,
-            workflow_version=2,
-        )
+        try:
+            await event_store_service.emit_workflow_started(
+                workflow_id=workflow_id,
+                execution_id=execution_id,
+                organization_id=organization_id,
+                file_info=file_info,
+                file_url=file_url,
+                metadata=metadata,
+                workflow_configuration=resolved_workflow,
+                workflow_version=2,
+            )
+        except Exception as emit_error:
+            logger.error(
+                "Workflow v2 execution %s: started event could not be persisted",
+                execution_id,
+            )
+            await compensate_s3_upload(s3_key_to_compensate, execution_id)
+            raise scheduling_unavailable(execution_id) from emit_error
 
         # Publication is fenced by reservation ownership in one Redis operation:
         # a stale request must not publish a second execution. The started event
@@ -133,6 +144,7 @@ class WorkflowV2Service:
             else:
                 await self.redis_producer.publish_message(execution_message)
         except (ReservationLostError, IdempotencyReservationLostException):
+            await compensate_s3_upload(s3_key_to_compensate, execution_id)
             await fail_abandoned_execution(
                 self.db_session,
                 execution_id=execution_id,
@@ -161,6 +173,7 @@ class WorkflowV2Service:
             # Le fichier et l'événement de démarrage existent déjà : l'exécution
             # est clôturée explicitement plutôt qu'annoncée en `processing`
             # sans traitement programmé (issue #120).
+            await compensate_s3_upload(s3_key_to_compensate, execution_id)
             logger.error(
                 "Workflow v2 execution %s: scheduling failed",
                 execution_id,
