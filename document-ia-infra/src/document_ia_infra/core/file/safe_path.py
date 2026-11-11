@@ -1,12 +1,17 @@
 """Filesystem confinement utilities for Document IA."""
 
 import errno
-import stat
 import logging
 import os
+import stat
 from pathlib import Path
 from typing import IO
 from uuid import UUID
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # type: ignore[assignment]
 
 from document_ia_infra.exception.security_exception import (
     InvalidUUIDException,
@@ -37,6 +42,11 @@ class ConfinedDirectory:
         self._fd = fd
         self.path = path
 
+    @property
+    def fd(self) -> int:
+        """The underlying file descriptor."""
+        return self._fd
+
     def __enter__(self) -> "ConfinedDirectory":
         return self
 
@@ -54,9 +64,10 @@ class ConfinedDirectory:
             raise PathTraversalException(
                 f"Refusing nested or relative name inside sandbox: {name!r}"
             )
-        flags = os.O_WRONLY | os.O_CREAT | _O_NOFOLLOW | _O_CLOEXEC
+        flags: int = os.O_WRONLY | os.O_CREAT | _O_NOFOLLOW | _O_CLOEXEC
         if "b" not in mode:
-            flags |= os.O_BINARY if hasattr(os, "O_BINARY") else 0
+            o_binary: int = int(getattr(os, "O_BINARY", 0))
+            flags |= o_binary
         fd = os.open(name, flags, 0o600, dir_fd=self._fd)
         return os.fdopen(fd, mode)
 
@@ -101,6 +112,8 @@ def open_confined_directory(
     # execution directory escaped. The real guarantee is the O_NOFOLLOW open plus
     # the descriptor check below.
     root_path = Path(sandbox_root)
+    if root_path.is_symlink():
+        raise PathTraversalException(f"Sandbox root {root_path} is a symlink")
     root_resolved = Path(os.path.normpath(root_path.absolute()))
     resolved = validate_safe_path(directory_path, root_resolved)
     try:
@@ -117,11 +130,19 @@ def open_confined_directory(
 
     # Re-check confinement on the descriptor actually held, against the boundary
     # captured before the open: a parent swapped in between then disagrees.
+    held: Path
     try:
-        held = Path(os.readlink(f"/proc/self/fd/{fd}"))
+        if fcntl is not None and hasattr(fcntl, "F_GETPATH"):
+            held_raw = fcntl.fcntl(fd, fcntl.F_GETPATH, b"\0" * 1024)
+            held = Path(held_raw.decode("utf-8").rstrip("\x00"))
+        else:
+            held = Path(os.readlink(f"/proc/self/fd/{fd}"))
     except OSError:
         held = resolved
-    if not held.is_relative_to(root_resolved):
+    root_resolved_phys = root_resolved.resolve()
+    if not (
+        held.is_relative_to(root_resolved) or held.is_relative_to(root_resolved_phys)
+    ):
         os.close(fd)
         raise PathTraversalException(
             f"Sandbox directory {held} escapes sandbox {root_resolved}"
@@ -313,7 +334,7 @@ def safe_cleanup_directory(
 
     parent_fd = -1
     try:
-        _remove_tree_relative(confined._fd)
+        _remove_tree_relative(confined.fd)
         # Remove the directory itself through its parent, still no-follow.
         parent_fd = os.open(
             os.path.dirname(confined.path) or ".",

@@ -67,13 +67,13 @@ class S3Manager:
     def delete_file(self, s3_key: str) -> bool:
         try:
             self.s3_client.delete_object(Bucket=self.bucket_name, Key=s3_key)
-            logger.info(f"File deleted successfully: {s3_key}")
+            logger.info("File deleted successfully from S3")
             return True
         except ClientError as e:
-            logger.error(f"Failed to delete file {s3_key}: {e}")
+            logger.error("Failed to delete file from S3: %s", e)
             return False
         except Exception as e:
-            logger.error(f"Unexpected error during file deletion: {e}")
+            logger.error("Unexpected error during file deletion from S3: %s", e)
             return False
 
     @staticmethod
@@ -91,12 +91,12 @@ class S3Manager:
             self.s3_client.download_file(
                 Bucket=self.bucket_name, Key=s3_key, Filename=output_path
             )
-            logger.info(f"File downloaded successfully: {s3_key} to {output_path}")
+            logger.info("File downloaded successfully to %s", output_path)
         except ClientError as e:
-            logger.error(f"Failed to download file {s3_key}: {e}")
+            logger.error("Failed to download file from S3: %s", e)
             raise S3AuthentificationException()
         except Exception as e:
-            logger.error(f"Unexpected error during file download: {e}")
+            logger.error("Unexpected error during file download: %s", e)
             raise e
 
     def get_file_info(self, s3_key: str) -> Optional[Dict[str, Any]]:
@@ -114,10 +114,10 @@ class S3Manager:
         except ClientError as e:
             if self._client_error_code(e) == "404":
                 return None
-            logger.error(f"Failed to get file info for {s3_key}: {e}")
+            logger.error("Failed to get file info from S3: %s", e)
             return None
         except Exception as e:
-            logger.error(f"Unexpected error getting file info: {e}")
+            logger.error("Unexpected error getting file info: %s", e)
             return None
 
     def check_bucket_exists(self) -> bool:
