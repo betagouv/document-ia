@@ -16,6 +16,7 @@ from document_ia_infra.redis.model.workflow_execution_message import (
 from document_ia_infra.redis.redis_manager import RedisManager
 from document_ia_infra.redis.redis_settings import redis_settings
 from document_ia_worker.config.logging import setup_logging
+from document_ia_worker.core.temp_file_sweeper import TempFileSweeper
 from document_ia_worker.workflow.message_handler import process_message
 from document_ia_worker.workflow.terminal_failure import (
     notify_watchdog_terminal_failure,
@@ -148,6 +149,12 @@ async def main() -> None:
     stop_event = asyncio.Event()
     registered_sigs = _register_signal_handlers(stop_event)
 
+    # Startup cleanup and periodic background sweeper for temporary files
+    sweeper_redis_manager = RedisManager()
+    sweeper = TempFileSweeper(redis_manager=sweeper_redis_manager)
+    await sweeper.startup_cleanup()
+    sweeper_task = asyncio.create_task(sweeper.run_periodic_sweep(stop_event))
+
     consumer_task = asyncio.create_task(run_consumer(stop_event))
     stop_wait = asyncio.create_task(stop_event.wait())
 
@@ -207,6 +214,14 @@ async def main() -> None:
             stop_wait.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await stop_wait
+        if not sweeper_task.done():
+            sweeper_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await sweeper_task
+        try:
+            await asyncio.wait_for(sweeper_redis_manager.close(), timeout=2.0)
+        except Exception as exc:
+            logger.warning("Failed to close sweeper Redis resources: %s", exc)
         _consumer = None
 
 
