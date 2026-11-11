@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import TypeVar
 
 from document_ia_infra.core.file.safe_path import (
+    ensure_directory_permissions,
     get_execution_sandbox_root,
     safe_cleanup_directory,
     validate_safe_path,
@@ -25,13 +26,14 @@ class BaseFileManipulationStep(BaseStep[T], ABC):
     ) -> None:
         self.execution_id = main_workflow_context.execution_id
         self.sandbox_root: Path = get_execution_sandbox_root(self.execution_id)
+        ensure_directory_permissions(self.sandbox_root, 0o700)
 
         if subfolder:
             # Validate that subfolder remains strictly confined within the sandbox root
             candidate_path = self.sandbox_root / subfolder
-            self.tmp_folder_path: str = str(
-                validate_safe_path(candidate_path, self.sandbox_root)
-            )
+            confined_path = validate_safe_path(candidate_path, self.sandbox_root)
+            ensure_directory_permissions(confined_path, 0o700)
+            self.tmp_folder_path: str = str(confined_path)
         else:
             self.tmp_folder_path = str(self.sandbox_root)
 

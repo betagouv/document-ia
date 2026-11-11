@@ -7,6 +7,8 @@ import magic
 
 from document_ia_infra.core.file.file_settings import file_settings
 from document_ia_infra.core.file.safe_path import (
+    ensure_directory_permissions,
+    ensure_file_permissions,
     open_confined_directory,
     validate_safe_path,
 )
@@ -51,11 +53,8 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
         logger.info("Preparing download step for file: %s", self.file_info)
         tmp_dir = Path(self.tmp_folder_path)
         validate_safe_path(tmp_dir, self.sandbox_root)
-        if not tmp_dir.exists():
-            tmp_dir.mkdir(parents=True, exist_ok=True)
-            logger.info("Created temp directory: %s", tmp_dir)
-        else:
-            logger.debug("Temp directory already exists: %s", tmp_dir)
+        ensure_directory_permissions(tmp_dir, 0o700)
+        logger.info("Prepared temp directory: %s", tmp_dir)
 
     async def _execute_internal(
         self,
@@ -71,7 +70,7 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
         logger.info("Downloading file from URL: %s", file_url)
         tmp_dir = Path(self.tmp_folder_path)
         validate_safe_path(tmp_dir, self.sandbox_root)
-        tmp_dir.mkdir(parents=True, exist_ok=True)
+        ensure_directory_permissions(tmp_dir, 0o700)
 
         CHUNK_SIZE = 8192
         MAGIC_BUFFER_SIZE = 2048  # Libmagic needs approx 2KB for accurate detection
@@ -208,6 +207,7 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
         s3_manager = S3Manager()
         try:
             s3_manager.download_file(s3_key_value, str(file_path))
+            ensure_file_permissions(file_path, 0o600)
             logger.info("File downloaded successfully to: %s", file_path)
             return (
                 DownloadFileResult(

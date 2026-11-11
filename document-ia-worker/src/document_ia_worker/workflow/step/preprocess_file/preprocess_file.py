@@ -6,9 +6,14 @@ import threading
 from pathlib import Path
 from typing import Optional, Any, Iterable, Protocol, runtime_checkable, cast
 
-from pymupdf import pymupdf, Document
+import pymupdf
+from pymupdf import Document
 from PIL import Image
 
+from document_ia_infra.core.file.safe_path import (
+    ensure_directory_permissions,
+    ensure_file_permissions,
+)
 from document_ia_infra.data.workflow.dto.workflow_v2_dto import PreprocessFileParams
 
 from document_ia_worker.workflow.main_workflow_context import (
@@ -77,8 +82,8 @@ class PreprocessFileStep(BaseFileManipulationStep[PreprocessFileResult]):
     async def _prepare_step(self):
         if self.download_file_result is None:
             raise ValueError("DownloadFileReturnData not injected in context")
-        # Ensure output directory exists
-        Path(self.tmp_folder_path).mkdir(parents=True, exist_ok=True)
+        # Ensure output directory exists with strict permissions
+        ensure_directory_permissions(Path(self.tmp_folder_path), 0o700)
 
     async def _execute_internal(
         self,
@@ -108,7 +113,7 @@ class PreprocessFileStep(BaseFileManipulationStep[PreprocessFileResult]):
         output_paths: list[str] = []
         output_images: list[str] = []
         out_dir = Path(self.tmp_folder_path)
-        out_dir.mkdir(parents=True, exist_ok=True)
+        ensure_directory_permissions(out_dir, 0o700)
 
         for index, file_path in enumerate(preprocess_result.output_files_path, start=1):
             source_path = Path(file_path)
@@ -123,6 +128,7 @@ class PreprocessFileStep(BaseFileManipulationStep[PreprocessFileResult]):
                     image_size=yolo_params.image_size,
                 )
                 cropped_image.save(output_path, format="PNG")
+                ensure_file_permissions(output_path, 0o600)
                 # Keep a compact preview in the execution debug metadata so
                 # clients can inspect the YoloWorld output after worker cleanup.
                 preview = cropped_image.convert("RGB")
@@ -150,7 +156,7 @@ class PreprocessFileStep(BaseFileManipulationStep[PreprocessFileResult]):
             assert self.download_file_result
             doc: Document = pymupdf.open(filename=self.download_file_result.file_path)
             out_dir = Path(self.tmp_folder_path)
-            out_dir.mkdir(parents=True, exist_ok=True)
+            ensure_directory_permissions(out_dir, 0o700)
             base_name = Path(self.download_file_result.file_path).stem
             try:
                 pages = cast(Iterable[PageLike], doc)
@@ -202,6 +208,7 @@ class PreprocessFileStep(BaseFileManipulationStep[PreprocessFileResult]):
 
                         image_path = str(out_dir / f"{base_name}_{page.number}.png")
                         pix.save(image_path)
+                        ensure_file_permissions(Path(image_path), 0o600)
                         image_paths.append(image_path)
                     finally:
                         # Libère la référence du pixmap

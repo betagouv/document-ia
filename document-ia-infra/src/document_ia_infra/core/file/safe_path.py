@@ -1,9 +1,10 @@
 """Filesystem confinement utilities for Document IA."""
 
 import errno
-import stat
+import fcntl
 import logging
 import os
+import stat
 from pathlib import Path
 from typing import IO
 from uuid import UUID
@@ -17,9 +18,90 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_SANDBOX_BASE = Path("/tmp/document_ia_worker.tmp")
 
-_O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
-_O_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
-_O_CLOEXEC = getattr(os, "O_CLOEXEC", 0)
+_O_NOFOLLOW: int = getattr(os, "O_NOFOLLOW", 0)
+_O_DIRECTORY: int = getattr(os, "O_DIRECTORY", 0)
+_O_CLOEXEC: int = getattr(os, "O_CLOEXEC", 0)
+_O_BINARY: int = getattr(os, "O_BINARY", 0)
+
+
+def _fd_to_path(fd: int) -> Path | None:
+    """Resolve the real filesystem path for an open file descriptor.
+
+    Supports Linux (/proc/self/fd) and macOS (fcntl F_GETPATH).
+    """
+    # On Linux:
+    try:
+        return Path(os.readlink(f"/proc/self/fd/{fd}"))
+    except OSError:
+        pass
+
+    # On macOS (Darwin):
+    if hasattr(fcntl, "F_GETPATH"):
+        try:
+            buf = b"\0" * 1024
+            res = fcntl.fcntl(fd, fcntl.F_GETPATH, buf)
+            return Path(res.rstrip(b"\0").decode("utf-8", errors="surrogateescape"))
+        except OSError:
+            pass
+
+    return None
+
+
+def ensure_directory_permissions(path: Path | str, mode: int = 0o700) -> Path:
+    """Ensure directory exists and has strict permissions, rejecting symlinks.
+
+    Creates the directory with mode if it does not exist, and explicitly calls
+    os.chmod to override any restrictive or permissive system umask.
+
+    Args:
+        path: Directory path to create/verify.
+        mode: Octal permission mode (defaults to 0o700: rwx------).
+
+    Returns:
+        Path object pointing to the secured directory.
+
+    Raises:
+        PathTraversalException: If path is a symlink.
+    """
+    target = Path(path)
+    if target.is_symlink():
+        raise PathTraversalException(
+            f"Directory {target} is a symlink; refusing to use it"
+        )
+    target.mkdir(parents=True, exist_ok=True, mode=mode)
+    try:
+        os.chmod(target, mode)
+    except OSError as exc:
+        logger.warning(
+            "Failed to set permissions %o on directory %s: %s", mode, target, exc
+        )
+    return target
+
+
+def ensure_file_permissions(path: Path | str, mode: int = 0o600) -> Path:
+    """Ensure file has strict permissions, rejecting symlinks.
+
+    Args:
+        path: File path to verify.
+        mode: Octal permission mode (defaults to 0o600: rw-------).
+
+    Returns:
+        Path object pointing to the secured file.
+
+    Raises:
+        PathTraversalException: If path is a symlink.
+    """
+    target = Path(path)
+    if target.is_symlink():
+        raise PathTraversalException(f"File {target} is a symlink; refusing to use it")
+    if target.exists():
+        try:
+            os.chmod(target, mode)
+        except OSError as exc:
+            logger.warning(
+                "Failed to set permissions %o on file %s: %s", mode, target, exc
+            )
+    return target
 
 
 class ConfinedDirectory:
@@ -36,6 +118,11 @@ class ConfinedDirectory:
     def __init__(self, fd: int, path: Path) -> None:
         self._fd = fd
         self.path = path
+
+    @property
+    def fd(self) -> int:
+        """File descriptor held by this confined directory."""
+        return self._fd
 
     def __enter__(self) -> "ConfinedDirectory":
         return self
@@ -54,9 +141,9 @@ class ConfinedDirectory:
             raise PathTraversalException(
                 f"Refusing nested or relative name inside sandbox: {name!r}"
             )
-        flags = os.O_WRONLY | os.O_CREAT | _O_NOFOLLOW | _O_CLOEXEC
+        flags: int = os.O_WRONLY | os.O_CREAT | _O_NOFOLLOW | _O_CLOEXEC
         if "b" not in mode:
-            flags |= os.O_BINARY if hasattr(os, "O_BINARY") else 0
+            flags |= _O_BINARY
         fd = os.open(name, flags, 0o600, dir_fd=self._fd)
         return os.fdopen(fd, mode)
 
@@ -95,12 +182,11 @@ def open_confined_directory(
         PathTraversalException: if the directory escapes the sandbox, or if any
             component was replaced by a symlink.
     """
-    # The boundary is taken as given (it is built as `<base>/<execution_id>`, not
-    # derived from the filesystem) and is only normalised lexically. Resolving it
-    # would adopt whatever a symlink points at, which is exactly how a replaced
-    # execution directory escaped. The real guarantee is the O_NOFOLLOW open plus
-    # the descriptor check below.
     root_path = Path(sandbox_root)
+    if root_path.is_symlink():
+        raise PathTraversalException(
+            f"Sandbox root {root_path} is a symlink; refusing to use it"
+        )
     root_resolved = Path(os.path.normpath(root_path.absolute()))
     resolved = validate_safe_path(directory_path, root_resolved)
     try:
@@ -117,11 +203,17 @@ def open_confined_directory(
 
     # Re-check confinement on the descriptor actually held, against the boundary
     # captured before the open: a parent swapped in between then disagrees.
-    try:
-        held = Path(os.readlink(f"/proc/self/fd/{fd}"))
-    except OSError:
+    held_path = _fd_to_path(fd)
+    if held_path is not None:
+        held = held_path
+    else:
         held = resolved
-    if not held.is_relative_to(root_resolved):
+
+    # On OSes where /tmp is a symlink to /private/tmp, compare both resolved forms
+    if not (
+        held.is_relative_to(root_resolved)
+        or held.resolve().is_relative_to(root_resolved.resolve())
+    ):
         os.close(fd)
         raise PathTraversalException(
             f"Sandbox directory {held} escapes sandbox {root_resolved}"
@@ -151,6 +243,8 @@ def get_execution_sandbox_root(
 ) -> Path:
     """Return the canonical, confinement-verified sandbox root for an execution.
 
+    Ensures that base_dir and the execution directory have strict 0o700 permissions.
+
     Args:
         execution_id: UUID of the workflow execution.
         base_dir: Base directory for worker temp sandboxes.
@@ -160,6 +254,8 @@ def get_execution_sandbox_root(
     """
     valid_uuid = validate_execution_id(execution_id)
     base_path = Path(base_dir).resolve()
+
+    ensure_directory_permissions(base_path, 0o700)
 
     # The boundary is `<base>/<execution_id>` by construction, never a value
     # derived from the filesystem. Canonicalising the entry would adopt whatever
@@ -276,6 +372,9 @@ def safe_cleanup_directory(
     relative throughout: deleting via pathnames would let a directory swapped
     after validation redirect the walk outside the sandbox.
 
+    If directory removal fails with an OSError, a WARNING is logged without blocking
+    the worker thread; recovery is deferred to the background sweeper.
+
     Args:
         directory_path: Path to the directory to clean up.
         sandbox_root: Optional sandbox boundary. If provided, directory_path must be confined.
@@ -288,7 +387,11 @@ def safe_cleanup_directory(
             raw_path.unlink()
             logger.info("Removed symlink: %s", raw_path)
         except OSError as exc:
-            logger.error("Failed to remove symlink %s: %s", raw_path, exc)
+            logger.warning(
+                "Failed to remove symlink %s: %s; deferred to background sweeper",
+                raw_path,
+                exc,
+            )
         return
 
     # Open the target itself with no-follow semantics, then work only through
@@ -305,7 +408,11 @@ def safe_cleanup_directory(
             raw_path.unlink()
             logger.info("Deleted file: %s", raw_path)
         except OSError as exc:
-            logger.error("Failed to delete file %s: %s", raw_path, exc)
+            logger.warning(
+                "Failed to delete file %s: %s; deferred to background sweeper",
+                raw_path,
+                exc,
+            )
         return
     except PathTraversalException as exc:
         logger.error("Refusing to clean up %s: %s", raw_path, exc)
@@ -313,7 +420,7 @@ def safe_cleanup_directory(
 
     parent_fd = -1
     try:
-        _remove_tree_relative(confined._fd)
+        _remove_tree_relative(confined.fd)
         # Remove the directory itself through its parent, still no-follow.
         parent_fd = os.open(
             os.path.dirname(confined.path) or ".",
@@ -322,7 +429,11 @@ def safe_cleanup_directory(
         os.rmdir(os.path.basename(confined.path), dir_fd=parent_fd)
         logger.info("Removed sandbox directory: %s", confined.path)
     except OSError as exc:
-        logger.error("Failed to remove %s: %s", confined.path, exc)
+        logger.warning(
+            "Failed to remove temporary directory %s: %s; deferred to background sweeper",
+            confined.path,
+            exc,
+        )
     finally:
         if parent_fd >= 0:
             os.close(parent_fd)

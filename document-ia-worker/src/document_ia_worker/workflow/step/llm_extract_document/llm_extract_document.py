@@ -5,6 +5,10 @@ from typing import Optional, Any, cast
 
 from pydantic import BaseModel
 
+from document_ia_infra.core.file.safe_path import (
+    ensure_directory_permissions,
+    ensure_file_permissions,
+)
 from document_ia_infra.data.document.schema.document_extraction import (
     DocumentExtraction,
 )
@@ -106,7 +110,7 @@ class LLMExtractDocumentStep(BaseStep[LLMExtractionResult]):
         document_type: SupportedDocumentType,
     ) -> None:
         replay_dir = Path(settings.OPENAI_REPLAY_PAYLOAD_SAVE_PATH)
-        replay_dir.mkdir(parents=True, exist_ok=True)
+        ensure_directory_permissions(replay_dir, 0o700)
 
         document_type_name = (
             document_type.value
@@ -124,6 +128,7 @@ class LLMExtractDocumentStep(BaseStep[LLMExtractionResult]):
         replay_file.write_text(
             json.dumps(replay_payload, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+        ensure_file_permissions(replay_file, 0o600)
         logger.info("OpenAI replay payload saved to %s", replay_file)
 
     async def _execute_internal(self) -> tuple[LLMExtractionResult, StepMetadata]:
