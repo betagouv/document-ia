@@ -619,6 +619,103 @@ def download_roboflow_dataset(
     return Path(dataset.location)
 
 
+def download_labelstudio_project(
+    project_id: int,
+    target_dir: str | None = None,
+) -> Path:
+    """Download and render all PDFs from a Label Studio project using S3 credentials."""
+    if target_dir is None:
+        target_dir = f"./data/labelstudio-project-{project_id}"
+    target_path = Path(target_dir)
+
+    existing_images = list(target_path.glob("*.png")) + list(target_path.glob("*.jpg"))
+    if target_path.exists() and len(existing_images) > 0:
+        logger.info(
+            f"Found {len(existing_images)} cached images in {target_path}. Using existing files."
+        )
+        return target_path
+
+    import concurrent.futures
+
+    import boto3
+    import fitz
+    import requests
+    from dotenv import dotenv_values
+
+    evals_env = Path(__file__).resolve().parent.parent / "document-ia-evals" / ".env"
+    root_env = Path(__file__).resolve().parent.parent / ".env"
+
+    env: dict[str, Any] = {}
+    if root_env.exists():
+        env.update(dotenv_values(root_env))
+    if evals_env.exists():
+        env.update(dotenv_values(evals_env))
+
+    ls_url = (
+        env.get("LABEL_STUDIO_URL") or os.environ.get("LABEL_STUDIO_URL", "")
+    ).rstrip("/")
+    ls_key = env.get("LABEL_STUDIO_API_KEY") or os.environ.get("LABEL_STUDIO_API_KEY")
+
+    if not ls_url or not ls_key:
+        logger.error(
+            "LABEL_STUDIO_URL and LABEL_STUDIO_API_KEY must be configured in .env"
+        )
+        sys.exit(1)
+
+    headers = {"Authorization": f"Token {ls_key}"}
+    logger.info(f"Fetching tasks from Label Studio project {project_id}...")
+    res = requests.get(
+        f"{ls_url}/api/projects/{project_id}/tasks?page_size=200", headers=headers
+    )
+    if res.status_code != 200:
+        logger.error(
+            f"Failed to fetch tasks from Label Studio (HTTP {res.status_code}): {res.text}"
+        )
+        sys.exit(1)
+    tasks = res.json()
+    logger.info(f"Found {len(tasks)} tasks in project {project_id}.")
+
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=env.get("S3_ENDPOINT") or os.environ.get("S3_ENDPOINT"),
+        aws_access_key_id=env.get("S3_ACCESS_KEY") or os.environ.get("S3_ACCESS_KEY"),
+        aws_secret_access_key=env.get("S3_SECRET_KEY")
+        or os.environ.get("S3_SECRET_KEY"),
+        region_name=env.get("S3_REGION") or os.environ.get("S3_REGION", "fr-par"),
+    )
+
+    target_path.mkdir(parents=True, exist_ok=True)
+
+    def process_task(t: dict[str, Any]) -> int:
+        task_id = t["id"]
+        pdf_url = t.get("data", {}).get("pdf")
+        if not pdf_url:
+            return 0
+        path = pdf_url[5:]
+        bucket, key = path.split("/", 1)
+        obj = s3.get_object(Bucket=bucket, Key=key)
+        doc = fitz.open(stream=obj["Body"].read(), filetype="pdf")
+        rendered = 0
+        for p_idx in range(len(doc)):
+            page = doc[p_idx]
+            pix = page.get_pixmap(dpi=200)
+            img_path = target_path / f"task_{task_id}_p{p_idx + 1}.png"
+            pix.save(str(img_path))
+            rendered += 1
+        return rendered
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [executor.submit(process_task, t) for t in tasks]
+        for f in concurrent.futures.as_completed(futures):
+            f.result()
+
+    rendered_images = list(target_path.glob("*.png"))
+    logger.info(
+        f"Successfully prepared {len(rendered_images)} document images in {target_path}."
+    )
+    return target_path
+
+
 def collect_images_from_directory(dir_path: Path) -> list[str]:
     extensions = ("*.jpg", "*.jpeg", "*.png", "*.bmp", "*.webp")
     images: list[str] = []
@@ -694,6 +791,12 @@ def main() -> None:
         help="Roboflow API key to download dataset automatically",
     )
     parser.add_argument(
+        "--label-studio-project",
+        type=int,
+        default=None,
+        help="Label Studio project ID to download and benchmark (e.g. 17 for Avis d'imposition)",
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         default=100,
@@ -720,14 +823,16 @@ def main() -> None:
         if not images_dir.exists():
             logger.error(f"Dataset directory not found: {images_dir}")
             sys.exit(1)
+    elif args.label_studio_project is not None:
+        images_dir = download_labelstudio_project(project_id=args.label_studio_project)
     elif args.roboflow_api_key:
         images_dir = download_roboflow_dataset(api_key=args.roboflow_api_key)
     else:
         logger.error(
-            "Please provide either --dataset-dir <path> or --roboflow-api-key <key>."
+            "Please provide --dataset-dir, --label-studio-project, or --roboflow-api-key."
         )
         logger.info(
-            "Example: uv run python scripts/benchmark_barcode_detection.py --dataset-dir ./data/grandav-datamatrix"
+            "Example: uv run python scripts/benchmark_barcode_detection.py --label-studio-project 17"
         )
         sys.exit(1)
 
