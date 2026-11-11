@@ -3,6 +3,7 @@ import logging
 import random
 
 from redis.asyncio import ConnectionPool, Redis
+from redis.exceptions import AuthenticationError, ConnectionError, TimeoutError
 
 from document_ia_infra.redis.redis_settings import redis_settings
 
@@ -23,19 +24,23 @@ class RedisManager:
         jitter = delay * 0.25 * random.uniform(-1, 1)
         return max(0.1, delay + jitter)
 
+    @staticmethod
+    def _build_pool(url: str) -> Redis:
+        pool = ConnectionPool.from_url(  # type: ignore[UnknownMemberType]
+            url,
+            decode_responses=True,
+            max_connections=20,
+            socket_connect_timeout=5,
+        )
+        return Redis(connection_pool=pool)
+
     async def get_connection(self) -> Redis | None:
         """Ensure Redis connection with retry logic."""
         # A previous outage must not disable recovery on every future request.
         for attempt in range(self.max_retries):
             try:
                 if self.redis is None:
-                    pool = ConnectionPool.from_url(  # type: ignore[UnknownMemberType]
-                        redis_settings.get_redis_url(),
-                        decode_responses=True,
-                        max_connections=20,
-                        socket_connect_timeout=5,
-                    )
-                    self.redis = Redis(connection_pool=pool)
+                    self.redis = self._build_pool(redis_settings.get_redis_url())
 
                 await asyncio.wait_for(self.redis.ping(), timeout=5)  # type: ignore[misc]
                 if self.connection_attempts > 0:
@@ -46,6 +51,31 @@ class RedisManager:
                 self.connection_attempts = 0
                 return self.redis
 
+            except AuthenticationError as e:
+                if "without any password configured" in str(e):
+                    logger.warning(
+                        "Redis password was provided but server has no password configured. Reconnecting without password."
+                    )
+                    if self.redis is not None:
+                        await self.redis.aclose(close_connection_pool=True)
+                    # Keep the endpoint get_redis_url() selected (host, port,
+                    # database, scheme, options) and drop only the credentials.
+                    self.redis = self._build_pool(
+                        redis_settings.get_redis_url_without_credentials()
+                    )
+                    await asyncio.wait_for(self.redis.ping(), timeout=5)  # type: ignore[misc]
+                    self.connection_attempts = 0
+                    return self.redis
+                self.connection_attempts = attempt + 1
+                delay = await self._get_retry_delay()
+                logger.warning(
+                    "Redis connection failed (attempt %d/%d): %s. Retrying in %.2fs",
+                    self.connection_attempts,
+                    self.max_retries,
+                    e,
+                    delay,
+                )
+                await asyncio.sleep(delay)
             except (ConnectionError, TimeoutError, Exception) as e:
                 self.connection_attempts = attempt + 1
                 delay = await self._get_retry_delay()

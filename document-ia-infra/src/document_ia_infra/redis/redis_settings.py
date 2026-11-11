@@ -1,5 +1,5 @@
 from pydantic import Field, SecretStr, model_validator
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from document_ia_infra.core.BaseDocumentIaSettings import BaseDocumentIaSettings
 
@@ -58,6 +58,13 @@ class RedisSettings(BaseDocumentIaSettings):
     # peut pas être programmée. Bornée pour ne pas inviter le client à attendre
     # indéfiniment une indisponibilité prolongée.
     PUBLISH_RETRY_AFTER_SECONDS: int = Field(default=5, ge=1, le=120)
+    # Bounds the fenced publication, matching the unfenced admission path.
+    PUBLISH_TIMEOUT_SECONDS: float = Field(default=5.0, gt=0, le=60)
+
+    # Durée de rétention des clés d'idempotence (12 heures par défaut).
+    IDEMPOTENCY_KEY_TTL_SECONDS: int = Field(default=43200, ge=1)
+    # Durée de verrouillage temporaire pendant le traitement de la requête (60 secondes).
+    IDEMPOTENCY_LOCK_TTL_SECONDS: int = Field(default=60, ge=1, le=600)
 
     def get_redis_url(self) -> str:
         if self.REDIS_URL:
@@ -65,6 +72,27 @@ class RedisSettings(BaseDocumentIaSettings):
         password = quote(self.REDIS_PASSWORD.get_secret_value(), safe="")
         return (
             f"redis://:{password}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+        )
+
+    def get_redis_url_without_credentials(self) -> str:
+        """Effective Redis URL with any userinfo removed.
+
+        Used when the server answers `AUTH` with "without any password
+        configured": the fallback must keep the host, port, database, scheme and
+        connection options selected by `get_redis_url()`, and drop only the
+        credentials. Rebuilding the URL from `REDIS_HOST`/`REDIS_PORT`/`REDIS_DB`
+        would silently move the connection to another server whenever
+        `REDIS_URL` is the source of the endpoint.
+        """
+        parts = urlsplit(self.get_redis_url())
+        netloc = parts.hostname or ""
+        if parts.hostname and ":" in parts.hostname:
+            # IPv6 literals must keep their brackets.
+            netloc = f"[{parts.hostname}]"
+        if parts.port is not None:
+            netloc = f"{netloc}:{parts.port}"
+        return urlunsplit(
+            (parts.scheme, netloc, parts.path, parts.query, parts.fragment)
         )
 
 

@@ -10,6 +10,10 @@ post {
   auth: inherit
 }
 
+headers {
+  ~Idempotency-Key: {{idempotency_key}}
+}
+
 body:multipart-form {
   metadata: {"test":"test"} @contentType(String)
   file: @file(/Users/nsagon/Downloads/f3910feb-b841-418b-ac51-92567cc4bc47.pdf)
@@ -19,6 +23,12 @@ body:multipart-form {
 
 vars:pre-request {
   workflow_id: document-extraction-mistral-v1
+  ~idempotency_key: test-idemp-001
+}
+
+script:pre-request {
+  // Décommenter pour générer automatiquement une nouvelle clé aléatoire à chaque requête :
+  // bru.setVar("idempotency_key", crypto.randomUUID());
 }
 
 script:post-response {

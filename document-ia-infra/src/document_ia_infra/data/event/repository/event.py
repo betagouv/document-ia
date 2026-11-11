@@ -226,6 +226,38 @@ class EventRepository:
             await self.session.rollback()
             raise
 
+    async def get_started_event_by_execution_id(
+        self,
+        execution_id: str,
+    ) -> Optional[EventDTO]:
+        """Retrieve the started event for a specific execution ID."""
+        query = (
+            select(EventEntity)
+            .where(
+                EventEntity.execution_id == execution_id,
+                EventEntity.event_type == EventType.WORKFLOW_EXECUTION_STARTED.value,
+            )
+            .limit(1)
+        )
+
+        try:
+            result = await self.session.execute(query)
+            event = result.scalars().first()
+
+            if event:
+                return self._to_dto(event)
+            return None
+
+        except OSError as e:
+            logger.error(f"Database connection error: {e}")
+            raise RetryableException(e)
+        except Exception as e:
+            logger.error(
+                f"Unexpected error retrieving started event for execution {execution_id}: {e}"
+            )
+            await self.session.rollback()
+            raise
+
     async def get_events_by_execution_id(
         self,
         execution_id: str,

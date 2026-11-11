@@ -11,6 +11,7 @@ Entry point for API documentation.
 - [Routes](./ROUTES.md)
 - [Workflow v1 (Deprecated)](./WORKFLOW_V1_DEPRECATED.md)
 - [Workflow v2](./WORKFLOW_V2.md)
+- [Workflow Idempotency-Key](./WORKFLOW_IDEMPOTENCY_KEY.md)
 - [Rate Limiting](./RATE_LIMITING.md)
 
 ## Quick navigation
