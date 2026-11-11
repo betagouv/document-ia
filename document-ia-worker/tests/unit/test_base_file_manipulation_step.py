@@ -22,7 +22,7 @@ class _ExecutionContext:
 class _CleanupStep(BaseFileManipulationStep):
     """Probe concrète exposant uniquement le comportement de nettoyage."""
 
-    async def execute(self):
+    async def execute(self):  # pyright: ignore[reportIncompatibleMethodOverride]
         return ("result", None)
 
     def get_context_result_key(self) -> str:
@@ -32,8 +32,8 @@ class _CleanupStep(BaseFileManipulationStep):
 @pytest.mark.asyncio
 async def test_aborted_attempt_does_not_delete_shared_tmp_dir():
     """Une tentative avortée ne supprime pas les fichiers du répertoire partagé."""
-    exec_id = f"exec-{uuid4()}"
-    step = _CleanupStep(_ExecutionContext(exec_id))
+    exec_id = str(uuid4())
+    step = _CleanupStep(_ExecutionContext(exec_id))  # pyright: ignore[reportArgumentType]
 
     tmp_dir = Path("/tmp/document_ia_worker.tmp") / exec_id
     tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -55,8 +55,8 @@ async def test_aborted_attempt_does_not_delete_shared_tmp_dir():
 @pytest.mark.asyncio
 async def test_non_aborted_cleanup_still_removes_tmp_files():
     """Le comportement nominal est préservé : nettoyage local même si ce n'est pas le dernier essai."""
-    exec_id = f"exec-{uuid4()}"
-    step = _CleanupStep(_ExecutionContext(exec_id))
+    exec_id = str(uuid4())
+    step = _CleanupStep(_ExecutionContext(exec_id))  # pyright: ignore[reportArgumentType]
 
     tmp_dir = Path("/tmp/document_ia_worker.tmp") / exec_id
     tmp_dir.mkdir(parents=True, exist_ok=True)
