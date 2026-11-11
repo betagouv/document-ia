@@ -142,7 +142,9 @@ def _upscale_crop(img: ImageArray, scale: int = 2) -> ImageArray:
     return cast(ImageArray, resized)
 
 
-def _iter_crops(img: ImageArray, detections: list[Any]) -> list[ImageArray]:
+def _iter_crops(
+    img: ImageArray, detections: list[Any], add_border: bool = True
+) -> list[ImageArray]:
     crops: list[ImageArray] = []
     height, width = img.shape[:2]
     for det in detections:
@@ -164,7 +166,8 @@ def _iter_crops(img: ImageArray, detections: list[Any]) -> list[ImageArray]:
         if x2 <= x1 or y2 <= y1:
             continue
         crop = img[y1:y2, x1:x2]
-        crop = _add_white_border(crop, border_ratio=0.25)
+        if add_border:
+            crop = _add_white_border(crop, border_ratio=0.25)
         crops.append(crop)
     return crops
 
@@ -268,7 +271,7 @@ def process_image_legacy(file_path: str) -> DetectionResult:
                 logger.debug("QRDet detection error: %s", e)
                 detections = []
 
-            rois = _iter_crops(img_raw, detections)
+            rois = _iter_crops(cast(ImageArray, img_raw), detections, add_border=True)
             for crop in rois:
                 # Legacy: Always upscale 2x
                 crop_scaled_2x = _upscale_crop(crop, scale=2)
@@ -386,7 +389,7 @@ def process_image_optimized(file_path: str) -> DetectionResult:
                     logger.debug("QRDet detection error: %s", e)
                     detections = []
 
-                rois = _iter_crops(img, detections)
+                rois = _iter_crops(img, detections, add_border=False)
                 for crop in rois:
                     ch, cw = crop.shape[:2]
                     crop_dim = max(ch, cw)
@@ -396,6 +399,14 @@ def process_image_optimized(file_path: str) -> DetectionResult:
                         crop_barcodes = zxingcpp.read_barcodes(
                             crop, formats=target_formats
                         )
+                        if not crop_barcodes:
+                            bordered = _add_white_border(crop, border_ratio=0.15)
+                            try:
+                                crop_barcodes = zxingcpp.read_barcodes(
+                                    bordered, formats=target_formats
+                                )
+                            finally:
+                                del bordered
                     else:
                         crop_scaled = _upscale_crop(crop, scale=2)
                         try:
@@ -414,9 +425,26 @@ def process_image_optimized(file_path: str) -> DetectionResult:
                             if not has_dm:
                                 crop_scaled_3x = _upscale_crop(crop, scale=3)
                                 try:
-                                    crop_barcodes = zxingcpp.read_barcodes(
+                                    crop_barcodes_3x = zxingcpp.read_barcodes(
                                         crop_scaled_3x, formats=target_formats
                                     )
+                                    if crop_barcodes_3x:
+                                        crop_barcodes = crop_barcodes_3x
+                                    else:
+                                        # Border fallback: 2x upscale with white border
+                                        bordered = _add_white_border(
+                                            crop, border_ratio=0.15
+                                        )
+                                        bordered_scaled = _upscale_crop(
+                                            bordered, scale=2
+                                        )
+                                        try:
+                                            crop_barcodes = zxingcpp.read_barcodes(
+                                                bordered_scaled, formats=target_formats
+                                            )
+                                        finally:
+                                            del bordered_scaled
+                                            del bordered
                                 finally:
                                     del crop_scaled_3x
                         finally:
@@ -471,9 +499,6 @@ def _worker_process_entrypoint(
         func = process_image_optimized
 
     proc = psutil.Process(os.getpid())
-    # Baseline before loading any model
-    proc.memory_info().rss / (1024 * 1024)
-
     # Pre-warm detector once inside the process
     _ = get_detector()
     warm_baseline_mb = proc.memory_info().rss / (1024 * 1024)

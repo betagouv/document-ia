@@ -78,10 +78,21 @@ def _read_barcodes_compat(
         crop_h, crop_w = image.shape[:2]
         crop_dim = max(crop_h, crop_w)
         if crop_dim > barcode_settings.MAX_CROP_DIM_FOR_UPSCALE:
-            return cast(
+            barcodes = cast(
                 list[BarcodeLike],
                 ZXINGCPP.read_barcodes(image, formats=formats),
             )
+            if barcodes:
+                return barcodes
+            # Fallback with border if no barcode detected on large crop
+            bordered = _add_white_border(cast(ImageArray, image), border_ratio=0.15)
+            try:
+                return cast(
+                    list[BarcodeLike],
+                    ZXINGCPP.read_barcodes(bordered, formats=formats),
+                )
+            finally:
+                del bordered
 
         image_scaled = _upscale_crop(cast(ImageArray, image), scale=2)
         try:
@@ -100,12 +111,26 @@ def _read_barcodes_compat(
                 )
                 image_scaled_3x = _upscale_crop(cast(ImageArray, image), scale=3)
                 try:
-                    return cast(
+                    barcodes_3x = cast(
                         list[BarcodeLike],
                         ZXINGCPP.read_barcodes(image_scaled_3x, formats=formats),
                     )
+                    if barcodes_3x:
+                        return barcodes_3x
                 finally:
                     del image_scaled_3x
+
+                # Final fallback: add white border + upscale 2x for boundary-touching codes
+                bordered = _add_white_border(cast(ImageArray, image), border_ratio=0.15)
+                bordered_scaled = _upscale_crop(bordered, scale=2)
+                try:
+                    return cast(
+                        list[BarcodeLike],
+                        ZXINGCPP.read_barcodes(bordered_scaled, formats=formats),
+                    )
+                finally:
+                    del bordered_scaled
+                    del bordered
             return barcodes
         finally:
             del image_scaled
@@ -192,7 +217,6 @@ def _iter_qrdet_crops(
         if x2 <= x1 or y2 <= y1:
             continue
         crop = img[y1:y2, x1:x2]
-        crop = _add_white_border(crop, border_ratio=0.25)
         crops.append(crop)
     return crops
 

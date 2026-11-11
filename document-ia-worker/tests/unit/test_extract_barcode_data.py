@@ -1,8 +1,10 @@
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 import zxingcpp
+from cv2.typing import MatLike
 
 from document_ia_infra.data.event.schema.barcode import (
     BarcodePosition,
@@ -10,6 +12,7 @@ from document_ia_infra.data.event.schema.barcode import (
     QrCode,
 )
 from document_ia_worker.workflow.step.extract_barcode_data.base_extract_barcode import (
+    BarcodeLike,
     BaseExtractBarcode,
 )
 from document_ia_worker.workflow.step.extract_barcode_data.base_extract_barcode_2ddoc import (
@@ -33,7 +36,9 @@ def test_decode_datamatrix_variant():
     assert len(barcodes) == 1
 
     base = BaseExtractBarcode()
-    variant, key, is_spec = base._decode_barcode_to_variant(barcodes[0], 1)
+    variant, key, is_spec = base._decode_barcode_to_variant(
+        cast(BarcodeLike, barcodes[0]), 1
+    )
 
     assert isinstance(variant, DataMatrix)
     assert variant.raw_data == "TEST_DM_DATA"
@@ -50,7 +55,9 @@ def test_decode_qrcode_variant():
     assert len(barcodes) == 1
 
     base = BaseExtractBarcode()
-    variant, key, is_spec = base._decode_barcode_to_variant(barcodes[0], 2)
+    variant, key, is_spec = base._decode_barcode_to_variant(
+        cast(BarcodeLike, barcodes[0]), 2
+    )
 
     assert isinstance(variant, QrCode)
     assert variant.raw_data == "TEST_QR_DATA"
@@ -67,7 +74,9 @@ def test_2ddoc_datamatrix_fallback():
     assert len(barcodes) == 1
 
     base_2ddoc = BaseExtractBarcode2DDoc()
-    variant, key, is_spec = base_2ddoc._decode_barcode_to_variant(barcodes[0], 1)
+    variant, key, is_spec = base_2ddoc._decode_barcode_to_variant(
+        cast(BarcodeLike, barcodes[0]), 1
+    )
 
     assert isinstance(variant, DataMatrix)
     assert variant.raw_data == "NON_2DDOC_DM"
@@ -80,7 +89,9 @@ def test_read_barcodes_compat_with_target_formats():
     img = zxingcpp.write_barcode_to_image(
         zxingcpp.create_barcode("COMPAT_DM", zxingcpp.BarcodeFormat.DataMatrix)
     )
-    barcodes = _read_barcodes_compat(img, formats=target_formats, is_from_crops=False)
+    barcodes = _read_barcodes_compat(
+        cast(MatLike, img), formats=target_formats, is_from_crops=False
+    )
     assert len(barcodes) == 1
     assert barcodes[0].text == "COMPAT_DM"
 
@@ -108,18 +119,21 @@ def test_read_barcodes_compat_crop_exceeding_threshold_skips_upscale() -> None:
     # Crop dimension > 250 px (e.g. 300x300)
     large_crop = np.zeros((300, 300, 3), dtype=np.uint8)
 
+    mock_barcode = MagicMock()
+    mock_barcode.format.name = "DataMatrix"
+
     with (
         patch(
             "document_ia_worker.workflow.step.extract_barcode_data.extract_barcode_2ddoc_data._upscale_crop"
         ) as mock_upscale,
         patch(
             "document_ia_worker.workflow.step.extract_barcode_data.extract_barcode_2ddoc_data.ZXINGCPP.read_barcodes",
-            return_value=[],
+            return_value=[mock_barcode],
         ) as mock_read,
     ):
         result = _read_barcodes_compat(large_crop, is_from_crops=True)
 
-        assert result == []
+        assert result == [mock_barcode]
         mock_upscale.assert_not_called()
         mock_read.assert_called_once_with(large_crop, formats=None)
 
@@ -154,7 +168,7 @@ def test_read_barcodes_compat_small_crop_upscales_2x() -> None:
         assert scale_called == 2
 
 
-def test_read_barcodes_compat_small_crop_fallback_upscales_3x() -> None:
+def test_read_barcodes_compat_small_crop_fallback_upscales_3x_and_border() -> None:
     # Crop dimension <= 250 px with no DataMatrix found at 2x
     small_crop = np.zeros((100, 100, 3), dtype=np.uint8)
 
@@ -171,13 +185,13 @@ def test_read_barcodes_compat_small_crop_fallback_upscales_3x() -> None:
         result = _read_barcodes_compat(small_crop, is_from_crops=True)
 
         assert result == []
-        # Both 2x and 3x upscaling must be attempted
-        assert mock_upscale.call_count == 2
+        # Fallback hierarchy: 2x clean, 3x clean, and 2x bordered
+        assert mock_upscale.call_count == 3
         calls = [
             c[1].get("scale") if "scale" in c[1] else c[0][1]
             for c in mock_upscale.call_args_list
         ]
-        assert calls == [2, 3]
+        assert calls == [2, 3, 2]
 
 
 @pytest.mark.asyncio
