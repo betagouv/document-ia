@@ -1,3 +1,5 @@
+from document_ia_infra.s3.s3_manager import S3Manager
+import asyncio
 import logging
 from datetime import datetime, UTC
 from typing import Optional, Any
@@ -547,6 +549,38 @@ class WorkflowManager:
                     retry_count=self.retry_count,
                     workflow_version=workflow_version,
                 )
+
+                # Purge orphaned S3 file if present
+                try:
+                    started_tuple = await event_service.get_workflow_started_event(
+                        last_event.execution_id
+                    )
+                    if started_tuple is not None:
+                        _, started_event = started_tuple
+                        if started_event.s3_file_info is not None:
+                            s3_key = (
+                                started_event.s3_file_info.s3_key.get_secret_value()
+                            )
+                            deleted = await asyncio.to_thread(
+                                S3Manager().delete_file, s3_key
+                            )
+                            if deleted:
+                                logger.info(
+                                    "Watchdog terminal failure: S3 file deleted for execution %s",
+                                    last_event.execution_id,
+                                )
+                            else:
+                                logger.warning(
+                                    "Watchdog terminal failure: failed to delete S3 file for execution %s",
+                                    last_event.execution_id,
+                                )
+                except Exception as s3_err:
+                    logger.warning(
+                        "Watchdog terminal failure: error while deleting S3 file for execution %s (%s)",
+                        last_event.execution_id,
+                        type(s3_err).__name__,
+                    )
+
                 await self._notify_webhook_execution_finished(session)
         finally:
             # Cette entrée construit son propre moteur de base et son propre

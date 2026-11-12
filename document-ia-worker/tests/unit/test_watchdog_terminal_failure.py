@@ -73,10 +73,7 @@ def _event(event_type: str, payload: dict[str, Any] | None = None) -> Any:
 def test_is_terminal_event_distinguishes_retryable_failure():
     """Un échec retryable est intermédiaire : l'échec terminal doit encore être écrit."""
     assert (
-        WorkflowManager._is_terminal_event(
-            _event("WorkflowExecutionCompleted")
-        )
-        is True
+        WorkflowManager._is_terminal_event(_event("WorkflowExecutionCompleted")) is True
     )
     assert (
         WorkflowManager._is_terminal_event(
@@ -90,7 +87,9 @@ def test_is_terminal_event_distinguishes_retryable_failure():
         )
         is False
     )
-    assert WorkflowManager._is_terminal_event(_event("WorkflowExecutionStarted")) is False
+    assert (
+        WorkflowManager._is_terminal_event(_event("WorkflowExecutionStarted")) is False
+    )
 
 
 class _FakeSessionContext:
@@ -117,6 +116,7 @@ class _FakeDatabaseManager:
 
 class _FakeEventStoreService:
     last_event: Any = None
+    started_event: Any = None
     emitted: list[dict[str, Any]] = []
 
     def __init__(self, _session: Any) -> None:
@@ -124,6 +124,9 @@ class _FakeEventStoreService:
 
     async def get_last_event_for_execution_id(self, _execution_id: str) -> Any:
         return _FakeEventStoreService.last_event
+
+    async def get_workflow_started_event(self, _execution_id: str) -> Any:
+        return _FakeEventStoreService.started_event
 
     async def emit_workflow_failed(self, **kwargs: Any) -> None:
         _FakeEventStoreService.emitted.append(kwargs)
@@ -141,15 +144,15 @@ class _FakeRedisManager:
 def _patch_workflow_resources(monkeypatch):
     _FakeDatabaseManager.instances = []
     _FakeEventStoreService.emitted = []
+    _FakeEventStoreService.last_event = None
+    _FakeEventStoreService.started_event = None
     monkeypatch.setattr(
         workflow_manager_module, "DatabaseManager", _FakeDatabaseManager
     )
     monkeypatch.setattr(
         workflow_manager_module, "EventStoreService", _FakeEventStoreService
     )
-    monkeypatch.setattr(
-        workflow_manager_module, "RedisManager", _FakeRedisManager
-    )
+    monkeypatch.setattr(workflow_manager_module, "RedisManager", _FakeRedisManager)
 
 
 async def test_terminal_failure_writes_and_releases_resources(
@@ -187,3 +190,44 @@ async def test_terminal_failure_releases_resources_on_terminal_shortcut(
     assert _FakeEventStoreService.emitted == []
     assert _FakeDatabaseManager.instances[-1].disposed is True
     assert manager._webhook_redis_manager.closed is True
+
+
+async def test_record_watchdog_terminal_failure_deletes_s3_file(
+    _patch_workflow_resources, monkeypatch, caplog
+):
+    import logging
+    from pydantic import SecretStr
+
+    raw_s3_key = "sensitive/customer_uploads/document.pdf"
+    fake_s3_file_info = SimpleNamespace(
+        s3_key=SecretStr(raw_s3_key),
+    )
+    started_event_obj = SimpleNamespace(
+        s3_file_info=fake_s3_file_info,
+    )
+    last_event_obj = _event("WorkflowExecutionStarted")
+
+    _FakeEventStoreService.last_event = last_event_obj
+    _FakeEventStoreService.started_event = (last_event_obj, started_event_obj)
+
+    deleted_keys: list[str] = []
+
+    class _FakeS3Manager:
+        def delete_file(self, s3_key: str) -> bool:
+            deleted_keys.append(s3_key)
+            return True
+
+    monkeypatch.setattr(workflow_manager_module, "S3Manager", _FakeS3Manager)
+
+    manager = WorkflowManager(
+        WorkflowExecutionMessage(workflow_execution_id=last_event_obj.execution_id),
+        2,
+        is_last_retry=True,
+    )
+
+    with caplog.at_level(logging.INFO):
+        await manager.record_watchdog_terminal_failure("workflow_timeout")
+
+    assert deleted_keys == [raw_s3_key]
+    assert raw_s3_key not in caplog.text
+    assert "Watchdog terminal failure: S3 file deleted for execution" in caplog.text

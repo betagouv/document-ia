@@ -70,10 +70,16 @@ class S3Manager:
             logger.info("File deleted successfully from S3")
             return True
         except ClientError as e:
-            logger.error("Failed to delete file from S3: %s", e)
+            logger.error(
+                "Failed to delete file from S3: %s",
+                self._client_error_code(e) or type(e).__name__,
+            )
             return False
         except Exception as e:
-            logger.error("Unexpected error during file deletion from S3: %s", e)
+            logger.error(
+                "Unexpected error during file deletion from S3: %s",
+                type(e).__name__,
+            )
             return False
 
     @staticmethod
@@ -91,12 +97,18 @@ class S3Manager:
             self.s3_client.download_file(
                 Bucket=self.bucket_name, Key=s3_key, Filename=output_path
             )
-            logger.info("File downloaded successfully to %s", output_path)
+            logger.info("File downloaded successfully from S3")
         except ClientError as e:
-            logger.error("Failed to download file from S3: %s", e)
+            logger.error(
+                "Failed to download file from S3: %s",
+                self._client_error_code(e) or type(e).__name__,
+            )
             raise S3AuthentificationException()
         except Exception as e:
-            logger.error("Unexpected error during file download: %s", e)
+            logger.error(
+                "Unexpected error during file download: %s",
+                type(e).__name__,
+            )
             raise e
 
     def get_file_info(self, s3_key: str) -> Optional[Dict[str, Any]]:
@@ -114,10 +126,16 @@ class S3Manager:
         except ClientError as e:
             if self._client_error_code(e) == "404":
                 return None
-            logger.error("Failed to get file info from S3: %s", e)
+            logger.error(
+                "Failed to get file info from S3: %s",
+                self._client_error_code(e) or type(e).__name__,
+            )
             return None
         except Exception as e:
-            logger.error("Unexpected error getting file info: %s", e)
+            logger.error(
+                "Unexpected error getting file info: %s",
+                type(e).__name__,
+            )
             return None
 
     def check_bucket_exists(self) -> bool:
@@ -135,10 +153,10 @@ class S3Manager:
             if error_code == "404":
                 logger.warning(f"S3 bucket '{self.bucket_name}' does not exist")
                 return False
-            logger.error(f"S3 bucket check failed: {e}")
+            logger.error("S3 bucket check failed: %s", error_code or type(e).__name__)
             return False
         except Exception as e:
-            logger.error(f"Unexpected error checking bucket: {e}")
+            logger.error("Unexpected error checking bucket: %s", type(e).__name__)
             return False
 
     # The Exception need to be handled by the caller
@@ -157,8 +175,11 @@ class S3Manager:
         except ClientError as e:
             if self._client_error_code(e) == "404":
                 return list()
-            logger.error(f"Failed to list buckets: {e}")
+            logger.error(
+                "Failed to list buckets: %s",
+                self._client_error_code(e) or type(e).__name__,
+            )
             return list()
         except Exception as e:
-            logger.error(f"Unexpected error getting file info: {e}")
+            logger.error("Unexpected error getting file info: %s", type(e).__name__)
             return list()

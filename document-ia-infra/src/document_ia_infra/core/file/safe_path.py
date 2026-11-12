@@ -116,6 +116,28 @@ def open_confined_directory(
         raise PathTraversalException(f"Sandbox root {root_path} is a symlink")
     root_resolved = Path(os.path.normpath(root_path.absolute()))
     resolved = validate_safe_path(directory_path, root_resolved)
+
+    root_fd = -1
+    try:
+        root_fd = os.open(
+            root_resolved,
+            os.O_RDONLY | _O_DIRECTORY | _O_NOFOLLOW | _O_CLOEXEC,
+        )
+        if fcntl is not None and hasattr(fcntl, "F_GETPATH"):
+            root_raw = fcntl.fcntl(root_fd, fcntl.F_GETPATH, b"\0" * 1024)
+            root_held = Path(root_raw.split(b"\x00", 1)[0].decode("utf-8"))
+        else:
+            root_held = Path(os.readlink(f"/proc/self/fd/{root_fd}"))
+    except OSError as exc:
+        if exc.errno in (errno.ELOOP, errno.ENOTDIR):
+            raise PathTraversalException(
+                f"Sandbox root {root_resolved} is a symlink"
+            ) from exc
+        root_held = root_resolved
+    finally:
+        if root_fd >= 0:
+            os.close(root_fd)
+
     try:
         fd = os.open(
             resolved,
@@ -134,15 +156,12 @@ def open_confined_directory(
     try:
         if fcntl is not None and hasattr(fcntl, "F_GETPATH"):
             held_raw = fcntl.fcntl(fd, fcntl.F_GETPATH, b"\0" * 1024)
-            held = Path(held_raw.decode("utf-8").rstrip("\x00"))
+            held = Path(held_raw.split(b"\x00", 1)[0].decode("utf-8"))
         else:
             held = Path(os.readlink(f"/proc/self/fd/{fd}"))
     except OSError:
         held = resolved
-    root_resolved_phys = root_resolved.resolve()
-    if not (
-        held.is_relative_to(root_resolved) or held.is_relative_to(root_resolved_phys)
-    ):
+    if not (held.is_relative_to(root_resolved) or held.is_relative_to(root_held)):
         os.close(fd)
         raise PathTraversalException(
             f"Sandbox directory {held} escapes sandbox {root_resolved}"

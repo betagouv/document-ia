@@ -2372,3 +2372,39 @@ async def test_requeue_survives_cancellation_after_atomic_redis_write():
     assert mock_redis.acks == [(stream, msg_id)]
     if consumer.executor:
         consumer.executor.shutdown(wait=True)
+
+
+@pytest.mark.asyncio
+async def test_reclaim_entry_notifies_terminal_failure_on_max_retries():
+    stream = "test-stream"
+    group = "g1"
+    msg_id = "1700000000000-0"
+    mock_redis = MockRedis(stream)
+
+    notifications = []
+
+    async def on_term_failure(m_id, flds, rsn):
+        notifications.append((m_id, flds, rsn))
+
+    consumer = ThreadConsumer[SampleMessage](
+        consumer_name="c1",
+        consumer_group=group,
+        stream_name=stream,
+        batch_size=1,
+        block_time=10,
+        message_class=SampleMessage,
+        process_message_callable=lambda *_args: asyncio.sleep(0),
+        on_terminal_failure=on_term_failure,
+    )
+    consumer.redis = mock_redis
+    consumer.max_retry_number = 3
+    fields = {"data": json.dumps({"payload": "exhausted"}), "retries": "2"}
+
+    await consumer._reclaim_entry(msg_id, fields.copy())
+    await consumer._drain_terminal_failure_tasks()
+
+    assert len(notifications) == 1
+    assert notifications[0][0] == msg_id
+    assert notifications[0][2] == "max_retries_exceeded"
+    if consumer.executor:
+        consumer.executor.shutdown(wait=True)

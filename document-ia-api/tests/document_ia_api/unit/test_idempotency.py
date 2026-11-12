@@ -421,8 +421,6 @@ class TestIdempotencyServiceUnit:
         assert await service.renew(key="test-key", execution_id="exec-123") is False
 
 
-
-
 class TestIdempotencyReservation:
     @pytest.mark.asyncio
     async def test_renewal_keeps_the_lease_alive_during_admission(self):
@@ -777,7 +775,9 @@ class TestRejectionVersusUnknownOutcome:
             PublishFailedError,
         )
 
-        publisher, message = await self._attempt(ResponseError("OOM command not allowed"))
+        publisher, message = await self._attempt(
+            ResponseError("OOM command not allowed")
+        )
         with pytest.raises(PublishFailedError) as exc_info:
             await publisher.publish_message_fenced(
                 message,
@@ -860,10 +860,14 @@ class TestUnknownOutcomeIsReconciled:
 
     @pytest.mark.asyncio
     async def test_unqueued_message_still_fails(self):
-        from document_ia_infra.redis.publisher import PublicationOutcomeUnknownError
+        from document_ia_infra.redis.publisher import (
+            PublicationOutcomeUnknownError,
+            PublishFailedError,
+        )
 
         service = AsyncMock(spec=IdempotencyService)
         publisher = AsyncMock()
+        publisher.stream_name = "event_stream"
         publisher.publish_message_fenced.side_effect = PublicationOutcomeUnknownError(
             "event_stream", "TimeoutError"
         )
@@ -872,7 +876,7 @@ class TestUnknownOutcomeIsReconciled:
             service, key="k", execution_id="exec-A", lock_ttl_seconds=60
         )
 
-        with pytest.raises(PublicationOutcomeUnknownError):
+        with pytest.raises(PublishFailedError):
             await reservation.publish(publisher, "message")
 
 

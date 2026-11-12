@@ -1645,6 +1645,7 @@ class BaseConsumer(ABC, Generic[T]):
                 error=f"Exceeded max retry count during reclaim ({attempts}/{self.max_retry_number})",
                 skip_retention_check=True,
             )
+            self._notify_terminal_failure(msg_id, fields, "max_retries_exceeded")
             return
 
         # Pour les messages non épuisés (attempts < max_retry_number) :

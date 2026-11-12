@@ -96,7 +96,11 @@ Cloud storage buckets (AWS S3 / Outscale Object Storage) are configured with the
         </Filter>
         <Expiration>
             <Days>7</Days>
+            <ExpiredObjectDeleteMarker>true</ExpiredObjectDeleteMarker>
         </Expiration>
+        <NoncurrentVersionExpiration>
+            <NoncurrentDays>7</NoncurrentDays>
+        </NoncurrentVersionExpiration>
         <AbortIncompleteMultipartUpload>
             <DaysAfterInitiation>1</DaysAfterInitiation>
         </AbortIncompleteMultipartUpload>

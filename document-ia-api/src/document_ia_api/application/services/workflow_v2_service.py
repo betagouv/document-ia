@@ -128,7 +128,11 @@ class WorkflowV2Service:
                 execution_id,
             )
             await compensate_s3_upload(s3_key_to_compensate, execution_id)
+            s3_key_to_compensate = None
             raise scheduling_unavailable(execution_id) from emit_error
+        except BaseException:
+            await compensate_s3_upload(s3_key_to_compensate, execution_id)
+            raise
 
         # Publication is fenced by reservation ownership in one Redis operation:
         # a stale request must not publish a second execution. The started event
@@ -145,6 +149,7 @@ class WorkflowV2Service:
                 await self.redis_producer.publish_message(execution_message)
         except (ReservationLostError, IdempotencyReservationLostException):
             await compensate_s3_upload(s3_key_to_compensate, execution_id)
+            s3_key_to_compensate = None
             await fail_abandoned_execution(
                 self.db_session,
                 execution_id=execution_id,
@@ -174,6 +179,7 @@ class WorkflowV2Service:
             # est clôturée explicitement plutôt qu'annoncée en `processing`
             # sans traitement programmé (issue #120).
             await compensate_s3_upload(s3_key_to_compensate, execution_id)
+            s3_key_to_compensate = None
             logger.error(
                 "Workflow v2 execution %s: scheduling failed",
                 execution_id,
@@ -190,6 +196,9 @@ class WorkflowV2Service:
                 workflow_version=2,
             )
             raise scheduling_unavailable(execution_id) from publish_error
+        except BaseException:
+            await compensate_s3_upload(s3_key_to_compensate, execution_id)
+            raise
 
         return WorkflowExecutionDataV2(
             execution_id=execution_id,
