@@ -34,7 +34,24 @@ logger = logging.getLogger(__name__)
 
 
 class DownloadFileStepException(Exception):
-    """Exception raised when downloading a file fails with sanitized details."""
+    """Download failure carrying sanitized details plus classification facts.
+
+    The message never contains the URL or its query string. `http_status_code`
+    and `is_transport_failure` preserve what `classify_failure` needs, so
+    sanitizing the error does not downgrade delivery metrics or DLQ entries to
+    "internal".
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        http_status_code: int | None = None,
+        is_transport_failure: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.http_status_code = http_status_code
+        self.is_transport_failure = is_transport_failure
 
 
 class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
@@ -99,6 +116,7 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
         tmp_file: Path = confined.path / tmp_name
         final_path: Path | None = None
         success = False
+        sanitized_error: DownloadFileStepException | None = None
 
         transport = (
             self._transport
@@ -214,8 +232,13 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
                     if status_code is not None
                     else f"Failed to download file from host {host} ({type(e).__name__})"
                 )
-                raise DownloadFileStepException(err_msg) from None
-            raise e
+                sanitized_error = DownloadFileStepException(
+                    err_msg,
+                    http_status_code=status_code,
+                    is_transport_failure=isinstance(e, httpx.TransportError),
+                )
+            else:
+                raise e
 
         finally:
             # Cleanup temp file if operation failed
@@ -225,6 +248,11 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
                 except Exception:
                     pass
             confined.close()
+
+        # Raised outside the handler on purpose: raising inside it would set
+        # __context__ to the original httpx error, whose text carries the signed
+        # URL, and keep that error reachable from the propagated traceback.
+        raise sanitized_error
 
     async def _handle_s3_file(
         self, file_info: FileInfo
