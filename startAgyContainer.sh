@@ -8,11 +8,32 @@ BRANCH="${BRANCH:-wip/ia-agent-env}"
 IMAGE_NAME="${IMAGE_NAME:-antigravity-nix:latest}"
 CONTAINER_NAME="${CONTAINER_NAME:-antigravity-${AGENT_ID}}"
 
-# Assurer l'existence des répertoires et fichiers nécessaires sur l'hôte
-mkdir -p "$HOME/.gemini/antigravity-cli" "$HOME/.gemini/config" "$(pwd)/.uv-cache"
-touch "$HOME/.gemini/antigravity-cli/antigravity-oauth-token"
-touch "$HOME/.gemini/antigravity-cli/settings.json"
+# Répertoire dédié de persistance Antigravity pour ce conteneur
+AGENT_DATA_DIR="${HOME}/.gemini/agent-containers/${AGENT_ID}/antigravity-cli"
+mkdir -p "${AGENT_DATA_DIR}/cache" "$HOME/.gemini/config" "$(pwd)/.uv-cache"
 touch "$HOME/.gemini/config/mcp_config.json"
+
+# Synchronisation du token OAuth depuis l'hôte
+if [ -f "$HOME/.gemini/antigravity-cli/antigravity-oauth-token" ]; then
+    cp -f "$HOME/.gemini/antigravity-cli/antigravity-oauth-token" "${AGENT_DATA_DIR}/antigravity-oauth-token"
+    chmod 600 "${AGENT_DATA_DIR}/antigravity-oauth-token"
+fi
+
+# Initialisation de settings.json depuis l'hôte si inexistant ou mis à jour
+if [ -f "$HOME/.gemini/antigravity-cli/settings.json" ]; then
+    if [ ! -f "${AGENT_DATA_DIR}/settings.json" ] || [ "$HOME/.gemini/antigravity-cli/settings.json" -nt "${AGENT_DATA_DIR}/settings.json" ]; then
+        cp -f "$HOME/.gemini/antigravity-cli/settings.json" "${AGENT_DATA_DIR}/settings.json"
+    fi
+fi
+
+# Pré-remplir l'état d'onboarding pour éviter l'assistant interactif (choix du thème/style de terminal)
+if [ ! -f "${AGENT_DATA_DIR}/cache/onboarding.json" ]; then
+    if [ -f "$HOME/.gemini/antigravity-cli/cache/onboarding.json" ]; then
+        cp -f "$HOME/.gemini/antigravity-cli/cache/onboarding.json" "${AGENT_DATA_DIR}/cache/onboarding.json"
+    else
+        echo '{"consumerOnboardingComplete":true,"enterpriseOnboardingComplete":false,"onboardingComplete":true}' > "${AGENT_DATA_DIR}/cache/onboarding.json"
+    fi
+fi
 
 # Détection du socket SSH agent
 if [[ "$(uname -s)" == "Darwin" ]]; then
@@ -27,7 +48,8 @@ fi
 
 echo "==> Démarrage du conteneur Antigravity '${CONTAINER_NAME}'..."
 echo "    - Branche : ${BRANCH}"
-echo "    - Partage Antigravity : ~/.gemini (auth token + config MCP)"
+echo "    - Données Antigravity : ${AGENT_DATA_DIR}"
+echo "    - Partage configuration : ~/.gemini/config (MCP)"
 echo "    - Réseau : host.docker.internal activé"
 
 exec docker run -it --rm \
@@ -40,7 +62,6 @@ exec docker run -it --rm \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v "${SSH_AUTH_MOUNT}:/ssh-agent" \
   -v "$(pwd)/.uv-cache:/root/.cache/uv" \
-  -v "$HOME/.gemini/antigravity-cli/antigravity-oauth-token:/root/.gemini/antigravity-cli/antigravity-oauth-token" \
-  -v "$HOME/.gemini/antigravity-cli/settings.json:/root/.gemini/antigravity-cli/settings.json" \
+  -v "${AGENT_DATA_DIR}:/root/.gemini/antigravity-cli" \
   -v "$HOME/.gemini/config:/root/.gemini/config" \
   "${IMAGE_NAME}" "${@:-bash}"
