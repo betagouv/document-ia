@@ -76,6 +76,12 @@ export REDIS_HOST=redis
 export S3_ENDPOINT_URL="http://minio:9000"
 EOF
 
+# Relais transparent vers les services MCP tournant sur l'hôte (ex: agent-memory sur le port 3111)
+if command -v socat >/dev/null 2>&1; then
+    echo "==> [${INSTANCE_ID}] Configuration du relais MCP localhost:3111 -> host.docker.internal:3111..."
+    socat TCP-LISTEN:3111,fork,reuseaddr TCP:host.docker.internal:3111 >/dev/null 2>&1 &
+fi
+
 # 4. Lancement de Docker Compose avec --env-file explicite
 COMPOSE_FILE=""
 if [ -f "docker-compose-agent.yaml" ]; then

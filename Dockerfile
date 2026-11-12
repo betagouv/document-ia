@@ -7,6 +7,8 @@ RUN nix profile install \
     nixpkgs#docker-client \
     nixpkgs#docker-compose \
     nixpkgs#python313 \
+    nixpkgs#nodejs \
+    nixpkgs#socat \
     nixpkgs#uv \
     nixpkgs#gh \
     nixpkgs#tmux \
@@ -42,7 +44,7 @@ ENV PATH="/root/.nix-profile/bin:/root/.local/bin:/usr/local/bin:$PATH"
 ENV LD_LIBRARY_PATH="/root/.nix-profile/lib:/usr/local/lib"
 
 # 5. Répertoires de travail et clés SSH
-RUN mkdir -p /root/.antigravity /workspace /root/.ssh
+RUN mkdir -p /root/.gemini/antigravity-cli /root/.gemini/config /workspace /root/.ssh
 WORKDIR /workspace
 
 RUN echo "StrictHostKeyChecking accept-new" >> /root/.ssh/config && \
