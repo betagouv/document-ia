@@ -17,8 +17,8 @@ from document_ia_worker.workflow.step.download_file.download_file import (
     DownloadFileStep,
 )
 
-SECRET_QUERY = "X-Amz-Signature=SECRET_SIGNATURE_1234"
-FILE_URL = f"https://example.com/private/invoice.pdf?{SECRET_QUERY}"
+SECRET_QUERY = "X-Amz-Signature=SECRET_SIGNATURE_1234" # gitleaks:allow
+FILE_URL = f"https://example.com/private/invoice.pdf?{SECRET_QUERY}" # gitleaks:allow
 
 
 @pytest.fixture
