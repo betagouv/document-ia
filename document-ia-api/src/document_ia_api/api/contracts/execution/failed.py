@@ -1,6 +1,6 @@
 from typing import Literal, Optional
 
-from pydantic import BaseModel, NonNegativeInt
+from pydantic import BaseModel, Field, NonNegativeInt
 
 from document_ia_api.api.contracts.execution.types import ExecutionStatus
 
@@ -17,3 +17,7 @@ class ExecutionFailedModel(BaseModel):
     id: str
     status: Literal[ExecutionStatus.FAILED]
     data: ExecutionFailedData
+    purged: bool = Field(
+        default=False,
+        description="Whether sensitive event data has been purged",
+    )

@@ -15,6 +15,7 @@ Entry point for API documentation.
 - [Rate Limiting](./RATE_LIMITING.md)
 - [Security (File Confinement & Anti-SSRF)](./SECURITY_FILE_NETWORK.md)
 - [Security: Logging](./SECURITY_LOGGING.md)
+- [Event Data Minimization & Retention](./EVENT_PURGE_AND_RETENTION.md)
 
 ## Quick navigation
 

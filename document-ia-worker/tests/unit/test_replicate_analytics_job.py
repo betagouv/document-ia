@@ -1,6 +1,9 @@
 import copy
 from datetime import datetime, UTC
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
+
+import pytest
 
 from document_ia_infra.data.event.dto.anonymization_enum import AnonymizationStatus
 from document_ia_infra.data.event.dto.event_type_enum import EventType
@@ -43,7 +46,8 @@ class TestToReplicatedRow:
         replica = ReplicateAnalytics._to_replicated_event(source)
 
         # Sensitive fields cleared, non-sensitive fields preserved.
-        assert replica.event["s3_file_info"] == {}
+        assert replica.event["s3_file_info"] is None
+        assert replica.event.get("file_url") is None
         assert replica.event["metadata"] == {}
         assert replica.event["keep"] == 42
         assert replica.anonymization_status == AnonymizationStatus.DONE.value
@@ -53,7 +57,7 @@ class TestToReplicatedRow:
 
         # The replica payload is a distinct object graph from the source.
         assert replica.event is not source.event
-        assert replica.event["s3_file_info"] is not source.event["s3_file_info"]
+        assert replica.event["metadata"] is not source.event["metadata"]
 
     def test_mutating_replica_does_not_affect_source(self):
         source = _make_started_event()
@@ -82,3 +86,45 @@ class TestToReplicatedOrganization:
         assert replica is not source
         assert source.name == "Org"
         assert replica.id == source.id
+
+
+class TestReplicateEvents:
+    @pytest.mark.asyncio
+    async def test_replicate_events_aborts_on_bulk_insert_failure(self):
+        source_manager = MagicMock()
+        dest_manager = MagicMock()
+        source_session = AsyncMock()
+        dest_session = AsyncMock()
+        source_manager.local_session.return_value.__aenter__.return_value = (
+            source_session
+        )
+        dest_manager.local_session.return_value.__aenter__.return_value = dest_session
+
+        ev1 = _make_started_event()
+        ev2 = _make_started_event()
+
+        with (
+            patch(
+                "document_ia_task_scheduler.task.replicate_analytics.job.EventRepository"
+            ) as mock_repo_class,
+            patch(
+                "document_ia_task_scheduler.task.replicate_analytics.job.replicate_analytics_settings"
+            ) as mock_settings,
+        ):
+            mock_settings.EVENT_BATCH_SIZE = 2
+            mock_repo = mock_repo_class.return_value
+            mock_repo.get_replication_cursor = AsyncMock(return_value=None)
+            # Returns batch of 2 events
+            mock_repo.get_events_created_after = AsyncMock(return_value=[ev1, ev2])
+            # Bulk insert fails
+            mock_repo.bulk_insert_events = AsyncMock(
+                side_effect=RuntimeError("Insert failed")
+            )
+
+            job = ReplicateAnalytics()
+            await job._replicate_events(source_manager, dest_manager)
+
+            # Bulk insert was called once and failed, loop broke immediately
+            mock_repo.bulk_insert_events.assert_called_once()
+            # get_events_created_after should not have been called a second time
+            mock_repo.get_events_created_after.assert_called_once()

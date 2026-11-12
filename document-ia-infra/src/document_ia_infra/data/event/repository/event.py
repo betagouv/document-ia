@@ -6,11 +6,11 @@ providing async CRUD operations and event stream reconstruction.
 """
 
 import logging
-from datetime import datetime
-from typing import List, Optional, Dict, Any
+from datetime import datetime, timezone
+from typing import List, Optional, Dict, Any, Sequence
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,6 +52,17 @@ class EventRepository:
     @staticmethod
     def _to_dto(event: EventEntity) -> EventDTO:
         """Project a storage row without conflating row and payload metadata."""
+        status_val = getattr(event, "anonymization_status", None)
+        if isinstance(status_val, str):
+            try:
+                status = AnonymizationStatus.from_str(status_val)
+            except ValueError:
+                status = AnonymizationStatus.PENDING
+        elif isinstance(status_val, AnonymizationStatus):
+            status = status_val
+        else:
+            status = AnonymizationStatus.PENDING
+
         return EventDTO(
             id=event.id,
             workflow_id=event.workflow_id,
@@ -60,6 +71,7 @@ class EventRepository:
             created_at=event.created_at,
             event_type=EventType.from_str(event.event_type),
             event=event.event,
+            anonymization_status=status,
         )
 
     async def put_event(
@@ -179,7 +191,7 @@ class EventRepository:
             return None
 
         except OSError as e:
-            logger.error("Database connection error: {e}")
+            logger.error(f"Database connection error: {e}")
             raise RetryableException(e)
         except Exception as e:
             logger.error(
@@ -217,7 +229,7 @@ class EventRepository:
             return None
 
         except OSError as e:
-            logger.error("Database connection error: {e}")
+            logger.error(f"Database connection error: {e}")
             raise RetryableException(e)
         except Exception as e:
             logger.error(
@@ -295,54 +307,149 @@ class EventRepository:
 
         return [self._to_dto(event) for event in events]
 
+    async def get_events_to_anonymize(
+        self,
+        before_date: datetime,
+        statuses: Optional[Sequence[str]] = None,
+        limit: int = 1000,
+        exclude_ids: Optional[Sequence[UUID]] = None,
+    ) -> List[EventEntity]:
+        """Retrieve events to anonymize before a specific date.
+
+        Args:
+            before_date: Date cutoff to filter events.
+            statuses: Anonymization statuses to include (defaults to ['PENDING', 'ERROR']).
+            limit: Maximum number of events to return per batch.
+            exclude_ids: Optional list of event IDs to exclude.
+
+        Returns:
+            List[EventEntity]: List of events to anonymize ordered by creation time ascending.
+        """
+        if statuses is None:
+            statuses = [
+                AnonymizationStatus.PENDING.value,
+                AnonymizationStatus.ERROR.value,
+            ]
+
+        query = select(EventEntity).where(
+            EventEntity.created_at <= before_date,
+            EventEntity.anonymization_status.in_(statuses),
+        )
+        if exclude_ids:
+            query = query.where(EventEntity.id.not_in(exclude_ids))
+
+        query = query.order_by(
+            EventEntity.created_at.asc(), EventEntity.id.asc()
+        ).limit(limit)
+
+        result = await self.session.execute(query)
+        events = list(result.scalars().all())
+        self.session.expunge_all()
+        return events
+
     async def get_not_anonymized_events_before(
         self,
         before_date: datetime,
+        limit: int = 1000,
     ) -> List[EventEntity]:
-        """
-        Retrieve not anonymized events before a specific date.
+        """Retrieve not anonymized events before a specific date.
+
+        Maintained for backwards compatibility; delegates to ``get_events_to_anonymize``.
 
         Args:
             before_date: Date to filter events
+            limit: Maximum number of events to return
 
         Returns:
-            List[EventDTO]: List of not anonymized events
+            List[EventEntity]: List of not anonymized events
         """
-
-        query = (
-            select(EventEntity)
-            .where(
-                EventEntity.created_at <= before_date,
-                EventEntity.anonymization_status == AnonymizationStatus.PENDING.value,
-            )
-            .order_by(EventEntity.created_at.asc())
+        return await self.get_events_to_anonymize(
+            before_date=before_date,
+            statuses=[AnonymizationStatus.PENDING.value],
+            limit=limit,
         )
 
-        result = await self.session.execute(query)
-        events = result.scalars().all()
+    async def get_oldest_pending_event_age_seconds(
+        self,
+        before_date: Optional[datetime] = None,
+    ) -> Optional[float]:
+        """Calculate the age in seconds of the oldest pending event.
 
-        return list(events)
+        Args:
+            before_date: Optional cutoff date to filter pending events.
+
+        Returns:
+            Optional[float]: Difference in seconds between now and the oldest pending event's
+            created_at, or None if no pending events exist.
+        """
+        query = select(EventEntity.created_at).where(
+            EventEntity.anonymization_status.in_(
+                [
+                    AnonymizationStatus.PENDING.value,
+                    AnonymizationStatus.ERROR.value,
+                ]
+            )
+        )
+        if before_date is not None:
+            query = query.where(EventEntity.created_at <= before_date)
+
+        query = query.order_by(EventEntity.created_at.asc()).limit(1)
+
+        result = await self.session.execute(query)
+        oldest_created_at = result.scalar_one_or_none()
+        if oldest_created_at is None:
+            return None
+
+        now = datetime.now(timezone.utc)
+        if oldest_created_at.tzinfo is None:
+            oldest_created_at = oldest_created_at.replace(tzinfo=timezone.utc)
+
+        return max(0.0, (now - oldest_created_at).total_seconds())
 
     @staticmethod
-    def anonymize_payload(event_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def anonymize_payload(
+        event_type: str | EventType, payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Clear sensitive fields from an event payload in place.
 
         Rules by event type:
-            - WorkflowExecutionStarted: clear ``file_info`` and ``metadata``.
-            - WorkflowExecutionStepCompleted: clear ``final_result``.
+            - WorkflowExecutionStarted: clear s3_file_info, file_info, file_url, and metadata.
+            - WorkflowExecutionStepCompleted: clear step_result and output_data.
+            - WorkflowExecutionCompleted: clear final_result, output_summary, and workflow_metadata.
+            - WorkflowExecutionFailed: mask error_message to "[PURGED]".
 
         Args:
-            event_type: The event type string.
+            event_type: The event type string or EventType enum.
             payload: The event payload dict (mutated in place).
 
         Returns:
             The mutated payload dict.
+
+        Raises:
+            ValueError: If event_type is not supported for anonymization.
         """
-        if event_type == EventType.WORKFLOW_EXECUTION_STARTED.value:
-            payload["s3_file_info"] = {}  # Clear file info
-            payload["metadata"] = {}  # Clear metadata
-        elif event_type == EventType.WORKFLOW_EXECUTION_COMPLETED.value:
-            payload["final_result"] = {}  # Clear final result
+        normalized_type = (
+            event_type.value if isinstance(event_type, EventType) else event_type
+        )
+        match normalized_type:
+            case EventType.WORKFLOW_EXECUTION_STARTED.value:
+                payload["s3_file_info"] = None
+                payload.pop("file_info", None)
+                payload["file_url"] = None
+                payload["metadata"] = {}
+            case EventType.WORKFLOW_EXECUTION_STEP_COMPLETED.value:
+                payload["step_result"] = {}
+                payload["output_data"] = None
+            case EventType.WORKFLOW_EXECUTION_COMPLETED.value:
+                payload["final_result"] = {}
+                payload["output_summary"] = {}
+                payload["workflow_metadata"] = None
+            case EventType.WORKFLOW_EXECUTION_FAILED.value:
+                payload["error_message"] = "[PURGED]"
+            case _:
+                raise ValueError(
+                    f"Unsupported event_type for anonymization: {event_type!r}"
+                )
         return payload
 
     async def anonymize_event(self, event: EventEntity) -> None:
@@ -352,16 +459,19 @@ class EventRepository:
         Args:
             event: EventEntity to anonymize
         """
+        try:
+            self.anonymize_payload(event.event_type, event.event)
 
-        self.anonymize_payload(event.event_type, event.event)
+            # We need to flag the event as modified to trigger the change listener because self.anonymize_payload() modifie the inner objet but the memory address is still the same. That will not trigger dirty cheking of sqlAlchemy
+            flag_modified(event, "event")
 
-        # We need to flag the event as modified to trigger the change listener because self.anonymize_payload() modifie the inner objet but the memory address is still the same. That will not trigger dirty cheking of sqlAlchemy
-        flag_modified(event, "event")
-
-        event.anonymization_status = AnonymizationStatus.DONE.value
-        self.session.add(event)
-        await self.session.flush()
-        await self.session.commit()
+            event.anonymization_status = AnonymizationStatus.DONE.value
+            self.session.add(event)
+            await self.session.flush()
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            raise
 
     async def get_replication_cursor(self) -> Optional[datetime]:
         """Return the latest ``created_at`` replicated on the destination.
@@ -387,7 +497,7 @@ class EventRepository:
         The bound is inclusive: the caller resumes from the ``created_at`` of the
         last replicated event, so the few events sharing that exact timestamp are
         re-read. They are skipped at insert time via ``ON CONFLICT (id) DO
-        NOTHING``, which keeps the replication both complete and idempotent.
+        UPDATE``, which keeps the replication both complete and idempotent.
 
         Args:
             after: Resume from this timestamp (inclusive), or None for all events.
@@ -404,11 +514,36 @@ class EventRepository:
         result = await self.session.execute(query)
         return list(result.scalars().all())
 
-    async def bulk_insert_events(self, events: List[EventEntity]) -> None:
-        """Bulk insert replicated events, skipping ids that already exist.
+    async def count_events_by_statuses(self, statuses: Sequence[str]) -> int:
+        """Count total events matching the given anonymization statuses."""
+        query = select(func.count(EventEntity.id)).where(
+            EventEntity.anonymization_status.in_(statuses)
+        )
+        result = await self.session.execute(query)
+        val = result.scalar_one_or_none()
+        return val if val is not None else 0
 
-        Uses PostgreSQL ``INSERT ... ON CONFLICT (id) DO NOTHING`` so the
-        replication is idempotent and re-runnable without per-row lookups.
+    async def get_events_by_cursor(
+        self,
+        statuses: Sequence[str],
+        limit: int = 1000,
+        after_id: Optional[UUID] = None,
+    ) -> List[EventEntity]:
+        """Fetch a page of events matching statuses ordered by id ascending."""
+        query = select(EventEntity).where(
+            EventEntity.anonymization_status.in_(statuses)
+        )
+        if after_id is not None:
+            query = query.where(EventEntity.id > after_id)
+        query = query.order_by(EventEntity.id.asc()).limit(limit)
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
+
+    async def bulk_insert_events(self, events: List[EventEntity]) -> None:
+        """Bulk insert replicated events, updating payload and status on conflict.
+
+        Uses PostgreSQL ``INSERT ... ON CONFLICT (id) DO UPDATE`` so the
+        replication propagates corrections and re-anonymizations idempotently.
 
         Args:
             events: List of EventEntity objects (must include the source ``id``
@@ -421,24 +556,32 @@ class EventRepository:
         values = [
             {name: getattr(event, name) for name in column_names} for event in events
         ]
-        # pg_insert (and on_conflict_do_nothing) expects a list of dictionaries
-        # not a list of EventEntity objects...
-        stmt = (
-            pg_insert(EventEntity)
-            .values(values)
-            .on_conflict_do_nothing(index_elements=["id"])
+        insert_stmt = pg_insert(EventEntity).values(values)
+        stmt = insert_stmt.on_conflict_do_update(
+            index_elements=["id"],
+            set_={
+                "event": insert_stmt.excluded.event,
+                "anonymization_status": insert_stmt.excluded.anonymization_status,
+            },
         )
         await self.session.execute(stmt)
         await self.session.commit()
 
-    async def save_failed_anonymization(self, event: EventEntity) -> None:
-        """
-        Mark an event's anonymization as failed.
+    async def save_failed_anonymization(self, event: EventEntity | UUID) -> None:
+        """Mark an event's anonymization as failed.
 
         Args:
-            event: entity of the event to mark as failed
+            event: EventEntity instance or UUID of the event to mark as failed.
         """
-        event.anonymization_status = AnonymizationStatus.ERROR.value
-        self.session.add(event)
-        await self.session.flush()
-        await self.session.commit()
+        event_id = event if isinstance(event, UUID) else event.id
+        try:
+            stmt = (
+                update(EventEntity)
+                .where(EventEntity.id == event_id)
+                .values(anonymization_status=AnonymizationStatus.ERROR.value)
+            )
+            await self.session.execute(stmt)
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            raise

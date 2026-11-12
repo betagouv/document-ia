@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from document_ia_api.api.contracts.execution.types import ExecutionStatus
 from document_ia_infra.core.model.types.secret import SecretPayloadStr
@@ -16,10 +16,14 @@ class S3FileInfo(BaseModel):
 class ExecutionStartedData(BaseModel):
     created_at: datetime
     s3_file_info: Optional[S3FileInfo]
-    file_url: Optional[str]
+    file_url: Optional[SecretPayloadStr] = None
 
 
 class ExecutionStartedModel(BaseModel):
     id: str
     status: Literal[ExecutionStatus.STARTED]
     data: ExecutionStartedData
+    purged: bool = Field(
+        default=False,
+        description="Whether sensitive event data has been purged",
+    )

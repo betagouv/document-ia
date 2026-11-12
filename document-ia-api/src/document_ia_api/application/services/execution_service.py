@@ -26,6 +26,7 @@ from document_ia_infra.core.model.typed_generic_model import GenericProperty
 from document_ia_infra.data.document.schema.document_extraction import (
     DocumentExtraction,
 )
+from document_ia_infra.data.event.dto.anonymization_enum import AnonymizationStatus
 from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.schema.mappers.event_mapper import (
@@ -61,6 +62,7 @@ class ExecutionService:
         ):
             raise HTTPException(status_code=400, detail="Event type not supported")
 
+        is_purged = event_dto.anonymization_status == AnonymizationStatus.DONE
         event_data = decode_event_dto(event_dto)
         match event_data:
             case WorkflowExecutionStartedEvent():
@@ -79,6 +81,7 @@ class ExecutionService:
                         s3_file_info=file_info,
                         file_url=event_data.file_url,
                     ),
+                    purged=is_purged,
                 )
             case WorkflowExecutionFailedEvent():
                 return ExecutionFailedModel(
@@ -91,10 +94,11 @@ class ExecutionService:
                         workflow_id=event_data.workflow_id,
                         error_message=event_data.error_message,
                     ),
+                    purged=is_purged,
                 )
             case WorkflowExecutionCompletedEvent():
                 return self._get_success_response(
-                    execution_id, event_data, is_debug_mode
+                    execution_id, event_data, is_debug_mode, is_purged=is_purged
                 )
             case _:
                 raise HTTPException(status_code=400, detail="Event type not supported")
@@ -104,7 +108,8 @@ class ExecutionService:
         execution_id: str,
         event_data: WorkflowExecutionCompletedEvent,
         is_debug_mode: bool,
-    ):
+        is_purged: bool = False,
+    ) -> ExecutionSuccessModel:
         success_result = SuccessResult()
 
         if event_data.final_result.classification is not None:
@@ -136,7 +141,10 @@ class ExecutionService:
         )
 
         return ExecutionSuccessModel(
-            id=execution_id, status=ExecutionStatus.SUCCESS, data=success_data
+            id=execution_id,
+            status=ExecutionStatus.SUCCESS,
+            data=success_data,
+            purged=is_purged,
         )
 
     def _convert_extraction_result(
