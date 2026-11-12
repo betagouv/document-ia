@@ -7,17 +7,26 @@ from document_ia_evals.components.auth_ui import (
     render_login_screen,
     render_sidebar_user_profile,
 )
-from document_ia_evals.services.auth_service import verify_user_access
+from document_ia_evals.services.auth_service import (
+    is_local_bypass_allowed,
+    verify_user_access,
+)
 from document_ia_evals.utils.auth_secrets import (
     generate_secrets_toml,
     patch_streamlit_oidc_prompt,
 )
 from document_ia_evals.utils.config import config
 
-# Ensure directories, prompt patch and secrets configuration exist
-patch_streamlit_oidc_prompt()
-config.ensure_directories()
-generate_secrets_toml()
+
+@st.cache_resource
+def _bootstrap_auth_once() -> None:
+    """Bootstrap directories and OIDC secrets configuration once per process."""
+    patch_streamlit_oidc_prompt()
+    config.ensure_directories()
+    generate_secrets_toml()
+
+
+_bootstrap_auth_once()
 
 # Page configuration
 st.set_page_config(
@@ -30,16 +39,25 @@ st.set_page_config(
 
 def main():
     """Main application function."""
-    # 1. Local development offline bypass
-    if config.AUTH_BYPASS_LOCAL:
+    # S4 / Issue #155: Purge active et systématique de tout reliquat historique d'env_key et env_url dans l'URL
+    st.query_params.pop("env_key", None)
+    st.query_params.pop("env_url", None)
+
+    st.logo(
+        "src/document_ia_evals/assets/logo.svg",
+        link="https://beta.gouv.fr/startups/document-ia",
+        size="large",
+    )
+
+    # 1. Local development offline bypass (with strict host/environment verification)
+    bypass_allowed = is_local_bypass_allowed()
+    if bypass_allowed:
         st.session_state["current_user_email"] = "nicolas.sagon@beta.gouv.fr"
         st.session_state["current_user_role"] = "admin"
         st.session_state["current_user_id"] = "bypass-local-admin"
 
     # 2. Check Streamlit native OIDC login status safely
-    is_logged_in = config.AUTH_BYPASS_LOCAL or bool(
-        getattr(st.user, "is_logged_in", False)
-    )
+    is_logged_in = bypass_allowed or bool(getattr(st.user, "is_logged_in", False))
 
     if not is_logged_in:
         # Hide all navigation and sidebar menu, display ONLY the login page
@@ -53,15 +71,13 @@ def main():
         pg.run()
         return
 
-    # 3. Retrieve user email from ProConnect claims (or local bypass)
+    # 3. Retrieve user email from verified ProConnect claims (or local bypass)
     raw_email = (
         st.session_state.get("current_user_email")
-        if config.AUTH_BYPASS_LOCAL
+        if bypass_allowed
         else (
             getattr(st.user, "email", None)
             or (st.user.get("email") if hasattr(st.user, "get") else None)
-            or getattr(st.user, "preferred_username", None)
-            or (st.user.get("preferred_username") if hasattr(st.user, "get") else None)
         )
     )
     user_email = str(raw_email).strip().lower() if raw_email else None
@@ -82,7 +98,7 @@ def main():
 
     # 4. Verify authorization against database (read-only guard)
     user_role = "admin"
-    if not config.AUTH_BYPASS_LOCAL:
+    if not bypass_allowed:
         is_allowed, user, reason = verify_user_access(user_email)
         if not is_allowed or user is None:
             denied_page = st.Page(
@@ -146,6 +162,10 @@ def main():
                 st.Page(
                     "pages/evaluate_metrics.py",
                     title="🎯 Evaluate Predictions Metrics (Deprecated)",
+                ),
+                st.Page(
+                    "pages/review_prediction_errors.py",
+                    title="🔎 Review prediction errors",
                 ),
                 st.Page(
                     "pages/list_experiments.py",

@@ -171,9 +171,11 @@ The application will automatically inject an authenticated administrator session
 
 ## 7. User Administration Interface
 
-Administrators can navigate to the **Administration** page (`pages/administration.py`) and access the dedicated tab:
-- **👥 Utilisateurs & Droits Evals**:
+Administrators have access to dedicated administration pages in the navigation menu:
+- **👥 Accès Console** (`pages/admin_users.py`):
   - Add new civil servants by email and assign initial roles (`admin` or `user`).
   - Toggle user status (Activate / Deactivate without deleting history).
-  - Promote or demote user roles.
+  - Promote or demote user roles (with self-lockout and last-admin protection).
   - Review recent connection and access attempts in real-time from `evals_access_logs`.
+- **🔑 Organisation & Clés API** (`pages/admin_api_keys.py`):
+  - Manage Document IA organizations, API keys, and webhooks with session-isolated target environments.

@@ -1,4 +1,5 @@
 import streamlit as st
+from document_ia_evals.components.auth_ui import enforce_page_auth
 
 # Static mapping of workflow parameters to their anchor tags
 ANCHOR_MAPPING = {
@@ -27,6 +28,7 @@ PARAM_DESCRIPTIONS = {
 
 
 def main():
+    enforce_page_auth(required_role="admin")
     title = "🛠️ Workflow Generator"
     st.set_page_config(page_title=title, page_icon="🛠️", layout="wide")
     st.title(title)

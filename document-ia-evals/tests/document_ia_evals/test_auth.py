@@ -141,7 +141,9 @@ def test_verify_user_access_success_is_read_only(in_memory_db) -> None:
 def test_record_login_event_success(in_memory_db) -> None:
     """Test recording login_success event upon OAuth2 callback."""
     add_evals_user("agent@beta.gouv.fr", role="user")
-    record_login_event("agent@beta.gouv.fr", ip_address="192.168.1.1", user_agent="Mozilla/5.0")
+    record_login_event(
+        "agent@beta.gouv.fr", ip_address="192.168.1.1", user_agent="Mozilla/5.0"
+    )
 
     logs = list_recent_access_logs()
     assert len(logs) == 1
@@ -342,9 +344,7 @@ def test_patched_authorize_access_token_enriches_userinfo() -> None:
         patch.object(
             app,
             "fetch_access_token",
-            new=AsyncMock(
-                return_value={"access_token": "tok123", "id_token": "id123"}
-            ),
+            new=AsyncMock(return_value={"access_token": "tok123", "id_token": "id123"}),
         ),
         patch.object(
             app, "parse_id_token", new=AsyncMock(return_value={"sub": "sub123"})
@@ -373,3 +373,148 @@ def test_patched_authorize_access_token_enriches_userinfo() -> None:
             ip_address="192.168.1.50",
             user_agent="pytest-browser",
         )
+
+
+def test_delete_user_preserves_audit_logs(in_memory_db) -> None:
+    """Verify that deleting a user preserves their audit logs (passive_deletes=True)."""
+    add_evals_user("testuser@beta.gouv.fr", role="user")
+    record_login_event("testuser@beta.gouv.fr", ip_address="10.0.0.1")
+    record_logout("testuser@beta.gouv.fr")
+
+    logs_before = list_recent_access_logs()
+    assert len(logs_before) == 2
+
+    # Delete user
+    assert delete_evals_user("testuser@beta.gouv.fr") is True
+
+    # Audit logs must still exist
+    logs_after = list_recent_access_logs()
+    assert len(logs_after) == 2
+
+
+def test_prevent_last_admin_deactivation_or_demotion(in_memory_db) -> None:
+    """Verify that the platform prevents deactivation, demotion or deletion of the last active admin."""
+    # Add initial admin
+    admin = add_evals_user("admin1@beta.gouv.fr", role="admin")
+
+    # Demoting last admin must fail
+    with pytest.raises(
+        ValueError, match="Impossible de rétrograder le dernier administrateur actif"
+    ):
+        update_evals_user(admin.email, role="user")
+
+    # Deactivating last admin must fail
+    with pytest.raises(
+        ValueError, match="Impossible de désactiver le dernier administrateur actif"
+    ):
+        update_evals_user(str(admin.id), is_active=False)
+
+    # Deleting last admin must fail
+    with pytest.raises(
+        ValueError, match="Impossible de supprimer le dernier administrateur actif"
+    ):
+        delete_evals_user(admin.email)
+
+    # Add second admin
+    admin2 = add_evals_user("admin2@beta.gouv.fr", role="admin")
+
+    # Now demoting or deactivating admin1 succeeds because admin2 is active
+    updated = update_evals_user(admin.email, role="user")
+    assert updated.role == "user"
+
+    # Now admin2 is the sole active admin: demoting admin2 must fail
+    with pytest.raises(
+        ValueError, match="Impossible de rétrograder le dernier administrateur actif"
+    ):
+        update_evals_user(admin2.email, role="user")
+
+
+def test_generate_secrets_toml_idempotent_cookie_secret(tmp_path: Path) -> None:
+    """Verify that successive calls to generate_secrets_toml preserve the ephemeral cookie secret."""
+    import re
+
+    target_file = tmp_path / "secrets.toml"
+
+    with patch("document_ia_evals.utils.auth_secrets.config") as mock_config:
+        mock_config.AUTH_BYPASS_LOCAL = False
+        mock_config.PROCONNECT_CLIENT_ID = "cid-123"
+        mock_config.PROCONNECT_CLIENT_SECRET = "sec-123"
+        mock_config.PROCONNECT_METADATA_URL = (
+            "https://example.com/.well-known/openid-configuration"
+        )
+        mock_config.PROCONNECT_REDIRECT_URI = "http://localhost:8501/oauth2callback"
+        mock_config.PROCONNECT_COOKIE_SECRET = None
+        mock_config.PROCONNECT_SCOPES = "openid email"
+
+        path1 = generate_secrets_toml(target_path=target_file)
+        assert path1 is not None
+        content1 = path1.read_text()
+        cookie_secret_match = re.search(r'cookie_secret = "([a-f0-9]+)"', content1)
+        assert cookie_secret_match is not None
+        secret1 = cookie_secret_match.group(1)
+
+        # Call again: must be identical and not re-generated
+        path2 = generate_secrets_toml(target_path=target_file)
+        assert path2 is not None
+        content2 = path2.read_text()
+        assert content1 == content2
+        assert f'cookie_secret = "{secret1}"' in content2
+
+
+def test_userinfo_sub_mismatch_rejected() -> None:
+    """Test that UserInfo extra claims are rejected if sub does not match id_token sub."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from authlib.integrations.starlette_client import StarletteOAuth2App
+
+    patch_streamlit_oidc()
+
+    app = StarletteOAuth2App(
+        MagicMock(),
+        "proconnect",
+        client_id="test",
+        client_secret="test",
+        server_metadata_url="https://fca.integ01.dev-agentconnect.fr/api/v2/.well-known/openid-configuration",
+    )
+
+    fake_request = MagicMock()
+    fake_request.scope = {"method": "GET"}
+    fake_request.query_params = {"code": "test_code", "state": "test_state"}
+    fake_request.client.host = "192.168.1.50"
+    fake_request.headers = {"user-agent": "pytest-browser"}
+
+    with (
+        patch.object(
+            app.framework,
+            "get_state_data",
+            new=AsyncMock(return_value={"nonce": "nonce"}),
+        ),
+        patch.object(app.framework, "clear_state_data", new=AsyncMock()),
+        patch.object(
+            app,
+            "fetch_access_token",
+            new=AsyncMock(return_value={"access_token": "tok", "id_token": "id"}),
+        ),
+        patch.object(
+            app,
+            "parse_id_token",
+            new=AsyncMock(return_value={"sub": "legit-sub-123"}),
+        ),
+        patch(
+            "document_ia_evals.utils.auth_secrets.fetch_proconnect_userinfo"
+        ) as mock_fetch,
+        patch(
+            "document_ia_evals.services.auth_service.record_login_event"
+        ) as mock_login_event,
+    ):
+        # Attacker attempts token substitution by returning a different sub
+        mock_fetch.return_value = {
+            "sub": "attacker-sub-999",
+            "email": "victim@beta.gouv.fr",
+            "name": "Victim",
+        }
+
+        token = asyncio.run(app.authorize_access_token(fake_request))
+        # Extra claims should be rejected due to sub mismatch
+        assert "email" not in token.get("userinfo", {})
+        mock_login_event.assert_not_called()

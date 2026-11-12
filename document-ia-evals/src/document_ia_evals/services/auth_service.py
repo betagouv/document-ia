@@ -1,10 +1,14 @@
 """Authentication and RBAC service for Document IA Evals."""
 
 import logging
+import os
+import uuid
 from datetime import datetime, timezone
 from typing import Sequence
+from urllib.parse import urlparse
 
 from sqlalchemy import desc, func, select
+from sqlalchemy.orm import Session
 
 from document_ia_evals.database.connection import get_session
 from document_ia_evals.database.models import EvalsAccessLog, EvalsUser, UserRole
@@ -15,6 +19,44 @@ INITIAL_ADMIN_EMAILS = {
     "nicolas.sagon@beta.gouv.fr",
     "nicolas.sagon@ext.beta.gouv.fr",
 }
+
+
+def is_local_bypass_allowed() -> bool:
+    """Check if offline local development bypass is safely permitted.
+
+    Strictly rejected if running in hosted/containerized environments or if
+    PROCONNECT_REDIRECT_URI does not point to localhost / 127.0.0.1.
+    """
+    from document_ia_evals.utils.config import config
+
+    if not config.AUTH_BYPASS_LOCAL:
+        return False
+    if os.getenv("SCALINGO_APP") or os.getenv("CONTAINER"):
+        logger.error(
+            "AUTH_BYPASS_LOCAL is strictly forbidden in hosted environments (SCALINGO_APP/CONTAINER)."
+        )
+        return False
+    redirect_uri = config.PROCONNECT_REDIRECT_URI or ""
+    parsed = urlparse(redirect_uri)
+    if parsed.hostname not in ("localhost", "127.0.0.1"):
+        logger.error(
+            "AUTH_BYPASS_LOCAL is only allowed when PROCONNECT_REDIRECT_URI points to localhost or 127.0.0.1."
+        )
+        return False
+    return True
+
+
+def _count_active_admins(session: Session) -> int:
+    """Count number of active users with admin role."""
+    stmt = (
+        select(func.count())
+        .select_from(EvalsUser)
+        .where(
+            EvalsUser.role == UserRole.ADMIN.value,
+            EvalsUser.is_active.is_(True),
+        )
+    )
+    return session.scalar(stmt) or 0
 
 
 def record_login_event(
@@ -198,21 +240,46 @@ def update_evals_user(
     role: str | None = None,
     is_active: bool | None = None,
 ) -> EvalsUser:
-    """Update role or active status of an authorized user."""
+    """Update role or active status of an authorized user (supports UUID or email)."""
     with get_session() as session:
-        stmt = select(EvalsUser).where(
-            func.lower(EvalsUser.email) == user_id_or_email.strip().lower()
-        )
-        user = session.scalars(stmt).first()
+        user = None
+        target = user_id_or_email.strip()
+        try:
+            parsed_uuid = uuid.UUID(target)
+            user = session.scalars(
+                select(EvalsUser).where(EvalsUser.id == parsed_uuid)
+            ).first()
+        except (ValueError, AttributeError):
+            pass
+
+        if not user:
+            user = session.scalars(
+                select(EvalsUser).where(func.lower(EvalsUser.email) == target.lower())
+            ).first()
+
         if not user:
             raise ValueError(f"Utilisateur introuvable : {user_id_or_email}")
+
+        is_currently_active_admin = (
+            user.role == UserRole.ADMIN.value and user.is_active is True
+        )
 
         if role is not None:
             if role not in (UserRole.ADMIN.value, UserRole.USER.value):
                 raise ValueError(f"Rôle invalide : {role}")
+            if is_currently_active_admin and role != UserRole.ADMIN.value:
+                if _count_active_admins(session) <= 1:
+                    raise ValueError(
+                        "Impossible de rétrograder le dernier administrateur actif."
+                    )
             user.role = role
 
         if is_active is not None:
+            if is_currently_active_admin and is_active is False:
+                if _count_active_admins(session) <= 1:
+                    raise ValueError(
+                        "Impossible de désactiver le dernier administrateur actif."
+                    )
             user.is_active = is_active
 
         session.commit()
@@ -228,6 +295,12 @@ def delete_evals_user(email: str) -> bool:
         user = session.scalars(stmt).first()
         if not user:
             return False
+
+        if user.role == UserRole.ADMIN.value and user.is_active is True:
+            if _count_active_admins(session) <= 1:
+                raise ValueError(
+                    "Impossible de supprimer le dernier administrateur actif."
+                )
 
         session.delete(user)
         session.commit()

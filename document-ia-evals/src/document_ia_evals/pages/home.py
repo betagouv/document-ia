@@ -14,7 +14,7 @@ st.set_page_config(
 
 def main():
     """Main dashboard page function."""
-    enforce_page_auth()
+    enforce_page_auth(required_role="admin")
 
     # Main content
     st.title("🏠 Welcome to Document IA Evals")

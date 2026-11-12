@@ -11,6 +11,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 import streamlit as st
+from document_ia_evals.components.auth_ui import enforce_page_auth
 from openai import OpenAI
 from openai.types.chat import ChatCompletion
 from pydantic import BaseModel
@@ -533,6 +534,7 @@ def _document_type_from_override(
 
 
 def main() -> None:
+    enforce_page_auth(required_role="admin")
     title = "Amélioration du prompt d'extraction (Workflow API)"
     st.set_page_config(page_title=title, page_icon="🔄")
     st.title(title)

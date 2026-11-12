@@ -7,6 +7,8 @@ and bridges DINUM / ProConnect specificities:
 2. Fetches user claims (email, given_name, usual_name) from ProConnect's UserInfo endpoint
    via back-channel HTTP request, because ProConnect's id_token is intentionally minimal
    and contains no personal data.
+3. Ensures OIDC Core 1.0 §5.3.2 sub claim consistency.
+4. Correctly directs federated logout to ProConnect end_session_endpoint with state and post_logout_redirect_uri.
 """
 
 import asyncio
@@ -17,10 +19,25 @@ import os
 import secrets
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlparse
 
 from document_ia_evals.utils.config import config
 
 logger = logging.getLogger(__name__)
+
+# Process-level ephemeral cookie secret to maintain session stability across reruns
+_EPHEMERAL_COOKIE_SECRET: str | None = None
+
+ALLOWED_PROFILE_CLAIMS = {
+    "email",
+    "given_name",
+    "usual_name",
+    "family_name",
+    "name",
+    "siret",
+    "idp_id",
+    "email_verified",
+}
 
 
 def fetch_proconnect_userinfo(client: Any, token: dict[str, Any]) -> dict[str, Any]:
@@ -85,10 +102,15 @@ def fetch_proconnect_userinfo(client: Any, token: dict[str, Any]) -> dict[str, A
         }
         resp = requests.get(userinfo_endpoint, headers=headers, timeout=10)
         if getattr(resp, "status_code", None) != 200:
+            raw_body = (
+                str(getattr(resp, "text", ""))
+                .replace("\n", " ")
+                .replace("\r", " ")[:200]
+            )
             logger.warning(
                 "ProConnect userinfo endpoint returned HTTP %s: %s",
                 getattr(resp, "status_code", "unknown"),
-                getattr(resp, "text", ""),
+                raw_body,
             )
             return {}
 
@@ -103,10 +125,24 @@ def fetch_proconnect_userinfo(client: Any, token: dict[str, Any]) -> dict[str, A
         if not isinstance(data, dict):
             text = str(getattr(resp, "text", "")).strip().strip('"')
             if text.count(".") == 2:
-                payload_part = text.split(".")[1]
+                header_part, payload_part, _ = text.split(".")
+                # Security: Check header to reject "alg": "none"
+                header_padded = header_part + "=" * ((4 - len(header_part) % 4) % 4)
+                try:
+                    header_data = json.loads(
+                        base64.urlsafe_b64decode(header_padded.encode("utf-8")).decode(
+                            "utf-8"
+                        )
+                    )
+                    if header_data.get("alg") == "none":
+                        logger.warning("Rejected UserInfo JWT with alg 'none'")
+                        return {}
+                except Exception:
+                    pass
+
                 # Fix base64url padding
-                payload_part += "=" * ((4 - len(payload_part) % 4) % 4)
-                decoded_bytes = base64.urlsafe_b64decode(payload_part.encode("utf-8"))
+                payload_padded = payload_part + "=" * ((4 - len(payload_part) % 4) % 4)
+                decoded_bytes = base64.urlsafe_b64decode(payload_padded.encode("utf-8"))
                 data = json.loads(decoded_bytes.decode("utf-8"))
 
         if isinstance(data, dict):
@@ -128,7 +164,9 @@ def patch_streamlit_oidc() -> None:
 
     1. Removes 'prompt=select_account' from client_kwargs.
     2. Enriches 'userinfo' in TornadoOAuth2App.authorize_access_token with
-       data fetched from the UserInfo endpoint.
+       data fetched from the UserInfo endpoint (with strict sub validation).
+    3. Enriches 'userinfo' in StarletteOAuth2App.authorize_access_token similarly.
+    4. Patches build_logout_url to support state and PROCONNECT_POST_LOGOUT_REDIRECT_URI.
     """
     # 1. Patch Tornado create_oauth_client to drop prompt
     try:
@@ -164,8 +202,26 @@ def patch_streamlit_oidc() -> None:
                     if not userinfo.get("email"):
                         extra_claims = fetch_proconnect_userinfo(self, token)
                         if extra_claims:
-                            userinfo.update(extra_claims)
-                            token["userinfo"] = userinfo
+                            expected_sub = userinfo.get("sub")
+                            actual_sub = extra_claims.get("sub")
+                            if (
+                                expected_sub
+                                and actual_sub
+                                and expected_sub != actual_sub
+                            ):
+                                logger.warning(
+                                    "UserInfo sub '%s' does not match id_token sub '%s'. Rejecting extra claims.",
+                                    actual_sub,
+                                    expected_sub,
+                                )
+                            else:
+                                filtered_claims = {
+                                    k: v
+                                    for k, v in extra_claims.items()
+                                    if k in ALLOWED_PROFILE_CLAIMS
+                                }
+                                userinfo.update(filtered_claims)
+                                token["userinfo"] = userinfo
 
                     # Record login event strictly at the OAuth callback completion
                     user_email = userinfo.get("email")
@@ -213,8 +269,10 @@ def patch_streamlit_oidc() -> None:
 
             s_routes._create_oauth_client = safe_s_create_oauth_client  # pyright: ignore [reportPrivateUsage]
             setattr(s_routes, "_proconnect_prompt_patched", True)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(
+            "[auth_secrets] Note: could not patch Starlette oauth client: %s", e
+        )
 
     # 4. Patch StarletteOAuth2App.authorize_access_token if available
     try:
@@ -232,8 +290,26 @@ def patch_streamlit_oidc() -> None:
                             fetch_proconnect_userinfo, self, token
                         )
                         if extra_claims:
-                            userinfo.update(extra_claims)
-                            token["userinfo"] = userinfo
+                            expected_sub = userinfo.get("sub")
+                            actual_sub = extra_claims.get("sub")
+                            if (
+                                expected_sub
+                                and actual_sub
+                                and expected_sub != actual_sub
+                            ):
+                                logger.warning(
+                                    "UserInfo sub '%s' does not match id_token sub '%s'. Rejecting extra claims.",
+                                    actual_sub,
+                                    expected_sub,
+                                )
+                            else:
+                                filtered_claims = {
+                                    k: v
+                                    for k, v in extra_claims.items()
+                                    if k in ALLOWED_PROFILE_CLAIMS
+                                }
+                                userinfo.update(filtered_claims)
+                                token["userinfo"] = userinfo
 
                     # Record login event strictly at the OAuth callback completion
                     user_email = userinfo.get("email")
@@ -266,8 +342,46 @@ def patch_streamlit_oidc() -> None:
                 patched_starlette_authorize_access_token
             )
             setattr(StarletteOAuth2App, "_proconnect_patched", True)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("[auth_secrets] Note: could not patch StarletteOAuth2App: %s", e)
+
+    # 5. Patch Starlette build_logout_url to support state and PROCONNECT_POST_LOGOUT_REDIRECT_URI
+    try:
+        import streamlit.web.server.starlette.starlette_auth_routes as s_routes
+
+        if not getattr(s_routes, "_proconnect_logout_patched", False):
+            original_build_logout_url = s_routes.build_logout_url
+
+            def safe_build_logout_url(
+                end_session_endpoint: str,
+                client_id: str,
+                post_logout_redirect_uri: str,
+                id_token: str | None = None,
+            ) -> str:
+                target_redirect = (
+                    config.PROCONNECT_POST_LOGOUT_REDIRECT_URI
+                    or post_logout_redirect_uri
+                )
+                url = original_build_logout_url(
+                    end_session_endpoint=end_session_endpoint,
+                    client_id=client_id,
+                    post_logout_redirect_uri=target_redirect,
+                    id_token=id_token,
+                )
+                parsed = urlparse(url)
+                params = dict(parse_qsl(parsed.query))
+                if "state" not in params:
+                    params["state"] = secrets.token_urlsafe(32)
+                    new_query = urlencode(params)
+                    url = parsed._replace(query=new_query).geturl()
+                return url
+
+            s_routes.build_logout_url = safe_build_logout_url
+            setattr(s_routes, "_proconnect_logout_patched", True)
+    except Exception as e:
+        logger.debug(
+            "[auth_secrets] Note: could not patch Starlette build_logout_url: %s", e
+        )
 
 
 # Backwards compatibility alias
@@ -279,14 +393,16 @@ def generate_secrets_toml(target_path: Path | None = None) -> Path | None:
 
     Returns the path to the written file, or None if bypass is active without credentials.
     """
+    global _EPHEMERAL_COOKIE_SECRET
+
     patch_streamlit_oidc()
     if target_path is None:
         target_path = config.ROOT_DIR / ".streamlit" / "secrets.toml"
 
     # In local bypass mode with no client id provided, we don't need real OIDC secrets
     if config.AUTH_BYPASS_LOCAL and not config.PROCONNECT_CLIENT_ID:
-        print(
-            "[auth_secrets] AUTH_BYPASS_LOCAL=true and no PROCONNECT_CLIENT_ID set. Skipping secrets generation."
+        logger.info(
+            "AUTH_BYPASS_LOCAL=true and no PROCONNECT_CLIENT_ID set. Skipping secrets generation."
         )
         return None
 
@@ -306,29 +422,43 @@ def generate_secrets_toml(target_path: Path | None = None) -> Path | None:
         "PROCONNECT_COOKIE_SECRET"
     )
     if not cookie_secret:
-        # Generate an ephemeral secret if not provided
-        cookie_secret = secrets.token_hex(32)
+        if _EPHEMERAL_COOKIE_SECRET is None:
+            _EPHEMERAL_COOKIE_SECRET = secrets.token_hex(32)
+        cookie_secret = _EPHEMERAL_COOKIE_SECRET
 
     scopes = config.PROCONNECT_SCOPES or os.getenv(
         "PROCONNECT_SCOPES", "openid email profile"
     )
 
-    # Format TOML content
+    # Format TOML content using json.dumps for safe string quoting
     toml_content = f"""# Auto-generated by auth_secrets.py - DO NOT COMMIT SECRETS TO GIT
 [auth]
-redirect_uri = "{redirect_uri}"
-cookie_secret = "{cookie_secret}"
+redirect_uri = {json.dumps(redirect_uri)}
+cookie_secret = {json.dumps(cookie_secret)}
 
 [auth.proconnect]
-client_id = "{client_id}"
-client_secret = "{client_secret}"
-server_metadata_url = "{metadata_url}"
-client_kwargs = {{ scope = "{scopes}" }}
+client_id = {json.dumps(client_id)}
+client_secret = {json.dumps(client_secret)}
+server_metadata_url = {json.dumps(metadata_url)}
+client_kwargs = {{ scope = {json.dumps(scopes)} }}
 """
+
+    if target_path.exists():
+        try:
+            if target_path.read_text(encoding="utf-8") == toml_content:
+                logger.debug("OIDC secrets file %s is already up-to-date.", target_path)
+                return target_path
+        except Exception:
+            pass
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
     target_path.write_text(toml_content, encoding="utf-8")
-    print(f"[auth_secrets] Successfully wrote OIDC configuration to {target_path}")
+    try:
+        os.chmod(target_path, 0o600)
+    except Exception as e:
+        logger.debug("Could not set 0600 permissions on %s: %s", target_path, e)
+
+    logger.info("Successfully wrote OIDC configuration to %s", target_path)
     return target_path
 
 

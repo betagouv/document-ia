@@ -1,8 +1,22 @@
 """UI components for ProConnect authentication and user profile display."""
 
+import html
 import streamlit as st
 
-from document_ia_evals.services.auth_service import record_logout
+from document_ia_evals.services.auth_service import (
+    is_local_bypass_allowed,
+    record_logout,
+)
+
+
+def _get_context_metadata() -> tuple[str | None, str | None]:
+    """Safely extract remote IP address and User-Agent from Streamlit context."""
+    ip = getattr(st.context, "ip_address", None)
+    ua = None
+    headers = getattr(st.context, "headers", {})
+    if hasattr(headers, "get"):
+        ua = headers.get("User-Agent") or headers.get("user-agent")
+    return ip, ua
 
 
 def render_login_screen() -> None:
@@ -26,7 +40,7 @@ def render_login_screen() -> None:
         login_clicked = st.button(
             "🇫🇷 S'identifier avec ProConnect",
             type="primary",
-            use_container_width=True,
+            width="stretch",
             key="proconnect_login_btn",
         )
 
@@ -60,19 +74,18 @@ def render_access_denied_screen(email: str, reason: str) -> None:
         if st.button(
             "🚪 Se déconnecter de ProConnect",
             type="primary",
-            use_container_width=True,
+            width="stretch",
             key="btn_denied_logout",
         ):
-            record_logout(email)
+            ip, ua = _get_context_metadata()
+            record_logout(email, ip_address=ip, user_agent=ua)
             st.session_state.clear()
             st.logout()
 
 
 def enforce_page_auth(required_role: str | None = None) -> None:
     """Defense-in-depth security guard for individual page execution."""
-    from document_ia_evals.utils.config import config
-
-    if config.AUTH_BYPASS_LOCAL:
+    if is_local_bypass_allowed():
         return
 
     is_logged_in = bool(getattr(st.user, "is_logged_in", False))
@@ -149,14 +162,14 @@ def render_sidebar_user_profile() -> None:
         unsafe_allow_html=True,
     )
 
-    display_name = name if name else email
-    display_sub = f"{email} • {role_label}" if name else role_label
+    safe_display_name = html.escape(str(name if name else email))
+    safe_display_sub = html.escape(f"{email} • {role_label}" if name else role_label)
 
     st.sidebar.markdown(
         f"""
         <div class="user-profile-card">
-            <div class="user-profile-title">👤 {display_name}</div>
-            <div class="user-profile-meta">{display_sub}</div>
+            <div class="user-profile-title">👤 {safe_display_name}</div>
+            <div class="user-profile-meta">{safe_display_sub}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -165,9 +178,10 @@ def render_sidebar_user_profile() -> None:
     if st.sidebar.button(
         "🚪 Se déconnecter",
         key="sidebar_logout_btn",
-        use_container_width=True,
+        width="stretch",
     ):
-        record_logout(email)
+        ip, ua = _get_context_metadata()
+        record_logout(email, ip_address=ip, user_agent=ua)
         st.session_state.clear()
         st.logout()
 

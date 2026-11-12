@@ -40,15 +40,9 @@ st.set_page_config(
 )
 
 
-# S4 / Issue #155: Purge active et systématique de tout reliquat historique d'env_key dans l'URL
-if "env_key" in st.query_params:
-    st.query_params.pop("env_key", None)
-
-# Prise en compte éventuelle d'une URL personnalisée transmise sans clé
-if "env_url" in st.query_params and not st.session_state.get("custom_document_ia_url"):
-    st.session_state["custom_document_ia_url"] = str(st.query_params["env_url"]).rstrip(
-        "/"
-    )
+# S4 / Issue #155: Purge active et systématique de tout reliquat historique d'env_key et env_url dans l'URL
+st.query_params.pop("env_key", None)
+st.query_params.pop("env_url", None)
 
 
 @st.dialog("Configuration de l'environnement")
@@ -62,11 +56,15 @@ def dialog_configure_env() -> None:
 
     with st.form("env_config"):
         new_url = st.text_input(
-            "Backend URL", value=current.get("base_url", ""), key="env_config_url"
+            "Backend URL",
+            value=st.session_state.get(
+                "custom_document_ia_url", current.get("base_url", "")
+            ),
+            key="env_config_url",
         )
         new_key = st.text_input(
             "Admin API Key",
-            value=current.get("api_key", ""),
+            value=st.session_state.get("custom_document_ia_api_key", ""),
             type="password",
             key="env_config_key",
         )
@@ -74,18 +72,17 @@ def dialog_configure_env() -> None:
         col1, col2 = st.columns(2)
         with col1:
             submitted = st.form_submit_button(
-                "Sauvegarder", type="primary", use_container_width=True
+                "Sauvegarder", type="primary", width="stretch"
             )
         with col2:
             reset = st.form_submit_button(
-                "Réinitialiser (Défaut)", type="secondary", use_container_width=True
+                "Réinitialiser (Défaut)", type="secondary", width="stretch"
             )
 
         if submitted:
             if new_url and new_key:
                 configure_service(new_url, new_key)
-                st.query_params["env_url"] = new_url.rstrip("/")
-                # Purge proactive de toute clé présente dans l'URL
+                st.query_params.pop("env_url", None)
                 st.query_params.pop("env_key", None)
                 st.success("Configuration sauvegardée pour la session en cours !")
                 st.rerun()
@@ -153,7 +150,6 @@ def render_header(orgs: list[Any]):
         is_custom = bool(
             st.session_state.get("custom_document_ia_url")
             or st.session_state.get("custom_document_ia_api_key")
-            or "env_url" in st.query_params
         )
         btn_type = "primary" if is_custom else "secondary"
         help_text = (
@@ -161,7 +157,7 @@ def render_header(orgs: list[Any]):
             if is_custom
             else "Config par défaut"
         )
-        if st.button("⚙️ Env", type=btn_type, help=help_text, use_container_width=True):
+        if st.button("⚙️ Env", type=btn_type, help=help_text, width="stretch"):
             dialog_configure_env()
 
     st.caption("Gestion des accès et des configurations par organisation.")
@@ -215,9 +211,7 @@ def render_delete_org_dialog(org) -> None:
 
     col_confirm = st.columns(1)[0]
     with col_confirm:
-        if st.button(
-            "Confirmer la suppression", type="primary", use_container_width=True
-        ):
+        if st.button("Confirmer la suppression", type="primary", width="stretch"):
             try:
                 delete_organization(str(org.id))
                 st.success(f"Organisation '{org.name}' supprimée avec succès.")
@@ -244,7 +238,6 @@ def render_org_details(org_details: OrganizationDetailsResult) -> None:
     st.dataframe(
         df,
         hide_index=True,
-        use_container_width=True,
         column_config={
             "ID": st.column_config.TextColumn("ID", help="Identifiant unique"),
             "Email Contact": st.column_config.LinkColumn(
@@ -270,7 +263,7 @@ def _show_created_api_key_dialog(result: APIKeyCreatedResult) -> None:
     )
     st.code(result.key, language="text")
 
-    if st.button("J'ai copié cette clé", type="primary", use_container_width=True):
+    if st.button("J'ai copié cette clé", type="primary", width="stretch"):
         st.rerun()
 
 
@@ -288,9 +281,7 @@ def _show_delete_api_key_dialog(
 
     col_confirm = st.columns(1)[0]
     with col_confirm:
-        if st.button(
-            "Confirmer la suppression", type="primary", use_container_width=True
-        ):
+        if st.button("Confirmer la suppression", type="primary", width="stretch"):
             try:
                 delete_api_key(str(org_details.id), key_id)
                 st.success("Clé API supprimée avec succès.")
@@ -314,9 +305,7 @@ def _show_delete_webhook_dialog(
 
     col_confirm = st.columns(1)[0]
     with col_confirm:
-        if st.button(
-            "Confirmer la suppression", type="primary", use_container_width=True
-        ):
+        if st.button("Confirmer la suppression", type="primary", width="stretch"):
             try:
                 delete_webhook(str(org_details.id), webhook_id)
                 st.success("Webhook supprimé avec succès.")
@@ -376,6 +365,7 @@ def _dialog_add_webhook(org_details: OrganizationDetailsResult) -> None:
                 label_val,
                 key=f"wh_val_{row_id}",
                 placeholder="Bearer ...",
+                type="password",
                 label_visibility="visible" if label_val else "collapsed",
             )
 
@@ -386,7 +376,7 @@ def _dialog_add_webhook(org_details: OrganizationDetailsResult) -> None:
 
     st.markdown("---")
 
-    if st.button("Créer le webhook", type="primary", use_container_width=True):
+    if st.button("Créer le webhook", type="primary", width="stretch"):
         headers_dict: dict[str, str] = {}
 
         for r_id in st.session_state.webhook_rows_ids:
@@ -474,7 +464,7 @@ def render_api_keys_tab(org_details: OrganizationDetailsResult) -> None:
             if (
                 label
                 and new_status
-                and st.button(label, key=f"toggle_{key.id}", use_container_width=True)
+                and st.button(label, key=f"toggle_{key.id}", width="stretch")
             ):
                 try:
                     req = UpdateAPIKeyStatusRequest(status=new_status)
@@ -487,7 +477,7 @@ def render_api_keys_tab(org_details: OrganizationDetailsResult) -> None:
                 except Exception as e:
                     st.error(f"Erreur lors de la mise à jour du statut: {e}")
         with c6:
-            if st.button("🗑️", key=f"delete_{key.id}", use_container_width=True):
+            if st.button("🗑️", key=f"delete_{key.id}", width="stretch"):
                 _show_delete_api_key_dialog(org_details, key.id, key.prefix)
         st.divider()
 
@@ -524,7 +514,7 @@ def render_webhooks_tab(org_details: OrganizationDetailsResult) -> None:
             st.code(hook.url, language="text")
         with c3:
             headers_str = (
-                ", ".join(f"{k}: {v}" for k, v in hook.headers.items())
+                ", ".join(f"{k}: ********" for k in hook.headers.keys())
                 if hook.headers
                 else "—"
             )
@@ -533,9 +523,7 @@ def render_webhooks_tab(org_details: OrganizationDetailsResult) -> None:
             st.write(f"Créé: {hook.created_at}")
             st.caption(f"MAJ: {hook.updated_at}")
         with c5:
-            if st.button(
-                "🗑️", key=f"delete_webhook_{hook.id}", use_container_width=True
-            ):
+            if st.button("🗑️", key=f"delete_webhook_{hook.id}", width="stretch"):
                 _show_delete_webhook_dialog(org_details, hook.id, hook.url)
         st.divider()
 

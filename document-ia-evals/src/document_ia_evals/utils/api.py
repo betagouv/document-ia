@@ -1,42 +1,48 @@
 import io
-import time
 import json
+import time
 from typing import Any
 from urllib.parse import urljoin
 
-from document_ia_api.api.contracts.execution.types import ExecutionStatus
-from document_ia_api.api.contracts.execution.success import ExecutionSuccessModel
-from document_ia_api.api.contracts.workflow import WorkflowExecuteResponse
 import requests
 
-from document_ia_evals.utils.config import config
+from document_ia_api.api.contracts.execution.success import ExecutionSuccessModel
+from document_ia_api.api.contracts.execution.types import ExecutionStatus
+from document_ia_api.api.contracts.workflow import WorkflowExecuteResponse
+from document_ia_evals.services.administration_service import get_current_config
 
 
 def execute_workflow(
     workflow_name: str,
     file: io.BytesIO,
-    api_token: str,
+    api_token: str | None = None,
     metadata: dict[str, Any] | None = None,
     extraction_parameters: dict[str, Any] | None = None,
     classification_parameters: dict[str, Any] | None = None,
+    base_url: str | None = None,
 ) -> WorkflowExecuteResponse:
     """Execute a workflow on the Document IA API.
 
     Args:
         workflow_name (str): The name of the workflow to execute.
         file: The file-like object to process.
-        api_token (str): The API token for authentication.
+        api_token (str | None): The API token for authentication (defaults to session configuration).
         metadata: Optional metadata to pass with the workflow execution.
         extraction_parameters: Optional extraction parameters (e.g., document_type, llm_model).
         classification_parameters: Optional classification parameters (e.g., llm_model).
+        base_url (str | None): Base URL of Document IA API (defaults to session configuration).
     """
+    cfg = get_current_config()
+    endpoint = (base_url or cfg["base_url"]).rstrip("/")
+    token = api_token if api_token is not None else cfg["api_key"]
+
     execute_api_url = urljoin(
-        config.DOCUMENT_IA_BASE_URL, f"/api/v1/workflows/{workflow_name}/execute"
+        endpoint + "/", f"api/v1/workflows/{workflow_name}/execute"
     )
     files = {"file": (file.name, file.getvalue())}
     headers = {
         "Accept": "application/json",
-        "X-Api-Key": api_token,
+        "X-Api-Key": token,
     }
 
     data = {"metadata": json.dumps(metadata or {"test": "test"})}
@@ -59,20 +65,25 @@ def execute_workflow(
 
 
 def wait_for_execution(
-    execution_id: str, api_token: str
+    execution_id: str,
+    api_token: str | None = None,
+    base_url: str | None = None,
 ) -> ExecutionSuccessModel | None:
     """Wait for an execution to complete.
 
     Args:
         execution_id (str): The UUID of the execution to retrieve.
-        api_token (str): The API token for authentication.
+        api_token (str | None): The API token for authentication (defaults to session configuration).
+        base_url (str | None): Base URL of Document IA API (defaults to session configuration).
     """
-    details_api_url = urljoin(
-        config.DOCUMENT_IA_BASE_URL, f"/api/v1/executions/{execution_id}"
-    )
+    cfg = get_current_config()
+    endpoint = (base_url or cfg["base_url"]).rstrip("/")
+    token = api_token if api_token is not None else cfg["api_key"]
+
+    details_api_url = urljoin(endpoint + "/", f"api/v1/executions/{execution_id}")
     headers = {
         "Accept": "application/json",
-        "X-Api-Key": api_token,
+        "X-Api-Key": token,
     }
     status = ExecutionStatus.STARTED
     execution_details = None
@@ -85,6 +96,7 @@ def wait_for_execution(
             details_api_url,
             headers=headers,
             params={"is_debug_mode": "true"},
+            timeout=30,
         )
         response_json = response.json()
         status = response_json.get("status", "")
@@ -102,16 +114,24 @@ def wait_for_execution(
     return execution_details
 
 
-def get_workflows(api_token: str) -> dict[str, Any]:
+def get_workflows(
+    api_token: str | None = None,
+    base_url: str | None = None,
+) -> dict[str, Any]:
     """Retrieve available workflows from Document IA API.
 
     Args:
-        api_token (str): The API token for authentication.
+        api_token (str | None): The API token for authentication (defaults to session configuration).
+        base_url (str | None): Base URL of Document IA API (defaults to session configuration).
     """
-    workflows_url = urljoin(config.DOCUMENT_IA_BASE_URL, "/api/v2/workflows")
+    cfg = get_current_config()
+    endpoint = (base_url or cfg["base_url"]).rstrip("/")
+    token = api_token if api_token is not None else cfg["api_key"]
+
+    workflows_url = urljoin(endpoint + "/", "api/v2/workflows")
     headers = {
         "Accept": "application/json",
-        "X-Api-Key": api_token,
+        "X-Api-Key": token,
     }
     response = requests.get(workflows_url, headers=headers, timeout=30)
     response.raise_for_status()
@@ -120,33 +140,39 @@ def get_workflows(api_token: str) -> dict[str, Any]:
 
 def execute_workflow_v2(
     workflow_id: str,
-    api_token: str,
+    api_token: str | None = None,
     file: io.BytesIO | None = None,
     file_url: str | None = None,
     override: dict[str, Any] | None = None,
     metadata: dict[str, Any] | None = None,
     sync: bool = False,
+    base_url: str | None = None,
 ) -> dict[str, Any]:
     """Execute a workflow v2 on the Document IA API.
 
     Args:
         workflow_id (str): The ID of the workflow to execute.
-        api_token (str): The API token for authentication.
+        api_token (str | None): The API token for authentication (defaults to session configuration).
         file: Optional file-like object to process.
         file_url: Optional URL of the file to process.
         override: Optional parameter overrides for the workflow steps.
         metadata: Optional metadata to pass with the workflow execution.
         sync: Whether to run synchronously or asynchronously.
+        base_url (str | None): Base URL of Document IA API (defaults to session configuration).
     """
+    cfg = get_current_config()
+    endpoint = (base_url or cfg["base_url"]).rstrip("/")
+    token = api_token if api_token is not None else cfg["api_key"]
+
     path = (
-        f"/api/v2/workflows/{workflow_id}/execute-sync"
+        f"api/v2/workflows/{workflow_id}/execute-sync"
         if sync
-        else f"/api/v2/workflows/{workflow_id}/execute"
+        else f"api/v2/workflows/{workflow_id}/execute"
     )
-    execute_api_url = urljoin(config.DOCUMENT_IA_BASE_URL, path)
+    execute_api_url = urljoin(endpoint + "/", path)
     headers = {
         "Accept": "application/json",
-        "X-Api-Key": api_token,
+        "X-Api-Key": token,
     }
 
     files = {}

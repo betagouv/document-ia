@@ -3,6 +3,7 @@ from typing import Any
 
 # Third-party imports
 import streamlit as st
+from document_ia_evals.components.auth_ui import enforce_page_auth
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 # Local imports
@@ -345,6 +346,7 @@ def handle_dataset_creation_v2(
 
 
 def main() -> None:
+    enforce_page_auth(required_role="admin")
     """Main page entry point."""
     title = "Création d'un jeu de données terrain V2"
     st.set_page_config(page_title=title, page_icon="📝", layout="wide")

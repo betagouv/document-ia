@@ -7,6 +7,8 @@ from document_ia_evals.utils.api import (
     execute_workflow_v2,
     wait_for_execution,
 )
+from document_ia_evals.components.auth_ui import enforce_page_auth
+from document_ia_evals.services.administration_service import get_current_config
 from document_ia_evals.utils.config import config
 
 
@@ -18,17 +20,22 @@ def load_snippet(filename: str) -> str:
 def main():
     title = "🧾 Execute a workflow on document"
     st.set_page_config(page_title=title, page_icon="🧾")
+    enforce_page_auth()
+
     st.title(title)
 
+    cfg = get_current_config()
+    endpoint = cfg["base_url"]
+    api_key = cfg["api_key"]
+
     # Mask base URL to protect sensitive environments
-    masked_url = config.DOCUMENT_IA_BASE_URL
+    masked_url = endpoint
     if "localhost" not in masked_url and "127.0.0.1" not in masked_url:
         masked_url = "https://<DOCUMENT_IA_URL>/"
 
     st.caption(f"Using API endpoint: {masked_url}")
 
     # Check for API Key
-    api_key = config.DOCUMENT_IA_API_KEY
     if not api_key:
         st.warning("⚠️ DOCUMENT_IA_API_KEY not found in configuration.")
         return

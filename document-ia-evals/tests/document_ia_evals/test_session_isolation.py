@@ -3,7 +3,8 @@
 Verifies that:
 1. Two distinct sessions do NOT share any mutable credentials or endpoints.
 2. Configuration defaults safely to config.DOCUMENT_IA_* when not set in session.
-3. env_key is never accepted nor leaked, and purged from query parameters.
+3. env_key and env_url are never accepted nor leaked, and purged from query parameters.
+4. Custom base URLs never leak the default server API key.
 """
 
 from unittest.mock import patch
@@ -62,15 +63,28 @@ def test_fallback_when_session_state_empty():
 
 
 def test_env_key_purged_from_query_params():
-    """Verify that env_key is systematically purged from query_params."""
+    """Verify that env_key and env_url are systematically purged from query_params."""
     mock_query_params = {
         "env_url": "https://custom.api.gouv.fr",
         "env_key": "sec_leak_forbidden_in_url",
     }
 
-    # Simulate the query parameter purge behavior in admin_api_keys.py
-    if "env_key" in mock_query_params:
-        mock_query_params.pop("env_key", None)
+    # Simulate the query parameter purge behavior in app.py and admin_api_keys.py
+    mock_query_params.pop("env_key", None)
+    mock_query_params.pop("env_url", None)
 
     assert "env_key" not in mock_query_params
-    assert "env_url" in mock_query_params
+    assert "env_url" not in mock_query_params
+
+
+def test_custom_url_never_leaks_default_api_key():
+    """Verify that a custom URL without custom API key never leaks the default server API key."""
+    with patch.object(config, "DOCUMENT_IA_API_KEY", "secret-admin-master-key"):
+        with patch(
+            "streamlit.session_state",
+            {"custom_document_ia_url": "https://attacker.tld"},
+        ):
+            cfg = get_current_config()
+            assert cfg["base_url"] == "https://attacker.tld"
+            assert cfg["api_key"] == ""
+            assert cfg["api_key"] != config.DOCUMENT_IA_API_KEY

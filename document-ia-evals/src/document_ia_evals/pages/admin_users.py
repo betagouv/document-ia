@@ -38,6 +38,8 @@ def render_users_and_rights_page() -> None:
         "Gestion des agents autorisés à accéder à la console Document IA via **ProConnect**."
     )
 
+    current_user_email = str(st.session_state.get("current_user_email", "")).lower()
+
     # Formulaire d'ajout
     with st.expander("➕ Habiliter un nouvel agent", expanded=False):
         with st.form("add_user_form"):
@@ -89,6 +91,7 @@ def render_users_and_rights_page() -> None:
             c_email, c_role, c_status, c_login, c_act = st.columns(
                 [3, 2.2, 1.2, 2, 1.6], vertical_alignment="center"
             )
+            is_self = u.email.strip().lower() == current_user_email
             with c_email:
                 st.code(u.email, language="text")
             with c_role:
@@ -101,6 +104,7 @@ def render_users_and_rights_page() -> None:
                     index=current_role_idx,
                     key=f"role_select_{u.id}",
                     label_visibility="collapsed",
+                    disabled=is_self,
                     format_func=lambda r: (
                         "👑 Administrateur" if r == "admin" else "👤 Utilisateur"
                     ),
@@ -121,19 +125,27 @@ def render_users_and_rights_page() -> None:
             with c_act:
                 toggle_label = "⛔ Désactiver" if u.is_active else "✅ Activer"
                 toggle_help = (
-                    "Désactiver l'accès de cet agent"
-                    if u.is_active
-                    else "Réactiver l'accès de cet agent"
+                    "Vous ne pouvez pas modifier votre propre compte"
+                    if is_self
+                    else (
+                        "Désactiver l'accès de cet agent"
+                        if u.is_active
+                        else "Réactiver l'accès de cet agent"
+                    )
                 )
                 if st.button(
                     toggle_label,
                     key=f"toggle_active_{u.id}",
                     help=toggle_help,
+                    disabled=is_self,
                     type="secondary" if u.is_active else "primary",
-                    use_container_width=True,
+                    width="stretch",
                 ):
-                    update_evals_user(u.email, is_active=not u.is_active)
-                    st.rerun()
+                    try:
+                        update_evals_user(u.email, is_active=not u.is_active)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erreur : {e}")
             st.divider()
 
     # Section Logs d'accès récents
@@ -154,7 +166,7 @@ def render_users_and_rights_page() -> None:
                 }
                 for entry in logs
             ]
-            st.dataframe(pd.DataFrame(log_data), use_container_width=True)  # pyright: ignore [reportUnknownMemberType]
+            st.dataframe(pd.DataFrame(log_data))  # pyright: ignore [reportUnknownMemberType]
 
 
 def main() -> None:

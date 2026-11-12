@@ -5,14 +5,22 @@ from document_ia_evals.components import (
     render_workflow_selector,
 )
 from document_ia_evals.utils.api import execute_workflow, wait_for_execution
-from document_ia_evals.utils.config import config
+from document_ia_evals.components.auth_ui import enforce_page_auth
+from document_ia_evals.services.administration_service import get_current_config
 
 
 def main():
     title = "🧾 Execute a workflow on document (Deprecated)"
     st.set_page_config(page_title=title, page_icon="🧾")
+    enforce_page_auth()
+
     st.title(title)
-    st.caption(f"Using API endpoint: {config.DOCUMENT_IA_BASE_URL}")
+
+    cfg = get_current_config()
+    endpoint = cfg["base_url"]
+    api_key = cfg["api_key"]
+
+    st.caption(f"Using API endpoint: {endpoint}")
 
     st.warning(
         "⚠️ Cette page est obsolète. Veuillez utiliser la page **Execute Workflow V2** à la place."
@@ -30,9 +38,8 @@ def main():
     # Document type selector (optional, for all workflows)
     selected_doc_type = render_document_type_selector()
 
-    api_key = config.DOCUMENT_IA_API_KEY
     if not api_key:
-        st.warning("⚠️ DOCUMENT_IA_API_KEY not found in configuration.")
+        st.warning("⚠️ Clé API non configurée pour cette session.")
         return None
 
     uploaded_file = st.file_uploader(

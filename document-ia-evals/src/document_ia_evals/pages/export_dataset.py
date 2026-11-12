@@ -4,6 +4,7 @@ import json
 from typing import Any, cast
 
 import streamlit as st
+from document_ia_evals.components.auth_ui import enforce_page_auth
 
 from document_ia_evals.components import (
     ClientType,
@@ -21,6 +22,7 @@ st.set_page_config(
 
 
 def main():
+    enforce_page_auth(required_role="admin")
     """Main export dataset page."""
 
     st.title("📥 Export Dataset")

@@ -33,6 +33,7 @@ First, register your metric name in `metrics/__init__.py`:
 ```python
 class MetricName(str, Enum):
     """Registry of all available metric names."""
+
     JSON_SCHEMA_EXTRA = "json_schema_extra"
     YOUR_NEW_METRIC = "your_new_metric"  # ⭐ Add here
 ```
@@ -64,7 +65,7 @@ from pydantic import BaseModel
 
 class YourMetricObservation(BaseModel):
     """Observation model for your_new_metric."""
-    
+
     score: float
     details: Dict[str, Any] = {}
     error: Optional[str] = None
@@ -88,38 +89,30 @@ from .models import YourMetricObservation  # If you have models
     metric_type="standard",  # or "llm", "pydantic_comparison", etc.
     require=["field1", "field2"],  # Required fields from task data
 )
-def your_new_metric(
-    field1: Any,
-    field2: Any,
-    **kwargs: Any
-) -> Tuple[float, str, Any]:
+def your_new_metric(field1: Any, field2: Any, **kwargs: Any) -> Tuple[float, str, Any]:
     """
     Compute your metric.
-    
+
     Args:
         field1: First required field
         field2: Second required field
         **kwargs: Additional optional parameters
-    
+
     Returns:
         Tuple of (score, observation_json, prediction)
     """
     try:
         # Your computation logic here
         score = compute_score(field1, field2)
-        
+
         obs = YourMetricObservation(
-            score=score,
-            details={"field1": field1, "field2": field2}
+            score=score, details={"field1": field1, "field2": field2}
         )
-        
+
         return score, obs.model_dump_json(indent=2), field1
-        
+
     except Exception as e:
-        obs = YourMetricObservation(
-            score=0.0,
-            error=f"Error: {str(e)}"
-        )
+        obs = YourMetricObservation(score=0.0, error=f"Error: {str(e)}")
         return 0.0, obs.model_dump_json(indent=2), field1
 
 
@@ -146,13 +139,13 @@ from .models import YourMetricObservation
 def render_results(experiment_results: Dict[str, Any]) -> None:
     """Render the results in Streamlit."""
     st.subheader("📊 Your Metric Results")
-    
+
     observations = experiment_results.get("observations", [])
-    
+
     if not observations:
         st.warning("No observations found.")
         return
-    
+
     # Your custom rendering logic here
     for obs in observations:
         observation_str = obs.get("observation")
@@ -177,9 +170,9 @@ from .models import YourMetricObservation  # If you have models
 from .renderer import render_results  # If you have a renderer
 
 __all__ = [
-    'your_new_metric',
-    'YourMetricObservation',
-    'render_results',
+    "your_new_metric",
+    "YourMetricObservation",
+    "render_results",
 ]
 ```
 
@@ -212,7 +205,7 @@ def metric_function(
     required_param1: Type1,
     required_param2: Type2,
     # Optional parameters
-    **kwargs: Any
+    **kwargs: Any,
 ) -> Tuple[float, str, Any]:
     """
     Returns:
@@ -232,7 +225,7 @@ Renderer functions should follow this signature:
 def render_results(experiment_results: Dict[str, Any]) -> None:
     """
     Render experiment results in Streamlit.
-    
+
     Args:
         experiment_results: Dictionary containing:
             - observations: List of observation dicts

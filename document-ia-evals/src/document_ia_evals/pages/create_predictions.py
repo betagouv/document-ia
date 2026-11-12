@@ -3,6 +3,7 @@ from typing import Any
 
 # Third-party imports
 import streamlit as st
+from document_ia_evals.components.auth_ui import enforce_page_auth
 
 # Local imports
 from document_ia_evals.components import (
@@ -176,6 +177,7 @@ def handle_workflow_execution(
 
 
 def main() -> None:
+    enforce_page_auth(required_role="admin")
     """Main page entry point."""
     title = "Exécuter un workflow sur un dataset (Deprecated)"
     st.set_page_config(page_title=title, page_icon="🔄")
