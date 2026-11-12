@@ -41,9 +41,9 @@ from document_ia_api.infra.idempotency_service import (
     idempotency_service,
     mark_completed_or_retain,
 )
-from document_ia_api.schemas.rate_limiting import RateLimitInfo
 from document_ia_infra.data.database import database_manager
 from document_ia_infra.data.organization.dto.organization_dto import OrganizationDTO
+from document_ia_infra.core.security.safe_logging import extract_safe_host
 
 logger = logging.getLogger(__name__)
 
@@ -383,13 +383,14 @@ async def execute_workflow(
             extra={
                 "endpoint": "execute_workflow",
                 "workflow_id": workflow_id,
-                "file_url": file_url,
+                "file_host": extract_safe_host(file_url),
             },
         )
 
     workflow_service = WorkflowService(db_session)
     redis_key: str | None = None
     pre_generated_execution_id: str | None = None
+    fingerprint: str | None = None
 
     if idempotency_key is not None:
         fingerprint = await compute_request_fingerprint(
@@ -524,7 +525,7 @@ async def execute_workflow(
         await db_session.rollback()
         if isinstance(e, (HTTPException, RequestValidationError)):
             raise
-        logger.error(f"Workflow execution failed: {e}")
+        logger.error("Workflow execution failed: %s", type(e).__name__)
         raise
 
     # The execution is accepted and published from here on: tracking failures
@@ -535,6 +536,7 @@ async def execute_workflow(
     if (
         redis_key is not None
         and pre_generated_execution_id is not None
+        and fingerprint is not None
         and not (reservation is not None and reservation.outcome_unresolved)
     ):
         await mark_completed_or_retain(
@@ -614,9 +616,7 @@ async def execute_workflow_sync(
     metadata: Optional[str] = Form(
         default=None, description="JSON string containing metadata object"
     ),
-    api_key: str = Depends(verify_api_key),
     current_org: OrganizationDTO = Depends(get_current_organization),
-    rate_limit_info: RateLimitInfo = Depends(check_rate_limit),
     db_session: AsyncSession = Depends(database_manager.async_get_db),
 ) -> ExecutionResponse:
     """Execute a workflow synchronously by waiting for its final event."""

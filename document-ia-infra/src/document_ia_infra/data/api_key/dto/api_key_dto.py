@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 from uuid import UUID
@@ -14,7 +14,7 @@ class ApiKeyDTO:
     id: UUID
     organization_id: UUID
     organization: Optional["OrganizationDTO"]
-    key_hash: str
+    key_hash: str = field(repr=False)
     prefix: str
     status: ApiKeyStatus
     created_at: datetime

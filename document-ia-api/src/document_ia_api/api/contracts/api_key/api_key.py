@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 
+from document_ia_infra.core.model.types.secret import SecretPayloadStr
 from document_ia_infra.data.api_key.enum.api_key_status import ApiKeyStatus
 
 
@@ -12,7 +13,7 @@ class APIKeyResult(BaseModel):
 
 
 class APIKeyCreatedResult(APIKeyResult):
-    key: str = Field(description="Full API key (private part)")
+    key: SecretPayloadStr = Field(description="Full API key (private part)")
 
 
 class UpdateAPIKeyStatusRequest(BaseModel):

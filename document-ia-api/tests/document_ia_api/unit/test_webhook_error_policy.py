@@ -201,6 +201,7 @@ async def test_webhook_service_does_not_log_target_url_or_payload(monkeypatch, c
             SimpleNamespace(execution_id="execution"),
         )
     assert "Webhook notification sent successfully with status 200" in caplog.text
-    assert "secret.example" not in caplog.text and "SECRET-DOCUMENT" not in caplog.text
+    assert "token=secret" not in caplog.text and "SECRET-DOCUMENT" not in caplog.text
+    assert "secret.example" in caplog.text
     assert client.post.await_args.args[0] == url
     assert client.post.await_args.kwargs["content"] == "SECRET-DOCUMENT"

@@ -1,93 +1,250 @@
 from __future__ import annotations
 
-from typing import Annotated, Optional, Union, Any
+import json
+import logging
+from unittest.mock import MagicMock
 
-from pydantic import BaseModel, Field
+import pytest
+from fastapi import Request
+from starlette.datastructures import Headers
+from starlette.responses import JSONResponse, Response
 
 from document_ia_api.api.middleware.aggregator_middleware import (
-    _unwrap_is_secret_type,
-    _unwrap_model_type,
-    _build_mask_map,
-    _apply_mask,
-)
-from document_ia_api.api.contracts.execution.result import (
-    ExtractionResult,
-)
-from document_ia_infra.core.model.types.secret import (
-    SecretPayloadStr,
-    SecretPayloadBytes,
+    AggregationMiddleware,
+    _wrap_response_and_capture,
+    get_request_payload_safely,
 )
 
 
-class _ForwardWrapper(BaseModel):
-    # forward ref by string
-    inner: "ExtractionResult"
+@pytest.mark.asyncio
+async def test_aggregator_middleware_logs_on_unhandled_500_exception(monkeypatch):
+    logged_entries: list[dict] = []
 
+    mock_logger = MagicMock()
+    mock_logger.info.side_effect = lambda msg, extra=None: logged_entries.append(
+        json.loads(msg)
+    )
+    orig_get_logger = logging.getLogger
 
-def test_unwrap_is_secret_type_variants():
-    assert _unwrap_is_secret_type(SecretPayloadStr)
-    assert _unwrap_is_secret_type(Optional[SecretPayloadStr])
-    assert _unwrap_is_secret_type(Annotated[SecretPayloadStr, Field(description="x")])
-    assert _unwrap_is_secret_type(SecretPayloadBytes)
+    def patched_get_logger(name=None):
+        if name == "aggregator":
+            return mock_logger
+        return orig_get_logger(name)
 
-    class NotSecret(BaseModel):
-        x: int
+    monkeypatch.setattr(
+        "document_ia_api.api.middleware.aggregator_middleware.logging.getLogger",
+        patched_get_logger,
+    )
 
-    assert _unwrap_is_secret_type(NotSecret) is False
+    middleware = AggregationMiddleware(app=MagicMock())
 
-
-def test_unwrap_model_type_handles_collections_and_unions():
-    # Direct
-    assert _unwrap_model_type(ExtractionResult, ExtractionResult) is ExtractionResult
-    # Optional
-    assert _unwrap_model_type(Optional[ExtractionResult], ExtractionResult) is ExtractionResult
-    # Union with None
-    assert _unwrap_model_type(Union[ExtractionResult, None], ExtractionResult) is ExtractionResult
-    # List
-    assert _unwrap_model_type(list[ExtractionResult], ExtractionResult) is ExtractionResult
-    # Annotated
-    AnnotatedType = Annotated[ExtractionResult, Field(description="wrapped")]
-    assert _unwrap_model_type(AnnotatedType, ExtractionResult) is ExtractionResult
-
-
-def test_build_mask_map_for_extraction_models():
-    # Expect mask on properties.value (nested list of model)
-    mask_map = _build_mask_map(ExtractionResult)
-    assert "properties" in mask_map
-    assert isinstance(mask_map["properties"], dict)
-    assert mask_map["properties"].get("value") is True
-
-
-def test_apply_mask_on_payload_with_none_and_values():
-    payload: dict[str, Any] = {
-        "type": "CNI",
-        "properties": [
-            {"name": "firstname", "value": "Alice", "type": "str"},
-            {"name": "age", "value": None, "type": "int"},
-        ],
+    request = MagicMock(spec=Request)
+    request.method = "GET"
+    request.url.path = "/api/v1/failing-endpoint"
+    request.client.host = "127.0.0.1"
+    request.headers = Headers({"x-request-id": "req-fail-500"})
+    request.query_params = {}
+    request.path_params = {}
+    request.scope = {"route": MagicMock(path="/api/v1/failing-endpoint")}
+    request.state = MagicMock()
+    request.state.request_id = "req-fail-500"
+    request.state.organization = None
+    request.state.aggregator_payload = {
+        "query_params": {},
+        "path_params": {},
+        "request_body": None,
     }
-    mask_map = {"properties": {"value": True}}
 
-    masked = _apply_mask(payload, mask_map)
+    async def call_next_crashing(req: Request) -> Response:
+        raise RuntimeError("Database connection pool exhausted")
 
-    assert masked["properties"][0]["value"] == "***"
-    assert masked["properties"][1]["value"] is None
-    # Unaffected keys remain unchanged
-    assert masked["properties"][0]["name"] == "firstname"
+    with pytest.raises(RuntimeError, match="Database connection pool exhausted"):
+        await middleware.dispatch(request, call_next_crashing)
+
+    assert len(logged_entries) == 1
+    entry = logged_entries[0]
+    assert entry["request_id"] == "req-fail-500"
+    assert entry["status_code"] == 500
+    assert entry["path"] == "/api/v1/failing-endpoint"
+    assert entry["method"] == "GET"
 
 
-def test_build_mask_map_with_forward_ref_wrapper():
-    # Validate that a forward-ref field still yields the nested mask
-    class Wrapper(BaseModel):
-        result: "ExtractionResult"
+@pytest.mark.asyncio
+async def test_wrap_response_and_capture_strict_allowlist():
+    raw_response = JSONResponse(
+        content={"data": "test_output", "secret": "SUPER_SECRET_123"},
+        status_code=200,
+        headers={
+            "X-Request-Id": "req-999",
+            "Idempotent-Replay": "true",
+            "Set-Cookie": "session=secret_token",
+            "X-Internal-Token": "secret_internal",
+        },
+    )
 
-    # Pydantic may need rebuild to resolve forward refs
-    try:
-        Wrapper.model_rebuild()
-    except Exception:
-        pass
+    request = MagicMock(spec=Request)
+    returned_resp, meta = await _wrap_response_and_capture(request, raw_response)
 
-    mask_map = _build_mask_map(Wrapper)
-    assert "result" in mask_map
-    assert isinstance(mask_map["result"], dict)
-    assert mask_map["result"].get("properties", {}).get("value") is True
+    # Status and response object
+    assert returned_resp.status_code == 200
+    assert meta["status_code"] == 200
+
+    # Headers allowlist check: allowed headers kept, sensitive headers pruned
+    headers = meta["response_headers"]
+    assert "x-request-id" in headers
+    assert "idempotent-replay" in headers
+    assert "content-type" in headers
+    assert "set-cookie" not in headers
+    assert "x-internal-token" not in headers
+
+    # Envelope metrics check
+    assert "response_body" in meta
+    assert meta["response_body"]["bytes"] > 0
+    assert "application/json" in meta["response_body"]["content_type"]
+
+    # Zero body preview
+    assert "body_preview" not in meta
+    assert "response_body_preview" not in meta
+
+
+@pytest.mark.asyncio
+async def test_get_request_payload_safely_masks_and_filters():
+    request = MagicMock(spec=Request)
+    request.query_params = {
+        "limit": "20",
+        "api_key": "SECRET_KEY_abc123",  # gitleaks:allow
+        "unknown_query": "sensitive_data",
+    }
+    request.path_params = {
+        "execution_id": "exec-456",
+        "unauthorized_path_param": "leaked_param",
+    }
+    request.headers = Headers(
+        {
+            "content-type": "application/json",
+            "content-length": "42",
+            "authorization": "Bearer secret_bearer_token",
+        }
+    )
+    request.state = MagicMock()
+
+    await get_request_payload_safely(request)
+
+    payload = request.state.aggregator_payload
+    assert payload is not None
+
+    # Query params: allowed kept, unknown masked
+    assert payload["query_params"]["limit"] == "20"
+    assert payload["query_params"]["api_key"] == "**********"
+    assert payload["query_params"]["unknown_query"] == "**********"
+
+    # Path params: only allowed keys retained
+    assert payload["path_params"]["execution_id"] == "exec-456"
+    assert "unauthorized_path_param" not in payload["path_params"]
+
+    # Request body metric
+    assert payload["request_body"]["content_type"] == "application/json"
+    assert payload["request_body"]["bytes"] == 42
+
+    # Zero body preview
+    assert "body_preview" not in payload
+    assert "request_body_preview" not in payload
+
+
+@pytest.mark.asyncio
+async def test_aggregation_middleware_zero_body_preview_in_entry(monkeypatch):
+    logged_entries: list[dict] = []
+
+    mock_logger = MagicMock()
+    mock_logger.info.side_effect = lambda msg, extra=None: logged_entries.append(
+        json.loads(msg)
+    )
+    orig_get_logger = logging.getLogger
+
+    def patched_get_logger(name=None):
+        if name == "aggregator":
+            return mock_logger
+        return orig_get_logger(name)
+
+    monkeypatch.setattr(
+        "document_ia_api.api.middleware.aggregator_middleware.logging.getLogger",
+        patched_get_logger,
+    )
+
+    app = MagicMock()
+    middleware = AggregationMiddleware(app)
+
+    request = MagicMock(spec=Request)
+    request.method = "POST"
+    request.url.path = "/api/v1/workflows/wf-1/execute"
+    request.client.host = "127.0.0.1"
+    request.headers = Headers(
+        {
+            "content-type": "application/json",
+            "x-request-id": "req-100",
+            "authorization": "Bearer SECRET_JWT_TOKEN",
+            "cookie": "session_id=SECRET_COOKIE",
+            "x-custom-header": "SECRET_HEADER",
+        }
+    )
+    request.query_params = {
+        "limit": "10",
+        "token": "SECRET_TOKEN_IN_QUERY",
+    }
+    request.path_params = {
+        "workflow_id": "wf-1",
+        "internal_id": "INTERNAL_SECRET",
+    }
+    request.scope = {"route": MagicMock(path="/api/v1/workflows/{workflow_id}/execute")}
+    request.state = MagicMock()
+    request.state.request_id = "req-100"
+    request.state.organization = MagicMock(id="org-1")
+
+    # Dependency captured payload
+    await get_request_payload_safely(request)
+
+    # Next endpoint call returns a response with sensitive data in body
+    secret_body_marker = "SECRET_SYNTHETIC_MARKER_9999"  # gitleaks:allow
+
+    async def call_next(req: Request) -> Response:
+        return JSONResponse(
+            content={"message": "ok", "secret": secret_body_marker},
+            status_code=201,
+            headers={
+                "X-Request-Id": "req-100",
+                "Set-Cookie": "sensitive_cookie=value",
+            },
+        )
+
+    response = await middleware.dispatch(request, call_next)
+    assert response.status_code == 201
+
+    assert len(logged_entries) == 1
+    entry = logged_entries[0]
+
+    # Verify no raw body previews exist anywhere in the entry
+    assert "request_body_preview" not in entry
+    assert "response_body_preview" not in entry
+    assert "body_preview" not in entry
+
+    # Verify sensitive marker is NEVER present in serialized entry
+    entry_json_str = json.dumps(entry)
+    assert secret_body_marker not in entry_json_str
+    assert "SECRET_JWT_TOKEN" not in entry_json_str
+    assert "SECRET_COOKIE" not in entry_json_str
+    assert "SECRET_HEADER" not in entry_json_str
+    assert "SECRET_TOKEN_IN_QUERY" not in entry_json_str
+    assert "INTERNAL_SECRET" not in entry_json_str
+
+    # Verify allowed metadata is correctly logged
+    assert entry["request_id"] == "req-100"
+    assert entry["method"] == "POST"
+    assert entry["headers"] == {
+        "content-type": "application/json",
+        "x-request-id": "req-100",
+    }
+    assert entry["query_params"]["limit"] == "10"
+    assert entry["query_params"]["token"] == "**********"
+    assert entry["path_params"] == {"workflow_id": "wf-1"}
+    assert entry["request_body"]["content_type"] == "application/json"
+    assert entry["response_body"]["bytes"] > 0
