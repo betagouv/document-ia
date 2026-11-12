@@ -178,18 +178,17 @@ async def test_transport_bounds_dns_with_the_client_timeout():
     original = SafeAsyncHTTPTransport.handle_async_request
 
     async def capture(self, request):
-        seen_timeout.append(
-            (request.extensions.get("timeout") or {}).get("connect")
-        )
+        seen_timeout.append((request.extensions.get("timeout") or {}).get("connect"))
         return await original(self, request)
 
     transport = SafeAsyncHTTPTransport()
     async with httpx.AsyncClient(transport=transport) as client:
-        with patch(
-            "document_ia_infra.core.network.safe_transport.resolve_validated_ips",
-            new=hanging_resolution,
-        ), patch.object(
-            SafeAsyncHTTPTransport, "handle_async_request", capture
+        with (
+            patch(
+                "document_ia_infra.core.network.safe_transport.resolve_validated_ips",
+                new=hanging_resolution,
+            ),
+            patch.object(SafeAsyncHTTPTransport, "handle_async_request", capture),
         ):
             with pytest.raises(httpx.ConnectTimeout):
                 await client.get("https://slow.example.com/doc.pdf", timeout=0.2)
@@ -665,9 +664,7 @@ def test_cleanup_never_deletes_through_a_replaced_directory(tmp_path: Path):
     execution_dir = sandbox / "exec3"
     execution_dir.symlink_to(outside, target_is_directory=True)
 
-    safe_cleanup_directory(
-        execution_dir / "preprocess", sandbox_root=execution_dir
-    )
+    safe_cleanup_directory(execution_dir / "preprocess", sandbox_root=execution_dir)
 
     assert kept.exists(), "cleanup deleted a file outside the sandbox"
 
@@ -693,6 +690,23 @@ def test_open_confined_directory_refuses_a_replaced_sandbox_root(tmp_path: Path)
 
     with pytest.raises(PathTraversalException):
         open_confined_directory(replaced_root / "sub", replaced_root)
+
+
+def test_open_confined_directory_fails_closed_when_fd_path_fails(tmp_path: Path):
+    """If fd path cannot be inspected (e.g. F_GETPATH / proc unavailable), it must fail closed."""
+    from document_ia_infra.core.file.safe_path import open_confined_directory
+    from document_ia_infra.exception.security_exception import PathTraversalException
+
+    sandbox = tmp_path / "sandbox_fail_closed"
+    sandbox.mkdir()
+    sub = sandbox / "sub"
+    sub.mkdir()
+
+    with patch("document_ia_infra.core.file.safe_path._fd_path", return_value=None):
+        with pytest.raises(
+            PathTraversalException, match="Cannot verify path confinement"
+        ):
+            open_confined_directory(sub, sandbox)
 
 
 @pytest.mark.asyncio

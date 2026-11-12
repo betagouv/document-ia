@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import AsyncIterator, Awaitable
+from collections.abc import AsyncGenerator, Awaitable
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 import logging
@@ -23,6 +23,7 @@ from document_ia_api.core.idempotency.models import (
 )
 from document_ia_infra.redis.publisher import (
     PublicationOutcomeUnknownError,
+    PublishFailedError,
     ReservationLostError,
 )
 from document_ia_infra.redis.redis_manager import redis_manager
@@ -361,7 +362,7 @@ idempotency_service = IdempotencyService()
 @asynccontextmanager
 async def hold_reservation(
     reservation: "IdempotencyReservation | None",
-) -> AsyncIterator[None]:
+) -> AsyncGenerator[None, None]:
     """Hold an idempotency reservation for the duration of an admission."""
     if reservation is None:
         yield
@@ -524,5 +525,8 @@ class IdempotencyReservation:
                     self._execution_id,
                 )
                 return ""
-            raise
+            raise PublishFailedError(
+                publisher.stream_name,
+                "publication_not_queued",
+            )
         return message_id

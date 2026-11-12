@@ -149,7 +149,9 @@ async def test_active_workflow_exceeding_reclaim_timeout_is_not_reclaimed(
         continue_event.set()
 
         await wait_until(
-            lambda: len(consumer._in_flight_ids) == 0 and not consumer.has_running_handlers,
+            lambda: (
+                len(consumer._in_flight_ids) == 0 and not consumer.has_running_handlers
+            ),
             timeout=3.0,
         )
 
@@ -218,8 +220,13 @@ async def test_stalled_workflow_stops_heartbeat_and_requeues_with_retry_incremen
 
         await wait_until(requeued_present, timeout=3.0)
 
-        pel_entries = await redis_client.xpending_range(stream, group, min="-", max="+", count=10)
-        pel_ids = [e["message_id"] if isinstance(e, dict) else e.message_id for e in pel_entries]
+        pel_entries = await redis_client.xpending_range(
+            stream, group, min="-", max="+", count=10
+        )
+        pel_ids = [
+            e["message_id"] if isinstance(e, dict) else e.message_id
+            for e in pel_entries
+        ]
         assert msg_id not in pel_ids
 
     finally:
@@ -280,14 +287,20 @@ async def test_max_processing_time_exceeded_routes_to_dlq(
         async def dlq_entry_present() -> bool:
             entries = await redis_client.xrange(dlq_stream)
             return any(
-                fields.get("original_id") == msg_id and fields.get("reason") == "workflow_timeout"
+                fields.get("original_id") == msg_id
+                and fields.get("reason") == "workflow_timeout"
                 for _, fields in entries
             )
 
         await wait_until(dlq_entry_present, timeout=3.0)
 
-        pel_entries = await redis_client.xpending_range(stream, group, min="-", max="+", count=10)
-        pel_ids = [e["message_id"] if isinstance(e, dict) else e.message_id for e in pel_entries]
+        pel_entries = await redis_client.xpending_range(
+            stream, group, min="-", max="+", count=10
+        )
+        pel_ids = [
+            e["message_id"] if isinstance(e, dict) else e.message_id
+            for e in pel_entries
+        ]
         assert msg_id not in pel_ids
 
     finally:
@@ -362,7 +375,8 @@ async def test_concurrency_with_execution_lease_excludes_duplicate_execution(
 
         # Ajouter un 2ème message avec le MÊME execution_id sur le stream
         await redis_client.xadd(
-            stream, {"data": json.dumps({"workflow_execution_id": exec_id}), "retries": "0"}
+            stream,
+            {"data": json.dumps({"workflow_execution_id": exec_id}), "retries": "0"},
         )
 
         await worker2.start()
@@ -375,7 +389,9 @@ async def test_concurrency_with_execution_lease_excludes_duplicate_execution(
         # Libérer worker 1
         worker1_hold.set()
         await wait_until(
-            lambda: len(worker1._in_flight_ids) == 0 and not worker1.has_running_handlers,
+            lambda: (
+                len(worker1._in_flight_ids) == 0 and not worker1.has_running_handlers
+            ),
             timeout=3.0,
         )
 
@@ -392,9 +408,7 @@ async def test_concurrency_with_execution_lease_excludes_duplicate_execution(
 
 
 @pytest.mark.asyncio
-async def test_api_mode_without_steps(
-    redis_client: Redis, stream: str
-):
+async def test_api_mode_without_steps(redis_client: Redis, stream: str):
     """5. Mode API (AsyncIoConsumer, step_progress_timeout_s=None, use_execution_lease=False)."""
     group = f"group-{uuid4()}"
     webhook_id = f"wh-{uuid4()}"
@@ -446,7 +460,9 @@ async def test_api_mode_without_steps(
 async def test_heartbeat_interval_is_bounded_by_lease_ttl_and_watchdog():
     """Le battement est borné par le TTL du bail et les seuils watchdog, pas seulement par reclaim."""
 
-    async def _noop(message: ProgressTaskMessage, retry_count: int, is_last: bool) -> None:
+    async def _noop(
+        message: ProgressTaskMessage, retry_count: int, is_last: bool
+    ) -> None:
         return None
 
     # Configuration worker de production : le TTL du bail de 60 s est la borne
@@ -490,7 +506,9 @@ async def test_heartbeat_interval_is_bounded_by_lease_ttl_and_watchdog():
 
 
 @pytest.mark.asyncio
-async def test_stuck_thread_keeps_occupying_worker_slot(redis_client: Redis, stream: str):
+async def test_stuck_thread_keeps_occupying_worker_slot(
+    redis_client: Redis, stream: str
+):
     """Un handler bloqué conserve son slot de travail après un timeout watchdog."""
     group = f"group-{uuid4()}"
     exec1 = f"exec-{uuid4()}"
@@ -521,6 +539,7 @@ async def test_stuck_thread_keeps_occupying_worker_slot(redis_client: Redis, str
         drain_timeout_s=0.2,
         message_class=ProgressTaskMessage,
         process_message_callable=stuck_handler,
+        worker_number=1,
         reclaim_idle_ms=5000,
         step_progress_timeout_s=0.2,
         max_processing_time_s=5.0,
@@ -886,6 +905,7 @@ async def test_worker_shutdown_path_drains_terminal_failure_tasks(
     annulée à la sortie du processus alors que le message est déjà acquitté,
     perdant définitivement l'échec terminal de l'exécution.
     """
+
     async def endless_handler(
         message: ProgressTaskMessage, retry_count: int, is_last: bool
     ) -> None:
@@ -1015,6 +1035,7 @@ async def test_fenced_tracker_completion_is_never_acknowledged():
     le battement : le listener finalise alors la future et acquitterait à tort le
     message, laissant l'exécution inachevée sans livraison en attente ni reprise.
     """
+
     async def noop_handler(
         message: ProgressTaskMessage, retry_count: int, is_last: bool
     ) -> None:

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 from datetime import datetime
@@ -64,9 +65,19 @@ class S3Service:
                 for key, value in metadata.items():
                     s3_metadata[f"custom-{key}"] = str(value)
 
-            # Upload file to S3
-            self.s3_manager.upload_file(s3_key, file_data, content_type, s3_metadata)
-            presigned_url = self.s3_manager.get_presigned_url(s3_key)
+            # Upload file to S3 in worker thread
+            await asyncio.to_thread(
+                self.s3_manager.upload_file,
+                s3_key,
+                file_data,
+                content_type,
+                s3_metadata,
+            )
+            try:
+                presigned_url = self.s3_manager.get_presigned_url(s3_key)
+            except Exception:
+                await self.delete_file(s3_key)
+                raise
 
             result = {
                 "file_id": file_id,
@@ -79,21 +90,22 @@ class S3Service:
                 "presigned_url": presigned_url,
             }
 
-            logger.info(f"File uploaded successfully: {file_id} ({filename})")
+            logger.info("File uploaded to S3 successfully")
             return result
 
         except NoCredentialsError as e:
-            logger.error(f"S3 credentials error: {e}")
-            raise Exception("S3 credentials not configured properly")
+            logger.error("S3 credentials error: %s", type(e).__name__)
+            raise RuntimeError("S3 credentials not configured properly") from e
         except ClientError as e:
-            logger.error(f"S3 client error: {e}")
-            raise Exception(f"Failed to upload file to S3: {e}")
+            error_code = self.s3_manager.client_error_code(e) or type(e).__name__
+            logger.error("S3 client error: %s", error_code)
+            raise RuntimeError(f"Failed to upload file to S3 ({error_code})") from e
         except Exception as e:
-            logger.error(f"Unexpected error during file upload: {e}")
-            raise Exception(f"File upload failed: {e}")
+            logger.error("Unexpected error during file upload: %s", type(e).__name__)
+            raise RuntimeError(f"File upload failed ({type(e).__name__})") from e
 
     async def delete_file(self, s3_key: str) -> bool:
-        return self.s3_manager.delete_file(s3_key)
+        return await asyncio.to_thread(self.s3_manager.delete_file, s3_key)
 
     async def get_file_info(self, s3_key: str) -> Optional[Dict[str, Any]]:
         return self.s3_manager.get_file_info(s3_key)

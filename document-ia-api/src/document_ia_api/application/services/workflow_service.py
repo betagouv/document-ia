@@ -21,6 +21,7 @@ from document_ia_api.api.exceptions.entity_not_found_exception import (
 )
 from document_ia_api.application.services.execution_acceptance import (
     EXECUTION_RESERVATION_LOST_ERROR,
+    compensate_s3_upload,
     fail_abandoned_execution,
     fail_unscheduled_execution,
     scheduling_log_context,
@@ -115,6 +116,7 @@ class WorkflowService:
             execution_id = execution_id or str(uuid.uuid4())
 
             file_info: Optional[FileInfo] = None
+            s3_key_to_compensate: Optional[str] = None
 
             if file is not None:
                 # Validate uploaded file
@@ -127,6 +129,7 @@ class WorkflowService:
                 s3_upload_result = await self._upload_file_to_s3(
                     file_content, file.filename, detected_mime_type, metadata
                 )
+                s3_key_to_compensate = s3_upload_result["s3_key"]
 
                 # Prepare file info
 
@@ -140,14 +143,16 @@ class WorkflowService:
                 )
 
                 logger.info(
-                    f"Workflow execution started: {execution_id} "
-                    f"(workflow: {workflow_id}, file: {file.filename})"
+                    "Workflow execution started: %s (workflow: %s)",
+                    execution_id,
+                    workflow_id,
                 )
 
             else:
                 logger.info(
-                    f"Workflow execution started: {execution_id} "
-                    f"(workflow: {workflow_id}, file_url: {file_url})"
+                    "Workflow execution started: %s (workflow: %s)",
+                    execution_id,
+                    workflow_id,
                 )
 
             # Emit workflow started event. This is mandatory: the started event
@@ -176,10 +181,15 @@ class WorkflowService:
                     "Workflow execution %s: started event could not be persisted",
                     execution_id,
                 )
+                await compensate_s3_upload(s3_key_to_compensate, execution_id)
+                s3_key_to_compensate = None
                 # Nothing is scheduled, so the caller must not be told the
                 # execution was accepted; the route releases the reservation and
                 # the client can retry with the same key.
                 raise scheduling_unavailable(execution_id) from emit_error
+            except BaseException:
+                await compensate_s3_upload(s3_key_to_compensate, execution_id)
+                raise
             logger.debug(f"Workflow started event emitted for execution {execution_id}")
 
             # Publication is fenced by reservation ownership in one Redis
@@ -198,6 +208,8 @@ class WorkflowService:
                 ReservationLostError,
                 IdempotencyReservationLostException,
             ):
+                await compensate_s3_upload(s3_key_to_compensate, execution_id)
+                s3_key_to_compensate = None
                 await fail_abandoned_execution(
                     self.db_session,
                     execution_id=execution_id,
@@ -225,6 +237,8 @@ class WorkflowService:
             except PublishFailedError as publish_error:
                 # Aucun message ne programme le traitement : ne pas annoncer une
                 # exécution acceptée en `processing` (issue #120).
+                await compensate_s3_upload(s3_key_to_compensate, execution_id)
+                s3_key_to_compensate = None
                 logger.error(
                     "Workflow execution %s: scheduling failed",
                     execution_id,
@@ -238,6 +252,9 @@ class WorkflowService:
                     error=publish_error,
                 )
                 raise scheduling_unavailable(execution_id) from publish_error
+            except BaseException:
+                await compensate_s3_upload(s3_key_to_compensate, execution_id)
+                raise
 
             return WorkflowExecutionData(
                 execution_id=execution_id,
@@ -439,7 +456,7 @@ class WorkflowService:
                 metadata=s3_metadata,
             )
 
-            logger.info(f"File uploaded to S3: {result['s3_key']}")
+            logger.info("File uploaded to S3 successfully")
             return result
 
         except Exception as e:

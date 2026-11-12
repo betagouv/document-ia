@@ -10,6 +10,7 @@ et le stockage objet. Il garantit un état et une réponse cohérents avec la
 programmation récupérable du traitement.
 """
 
+import asyncio
 import logging
 from typing import Any
 from uuid import UUID
@@ -20,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from document_ia_infra.redis.publisher import PublishFailedError
 from document_ia_infra.redis.redis_settings import redis_settings
 from document_ia_infra.service.event_store_service import EventStoreService
+from document_ia_api.infra.s3_service import s3_service
 
 logger = logging.getLogger(__name__)
 
@@ -136,3 +138,34 @@ async def fail_abandoned_execution(
 def scheduling_log_context(error: PublishFailedError) -> dict[str, Any]:
     """Contexte de log sans contenu de document ni charge utile publiée."""
     return {"stream": error.stream_name, "reason": error.reason}
+
+
+async def compensate_s3_upload(
+    s3_key: str | None,
+    execution_id: str,
+) -> None:
+    """Supprime immédiatement un fichier S3 téléversé en cas d'échec de programmation.
+
+    Ne lève jamais d'exception pour ne pas masquer l'erreur métier d'origine.
+    Ne logue jamais la clé S3 brute pour respecter la règle de sécurité absolue.
+    """
+    if not s3_key:
+        return
+    try:
+        deleted = await asyncio.shield(s3_service.delete_file(s3_key))
+        if deleted:
+            logger.info(
+                "Compensated orphaned S3 upload for execution %s",
+                execution_id,
+            )
+        else:
+            logger.warning(
+                "Failed to compensate S3 upload for execution %s (delete_file returned False)",
+                execution_id,
+            )
+    except Exception as e:
+        logger.warning(
+            "Failed to compensate S3 upload for execution %s (%s)",
+            execution_id,
+            type(e).__name__,
+        )

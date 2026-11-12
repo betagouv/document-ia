@@ -1,3 +1,5 @@
+from document_ia_infra.s3.s3_manager import S3Manager
+import asyncio
 import logging
 from datetime import datetime, UTC
 from typing import Optional, Any
@@ -83,6 +85,7 @@ class WorkflowManager:
         self.workflow_context = {}
         self.main_workflow_context = None
         self.workflow = None
+        self._s3_cleaned_up = False
 
         # Aggregated logging context init (per workflow execution)
         setup_logging_worker()
@@ -95,6 +98,55 @@ class WorkflowManager:
         self._webhook_producer: Publisher[WebHookMessage] = Publisher(
             redis_settings.WEBHOOK_STREAM_NAME, self._webhook_redis_manager
         )
+
+    def _reset_logging_context_vars(self) -> None:
+        """Reset ContextVars to avoid leaking into subsequent tasks on the same thread."""
+        try:
+            agg_buffer_var.reset(self._agg_token_buf)
+        except Exception:
+            pass
+        try:
+            execution_id_var.reset(self._agg_token_exec)
+        except Exception:
+            pass
+        try:
+            start_time_var.reset(self._agg_token_started_at)
+        except Exception:
+            pass
+
+    async def _purge_s3_file_for_execution(
+        self,
+        event_service: EventStoreService,
+        execution_id: str,
+        context_label: str = "Terminal failure",
+    ) -> None:
+        """Purge orphaned S3 object associated with the execution's start event."""
+        try:
+            started_tuple = await event_service.get_workflow_started_event(execution_id)
+            if started_tuple is not None:
+                _, started_event = started_tuple
+                if started_event.s3_file_info is not None:
+                    s3_key = started_event.s3_file_info.s3_key.get_secret_value()
+                    deleted = await asyncio.to_thread(S3Manager().delete_file, s3_key)
+                    if deleted:
+                        logger.info(
+                            "%s: S3 file deleted for execution %s",
+                            context_label,
+                            execution_id,
+                        )
+                    else:
+                        logger.warning(
+                            "%s: failed to delete S3 file for execution %s",
+                            context_label,
+                            execution_id,
+                        )
+        except Exception as s3_err:
+            logger.warning(
+                "%s: error while deleting S3 file for execution %s (%s)",
+                context_label,
+                execution_id,
+                type(s3_err).__name__,
+            )
 
     async def start(self):
         self.main_workflow_context = MainWorkflowContext(
@@ -165,7 +217,24 @@ class WorkflowManager:
                     ):
                         need_to_notify_webhook = False
 
-                    await self._save_failure_event(session, e)
+                    try:
+                        await self._save_failure_event(session, e)
+                    except Exception as save_err:
+                        logger.warning(
+                            "Could not save failure event for execution %s: %s",
+                            self.message.workflow_execution_id,
+                            save_err,
+                        )
+                    if (
+                        not WorkflowStepException.is_retryable_exception(e)
+                        or self.is_last_retry
+                    ) and not self._s3_cleaned_up:
+                        event_service = EventStoreService(session)
+                        await self._purge_s3_file_for_execution(
+                            event_service,
+                            self.message.workflow_execution_id,
+                            context_label="Start terminal failure",
+                        )
                     if isinstance(e, WorkflowStepException):
                         raise e.inner_exception
                     else:
@@ -221,6 +290,7 @@ class WorkflowManager:
                             self.main_workflow_context.steps_metadata,
                         )
         finally:
+            self._reset_logging_context_vars()
             # We destroy correctly the databaeManager
             try:
                 await local_database_manager.dispose_async()
@@ -441,7 +511,17 @@ class WorkflowManager:
             logger.info(f"Cleaning up workflow {self.message.workflow_execution_id}")
             # We clean up the data in the reverse order because the first step need to be the last
             for step in reversed(self.step_list):
-                await step.cleanup(is_last_cleanup)
+                try:
+                    await step.cleanup(is_last_cleanup)
+                except Exception as cleanup_err:
+                    logger.warning(
+                        "Error during step cleanup (%s) for execution %s: %s",
+                        step.__class__.__name__,
+                        self.message.workflow_execution_id,
+                        cleanup_err,
+                    )
+            if is_last_cleanup:
+                self._s3_cleaned_up = True
 
     async def _save_failure_event(self, db: AsyncSession, exception: Exception):
         if self.event_dto is None:
@@ -516,6 +596,11 @@ class WorkflowManager:
                         last_event.execution_id,
                         last_event.event_type,
                     )
+                    await self._purge_s3_file_for_execution(
+                        event_service,
+                        last_event.execution_id,
+                        context_label="Watchdog terminal failure (already terminal)",
+                    )
                     return
 
                 self.event_dto = last_event
@@ -547,8 +632,16 @@ class WorkflowManager:
                     retry_count=self.retry_count,
                     workflow_version=workflow_version,
                 )
+
+                await self._purge_s3_file_for_execution(
+                    event_service,
+                    last_event.execution_id,
+                    context_label="Watchdog terminal failure",
+                )
+
                 await self._notify_webhook_execution_finished(session)
         finally:
+            self._reset_logging_context_vars()
             # Cette entrée construit son propre moteur de base et son propre
             # gestionnaire Redis : les libérer explicitement, sinon des échecs
             # terminaux répétés accumulent des connexions jusqu'au GC.
