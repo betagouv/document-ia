@@ -2,18 +2,24 @@
 Class Publisher for Redis Stream
 """
 
+import asyncio
 import json
 import logging
+from collections.abc import Awaitable
 from datetime import datetime
-from typing import TypeVar, Generic
+from typing import Any, TypeVar, Generic, cast
 
+from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
+from redis.exceptions import ResponseError as RedisReplyError
+from redis.exceptions import TimeoutError as RedisTimeoutError
 from redis.typing import EncodableT
 
 from document_ia_infra.redis.redis_manager import redis_manager, RedisManager
 from document_ia_infra.redis.redis_settings import redis_settings
 from document_ia_infra.redis.serializable_message import SerializableMessage
 from document_ia_infra.redis.admission import admit_execution
+from document_ia_infra.redis.idempotent_publish import IDEMPOTENT_PUBLISH_SCRIPT
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +37,29 @@ class PublishFailedError(Exception):
         self.stream_name = stream_name
         self.reason = reason
         super().__init__(f"Publication on Redis stream {stream_name} failed: {reason}")
+
+
+class ReservationLostError(Exception):
+    """The idempotency reservation was lost before the publication.
+
+    Raised by the fenced publication when the ownership check inside the same
+    Redis operation failed: another request owns the key, so nothing was
+    written. Publishing here would duplicate the execution.
+    """
+
+
+class PublicationOutcomeUnknownError(PublishFailedError):
+    """The publication may or may not have been applied.
+
+    Raised when the fenced script's reply is lost (timeout, dropped connection).
+    Redis may have committed the XADD and marked the reservation COMPLETED. The
+    caller must not report a scheduling failure: doing so invites a retry that
+    would publish the same work twice.
+    """
+
+    def __init__(self, stream_name: str, reason: str) -> None:
+        super().__init__(stream_name, reason)
+        self.execution_id: str | None = None
 
 
 class Publisher(Generic[T]):
@@ -87,3 +116,153 @@ class Publisher(Generic[T]):
         except Exception as e:
             logger.error(f"❌ Error publishing message in Redis stream: {e}")
             raise PublishFailedError(self.stream_name, type(e).__name__) from e
+
+    async def publish_message_fenced(
+        self,
+        message: T,
+        *,
+        reservation_key: str,
+        reservation_execution_id: str,
+        reservation_ttl_seconds: int,
+    ) -> str:
+        """Publish only while this request still owns its idempotency reservation.
+
+        Ownership, capacity admission and the stream write happen in one Redis
+        script, so the key cannot expire or be re-acquired between the check and
+        the XADD. A separate pre-check is not enough: the publisher awaits its
+        connection in between, and a stale request would then publish a second
+        execution.
+
+        Raises:
+            ReservationLostError: the reservation is no longer ours; nothing was
+                written.
+            PublishFailedError: no connection, or capacity was exhausted.
+        """
+        try:
+            connection = await self.current_redis_manager.get_connection()
+        except RedisError as e:
+            logger.error("❌ Redis connection failed: %s", e)
+            raise PublishFailedError(self.stream_name, type(e).__name__) from e
+
+        if connection is None:
+            logger.error("❌ No Redis connection available")
+            raise PublishFailedError(self.stream_name, "no_connection")
+
+        stream_data = {
+            "data": json.dumps(message.to_dict()),
+            "timestamp": datetime.now().isoformat(),
+        }
+        args = [
+            reservation_execution_id,
+            str(reservation_ttl_seconds),
+            redis_settings.EVENT_CONSUMER_GROUP,
+            redis_settings.WEBHOOK_CONSUMER_GROUP,
+            str(redis_settings.ADMISSION_MAX_OUTSTANDING),
+            str(redis_settings.ADMISSION_RESUME_OUTSTANDING),
+            str(redis_settings.ADMISSION_MAX_AGE_SECONDS),
+            str(redis_settings.ADMISSION_RESUME_AGE_SECONDS),
+            "publish",
+            stream_data["data"],
+            stream_data["timestamp"],
+            str(redis_settings.ADMISSION_MAX_RETAINED),
+            str(redis_settings.ADMISSION_RESUME_RETAINED),
+        ]
+        keys = [
+            reservation_key,
+            redis_settings.EVENT_STREAM_NAME,
+            redis_settings.WEBHOOK_STREAM_NAME,
+            f"{redis_settings.EVENT_STREAM_NAME}:admission",
+            f"{redis_settings.WEBHOOK_STREAM_NAME}:admission",
+        ]
+        # Bounded like the unfenced path (`admit_execution`): without a deadline a
+        # stalled Redis holds the request and its pooled connection open.
+        try:
+            result = await asyncio.wait_for(
+                cast(
+                    Awaitable[list[object]],
+                    connection.eval(  # type: ignore[UnknownMemberType]
+                        IDEMPOTENT_PUBLISH_SCRIPT, len(keys), *keys, *args
+                    ),
+                ),
+                timeout=redis_settings.PUBLISH_TIMEOUT_SECONDS,
+            )
+        except RedisReplyError as e:
+            # Redis answered and rejected the command (OOM, READONLY after a
+            # failover, a Lua error). The write definitively did not happen, so
+            # this is a confirmed rejection: reporting it as unknown would let
+            # the caller mark an unpublished execution as accepted.
+            logger.error("❌ Fenced publication rejected by Redis: %s", e)
+            raise PublishFailedError(self.stream_name, type(e).__name__) from e
+        except (
+            asyncio.TimeoutError,
+            ConnectionError,
+            RedisConnectionError,
+            RedisTimeoutError,
+        ) as e:
+            # No reply arrived. The script may have committed, so the outcome is
+            # genuinely unknown and must not be reported as a failure.
+            logger.error("❌ Publication outcome unknown: %s", e)
+            unknown = PublicationOutcomeUnknownError(self.stream_name, type(e).__name__)
+            unknown.execution_id = reservation_execution_id
+            raise unknown from e
+        except Exception as e:
+            logger.error("❌ Error publishing fenced message: %s", e)
+            raise PublishFailedError(self.stream_name, type(e).__name__) from e
+
+        if not result or result[0] == 0:
+            raise ReservationLostError()
+        if result[0] != 1:
+            raise PublishFailedError(self.stream_name, "capacity_exhausted")
+        message_id = result[1]
+        if not isinstance(message_id, str):
+            raise PublishFailedError(self.stream_name, "invalid_publication_response")
+        return message_id
+
+    async def execution_is_queued(self, execution_id: str) -> bool | None:
+        """Report whether a message for `execution_id` is on this stream.
+
+        Resolves an unknown publication outcome: the fenced script's reply may be
+        lost after Redis committed, so presence on the stream is the evidence
+        that the work was actually scheduled.
+
+        Returns None when the stream could not be read. That must not be
+        confused with absence: the outcome is still unresolved.
+        """
+        try:
+            connection = await self.current_redis_manager.get_connection()
+        except Exception:
+            return None
+        if connection is None:
+            return None
+        try:
+            # Bounded like the publication itself: a stalled Redis would
+            # otherwise hold the request, its pooled connection and the
+            # reservation renewal open on this read.
+            entries = await asyncio.wait_for(
+                cast(
+                    Awaitable[Any],
+                    connection.xrange(  # type: ignore[UnknownMemberType]
+                        self.stream_name, min="-", max="+", count=1000
+                    ),
+                ),
+                timeout=redis_settings.PUBLISH_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Unable to inspect stream %s to reconcile execution %s: %s; "
+                "outcome remains unresolved",
+                self.stream_name,
+                execution_id,
+                exc,
+            )
+            return None
+        for _entry_id, fields in entries:
+            raw = fields.get("data")
+            if not raw:
+                continue
+            try:
+                if json.loads(raw).get("workflow_execution_id") == execution_id:
+                    return True
+            except (ValueError, AttributeError):
+                continue
+        return False

@@ -1,8 +1,14 @@
 import logging
 from abc import ABC
 from pathlib import Path
-from typing import TypeVar, Optional
+from typing import TypeVar
 
+from document_ia_infra.core.file.safe_path import (
+    get_execution_sandbox_root,
+    safe_cleanup_directory,
+    validate_safe_path,
+)
+from document_ia_infra.redis.progress_tracker import get_current_progress_tracker
 from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
 from document_ia_worker.workflow.step.base_step import BaseStep
 
@@ -15,29 +21,38 @@ class BaseFileManipulationStep(BaseStep[T], ABC):
     def __init__(
         self,
         main_workflow_context: MainWorkflowContext,
-        subfolder: Optional[str] = None,
-    ):
+        subfolder: str | None = None,
+    ) -> None:
         self.execution_id = main_workflow_context.execution_id
-        tmp_path = Path("/tmp/document_ia_worker.tmp").joinpath(self.execution_id)
-        if subfolder:
-            tmp_path = tmp_path.joinpath(subfolder)
-        self.tmp_folder_path = str(tmp_path)
+        self.sandbox_root: Path = get_execution_sandbox_root(self.execution_id)
 
-    async def cleanup(self, is_last_cleanup: bool = False):
-        tmp_dir = Path(self.tmp_folder_path)
-        if tmp_dir.exists() and tmp_dir.is_dir():
-            for file in tmp_dir.iterdir():
-                try:
-                    file.unlink()
-                    logger.info(f"Deleted temp file: {file}")
-                except Exception as e:
-                    logger.error(f"Failed to delete temp file {file}: {e}")
-            try:
-                tmp_dir.rmdir()
-                logger.info(f"Deleted temp directory: {tmp_dir}")
-            except Exception as e:
-                logger.error(f"Failed to delete temp directory {tmp_dir}: {e}")
-        else:
-            logger.warning(
-                f"Temp directory does not exist or is not a directory: {tmp_dir}"
+        if subfolder:
+            # Validate that subfolder remains strictly confined within the sandbox root
+            candidate_path = self.sandbox_root / subfolder
+            self.tmp_folder_path: str = str(
+                validate_safe_path(candidate_path, self.sandbox_root)
             )
+        else:
+            self.tmp_folder_path = str(self.sandbox_root)
+
+    async def cleanup(self, is_last_cleanup: bool = False) -> None:
+        tracker = get_current_progress_tracker()
+        if tracker is not None and tracker.is_aborted:
+            # Tentative avortée par le watchdog : un redémarrage du même
+            # execution_id peut partager ce répertoire. Ne jamais supprimer des
+            # fichiers qu'une tentative de remplacement est encore en train
+            # d'utiliser.
+            logger.info(
+                "Skipping temp cleanup for aborted execution %s", self.execution_id
+            )
+            return
+
+        target_path = Path(
+            self.sandbox_root if is_last_cleanup else self.tmp_folder_path
+        )
+        logger.info(
+            "Cleaning up directory: %s (is_last_cleanup=%s)",
+            target_path,
+            is_last_cleanup,
+        )
+        safe_cleanup_directory(target_path, sandbox_root=self.sandbox_root)

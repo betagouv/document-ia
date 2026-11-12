@@ -1,5 +1,6 @@
 import logging
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any, cast
 
@@ -12,9 +13,14 @@ from document_ia_api.api.exceptions.entity_not_found_exception import (
     HttpEntityNotFoundException,
 )
 from document_ia_api.application.services.execution_acceptance import (
+    EXECUTION_RESERVATION_LOST_ERROR,
+    fail_abandoned_execution,
     fail_unscheduled_execution,
     scheduling_log_context,
     scheduling_unavailable,
+)
+from document_ia_api.core.idempotency.exceptions import (
+    IdempotencyReservationLostException,
 )
 from document_ia_api.core.file_validator import validate_uploaded_file
 from document_ia_api.infra.s3_service import s3_service
@@ -27,7 +33,12 @@ from document_ia_infra.data.workflow.dto.workflow_v2_dto import WorkflowV2Dto
 from document_ia_infra.redis.model.workflow_execution_message import (
     WorkflowExecutionMessage,
 )
-from document_ia_infra.redis.publisher import PublishFailedError, Publisher
+from document_ia_infra.redis.publisher import (
+    PublicationOutcomeUnknownError,
+    PublishFailedError,
+    Publisher,
+    ReservationLostError,
+)
 from document_ia_infra.redis.redis_settings import redis_settings
 from document_ia_infra.service.event_store_service import EventStoreService
 
@@ -56,6 +67,8 @@ class WorkflowV2Service:
         file_url: str | None,
         metadata_json: str | None,
         override_payload: WorkflowV2OverridePayload | None,
+        execution_id: str | None = None,
+        before_publish: Callable[[Any, Any], Awaitable[str]] | None = None,
     ) -> WorkflowExecutionDataV2:
         if self.db_session is None:
             raise HTTPException(
@@ -72,7 +85,7 @@ class WorkflowV2Service:
         )
 
         metadata = self._parse_metadata(metadata_json)
-        execution_id = uuid.uuid4().__str__()
+        execution_id = execution_id or str(uuid.uuid4())
 
         file_info: FileInfo | None = None
         if file is not None:
@@ -106,9 +119,43 @@ class WorkflowV2Service:
             workflow_version=2,
         )
 
+        # Publication is fenced by reservation ownership in one Redis operation:
+        # a stale request must not publish a second execution. The started event
+        # is already committed by this point, so a lost reservation closes the
+        # execution explicitly rather than leaving a `STARTED` that never
+        # progresses.
         try:
-            await self.redis_producer.publish_message(
-                WorkflowExecutionMessage(workflow_execution_id=execution_id)
+            execution_message = WorkflowExecutionMessage(
+                workflow_execution_id=execution_id
+            )
+            if before_publish is not None:
+                await before_publish(self.redis_producer, execution_message)
+            else:
+                await self.redis_producer.publish_message(execution_message)
+        except (ReservationLostError, IdempotencyReservationLostException):
+            await fail_abandoned_execution(
+                self.db_session,
+                execution_id=execution_id,
+                workflow_id=workflow_id,
+                organization_id=organization_id,
+                error_type=EXECUTION_RESERVATION_LOST_ERROR,
+                error_message=(
+                    "The idempotency reservation was lost before this execution "
+                    "was scheduled; nothing is pending. Retry the request."
+                ),
+                workflow_version=2,
+            )
+            raise IdempotencyReservationLostException(execution_id=execution_id)
+        except PublicationOutcomeUnknownError as unknown_error:
+            # Only reached when the reply was lost AND the message is confirmed on
+            # the stream: `IdempotencyReservation.publish` reconciles the outcome
+            # before re-raising. Recording a failure here would invite a retry
+            # that publishes the same work twice.
+            logger.warning(
+                "Execution %s: publication reply lost (%s) but the message is "
+                "queued; accepted",
+                execution_id,
+                unknown_error.reason,
             )
         except PublishFailedError as publish_error:
             # Le fichier et l'événement de démarrage existent déjà : l'exécution
@@ -141,6 +188,43 @@ class WorkflowV2Service:
             file_url=file_url,
             metadata=metadata,
             workflow_configuration=resolved_workflow,
+        )
+
+    async def get_execution_data(
+        self, execution_id: str
+    ) -> WorkflowExecutionDataV2 | None:
+        """Retrieve execution data from the started event to reconstruct the admission response."""
+        if self.db_session is None:
+            raise HTTPException(
+                status_code=500,
+                detail="WorkflowV2Service requires a database session for reading execution.",
+            )
+
+        event_store_service = EventStoreService(self.db_session)
+        result = await event_store_service.get_workflow_started_event(execution_id)
+        if result is None:
+            return None
+
+        dto, started = result
+        if started.workflow_configuration is None:
+            raw_workflow = self._get_raw_workflow_or_404(started.workflow_id)
+            workflow_config = self._resolve_workflow_configuration(
+                raw_workflow=raw_workflow,
+                override_payload=None,
+            )
+        else:
+            workflow_config = started.workflow_configuration
+
+        return WorkflowExecutionDataV2(
+            execution_id=started.execution_id,
+            workflow_id=started.workflow_id,
+            organization_id=started.organization_id,
+            status="processing",
+            created_at=dto.created_at.isoformat(),
+            file_info=started.s3_file_info,
+            file_url=started.file_url,
+            metadata=started.metadata,
+            workflow_configuration=workflow_config,
         )
 
     def validateWorkflow(

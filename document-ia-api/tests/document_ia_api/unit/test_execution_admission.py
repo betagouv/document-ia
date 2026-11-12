@@ -14,6 +14,7 @@ from document_ia_api.infra.redis_service import RedisService
 from document_ia_api.schemas.rate_limiting import RateLimitInfo
 from document_ia_infra.redis.admission import AdmissionUnavailableError
 from document_ia_infra.redis.redis_settings import RedisSettings
+from tests.document_ia_api.conftest import disable_admission_injection
 
 
 @pytest.fixture
@@ -82,7 +83,10 @@ def test_all_execution_routes_refuse_before_creating_resources(
     monkeypatch, client_with_api_key_standard, standard_api_key_value, version, suffix
 ):
     client = client_with_api_key_standard
-    client.app.dependency_overrides.pop(check_execution_admission)
+    # `execute` routes run the preflight inside the handler, so the client
+    # fixture's stub must be removed from both places.
+    client.app.dependency_overrides.pop(check_execution_admission, None)
+    disable_admission_injection(client)
     connection = MagicMock()
     monkeypatch.setattr(
         "document_ia_api.api.middleware.execution_admission.redis_manager.get_connection",
@@ -101,11 +105,20 @@ def test_all_execution_routes_refuse_before_creating_resources(
     monkeypatch.setattr(
         f"document_ia_api.application.services.{service}.execute_workflow", execute
     )
-    response = client.post(
-        f"/api/{version}/workflows/example/{suffix}",
-        data={"file_url": "https://example.com/test.pdf"},
-        headers={"X-API-KEY": standard_api_key_value},
-    )
+    if version == "v1" and suffix == "execute":
+        # v1 `execute` requires a file part, and body validation now precedes
+        # the in-handler preflight: send a valid body so capacity is what refuses.
+        response = client.post(
+            f"/api/{version}/workflows/example/{suffix}",
+            files={"file": ("test.pdf", b"%PDF-1.4\n%%EOF\n", "application/pdf")},
+            headers={"X-API-KEY": standard_api_key_value},
+        )
+    else:
+        response = client.post(
+            f"/api/{version}/workflows/example/{suffix}",
+            data={"file_url": "https://example.com/test.pdf"},
+            headers={"X-API-KEY": standard_api_key_value},
+        )
     assert response.status_code == 503
     assert response.json()["code"] == "http.service_unavailable"
     assert response.json()["errors"]["error"] == "execution_capacity_unavailable"
@@ -137,7 +150,8 @@ def test_result_reads_do_not_depend_on_redis(
     monkeypatch, client_with_api_key_standard, standard_api_key_value, organization_id
 ):
     client = client_with_api_key_standard
-    client.app.dependency_overrides.pop(check_execution_admission)
+    client.app.dependency_overrides.pop(check_execution_admission, None)
+    disable_admission_injection(client)
     get = AsyncMock(side_effect=AssertionError("Result reads must not use Redis"))
     monkeypatch.setattr(
         "document_ia_api.api.middleware.execution_admission.redis_manager.get_connection",
