@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 set -e
 
 INSTANCE_ID=${AGENT_ID:-"agent-$(date +%s)"}
@@ -7,10 +7,14 @@ TARGET_BRANCH=${BRANCH:-"wip/ia-agent-env"}
 
 echo "==> [${INSTANCE_ID}] Initialisation de l'espace de travail..."
 
-# 1. Clonage du dépôt sur develop si le workspace est vide
+# 1. Clonage du dépôt si le workspace est vide
 if [ ! -d "/workspace/.git" ]; then
-    echo "==> Clonage de la branche '${TARGET_BRANCH}'..."
-    git clone -b "${TARGET_BRANCH}" "${REPO_URL}" /workspace
+    if [ -n "${REPO_URL}" ]; then
+        echo "==> Clonage de la branche '${TARGET_BRANCH}'..."
+        git clone -b "${TARGET_BRANCH}" "${REPO_URL}" /workspace
+    else
+        echo "==> Attention: /workspace/.git n'existe pas et REPO_URL est vide."
+    fi
 fi
 
 cd /workspace
@@ -22,10 +26,20 @@ if [ -f "/root/.env.agent" ]; then
 elif [ -f "/workspace/.env.agent" ]; then
     echo "==> [${INSTANCE_ID}] Déploiement depuis /workspace/.env.agent..."
     cp /workspace/.env.agent /workspace/.env
+elif [ ! -f "/workspace/.env" ] && [ -f "/workspace/env.example" ]; then
+    echo "==> [${INSTANCE_ID}] Déploiement initial depuis /workspace/env.example..."
+    cp /workspace/env.example /workspace/.env
 fi
 
-# 3. Chargement et export des variables dans l'environnement du shell
+# 3. Ajustement automatique des paramètres réseau pour l'environnement agent conteneurisé
 if [ -f "/workspace/.env" ]; then
+    # Dans le réseau Docker interne, PostgreSQL écoute sur son port par défaut 5432
+    sed -i -E 's/^POSTGRES_PORT=.*/POSTGRES_PORT=5432/' /workspace/.env
+    # S'assurer que les hôtes pointent sur les noms de services Docker Compose
+    sed -i -E 's/^POSTGRES_HOST=.*/POSTGRES_HOST=postgres/' /workspace/.env
+    sed -i -E 's/^REDIS_HOST=.*/REDIS_HOST=redis/' /workspace/.env
+    sed -i -E 's/^S3_ENDPOINT_URL=.*/S3_ENDPOINT_URL=http:\/\/minio:9000/' /workspace/.env
+
     echo "==> [${INSTANCE_ID}] Chargement des variables d'environnement..."
     set -a
     . /workspace/.env
@@ -34,56 +48,103 @@ else
     echo "==> [${INSTANCE_ID}] ERREUR : Aucun fichier .env disponible !"
 fi
 
+# Exports explicites prioritaires
+export POSTGRES_PORT=5432
+export POSTGRES_HOST=postgres
+export REDIS_HOST=redis
+export S3_ENDPOINT_URL="http://minio:9000"
+export LD_LIBRARY_PATH="/root/.nix-profile/lib:/usr/local/lib:${LD_LIBRARY_PATH}"
+export UV_PYTHON_PREFERENCE="only-system"
+
+# Persister les variables dans /root/.bashrc pour toutes les sous-sessions shell interactives
+cat <<'EOF' > /root/.bashrc
+# Agent Sandbox Environment
+export LD_LIBRARY_PATH="/root/.nix-profile/lib:/usr/local/lib:$LD_LIBRARY_PATH"
+export PATH="/root/.nix-profile/bin:/usr/local/bin:/root/.local/bin:$PATH"
+export UV_PYTHON_PREFERENCE="only-system"
+
+if [ -f "/workspace/.env" ]; then
+    set -a
+    . /workspace/.env
+    set +a
+fi
+export POSTGRES_PORT=5432
+export POSTGRES_HOST=postgres
+export REDIS_HOST=redis
+export S3_ENDPOINT_URL="http://minio:9000"
+EOF
+
 # 4. Lancement de Docker Compose avec --env-file explicite
+COMPOSE_FILE=""
 if [ -f "docker-compose-agent.yaml" ]; then
-    echo "==> [${INSTANCE_ID}] Lancement de la stack (docker-compose-agent.yaml)..."
-    docker compose --env-file .env -f docker-compose-agent.yaml up -d
+    COMPOSE_FILE="docker-compose-agent.yaml"
 elif [ -f "docker-compose-agent.yml" ]; then
-    echo "==> [${INSTANCE_ID}] Lancement de la stack (docker-compose-agent.yml)..."
-    docker compose --env-file .env -f docker-compose-agent.yml up -d
+    COMPOSE_FILE="docker-compose-agent.yml"
 elif [ -f "docker-compose.yml" ]; then
-    echo "==> [${INSTANCE_ID}] Lancement de la stack (fallback docker-compose.yml)..."
-    docker compose --env-file .env up -d
+    COMPOSE_FILE="docker-compose.yml"
 fi
 
-# 5. Détection du conteneur MinIO et de son réseau réel
-MINIO_CONTAINER="${COMPOSE_PROJECT_NAME}-minio-1"
+if [ -n "$COMPOSE_FILE" ]; then
+    echo "==> [${INSTANCE_ID}] Lancement de la stack ($COMPOSE_FILE)..."
+    docker compose --env-file .env -f "$COMPOSE_FILE" up -d
+fi
 
-echo "==> [${INSTANCE_ID}] Attente du démarrage de MinIO..."
-until docker inspect -f '{{.State.Health.Status}}' "$MINIO_CONTAINER" 2>/dev/null | grep -q "healthy"; do
-    sleep 2
-done
-
-# Récupération automatique du réseau Docker attribué à MinIO par Compose
-COMPOSE_NETWORK=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' "$MINIO_CONTAINER")
+# 5. Détection des conteneurs et connexion de l'agent au réseau Compose
+MINIO_CONTAINER_ID=$(docker compose -f "$COMPOSE_FILE" ps -q minio 2>/dev/null || docker ps -qf "name=${COMPOSE_PROJECT_NAME}-minio-1")
+POSTGRES_CONTAINER_ID=$(docker compose -f "$COMPOSE_FILE" ps -q postgres 2>/dev/null || docker ps -qf "name=${COMPOSE_PROJECT_NAME}-postgres-1")
 AGENT_CONTAINER_ID=$(cat /etc/hostname)
 
-echo "==> [${INSTANCE_ID}] Connexion de l'agent ($AGENT_CONTAINER_ID) au réseau : $COMPOSE_NETWORK..."
-docker network connect "$COMPOSE_NETWORK" "$AGENT_CONTAINER_ID" 2>/dev/null || true
+if [ -n "$MINIO_CONTAINER_ID" ]; then
+    COMPOSE_NETWORK=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' "$MINIO_CONTAINER_ID" 2>/dev/null | awk '{print $1}')
+    if [ -n "$COMPOSE_NETWORK" ] && [ -n "$AGENT_CONTAINER_ID" ]; then
+        echo "==> [${INSTANCE_ID}] Connexion de l'agent ($AGENT_CONTAINER_ID) au réseau : $COMPOSE_NETWORK..."
+        docker network connect "$COMPOSE_NETWORK" "$AGENT_CONTAINER_ID" 2>/dev/null || true
+    fi
+fi
 
-# 6. Initialisation du bucket S3 avec votre script Python
-if [ -f "scripts/init-s3-bucket.py" ]; then
-    echo "==> [${INSTANCE_ID}] Attente de disponibilité de MinIO..."
-    MINIO_CONTAINER="${COMPOSE_PROJECT_NAME}-minio-1"
-
-    # Attente du statut healthy
-    until docker inspect -f '{{.State.Health.Status}}' "$MINIO_CONTAINER" 2>/dev/null | grep -q "healthy"; do
-        sleep 2
+# 6. Attente de la disponibilité des services
+if [ -n "$POSTGRES_CONTAINER_ID" ]; then
+    echo "==> [${INSTANCE_ID}] Attente de disponibilité de PostgreSQL..."
+    WAIT_COUNT=0
+    until docker exec "$POSTGRES_CONTAINER_ID" pg_isready -U "${POSTGRES_USER:-postgres}" >/dev/null 2>&1; do
+        sleep 1
+        WAIT_COUNT=$((WAIT_COUNT + 1))
+        if [ $WAIT_COUNT -gt 30 ]; then
+            echo "==> [${INSTANCE_ID}] Attention: PostgreSQL n'a pas répondu après 30s."
+            break
+        fi
     done
+fi
 
-    MINIO_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$MINIO_CONTAINER")
-    echo "==> [${INSTANCE_ID}] MinIO actif sur http://${MINIO_IP}:9000. Lancement de scripts/init-s3-bucket.py..."
+echo "==> [${INSTANCE_ID}] Attente de disponibilité de MinIO..."
+WAIT_COUNT=0
+until curl -s -f http://minio:9000/minio/health/live >/dev/null 2>&1; do
+    sleep 1
+    WAIT_COUNT=$((WAIT_COUNT + 1))
+    if [ $WAIT_COUNT -gt 30 ]; then
+        echo "==> [${INSTANCE_ID}] Attention: MinIO n'a pas répondu après 30s."
+        break
+    fi
+done
 
-    export S3_ENDPOINT_URL="http://${MINIO_IP}:9000"
+# 7. Initialisation du bucket S3
+if [ -f "scripts/init-s3-bucket.py" ]; then
+    echo "==> [${INSTANCE_ID}] Initialisation du bucket S3 (scripts/init-s3-bucket.py)..."
+    export S3_ENDPOINT_URL="http://minio:9000"
     export PYTHONPATH="/workspace:${PYTHONPATH}"
-
     uv run --with boto3 --with python-dotenv python scripts/init-s3-bucket.py
 fi
 
-# 7. Synchronisation multi-projets pour le monorepo
+# 8. Application des migrations de base de données (Alembic)
+if [ -d "document-ia-api" ] && [ -f "document-ia-api/alembic.ini" ]; then
+    echo "==> [${INSTANCE_ID}] Application des migrations Alembic (document-ia-api)..."
+    (cd document-ia-api && uv run alembic upgrade head) || echo "==> [${INSTANCE_ID}] Attention: problème lors des migrations Alembic."
+fi
+
+# 9. Synchronisation multi-projets pour le monorepo
 echo "==> [${INSTANCE_ID}] Synchronisation des sous-projets UV..."
 
-SUBPROJECTS="document-ia-api document-ia-evals document-ia-schemas document-ia-auto-scaler document-ia-infra document-ia-worker"
+SUBPROJECTS="document-ia-schemas document-ia-infra document-ia-api document-ia-worker document-ia-auto-scaler document-ia-evals"
 
 for SUBPROJECT in $SUBPROJECTS; do
     SUBPROJECT_PATH="/workspace/$SUBPROJECT"
@@ -91,10 +152,7 @@ for SUBPROJECT in $SUBPROJECTS; do
     if [ -d "$SUBPROJECT_PATH" ]; then
         if [ -f "$SUBPROJECT_PATH/pyproject.toml" ] || [ -f "$SUBPROJECT_PATH/requirements.txt" ]; then
             echo "--> [${INSTANCE_ID}] Synchronisation de $SUBPROJECT..."
-            cd "$SUBPROJECT_PATH"
-            
-            # Utilise explicitement Python 3.13 fourni par Nix / le système
-            uv sync
+            (cd "$SUBPROJECT_PATH" && uv sync)
         else
             echo "--> [${INSTANCE_ID}] $SUBPROJECT : aucun pyproject.toml ou requirements.txt trouvé, passage."
         fi
@@ -103,22 +161,7 @@ for SUBPROJECT in $SUBPROJECTS; do
     fi
 done
 
-# Retour à la racine du workspace
 cd /workspace
-
-# 8. Synchronisation de l'environnement virtuel avec uv
-if [ -f "pyproject.toml" ] || [ -f "requirements.txt" ]; then
-    echo "==> [${INSTANCE_ID}] Synchronisation de l'environnement avec uv..."
-    uv venv .venv
-    export VIRTUAL_ENV="/workspace/.venv"
-    export PATH="/workspace/.venv/bin:$PATH"
-
-    if [ -f "uv.lock" ]; then
-        uv sync
-    elif [ -f "requirements.txt" ]; then
-        uv pip install -r requirements.txt
-    fi
-fi
 
 echo "==> [${INSTANCE_ID}] Environnement prêt !"
 exec "$@"
