@@ -4,8 +4,6 @@ import logging
 from document_ia_api.api.contracts.common import APIStatusResponse
 from document_ia_api.api.auth import verify_api_key
 from document_ia_api.api.middleware.rate_limiting_middleware import check_rate_limit
-from document_ia_api.schemas.rate_limiting import RateLimitInfo
-from document_ia_infra.data.api_key.dto.api_key_dto import ApiKeyDTO
 from document_ia_api.api.config import settings
 from document_ia_api.api.routes.v1 import router as v1_router
 from document_ia_api.api.routes.v2 import router as v2_router
@@ -22,6 +20,10 @@ router.include_router(v2_router)
 
 @router.get(
     "/test",
+    dependencies=[
+        Depends(verify_api_key),
+        Depends(check_rate_limit),
+    ],
     response_model=APIStatusResponse,
     summary="Test route",
     description="Test route",
@@ -43,10 +45,7 @@ router.include_router(v2_router)
     },
     tags=["Test"],
 )
-async def get_api_status(
-    api_key_dto: ApiKeyDTO = Depends(verify_api_key),
-    rate_limit_info: RateLimitInfo = Depends(check_rate_limit),
-) -> APIStatusResponse:
+async def get_api_status() -> APIStatusResponse:
     """
     Test route.
 

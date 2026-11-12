@@ -4,8 +4,8 @@
 
 The API applies **fixed-window rate limiting** per authenticated API key (not per IP address and not per organization).
 
-- Minute window
-- Daily window
+- Minute window (starts at second `:00` of each UTC minute)
+- Daily window (starts at `00:00:00` UTC each day)
 
 > [!IMPORTANT]
 > Rate limiting is enforced **strictly after successful API key authentication**.
@@ -52,6 +52,7 @@ When applicable, the API returns the following rate limit headers on responses:
 
 1. **Exceeded Quota (`429 Too Many Requests`)**:
    Returned when the request exceeds `RATE_LIMIT_REQUESTS_PER_MINUTE` or `RATE_LIMIT_REQUESTS_PER_DAY`.
-   Includes a `Retry-After` header indicating the number of seconds until the earliest window reset.
+   Includes a `Retry-After` header indicating the number of seconds until window reset. When multiple windows are exceeded, this value reflects `max(resets)` (the latest reset time among exhausted windows), ensuring the client does not retry until all exhausted windows have cleared.
+   Requests rejected with `429 Too Many Requests` (e.g. when the minute quota is exceeded) do **not** increment or consume the daily quota counter, preserving the daily budget for subsequent valid requests.
 2. **Redis Outage / Timeout (`503 Service Unavailable`)**:
    In accordance with the fail-closed policy introduced in PR #149, if Redis is down, unreachable, or times out during the quota check, the service raises `503 Service Unavailable` (`execution_capacity_unavailable`) with a bounded `Retry-After` header. Outages never fail open or grant uncounted capacity.

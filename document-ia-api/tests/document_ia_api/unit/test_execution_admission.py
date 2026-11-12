@@ -37,7 +37,7 @@ async def test_quota_check_fails_closed(monkeypatch, failure):
         get_connection,
     )
     with pytest.raises(HTTPException) as exc:
-        await RedisService().check_rate_limit("test-key")
+        await RedisService().check_rate_limit(uuid4())
     assert exc.value.status_code == 503
     assert int(exc.value.headers["Retry-After"]) > 0
 
@@ -53,7 +53,7 @@ async def test_quota_pipeline_failure_is_not_client_exhaustion(monkeypatch):
         AsyncMock(return_value=connection),
     )
     with pytest.raises(HTTPException) as exc:
-        await RedisService().check_rate_limit("test-key")
+        await RedisService().check_rate_limit(uuid4())
     pipe.execute.assert_awaited_once()
     assert exc.value.status_code == 503
 
