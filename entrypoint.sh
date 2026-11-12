@@ -2,6 +2,8 @@
 set -e
 
 export PATH="/root/.nix-profile/bin:/usr/local/bin:/root/.local/bin:${PATH}"
+export UV_PYTHON_PREFERENCE="only-system"
+export UV_LINK_MODE="copy"
 
 INSTANCE_ID=${AGENT_ID:-"agent-$(date +%s)"}
 export COMPOSE_PROJECT_NAME="stack_${INSTANCE_ID}"
@@ -57,6 +59,7 @@ export REDIS_HOST=redis
 export S3_ENDPOINT_URL="http://minio:9000"
 export LD_LIBRARY_PATH="/root/.nix-profile/lib:/usr/local/lib:${LD_LIBRARY_PATH}"
 export UV_PYTHON_PREFERENCE="only-system"
+export UV_LINK_MODE="copy"
 
 # Persister les variables dans /root/.bashrc pour toutes les sous-sessions shell interactives
 cat <<'EOF' > /root/.bashrc
@@ -64,6 +67,7 @@ cat <<'EOF' > /root/.bashrc
 export LD_LIBRARY_PATH="/root/.nix-profile/lib:/usr/local/lib:$LD_LIBRARY_PATH"
 export PATH="/root/.nix-profile/bin:/usr/local/bin:/root/.local/bin:$PATH"
 export UV_PYTHON_PREFERENCE="only-system"
+export UV_LINK_MODE="copy"
 
 if [ -f "/workspace/.env" ]; then
     set -a
@@ -172,4 +176,13 @@ done
 cd /workspace
 
 echo "==> [${INSTANCE_ID}] Environnement prêt !"
-exec "$@"
+
+# Si aucun argument n'est fourni ou si seul 'bash' est demandé, lancer agy automatiquement tout en permettant de basculer sur bash à la sortie
+if [ $# -eq 0 ] || { [ "$1" = "bash" ] && [ $# -eq 1 ]; } || { [ "$1" = "/bin/bash" ] && [ $# -eq 1 ]; }; then
+    echo "==> [${INSTANCE_ID}] Lancement automatique de Antigravity (agy)..."
+    agy --dangerously-skip-permissions || true
+    echo "==> [${INSTANCE_ID}] Session agy terminée, bascule sur bash..."
+    exec /bin/bash
+else
+    exec "$@"
+fi

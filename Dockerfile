@@ -40,6 +40,7 @@ RUN curl -fsSL https://antigravity.google/cli/install.sh | bash && \
 
 # 4. Variables d'environnement
 ENV UV_PYTHON_PREFERENCE="only-system"
+ENV UV_LINK_MODE="copy"
 ENV PATH="/root/.nix-profile/bin:/root/.local/bin:/usr/local/bin:$PATH"
 ENV LD_LIBRARY_PATH="/root/.nix-profile/lib:/usr/local/lib"
 
