@@ -178,7 +178,11 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
             )
 
         except Exception as e:
-            logger.error("Error handling file url: %s", e)
+            logger.error(
+                "Error handling file url for execution %s: %s",
+                self.execution_id,
+                type(e).__name__,
+            )
             raise e
 
         finally:
@@ -208,7 +212,9 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
 
         s3_manager = S3Manager()
         try:
-            s3_manager.download_file(s3_key_value, str(file_path))
+            await asyncio.to_thread(
+                s3_manager.download_file, s3_key_value, str(file_path)
+            )
             logger.info(
                 "File downloaded successfully from S3 for execution: %s",
                 self.execution_id,

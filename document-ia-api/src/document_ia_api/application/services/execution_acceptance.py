@@ -10,6 +10,7 @@ et le stockage objet. Il garantit un état et une réponse cohérents avec la
 programmation récupérable du traitement.
 """
 
+import asyncio
 import logging
 from typing import Any
 from uuid import UUID
@@ -151,7 +152,7 @@ async def compensate_s3_upload(
     if not s3_key:
         return
     try:
-        deleted = await s3_service.delete_file(s3_key)
+        deleted = await asyncio.shield(s3_service.delete_file(s3_key))
         if deleted:
             logger.info(
                 "Compensated orphaned S3 upload for execution %s",

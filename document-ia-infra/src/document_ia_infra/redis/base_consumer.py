@@ -1637,15 +1637,15 @@ class BaseConsumer(ABC, Generic[T]):
                 "Max attempts exceeded for reclaimed message %s. Moving to DLQ.",
                 msg_id,
             )
-            await self._retain_in_dlq_and_ack(
+            if await self._retain_in_dlq_and_ack(
                 redis_connection=redis_connection,
                 msg_id=msg_id,
                 fields=fields,
                 reason="max_retries_exceeded",
                 error=f"Exceeded max retry count during reclaim ({attempts}/{self.max_retry_number})",
                 skip_retention_check=True,
-            )
-            self._notify_terminal_failure(msg_id, fields, "max_retries_exceeded")
+            ):
+                self._notify_terminal_failure(msg_id, fields, "max_retries_exceeded")
             return
 
         # Pour les messages non épuisés (attempts < max_retry_number) :
@@ -1702,7 +1702,7 @@ class BaseConsumer(ABC, Generic[T]):
         reason: str | None = None,
         error: str | None = None,
         skip_retention_check: bool = False,
-    ) -> None:
+    ) -> bool:
         if redis_connection is not None or msg_id is not None:
             actual_redis = (
                 redis_connection or self.redis or await self._ensure_connection()
@@ -1734,7 +1734,7 @@ class BaseConsumer(ABC, Generic[T]):
             actual_error = error_opt or ""
 
         if actual_redis is None or actual_msg_id is None:
-            return
+            return False
 
         retained = await self._send_to_dlq(
             redis_connection=actual_redis,
@@ -1750,8 +1750,10 @@ class BaseConsumer(ABC, Generic[T]):
                 actual_msg_id,
                 self.stream_name,
             )
-            return
+            return False
         try:
             await self.delivery.ack(actual_redis, actual_msg_id)
+            return True
         except Exception:
             logger.error("ACK failed for reclaimed DLQ message %s", actual_msg_id)
+            return False

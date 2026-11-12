@@ -84,19 +84,20 @@ else:
 ```
 
 ### 4.3 S3 Lifecycle Configuration Specification
-Cloud storage buckets (AWS S3 / Outscale Object Storage) are configured with the following lifecycle rules:
+Cloud storage buckets (AWS S3 / Outscale Object Storage) are configured with standard lifecycle rules.
+In compliance with the S3 API XML schema (which strictly disallows combining `<Days>` and `<ExpiredObjectDeleteMarker>` within the same `<Expiration>` element), the lifecycle is partitioned into two distinct rules:
 
 ```xml
 <LifecycleConfiguration>
+    <!-- Rule 1: Safety net expiration for active and non-current versions -->
     <Rule>
-        <ID>DocumentExpirationSafetyNet</ID>
+        <ID>PurgeTransientExecutionObjects7Days</ID>
         <Status>Enabled</Status>
         <Filter>
             <Prefix></Prefix>
         </Filter>
         <Expiration>
             <Days>7</Days>
-            <ExpiredObjectDeleteMarker>true</ExpiredObjectDeleteMarker>
         </Expiration>
         <NoncurrentVersionExpiration>
             <NoncurrentDays>7</NoncurrentDays>
@@ -105,5 +106,22 @@ Cloud storage buckets (AWS S3 / Outscale Object Storage) are configured with the
             <DaysAfterInitiation>1</DaysAfterInitiation>
         </AbortIncompleteMultipartUpload>
     </Rule>
+
+    <!-- Rule 2: Cleanup expired delete markers left behind by previous deletions -->
+    <Rule>
+        <ID>CleanupExpiredDeleteMarkers</ID>
+        <Status>Enabled</Status>
+        <Filter>
+            <Prefix></Prefix>
+        </Filter>
+        <Expiration>
+            <ExpiredObjectDeleteMarker>true</ExpiredObjectDeleteMarker>
+        </Expiration>
+    </Rule>
 </LifecycleConfiguration>
 ```
+
+> [!NOTE]
+> **Asynchronous Cloud Provider Lifecycle Delay**:
+> Cloud storage providers (AWS S3 and Outscale Object Storage) evaluate lifecycle expiration rules asynchronously as background batch processes (typically executed daily at midnight UTC).
+> Consequently, objects reaching their 7-day expiration threshold may remain accessible or visible for an additional 24 to 48 hours before physical garbage collection occurs. Application logic and SLAs must announce this guaranteed retention window rather than expecting instant sub-second removal at exactly 168 hours.

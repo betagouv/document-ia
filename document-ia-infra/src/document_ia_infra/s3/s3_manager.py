@@ -83,7 +83,7 @@ class S3Manager:
             return False
 
     @staticmethod
-    def _client_error_code(error: ClientError) -> str | None:
+    def client_error_code(error: ClientError) -> str | None:
         response = cast(dict[str, Any], error.response)
         error_info = response.get("Error")
         if not isinstance(error_info, dict):
@@ -91,6 +91,8 @@ class S3Manager:
         error_info_map = cast(dict[str, Any], error_info)
         code = error_info_map.get("Code")
         return code if isinstance(code, str) else None
+
+    _client_error_code = client_error_code
 
     def download_file(self, s3_key: str, output_path: str):
         try:
@@ -101,9 +103,9 @@ class S3Manager:
         except ClientError as e:
             logger.error(
                 "Failed to download file from S3: %s",
-                self._client_error_code(e) or type(e).__name__,
+                self.client_error_code(e) or type(e).__name__,
             )
-            raise S3AuthentificationException()
+            raise S3AuthentificationException() from e
         except Exception as e:
             logger.error(
                 "Unexpected error during file download: %s",
@@ -181,5 +183,5 @@ class S3Manager:
             )
             return list()
         except Exception as e:
-            logger.error("Unexpected error getting file info: %s", type(e).__name__)
+            logger.error("Unexpected error listing buckets: %s", type(e).__name__)
             return list()

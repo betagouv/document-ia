@@ -383,13 +383,14 @@ async def execute_workflow(
             extra={
                 "endpoint": "execute_workflow",
                 "workflow_id": workflow_id,
-                "file_url": file_url,
+                "has_file_url": bool(file_url),
             },
         )
 
     workflow_service = WorkflowService(db_session)
     redis_key: str | None = None
     pre_generated_execution_id: str | None = None
+    fingerprint: str | None = None
 
     if idempotency_key is not None:
         fingerprint = await compute_request_fingerprint(
@@ -535,6 +536,7 @@ async def execute_workflow(
     if (
         redis_key is not None
         and pre_generated_execution_id is not None
+        and fingerprint is not None
         and not (reservation is not None and reservation.outcome_unresolved)
     ):
         await mark_completed_or_retain(

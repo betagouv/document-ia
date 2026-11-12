@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pytest
+from pydantic import SecretStr
 
 from document_ia_infra.core.model.file_info import FileInfo
 from document_ia_worker.workflow.main_workflow_context import MainWorkflowContext
@@ -27,11 +28,13 @@ def mock_context() -> MainWorkflowContext:
 def sample_file_info() -> FileInfo:
     return FileInfo(
         filename="bulletin_de_paie_confidentiel.pdf",
-        s3_key="uploads/sensitive-tenant/user-secret-id/bulletin_de_paie.pdf",
+        s3_key=SecretStr(
+            "uploads/sensitive-tenant/user-secret-id/bulletin_de_paie.pdf"
+        ),
         size=1024,
         content_type="application/pdf",
         uploaded_at=datetime.now().isoformat(),
-        presigned_url="https://s3.example.com/presigned",
+        presigned_url=SecretStr("https://s3.example.com/presigned"),
     )
 
 

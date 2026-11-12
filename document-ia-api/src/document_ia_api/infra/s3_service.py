@@ -65,9 +65,19 @@ class S3Service:
                 for key, value in metadata.items():
                     s3_metadata[f"custom-{key}"] = str(value)
 
-            # Upload file to S3
-            self.s3_manager.upload_file(s3_key, file_data, content_type, s3_metadata)
-            presigned_url = self.s3_manager.get_presigned_url(s3_key)
+            # Upload file to S3 in worker thread
+            await asyncio.to_thread(
+                self.s3_manager.upload_file,
+                s3_key,
+                file_data,
+                content_type,
+                s3_metadata,
+            )
+            try:
+                presigned_url = self.s3_manager.get_presigned_url(s3_key)
+            except Exception:
+                await self.delete_file(s3_key)
+                raise
 
             result = {
                 "file_id": file_id,
@@ -85,13 +95,14 @@ class S3Service:
 
         except NoCredentialsError as e:
             logger.error("S3 credentials error: %s", type(e).__name__)
-            raise Exception("S3 credentials not configured properly")
+            raise RuntimeError("S3 credentials not configured properly") from e
         except ClientError as e:
-            logger.error("S3 client error: %s", type(e).__name__)
-            raise Exception(f"Failed to upload file to S3: {e}")
+            error_code = self.s3_manager.client_error_code(e) or type(e).__name__
+            logger.error("S3 client error: %s", error_code)
+            raise RuntimeError(f"Failed to upload file to S3 ({error_code})") from e
         except Exception as e:
             logger.error("Unexpected error during file upload: %s", type(e).__name__)
-            raise Exception(f"File upload failed: {e}")
+            raise RuntimeError(f"File upload failed ({type(e).__name__})") from e
 
     async def delete_file(self, s3_key: str) -> bool:
         return await asyncio.to_thread(self.s3_manager.delete_file, s3_key)

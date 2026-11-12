@@ -96,6 +96,16 @@ class ConfinedDirectory:
             pass
 
 
+def _fd_path(fd: int) -> Path | None:
+    try:
+        if fcntl is not None and hasattr(fcntl, "F_GETPATH"):
+            raw = fcntl.fcntl(fd, fcntl.F_GETPATH, b"\0" * 1024)
+            return Path(raw.split(b"\x00", 1)[0].decode("utf-8"))
+        return Path(os.readlink(f"/proc/self/fd/{fd}"))
+    except (OSError, ValueError):
+        return None
+
+
 def open_confined_directory(
     directory_path: Path | str,
     sandbox_root: Path | str,
@@ -106,67 +116,62 @@ def open_confined_directory(
         PathTraversalException: if the directory escapes the sandbox, or if any
             component was replaced by a symlink.
     """
-    # The boundary is taken as given (it is built as `<base>/<execution_id>`, not
-    # derived from the filesystem) and is only normalised lexically. Resolving it
-    # would adopt whatever a symlink points at, which is exactly how a replaced
-    # execution directory escaped. The real guarantee is the O_NOFOLLOW open plus
-    # the descriptor check below.
     root_path = Path(sandbox_root)
     if root_path.is_symlink():
         raise PathTraversalException(f"Sandbox root {root_path} is a symlink")
     root_resolved = Path(os.path.normpath(root_path.absolute()))
     resolved = validate_safe_path(directory_path, root_resolved)
+    rel_parts = resolved.relative_to(root_resolved).parts
 
-    root_fd = -1
+    open_flags = os.O_RDONLY | _O_DIRECTORY | _O_NOFOLLOW | _O_CLOEXEC
     try:
-        root_fd = os.open(
-            root_resolved,
-            os.O_RDONLY | _O_DIRECTORY | _O_NOFOLLOW | _O_CLOEXEC,
-        )
-        if fcntl is not None and hasattr(fcntl, "F_GETPATH"):
-            root_raw = fcntl.fcntl(root_fd, fcntl.F_GETPATH, b"\0" * 1024)
-            root_held = Path(root_raw.split(b"\x00", 1)[0].decode("utf-8"))
-        else:
-            root_held = Path(os.readlink(f"/proc/self/fd/{root_fd}"))
+        current_fd = os.open(root_resolved, open_flags)
     except OSError as exc:
         if exc.errno in (errno.ELOOP, errno.ENOTDIR):
             raise PathTraversalException(
                 f"Sandbox root {root_resolved} is a symlink"
             ) from exc
-        root_held = root_resolved
-    finally:
-        if root_fd >= 0:
-            os.close(root_fd)
-
-    try:
-        fd = os.open(
-            resolved,
-            os.O_RDONLY | _O_DIRECTORY | _O_NOFOLLOW | _O_CLOEXEC,
-        )
-    except OSError as exc:
-        if exc.errno in (errno.ELOOP, errno.ENOTDIR):
-            raise PathTraversalException(
-                f"Sandbox directory {resolved} was replaced by a symlink"
-            ) from exc
         raise
 
-    # Re-check confinement on the descriptor actually held, against the boundary
-    # captured before the open: a parent swapped in between then disagrees.
-    held: Path
     try:
-        if fcntl is not None and hasattr(fcntl, "F_GETPATH"):
-            held_raw = fcntl.fcntl(fd, fcntl.F_GETPATH, b"\0" * 1024)
-            held = Path(held_raw.split(b"\x00", 1)[0].decode("utf-8"))
-        else:
-            held = Path(os.readlink(f"/proc/self/fd/{fd}"))
-    except OSError:
-        held = resolved
-    if not (held.is_relative_to(root_resolved) or held.is_relative_to(root_held)):
-        os.close(fd)
-        raise PathTraversalException(
-            f"Sandbox directory {held} escapes sandbox {root_resolved}"
-        )
-    return ConfinedDirectory(fd, held)
+        root_stat = os.fstat(current_fd)
+        path_stat = os.stat(root_resolved, follow_symlinks=False)
+        if (root_stat.st_dev, root_stat.st_ino) != (path_stat.st_dev, path_stat.st_ino):
+            raise PathTraversalException(
+                f"Sandbox root {root_resolved} was swapped during open"
+            )
+
+        root_held = _fd_path(current_fd)
+        if root_held is None:
+            raise PathTraversalException(
+                f"Cannot verify path confinement for sandbox root {root_resolved}"
+            )
+
+        for part in rel_parts:
+            try:
+                next_fd = os.open(part, open_flags, dir_fd=current_fd)
+            except OSError as exc:
+                if exc.errno in (errno.ELOOP, errno.ENOTDIR):
+                    raise PathTraversalException(
+                        f"Sandbox directory component {part!r} in {resolved} was replaced by a symlink"
+                    ) from exc
+                raise
+            os.close(current_fd)
+            current_fd = next_fd
+
+        held = _fd_path(current_fd)
+        if held is None:
+            raise PathTraversalException(
+                f"Cannot verify path confinement descriptor for {resolved}"
+            )
+        if not held.is_relative_to(root_held):
+            raise PathTraversalException(
+                f"Sandbox directory {held} escapes sandbox {root_resolved}"
+            )
+        return ConfinedDirectory(current_fd, held)
+    except BaseException:
+        os.close(current_fd)
+        raise
 
 
 def validate_execution_id(execution_id: str) -> UUID:
