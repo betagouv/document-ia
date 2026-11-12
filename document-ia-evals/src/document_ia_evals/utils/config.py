@@ -29,7 +29,7 @@ class Config(BaseSettings):
     )
 
     # Project paths
-    ROOT_DIR: Path = Field(default_factory=lambda: Path(__file__).parent.parent.parent)
+    ROOT_DIR: Path = Field(default_factory=lambda: Path(__file__).resolve().parents[3])
 
     @property
     def SRC_DIR(self) -> Path:
@@ -68,6 +68,21 @@ class Config(BaseSettings):
     DEFAULT_CLASSIFICATION_WORKFLOW_ID: str = Field(
         default="document-classification-v2"
     )
+
+    # ProConnect / OpenID Connect Authentication
+    AUTH_BYPASS_LOCAL: bool = Field(default=False)
+    PROCONNECT_CLIENT_ID: str | None = Field(default=None)
+    PROCONNECT_CLIENT_SECRET: str | None = Field(default=None)
+    PROCONNECT_METADATA_URL: str = Field(
+        default="https://fca.integ01.dev-agentconnect.fr/api/v2/.well-known/openid-configuration"
+    )
+    PROCONNECT_REDIRECT_URI: str = Field(default="http://localhost:8501/oauth2callback")
+    PROCONNECT_COOKIE_SECRET: str | None = Field(default=None)
+    PROCONNECT_SCOPES: str = Field(default="openid email profile")
+    # Optional override. When unset, federated logout keeps the redirect Streamlit
+    # derives from PROCONNECT_REDIRECT_URI, so hosted deployments are not sent to
+    # a localhost address that ProConnect has not registered.
+    PROCONNECT_POST_LOGOUT_REDIRECT_URI: str | None = Field(default=None)
 
     def ensure_directories(self):
         """Ensure necessary directories exist."""

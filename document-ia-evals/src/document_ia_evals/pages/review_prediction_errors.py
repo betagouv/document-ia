@@ -7,6 +7,7 @@ from typing import Any
 
 import requests
 import streamlit as st
+from document_ia_evals.components.auth_ui import enforce_page_auth
 
 from document_ia_evals.components import (
     ClientType,
@@ -117,6 +118,7 @@ def _render_errors(document: ErrorReviewDocument) -> None:
 
 
 def main() -> None:
+    enforce_page_auth(required_role="admin")
     title = "🔎 Revue des erreurs de prédiction"
     st.set_page_config(page_title=title, page_icon="🔎", layout="wide")
     st.title(title)

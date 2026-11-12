@@ -74,16 +74,20 @@ def test_create_webhook_posts_json_serializable_payload(headers):
 
 def test_created_key_dialog_displays_the_full_key():
     """The one-time copy dialog must not show the masked representation."""
-    from document_ia_evals.pages import administration
+    from document_ia_evals.pages import admin_api_keys
 
     result = _created_result()
     shown: list = []
 
-    with patch.object(administration.st, "code", side_effect=lambda v, **k: shown.append(v)):
-        with patch.object(administration.st, "success"), patch.object(
-            administration.st, "write"
-        ), patch.object(administration.st, "button", return_value=False):
-            administration._show_created_api_key_dialog.__wrapped__(result)
+    with patch.object(
+        admin_api_keys.st, "code", side_effect=lambda v, **k: shown.append(v)
+    ):
+        with (
+            patch.object(admin_api_keys.st, "success"),
+            patch.object(admin_api_keys.st, "write"),
+            patch.object(admin_api_keys.st, "button", return_value=False),
+        ):
+            admin_api_keys._show_created_api_key_dialog.__wrapped__(result)
 
     assert shown == [REAL_KEY]
     assert str(result.key) not in shown  # masked form must not be displayed

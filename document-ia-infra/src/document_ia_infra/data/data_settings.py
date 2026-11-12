@@ -34,11 +34,18 @@ class DatabaseSettings(BaseDocumentIaSettings):
         # asyncpg handles SSL through the ssl parameter, not URL parameters
         clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
 
-        # Convert postgres:// or postgresql:// to postgresql+asyncpg://
+        # Convert postgres:// or postgresql:// to postgresql+asyncpg:// or postgresql+psycopg2://
         clean_url = clean_url.replace("postgres://", "postgresql://")
 
         if async_connection:
-            clean_url = clean_url.replace("postgresql://", "postgresql+asyncpg://")
+            if not clean_url.startswith("postgresql+asyncpg://"):
+                clean_url = clean_url.replace("postgresql://", "postgresql+asyncpg://")
+        else:
+            if not (
+                clean_url.startswith("postgresql+psycopg2://")
+                or clean_url.startswith("postgresql+psycopg://")
+            ):
+                clean_url = clean_url.replace("postgresql://", "postgresql+psycopg2://")
 
         return clean_url
 

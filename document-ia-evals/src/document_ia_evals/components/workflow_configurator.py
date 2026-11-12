@@ -1,6 +1,41 @@
+import hashlib
+
 import streamlit as st
 from typing import Any, Dict, Tuple
 from document_ia_evals.utils.api import get_workflows
+from document_ia_evals.services.administration_service import get_current_config
+
+
+def _config_fingerprint() -> str:
+    """Identify the active endpoint and credential without storing the key.
+
+    The workflow cache and the widget state derived from it belong to one
+    environment. Switching environments (including a reset to the default)
+    must not leave the previous environment's workflows or overrides in place.
+    """
+    cfg = get_current_config()
+    material = f"{cfg['base_url']}\n{cfg['api_key']}"
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+def _reset_workflow_state(key_suffix: str) -> None:
+    """Drop cached workflows and this page's widget state built from their schema.
+
+    Only keys belonging to this configurator instance are removed: an empty
+    `key_suffix` must never be used as a suffix match, or every session key
+    (including the authenticated identity) would be cleared.
+    """
+    st.session_state.pop("workflows_data", None)
+    exact_keys = {
+        f"workflow_selector{key_suffix}",
+        f"last_default_workflow_id{key_suffix}",
+        f"last_default_doc_type{key_suffix}",
+    }
+    for key in list(st.session_state.keys()):
+        if not isinstance(key, str):
+            continue
+        if key in exact_keys or (key_suffix and key.endswith(key_suffix)):
+            st.session_state.pop(key, None)
 
 
 def render_workflow_configurator(
@@ -23,6 +58,14 @@ def render_workflow_configurator(
         Tuple of (selected_workflow_dict, override_dict)
     """
     # Retrieve and store workflows in session state
+    fingerprint = _config_fingerprint()
+    fingerprint_key = f"workflows_config_fingerprint{key_suffix}"
+    if st.session_state.get(fingerprint_key) != fingerprint:
+        # The active environment changed: cached workflows and the parameter
+        # widgets built from their schema no longer describe the target API.
+        _reset_workflow_state(key_suffix)
+        st.session_state[fingerprint_key] = fingerprint
+
     if "workflows_data" not in st.session_state:
         try:
             with st.spinner("Fetching workflows..."):

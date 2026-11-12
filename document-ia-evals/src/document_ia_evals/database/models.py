@@ -1,15 +1,104 @@
 """SQLAlchemy models for experiment tracking - Privacy-first design."""
 
+import enum
 import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import String, Integer, Float, DateTime, ForeignKey, Index, Text
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from document_ia_infra.data.database import Base
+
+
+class UserRole(str, enum.Enum):
+    """User roles for Document IA Evals application."""
+
+    ADMIN = "admin"
+    USER = "user"
+
+
+class EvalsUser(Base):
+    """Authorized user for Document IA Evals application."""
+
+    __tablename__ = "evals_users"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    email: Mapped[str] = mapped_column(
+        String(255), unique=True, index=True, nullable=False
+    )
+    role: Mapped[str] = mapped_column(
+        String(50), nullable=False, default=UserRole.USER.value
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    access_logs: Mapped[List["EvalsAccessLog"]] = relationship(
+        "EvalsAccessLog",
+        back_populates="user",
+        passive_deletes=True,
+    )
+
+    def __repr__(self) -> str:
+        return f"<EvalsUser(email={self.email}, role={self.role}, active={self.is_active})>"
+
+
+class EvalsAccessLog(Base):
+    """Audit log of user logins and actions for security and compliance."""
+
+    __tablename__ = "evals_access_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("evals_users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
+    user_agent: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    user: Mapped[Optional["EvalsUser"]] = relationship(
+        "EvalsUser", back_populates="access_logs"
+    )
+
+    __table_args__ = (
+        Index("ix_evals_access_logs_created_at", "created_at"),
+        {"extend_existing": True},
+    )
+
+    def __repr__(self) -> str:
+        return f"<EvalsAccessLog(email={self.email}, action={self.action}, created_at={self.created_at})>"
 
 
 class Experiment(Base):

@@ -297,6 +297,7 @@ def process_single_file_v2(
     override: dict[str, Any] | None = None,
     metadata: dict[str, Any] | None = None,
     dataset_type: str = "extraction",
+    base_url: str | None = None,
 ) -> FileProcessingResult:
     """Process a single file using V2 workflow API: execute with overrides, upload to S3.
 
@@ -325,6 +326,7 @@ def process_single_file_v2(
             override=override,
             metadata=metadata,
             sync=False,
+            base_url=base_url,
         )
 
         execution_id = response.get("execution_id") or response.get("data", {}).get(
@@ -338,7 +340,7 @@ def process_single_file_v2(
                 execution_id=None,
             )
 
-        execution_details = wait_for_execution(execution_id, api_key)
+        execution_details = wait_for_execution(execution_id, api_key, base_url=base_url)
 
         # Check status
         if not execution_details or execution_details.status != ExecutionStatus.SUCCESS:
@@ -432,10 +434,13 @@ def _file_consumer_v2(
     override: dict[str, Any] | None = None,
     metadata: dict[str, Any] | None = None,
     dataset_type: str = "extraction",
+    base_url: str | None = None,
 ) -> None:
     """Consumer function for processing files from a queue using V2 API.
 
     This runs in a separate thread and processes files until the queue is empty.
+    The endpoint is passed explicitly: a worker thread has no Streamlit script
+    context, so session configuration cannot be resolved here.
     """
     while True:
         try:
@@ -452,6 +457,7 @@ def _file_consumer_v2(
             override=override,
             metadata=metadata,
             dataset_type=dataset_type,
+            base_url=base_url,
         )
         callback.put(result)
 
@@ -466,6 +472,7 @@ def process_files_parallel_v2(
     metadata: dict[str, Any] | None = None,
     dataset_type: str = "extraction",
     on_progress: Callable[[int, int], None] | None = None,
+    base_url: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Process files in parallel using V2 API and upload to S3 with ground truth annotations.
 
@@ -479,6 +486,7 @@ def process_files_parallel_v2(
         metadata: Optional request metadata
         dataset_type: Type of dataset ("extraction" or "classification")
         on_progress: Optional callback for progress updates (current, total)
+        base_url: Target API endpoint, paired with api_key by the caller
 
     Returns:
         Dictionary mapping file names to their processing results
@@ -511,6 +519,7 @@ def process_files_parallel_v2(
                 override,
                 metadata,
                 dataset_type,
+                base_url,
             ),
             daemon=True,
         )

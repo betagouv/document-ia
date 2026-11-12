@@ -27,6 +27,7 @@ dependencies = [
     "document-ia-schemas",
     "document-ia-infra",
     "document-ia-api",
+    "authlib>=1.3.2",
 ]
 
 [build-system]

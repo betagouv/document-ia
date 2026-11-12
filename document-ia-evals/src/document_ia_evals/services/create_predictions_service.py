@@ -388,6 +388,7 @@ def process_single_task_v2(
     model_version: str | None = None,
     override: dict[str, Any] | None = None,
     dataset_type: str = "extraction",
+    base_url: str | None = None,
 ) -> TaskProcessingResult:
     """Process a single task using V2 API: download file, execute workflow V2, create prediction."""
     task_id = task.id
@@ -441,6 +442,7 @@ def process_single_task_v2(
             override=override,
             metadata={"source": "streamlit-predictions-creation-v2"},
             sync=False,
+            base_url=base_url,
         )
 
         execution_id = response.get("execution_id") or response.get("data", {}).get(
@@ -453,7 +455,7 @@ def process_single_task_v2(
                 error="Failed to get execution_id from workflow response",
             )
 
-        execution_details = wait_for_execution(execution_id, api_key)
+        execution_details = wait_for_execution(execution_id, api_key, base_url=base_url)
 
         # Check status
         if not execution_details or execution_details.status.upper() != "SUCCESS":
@@ -539,8 +541,13 @@ def _task_consumer_v2(
     model_version: str | None = None,
     override: dict[str, Any] | None = None,
     dataset_type: str = "extraction",
+    base_url: str | None = None,
 ) -> None:
-    """Consumer function for processing tasks from a queue using V2 API."""
+    """Consumer function for processing tasks from a queue using V2 API.
+
+    Runs in a worker thread with no Streamlit script context, so the endpoint is
+    passed explicitly alongside the key instead of resolved from the session.
+    """
     while True:
         try:
             task = task_queue.get(block=False)
@@ -555,6 +562,7 @@ def _task_consumer_v2(
             model_version=model_version,
             override=override,
             dataset_type=dataset_type,
+            base_url=base_url,
         )
         callback.put(result)
 
@@ -570,8 +578,13 @@ def run_workflow_on_dataset_v2(
     dataset_type: str = "extraction",
     on_progress: Callable[[int, int], None] | None = None,
     tasks: list[Any] | None = None,
+    base_url: str | None = None,
 ) -> dict[int, dict[str, Any]]:
-    """Run a V2 workflow on selected tasks, or on all project tasks."""
+    """Run a V2 workflow on selected tasks, or on all project tasks.
+
+    `base_url` is paired with `api_key` by the caller and forwarded to the worker
+    threads, which cannot read Streamlit session configuration.
+    """
     if tasks is None:
         tasks = [
             task for task in ls_client.tasks.list(project=project_id, fields="all")
@@ -606,6 +619,7 @@ def run_workflow_on_dataset_v2(
                 model_version,
                 override,
                 dataset_type,
+                base_url,
             ),
             daemon=True,
         )

@@ -11,6 +11,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 import streamlit as st
+from document_ia_evals.components.auth_ui import enforce_page_auth
 from openai import OpenAI
 from openai.types.chat import ChatCompletion
 from pydantic import BaseModel
@@ -29,6 +30,8 @@ from document_ia_evals.services.create_predictions_service import (
     get_processing_statistics,
     run_workflow_on_dataset_v2,
 )
+from document_ia_evals.services.administration_service import get_current_config
+from document_ia_evals.services.auth_service import assert_active_admin
 from document_ia_evals.pages.review_prediction_errors import render_browser_pdf
 from document_ia_evals.utils.config import config
 from document_ia_evals.utils.label_studio import annotation_results_to_dict
@@ -41,8 +44,11 @@ def render_configuration_warnings() -> bool:
     Returns:
         True if all configuration is valid, False otherwise
     """
-    if not config.DOCUMENT_IA_API_KEY:
-        st.warning("⚠️ DOCUMENT_IA_API_KEY environment variable is not set.")
+    if not get_current_config()["api_key"]:
+        st.warning(
+            "⚠️ Aucune clé API pour l'environnement sélectionné. "
+            "Renseignez DOCUMENT_IA_API_KEY ou la clé de l'environnement personnalisé."
+        )
         return False
 
     s3_vars = {
@@ -374,6 +380,15 @@ def _render_latest_inference_section(
     project_id: int,
     task_id: int,
 ) -> None:
+    # Fragment interactions rerun only this function, so neither app.main() nor
+    # the page's enforce_page_auth() runs first. Re-check the actor against the
+    # database before reading persisted data or spending the server's LLM key.
+    try:
+        assert_active_admin(st.session_state.get("current_user_email"))
+    except PermissionError as exc:
+        st.error(f"⛔ {exc}")
+        return
+
     latest_by_task: dict[str, Any] = state["latest_by_task"]
     selected = latest_by_task.get(str(task_id))
     if selected is None or selected.get("project_id") != project_id:
@@ -533,6 +548,7 @@ def _document_type_from_override(
 
 
 def main() -> None:
+    enforce_page_auth(required_role="admin")
     title = "Amélioration du prompt d'extraction (Workflow API)"
     st.set_page_config(page_title=title, page_icon="🔄")
     st.title(title)
@@ -544,10 +560,14 @@ def main() -> None:
     if not render_configuration_warnings():
         return
 
-    api_key = config.DOCUMENT_IA_API_KEY
+    # Endpoint and credential must travel together: a custom environment uses its
+    # own key, never the server default.
+    current_config = get_current_config()
+    api_key = current_config["api_key"]
+    base_url = current_config["base_url"]
 
     selected_workflow, override = render_workflow_configurator(
-        config.DOCUMENT_IA_API_KEY, key_suffix="_prompt_playground"
+        api_key, key_suffix="_prompt_playground"
     )
     if selected_workflow is None:
         return
@@ -609,6 +629,7 @@ def main() -> None:
                 model_version=selected_workflow["id"],
                 tasks=[selected_task],
                 on_progress=lambda current, total: progress.progress(current / total),
+                base_url=base_url,
             )
 
         _render_processing_results(processing_results)

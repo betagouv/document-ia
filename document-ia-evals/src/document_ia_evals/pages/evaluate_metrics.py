@@ -2,6 +2,7 @@
 
 import pandas as pd
 import streamlit as st
+from document_ia_evals.components.auth_ui import enforce_page_auth
 
 from document_ia_evals.components import (
     ClientType,
@@ -137,6 +138,7 @@ def render_results(results: dict, metric_name: str) -> None:
 
 
 def main():
+    enforce_page_auth(required_role="admin")
     """Main evaluation page."""
 
     st.title("🎯 Evaluate Predictions Metrics")

@@ -3,6 +3,7 @@ from typing import Any
 
 # Third-party imports
 import streamlit as st
+from document_ia_evals.components.auth_ui import enforce_page_auth
 
 # Local imports
 from document_ia_evals.components import (
@@ -16,6 +17,7 @@ from document_ia_evals.services.create_predictions_service import (
     get_processing_statistics,
     run_workflow_on_dataset_v2,
 )
+from document_ia_evals.services.administration_service import get_current_config
 from document_ia_evals.utils.config import config
 from document_ia_evals.utils.label_studio import extract_project_metadata
 
@@ -27,8 +29,11 @@ def render_configuration_warnings() -> bool:
         True if all configuration is valid, False otherwise
     """
     # Check API key
-    if not config.DOCUMENT_IA_API_KEY:
-        st.warning("⚠️ DOCUMENT_IA_API_KEY environment variable is not set.")
+    if not get_current_config()["api_key"]:
+        st.warning(
+            "⚠️ Aucune clé API pour l'environnement sélectionné. "
+            "Renseignez DOCUMENT_IA_API_KEY ou la clé de l'environnement personnalisé."
+        )
         return False
 
     # Check S3 configuration
@@ -143,6 +148,7 @@ def handle_workflow_execution_v2(
     model_version: str,
     override: dict[str, Any] | None = None,
     dataset_type: str = "extraction",
+    base_url: str | None = None,
 ) -> None:
     """Handle the workflow execution process using V2 API.
 
@@ -156,6 +162,7 @@ def handle_workflow_execution_v2(
         model_version: Model version for predictions
         override: Workflow parameter overrides
         dataset_type: Type of dataset ("extraction" or "classification")
+        base_url: Target API endpoint, paired with api_key
     """
     st.info(
         f"🚀 Exécution du workflow '{workflow_id}' sur le dataset '{project_title}'..."
@@ -180,6 +187,7 @@ def handle_workflow_execution_v2(
             override=override,
             dataset_type=dataset_type,
             on_progress=update_progress,
+            base_url=base_url,
         )
 
     # Show results
@@ -195,6 +203,7 @@ def handle_workflow_execution_v2(
 
 
 def main() -> None:
+    enforce_page_auth(required_role="admin")
     """Main page entry point."""
     title = "Exécuter un workflow sur un dataset V2"
     st.set_page_config(page_title=title, page_icon="🔄", layout="wide")
@@ -219,8 +228,11 @@ def main() -> None:
     if not render_configuration_warnings():
         return
 
-    api_key = config.DOCUMENT_IA_API_KEY
-    assert api_key is not None
+    # Endpoint and credential must travel together: a custom environment uses its
+    # own key, never the server default.
+    current_config = get_current_config()
+    api_key = current_config["api_key"]
+    base_url = current_config["base_url"]
 
     # Organize interface into Tabs
     tab_files, tab_workflow = st.tabs(
@@ -343,6 +355,7 @@ def main() -> None:
                     model_version=model_version,
                     override=override if override else None,
                     dataset_type=dataset_type,
+                    base_url=base_url,
                 )
 
 
