@@ -59,6 +59,11 @@ async def serve_bytes_over_http(body: bytes, *, content_type: str, filename: str
 
 
 class TestDownloadFileStepIntegration:
+    @pytest.fixture(autouse=True)
+    def enable_insecure_http_for_integration_tests(self, monkeypatch):
+        monkeypatch.setattr(file_settings, "ALLOW_INSECURE_HTTP", True)
+        monkeypatch.setattr(file_settings, "ALLOW_LOCAL_NETWORK", True)
+
     @pytest.mark.skipif(not _ensure_s3_available(), reason="S3 not available")
     @pytest.mark.asyncio
     async def test_download_file_step_success(self, tmp_path, main_workflow_context):

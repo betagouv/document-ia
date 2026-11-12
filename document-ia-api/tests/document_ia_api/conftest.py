@@ -5,6 +5,8 @@ This module provides common fixtures and configuration for all integration tests
 """
 
 import os
+from contextlib import ExitStack
+from unittest.mock import patch
 # Add the src directory to Python path for imports
 import sys
 from datetime import datetime, timezone
@@ -183,19 +185,43 @@ def mock_api_key_service_auth(monkeypatch, standard_api_key_value, admin_api_key
 
 def _build_client(mock_redis_service) -> TestClient:
     import document_ia_api.api.middleware.rate_limiting_middleware as rl_mod
+
     original = rl_mod.redis_service
     rl_mod.redis_service = mock_redis_service
     client = TestClient(create_test_app())
     from document_ia_api.api.middleware.execution_admission import check_execution_admission
+
     # Route business tests inject capacity just as they inject client quotas.
     # Admission boundary tests explicitly remove this override.
     client.app.dependency_overrides[check_execution_admission] = lambda: None
+    # `execute` routes run the capacity preflight inside the handler, after
+    # replay detection, so the override above no longer covers them: patch the
+    # symbols those modules call. Call `disable_admission_injection` to restore
+    # the real preflight for admission boundary tests.
+    admission_patch = ExitStack()
+    for module in (
+        "document_ia_api.api.routes.v1.workflow",
+        "document_ia_api.api.routes.v2.workflow",
+    ):
+        admission_patch.enter_context(
+            patch(f"{module}.check_execution_admission", new=AsyncMock())
+        )
+    setattr(client, "admission_injection", admission_patch)
 
     def _finalizer():
+        admission_patch.close()
         rl_mod.redis_service = original
 
     # register finalizer via yield pattern in calling fixture
     return client, _finalizer
+
+
+def disable_admission_injection(client: TestClient) -> None:
+    """Stop stubbing the preflight so a test can drive the real admission."""
+    admission_patch = getattr(client, "admission_injection", None)
+    if admission_patch is not None:
+        admission_patch.close()
+        setattr(client, "admission_injection", None)
 
 
 # ---------------------------------------------------------------------------
