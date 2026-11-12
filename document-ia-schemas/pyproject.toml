@@ -6,7 +6,7 @@ authors = [{name = "Nicolas Sagon",email = "nicolas.sagon@beta.gouv.fr"}]
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "pydantic == 2.14.1",
+    "pydantic==2.14.2",
 ]
 
 [project.license]
