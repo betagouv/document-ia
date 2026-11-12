@@ -25,6 +25,10 @@ logger = logging.getLogger(__name__)
 
 # Code d'erreur fonctionnel exposé dans le corps RFC 7807 de la réponse 503.
 EXECUTION_SCHEDULING_ERROR = "execution_scheduling_unavailable"
+# Code d'erreur utilisé lorsque la réservation d'idempotence est perdue avant
+# la publication : l'exécution démarrée doit être clôturée, jamais laissée en
+# `STARTED` sans message capable de la faire progresser.
+EXECUTION_RESERVATION_LOST_ERROR = "idempotency_reservation_lost"
 
 
 def scheduling_unavailable(execution_id: str) -> HTTPException:
@@ -85,6 +89,46 @@ async def fail_unscheduled_execution(
     except Exception:
         logger.exception(
             "Execution %s: unable to record the scheduling failure event",
+            execution_id,
+        )
+
+
+async def fail_abandoned_execution(
+    db_session: AsyncSession,
+    *,
+    execution_id: str,
+    workflow_id: str,
+    organization_id: UUID,
+    error_type: str,
+    error_message: str,
+    workflow_version: int = 1,
+) -> None:
+    """Clôturer une exécution démarrée qui ne sera jamais publiée.
+
+    `emit_workflow_started` commite l'événement de démarrage : lorsque
+    l'admission échoue après ce point (par exemple parce que la réservation
+    d'idempotence a été perdue), le rollback de la route ne peut plus l'annuler.
+    Rapporter l'exécution comme `STARTED` alors qu'aucun message ne la fera
+    progresser induirait les clients en erreur ; on écrit donc un événement
+    d'échec terminal.
+
+    L'échec de cette écriture est journalisé et ne masque pas l'erreur
+    d'admission d'origine.
+    """
+    try:
+        event_store_service = EventStoreService(db_session)
+        await event_store_service.emit_workflow_failed(
+            workflow_id=workflow_id,
+            execution_id=execution_id,
+            organization_id=organization_id,
+            error_type=error_type,
+            error_message=error_message,
+            failed_step="schedule",
+            workflow_version=workflow_version,
+        )
+    except Exception:
+        logger.exception(
+            "Execution %s: unable to record the abandoned execution event",
             execution_id,
         )
 

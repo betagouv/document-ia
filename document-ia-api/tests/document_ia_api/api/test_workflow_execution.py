@@ -24,9 +24,19 @@ class TestWorkflowExecution:
         plus dépendre d'une connexion Redis réelle pour vérifier le contrat de
         succès. Les échecs de programmation sont couverts séparément.
         """
-        with patch(
-            "document_ia_api.application.services.workflow_service.Publisher.publish_message",
-            new=AsyncMock(return_value="1-0"),
+        # The started event is mandatory since the idempotency work: publishing
+        # without it would return 200 for an execution that cannot be replayed.
+        # These tests assert the request contract, not persistence, so the store
+        # boundary is injected here instead of depending on cross-request pools.
+        with (
+            patch(
+                "document_ia_api.application.services.workflow_service.Publisher.publish_message",
+                new=AsyncMock(return_value="1-0"),
+            ),
+            patch(
+                "document_ia_api.application.services.workflow_service.EventStoreService.emit_workflow_started",
+                new=AsyncMock(),
+            ),
         ):
             yield
 

@@ -25,6 +25,10 @@ from document_ia_infra.redis.model.webhook_message import WebHookMessage
 from document_ia_infra.redis.model.workflow_execution_message import (
     WorkflowExecutionMessage,
 )
+from document_ia_infra.redis.progress_tracker import (
+    get_current_progress_tracker,
+    record_step_progress,
+)
 from document_ia_infra.redis.publisher import PublishFailedError, Publisher
 from document_ia_infra.redis.redis_manager import RedisManager
 from document_ia_infra.redis.redis_settings import redis_settings
@@ -120,10 +124,24 @@ class WorkflowManager:
                         return
                     self.event_data = self._parse_start_event()
                     self._prepare_executor(session)
+                    tracker = get_current_progress_tracker()
+                    if tracker is not None and tracker.is_aborted:
+                        logger.warning(
+                            f"Workflow execution {self.message.workflow_execution_id} was aborted by watchdog; skipping execution"
+                        )
+                        return
                     await self._execute_workflow()
                 except Exception as e:
                     logger.error(f"Workflow execution failed: {e}")
                     is_success = False
+
+                    tracker = get_current_progress_tracker()
+                    if tracker is not None and tracker.is_aborted:
+                        logger.warning(
+                            f"Workflow execution {self.message.workflow_execution_id} was aborted by watchdog; skipping failure event and DB commit"
+                        )
+                        return
+
                     # We use the WorkflowStepException to know in which step the error happened
                     # and we dispatch the inner exception to have the original exception
                     if isinstance(e, WorkflowStepException):
@@ -177,7 +195,12 @@ class WorkflowManager:
                             else []
                         )
                     )
-                    if not is_completed_duplicate:
+                    tracker = get_current_progress_tracker()
+                    if tracker is not None and tracker.is_aborted:
+                        logger.warning(
+                            f"Workflow execution {self.message.workflow_execution_id} was aborted by watchdog; skipping session commit and webhooks"
+                        )
+                    elif not is_completed_duplicate:
                         # Persist DB changes
                         await session.commit()
                         if need_to_notify_webhook:
@@ -381,6 +404,12 @@ class WorkflowManager:
             )
         try:
             for step in self.step_list:
+                tracker = get_current_progress_tracker()
+                if tracker is not None and tracker.is_aborted:
+                    logger.warning(
+                        f"Execution {self.message.workflow_execution_id} aborted during step execution; stopping workflow"
+                    )
+                    break
                 try:
                     logger.info(f"Executing step {step.__class__.__name__}")
                     step.inject_workflow_context(self.workflow_context)
@@ -390,6 +419,7 @@ class WorkflowManager:
                         self.main_workflow_context.number_of_step_executed + 1
                     )
                     self.main_workflow_context.steps_metadata.append(step_metadata)
+                    record_step_progress(step.__class__.__name__)
                 except Exception as e:
                     raise WorkflowStepException(step.__class__.__name__, e)
         except Exception as e:
@@ -405,6 +435,9 @@ class WorkflowManager:
             )
             raise e
         finally:
+            tracker = get_current_progress_tracker()
+            if tracker is not None and tracker.is_aborted:
+                is_last_cleanup = False
             logger.info(f"Cleaning up workflow {self.message.workflow_execution_id}")
             # We clean up the data in the reverse order because the first step need to be the last
             for step in reversed(self.step_list):
@@ -459,3 +492,87 @@ class WorkflowManager:
             failed_step=final_failed_step,
             retry_count=self.retry_count,
         )
+
+    async def record_watchdog_terminal_failure(self, reason: str) -> None:
+        """Enregistre l'échec terminal d'une tentative dont les reprises sont épuisées.
+
+        Appelé par le consommateur via son callback ``on_terminal_failure`` : la
+        tentative a été fencée par le watchdog et ne rapportera donc jamais son
+        propre échec. Sans cet enregistrement, une exécution dont toutes les
+        tentatives dépassent le délai reste bloquée en ``STARTED``, sans nouvelle
+        tentative planifiée.
+        """
+        local_database_manager = DatabaseManager(pool_size=1, max_overflow=1)
+        try:
+            async with local_database_manager.local_session() as session:
+                event_service = EventStoreService(session)
+                last_event = await event_service.get_last_event_for_execution_id(
+                    self.message.workflow_execution_id
+                )
+
+                if self._is_terminal_event(last_event):
+                    logger.info(
+                        "Execution %s is already terminal (%s); skipping watchdog failure",
+                        last_event.execution_id,
+                        last_event.event_type,
+                    )
+                    return
+
+                self.event_dto = last_event
+                raw_version = last_event.event.get("version")
+                workflow_version = raw_version if isinstance(raw_version, int) else 1
+                self.main_workflow_context = MainWorkflowContext(
+                    execution_id=last_event.execution_id,
+                    organization_id=last_event.organization_id,
+                    workflow_version=workflow_version,
+                    start_time=datetime.now(UTC),
+                    steps_metadata=[],
+                )
+
+                logger.warning(
+                    "Recording terminal watchdog failure for execution %s (reason=%s)",
+                    last_event.execution_id,
+                    reason,
+                )
+                await event_service.emit_workflow_failed(
+                    workflow_id=last_event.workflow_id,
+                    execution_id=last_event.execution_id,
+                    organization_id=last_event.organization_id,
+                    error_type="WatchdogTimeout",
+                    error_message=(
+                        "The watchdog stopped the execution and no attempt is left: "
+                        f"{reason}"
+                    ),
+                    failed_step="watchdog",
+                    retry_count=self.retry_count,
+                    workflow_version=workflow_version,
+                )
+                await self._notify_webhook_execution_finished(session)
+        finally:
+            # Cette entrée construit son propre moteur de base et son propre
+            # gestionnaire Redis : les libérer explicitement, sinon des échecs
+            # terminaux répétés accumulent des connexions jusqu'au GC.
+            try:
+                await local_database_manager.dispose_async()
+            except Exception as e:
+                logger.error(
+                    f"Error while disposing terminal-failure database manager: {e}"
+                )
+            try:
+                await self._webhook_redis_manager.close()
+            except Exception as e:
+                logger.error(f"Error while closing terminal-failure Redis manager: {e}")
+
+    @staticmethod
+    def _is_terminal_event(event: EventDTO) -> bool:
+        """Indique si le dernier événement clôt définitivement l'exécution.
+
+        Un échec ``RetryableException`` est un échec intermédiaire : ``start()`` a
+        volontairement retenu sa notification webhook en attendant une reprise, donc
+        l'échec terminal du watchdog doit encore être enregistré.
+        """
+        if event.event_type == EventType.WORKFLOW_EXECUTION_COMPLETED.value:
+            return True
+        if event.event_type == EventType.WORKFLOW_EXECUTION_FAILED.value:
+            return event.event.get("error_type") != RetryableException.__name__
+        return False
