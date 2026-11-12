@@ -333,3 +333,48 @@ async def test_reconcile_job_analytics_includes_pending_status():
         assert "PENDING" in statuses_called
         assert "DONE" in statuses_called
         assert "ERROR" in statuses_called
+
+
+@pytest.mark.asyncio
+async def test_reconcile_job_isolates_unsupported_event_type():
+    """A row whose event_type cannot be anonymized must not abort the whole run.
+
+    anonymize_payload raises ValueError for an unknown event type. That call
+    happens while building the batch, before the commit try/except, so the
+    exception escaped run() and later valid rows were never purged.
+    """
+    bad = _make_event(event_type="UnknownHistoricalEventType")
+    good = _make_event()
+
+    mock_session = AsyncMock()
+    mock_session.add = MagicMock()
+    mock_db = MagicMock()
+    mock_db.local_session.return_value.__aenter__.return_value = mock_session
+    mock_db.dispose_async = AsyncMock()
+
+    with (
+        patch(
+            "document_ia_task_scheduler.task.reconcile_historical_events.job.DatabaseManager",
+            return_value=mock_db,
+        ),
+        patch(
+            "document_ia_task_scheduler.task.reconcile_historical_events.job.EventRepository"
+        ) as mock_repo_class,
+    ):
+        from document_ia_infra.data.event.repository.event import EventRepository
+
+        mock_repo_class.anonymize_payload = EventRepository.anonymize_payload
+        mock_repo = mock_repo_class.return_value
+        mock_repo.count_events_by_statuses = AsyncMock(return_value=2)
+        mock_repo.get_events_by_cursor = AsyncMock(side_effect=[[bad, good], []])
+
+        job = ReconcileHistoricalEventsJob(
+            batch_size=2, pause_seconds=0.0, dry_run=False
+        )
+        stats = await job.run(target="main")
+
+    # The good row is sanitized and counted; the bad one is counted as an error
+    # and marked, instead of aborting the run.
+    assert stats["main"]["total"] == 2
+    assert stats["main"]["success"] == 1
+    assert stats["main"]["errors"] == 1

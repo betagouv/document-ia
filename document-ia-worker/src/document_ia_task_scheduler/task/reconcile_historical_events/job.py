@@ -127,15 +127,17 @@ class ReconcileHistoricalEventsJob:
                     if self.dry_run:
                         lot_success = len(events)
                     else:
-                        for event in events:
-                            EventRepository.anonymize_payload(
-                                event.event_type, event.event
-                            )
-                            flag_modified(event, "event")
-                            event.anonymization_status = AnonymizationStatus.DONE.value
-                            session.add(event)
-
                         try:
+                            for event in events:
+                                EventRepository.anonymize_payload(
+                                    event.event_type, event.event
+                                )
+                                flag_modified(event, "event")
+                                event.anonymization_status = (
+                                    AnonymizationStatus.DONE.value
+                                )
+                                session.add(event)
+
                             await session.commit()
                             lot_success = len(events)
                         except Exception as batch_exc:
