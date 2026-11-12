@@ -4,15 +4,19 @@ Classe abstraite BaseConsumer pour les consommateurs Redis Stream.
 
 import asyncio
 import contextlib
+import json
 import logging
 import os
 import secrets
 import socket
+import time
 from abc import ABC, abstractmethod
 from asyncio import Task
 from collections.abc import Callable, Coroutine
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Generic, TypeVar, cast
+from uuid import uuid4
 
 from redis.asyncio import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -20,6 +24,7 @@ from redis.exceptions import ResponseError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 from redis.typing import EncodableT, FieldT
 
+from document_ia_infra.redis.progress_tracker import ProgressTracker
 from document_ia_infra.redis.redis_manager import (
     RedisManager,
 )
@@ -43,9 +48,24 @@ _PROCESS_BOOT_ID = secrets.token_hex(4)
 __all__ = [
     "BaseConsumer",
     "DLQ_SCAN_BATCH_SIZE",
+    "InFlightContext",
     "RECLAIM_IDLE_MS",
     "build_instance_consumer_name",
 ]
+
+
+@dataclass
+class InFlightContext:
+    msg_id: str
+    fields: dict[str, Any]
+    tracker: ProgressTracker
+    future: asyncio.Future[Any] | None = None
+    execution_id: str | None = None
+    lease_token: str | None = None
+    # Expiration du bail d'exécution (horloge monotone), repoussée uniquement
+    # à chaque renouvellement confirmé par Redis.
+    lease_expires_at: float | None = None
+    handled: bool = False
 
 
 def build_instance_consumer_name(base_name: str) -> str:
@@ -95,6 +115,13 @@ class BaseConsumer(ABC, Generic[T]):
         dlq_maxlen: int | None = redis_settings.DLQ_STREAM_MAXLEN,
         close_redis_on_stop: bool = True,
         current_redis_manager: RedisManager | None = None,
+        max_processing_time_s: float | None = None,
+        step_progress_timeout_s: float | None = None,
+        use_execution_lease: bool = False,
+        lease_ttl_ms: int | None = None,
+        on_terminal_failure: (
+            Callable[[str, dict[str, Any], str], Coroutine[Any, Any, None]] | None
+        ) = None,
     ) -> None:
         if max_retry_number < 1:
             raise ValueError("max_retry_number must be >= 1")
@@ -106,6 +133,12 @@ class BaseConsumer(ABC, Generic[T]):
             raise ValueError("reclaim_idle_ms must be >= 0")
         if drain_timeout_s < 0:
             raise ValueError("drain_timeout_s must be >= 0")
+        if max_processing_time_s is not None and max_processing_time_s <= 0:
+            raise ValueError("max_processing_time_s must be > 0")
+        if step_progress_timeout_s is not None and step_progress_timeout_s <= 0:
+            raise ValueError("step_progress_timeout_s must be > 0")
+        if lease_ttl_ms is not None and lease_ttl_ms <= 0:
+            raise ValueError("lease_ttl_ms must be > 0")
 
         self.redis: Redis | None = None
         self._custom_redis_manager = current_redis_manager
@@ -135,6 +168,16 @@ class BaseConsumer(ABC, Generic[T]):
         self.dlq_maxlen = dlq_maxlen
         self.close_redis_on_stop = close_redis_on_stop
 
+        self.max_processing_time_s = max_processing_time_s
+        self.step_progress_timeout_s = step_progress_timeout_s
+        self.use_execution_lease = use_execution_lease
+        self.on_terminal_failure = on_terminal_failure
+        self.lease_ttl_ms = (
+            lease_ttl_ms
+            if lease_ttl_ms is not None
+            else int(redis_settings.DEFAULT_LEASE_TTL_MS)
+        )
+
         self.dlq_stream_name = f"{self.stream_name}:dlq"
 
         self.delivery = StreamDelivery(stream_name, consumer_group, consumer_name)
@@ -143,17 +186,30 @@ class BaseConsumer(ABC, Generic[T]):
         self._in_flight_ids: set[str] = set()
         self._reclaiming_ids: set[str] = set()
         self._processing_futures: set[asyncio.Future[Any]] = set()
+        self._in_flight_contexts: dict[str, InFlightContext] = {}
         self._listener_active = False
         self._reclaimer_active = False
         self._needs_group_init = False
         self._listener_done = asyncio.Event()
         self._draining = False
+        self._terminal_failure_tasks: set[asyncio.Task[Any]] = set()
         self._heartbeat_interval_s_override: float | None = None
 
     @property
     def has_running_handlers(self) -> bool:
         """Indique si des traitements de messages sont actuellement en cours d'exécution."""
         return any(not future.done() for future in self._processing_futures)
+
+    def _can_interrupt_pending_handler(self) -> bool:
+        """Indique si annuler la future suspend l'exécution réelle du handler.
+
+        Par défaut (AsyncIoConsumer), la future est une tâche asyncio et sa
+        cancellation est coopérative. Pour un ThreadConsumer, la future n'est que
+        le wrapper d'un ``run_in_executor``: la canceller la marque terminée sans
+        arrêter le thread sous-jacent, ce qui libérerait un slot d'exécution
+        toujours occupé. Les sous-classes threadées surchargent donc cette méthode.
+        """
+        return True
 
     @property
     def _redis_manager(self) -> RedisManager:
@@ -183,7 +239,28 @@ class BaseConsumer(ABC, Generic[T]):
     def _heartbeat_interval_s(self) -> float:
         if self._heartbeat_interval_s_override is not None:
             return self._heartbeat_interval_s_override
-        return max(self.reclaim_idle_ms / 3, 10) / 1000.0
+        # La cadence de base dérive de la fenêtre de reclaim, mais elle ne doit
+        # jamais être assez lente pour laisser expirer un bail d'exécution entre
+        # deux battements, ni pour dépasser un délai watchdog avant la prochaine
+        # vérification de santé.
+        interval_ms = self.reclaim_idle_ms / 3
+
+        if self.use_execution_lease:
+            interval_ms = min(interval_ms, self.lease_ttl_ms / 2)
+
+        watchdog_ms: float | None = None
+        for threshold_s in (self.max_processing_time_s, self.step_progress_timeout_s):
+            if threshold_s is not None:
+                candidate_ms = threshold_s * 1000.0
+                watchdog_ms = (
+                    candidate_ms
+                    if watchdog_ms is None
+                    else min(watchdog_ms, candidate_ms)
+                )
+        if watchdog_ms is not None:
+            interval_ms = min(interval_ms, watchdog_ms / 2)
+
+        return max(interval_ms, 10) / 1000.0
 
     @_heartbeat_interval_s.setter
     def _heartbeat_interval_s(self, value: float) -> None:
@@ -206,6 +283,31 @@ class BaseConsumer(ABC, Generic[T]):
         self, unfinished: list[asyncio.Future[Any]]
     ) -> None:
         """Hook appelé en sortie de boucle sur les futures non terminées après vidange."""
+        if not self.use_execution_lease:
+            return
+        unfinished_futures = set(unfinished)
+        for ctx in list(self._in_flight_contexts.values()):
+            if ctx.handled or not ctx.execution_id or not ctx.lease_token:
+                continue
+            if ctx.future is not None and ctx.future not in unfinished_futures:
+                continue
+            # Fencer le handler AVANT de libérer son bail : un handler threadé
+            # n'est pas interruptible et peut encore committer. Libérer le bail
+            # en premier laisserait une livraison concurrente démarrer pendant
+            # que l'ancien handler passe encore les gardes `is_aborted`.
+            if not ctx.tracker.is_aborted:
+                ctx.tracker.abort("shutdown")
+            # Marquer la livraison comme traitée : le handler fencé peut revenir
+            # « en succès » (il saute la persistance). Sans cette marque il serait
+            # acquitté normalement et l'exécution resterait inachevée, sans message
+            # en attente ni reprise planifiée. La laisser dans la PEL permet à la
+            # récupération de la reprendre.
+            ctx.handled = True
+            if self.redis is not None:
+                with contextlib.suppress(Exception):
+                    await self.delivery.release_lease(
+                        self.redis, ctx.execution_id, ctx.lease_token
+                    )
 
     @abstractmethod
     def _submit_message(
@@ -213,6 +315,7 @@ class BaseConsumer(ABC, Generic[T]):
         loop: asyncio.AbstractEventLoop,
         message_data: T,
         retry_count: int,
+        tracker: ProgressTracker | None = None,
     ) -> asyncio.Future[Any]:
         """Soumet le traitement d'un message selon la stratégie de la sous-classe."""
 
@@ -327,6 +430,7 @@ class BaseConsumer(ABC, Generic[T]):
             if heartbeat_cancelled is not None:
                 raise heartbeat_cancelled
 
+        await self._drain_terminal_failure_tasks()
         self.listener_task = None
         self.reclaimer_task = None
         self.heartbeat_task = None
@@ -418,6 +522,7 @@ class BaseConsumer(ABC, Generic[T]):
 
     async def _de_init_consumer(self) -> None:
         logger.info("Consumer %s stopping...", self.consumer_name)
+        await self._drain_terminal_failure_tasks()
         await self._release_execution_resources()
         if self.close_redis_on_stop and self._custom_redis_manager is None:
             self.redis = None
@@ -509,11 +614,28 @@ class BaseConsumer(ABC, Generic[T]):
                 for fut in done_futures:
                     msg_id, fields = active_futures.pop(fut)
                     self._processing_futures.discard(fut)
+                    ctx = self._in_flight_contexts.pop(msg_id, None)
+                    # Un tracker avorté (bail expiré, arrêt) ne doit jamais être
+                    # acquitté comme un succès : la tentative a été fencée, sa
+                    # persistance sautée. La laisser dans la PEL la rend récupérable.
+                    if ctx is not None and (ctx.handled or ctx.tracker.is_aborted):
+                        self._in_flight_ids.discard(msg_id)
+                        continue
                     try:
                         await self._handle_finished_future(
                             fut, msg_id, fields, redis_conn
                         )
                     finally:
+                        if (
+                            self.use_execution_lease
+                            and ctx is not None
+                            and ctx.execution_id
+                            and ctx.lease_token
+                        ):
+                            with contextlib.suppress(Exception):
+                                await self.delivery.release_lease(
+                                    redis_conn, ctx.execution_id, ctx.lease_token
+                                )
                         self._in_flight_ids.discard(msg_id)
 
                 # 2. Calcul de la capacité restante
@@ -622,8 +744,67 @@ class BaseConsumer(ABC, Generic[T]):
                             self._in_flight_ids.discard(msg_id)
                         continue
 
+                    execution_id: str | None = None
+                    lease_token: str | None = None
+                    if self.use_execution_lease:
+                        execution_id = (
+                            self._extract_execution_id(message_data, fields) or msg_id
+                        )
+                        lease_token = f"{self.consumer_name}:{uuid4()}"
+                        try:
+                            acquired = await self.delivery.acquire_lease(
+                                redis_conn,
+                                execution_id,
+                                lease_token,
+                                self.lease_ttl_ms,
+                            )
+                        except Exception as lease_err:
+                            self._invalidate_connection_on_transport_error(lease_err)
+                            logger.warning(
+                                "Failed to acquire lease for %s: %s; deferring",
+                                execution_id,
+                                lease_err,
+                            )
+                            self._in_flight_ids.discard(msg_id)
+                            continue
+
+                        if not acquired:
+                            logger.info(
+                                "Execution lease for %s already held by another worker; skipping concurrent execution",
+                                execution_id,
+                            )
+                            self._in_flight_ids.discard(msg_id)
+                            continue
+
+                    tracker = ProgressTracker(
+                        msg_id=msg_id,
+                        max_processing_time_s=self.max_processing_time_s,
+                        step_progress_timeout_s=self.step_progress_timeout_s,
+                        execution_id=execution_id,
+                        lease_token=lease_token,
+                    )
+                    ctx = InFlightContext(
+                        msg_id=msg_id,
+                        fields=fields,
+                        tracker=tracker,
+                        execution_id=execution_id,
+                        lease_token=lease_token,
+                        lease_expires_at=(
+                            time.monotonic() + self.lease_ttl_ms / 1000.0
+                            if lease_token is not None
+                            else None
+                        ),
+                    )
+                    self._in_flight_contexts[msg_id] = ctx
+
                     try:
-                        fut = self._submit_message(loop, message_data, retry_count)
+                        try:
+                            fut = self._submit_message(
+                                loop, message_data, retry_count, tracker
+                            )
+                        except TypeError:
+                            fut = self._submit_message(loop, message_data, retry_count)
+                        ctx.future = fut
                         active_futures[fut] = (msg_id, fields)
                         self._processing_futures.add(fut)
                     except Exception as submit_err:
@@ -633,6 +814,12 @@ class BaseConsumer(ABC, Generic[T]):
                             submit_err,
                         )
                         self._in_flight_ids.discard(msg_id)
+                        self._in_flight_contexts.pop(msg_id, None)
+                        if self.use_execution_lease and execution_id and lease_token:
+                            with contextlib.suppress(Exception):
+                                await self.delivery.release_lease(
+                                    redis_conn, execution_id, lease_token
+                                )
 
         except asyncio.CancelledError:
             self.stop_flag.set()
@@ -732,9 +919,24 @@ class BaseConsumer(ABC, Generic[T]):
             if popped is None:
                 continue
             msg_id, fields = popped
+            ctx = self._in_flight_contexts.pop(msg_id, None)
+            # Idem dans le drain : un tracker avorté n'est jamais acquitté en succès.
+            if ctx is not None and (ctx.handled or ctx.tracker.is_aborted):
+                self._in_flight_ids.discard(msg_id)
+                continue
             try:
                 await self._handle_finished_future(fut, msg_id, fields, redis_conn)
             finally:
+                if (
+                    self.use_execution_lease
+                    and ctx is not None
+                    and ctx.execution_id
+                    and ctx.lease_token
+                ):
+                    with contextlib.suppress(Exception):
+                        await self.delivery.release_lease(
+                            redis_conn, ctx.execution_id, ctx.lease_token
+                        )
                 self._in_flight_ids.discard(msg_id)
 
     async def _handle_finished_future(
@@ -789,6 +991,29 @@ class BaseConsumer(ABC, Generic[T]):
         if raw_root:
             return str(raw_root)
         return str(msg_id)
+
+    @staticmethod
+    def _extract_execution_id(message_data: Any, fields: dict[str, Any]) -> str | None:
+        if hasattr(message_data, "workflow_execution_id"):
+            val = getattr(message_data, "workflow_execution_id")
+            if val:
+                return str(val)
+        if hasattr(message_data, "execution_id"):
+            val = getattr(message_data, "execution_id")
+            if val:
+                return str(val)
+        raw_data = fields.get("data")
+        if isinstance(raw_data, str) and "workflow_execution_id" in raw_data:
+            try:
+                parsed = json.loads(raw_data)
+                if isinstance(parsed, dict):
+                    parsed_dict = cast(dict[str, object], parsed)
+                    exec_val = parsed_dict.get("workflow_execution_id")
+                    if exec_val is not None:
+                        return str(exec_val)
+            except Exception:
+                pass
+        return None
 
     @classmethod
     def _build_requeue_fields(
@@ -957,8 +1182,37 @@ class BaseConsumer(ABC, Generic[T]):
         ) and not self._reclaimer_active
         return listener_done and reclaimer_done
 
+    def _fence_expired_leases(self, now: float) -> None:
+        """Avorte localement les handlers dont le bail d'exécution a expiré.
+
+        `lease_expires_at` n'est repoussé qu'à chaque renouvellement confirmé par
+        Redis ; une valeur dépassée signifie donc que la propriété de l'exécution
+        n'est plus garantie. La vérification est purement locale et s'exécute même
+        quand Redis est injoignable, de sorte qu'un worker isolé du réseau ne
+        puisse pas committer après l'expiration de son bail.
+        """
+        if not self.use_execution_lease:
+            return
+        for msg_id in list(self._in_flight_ids):
+            ctx = self._in_flight_contexts.get(msg_id)
+            if (
+                ctx is None
+                or ctx.handled
+                or ctx.tracker.is_aborted
+                or ctx.lease_token is None
+                or ctx.lease_expires_at is None
+                or now < ctx.lease_expires_at
+            ):
+                continue
+            logger.warning(
+                "Execution lease expired for execution_id=%s, msg_id=%s; fencing handler",
+                ctx.execution_id,
+                msg_id,
+            )
+            ctx.tracker.abort("lease_lost")
+
     async def _heartbeat_in_flight_entries(self) -> None:
-        """Rafraîchit l'inactivité des entrées en cours de traitement via XCLAIM JUSTID."""
+        """Rafraîchit l'inactivité des entrées saines et gère le watchdog des timeouts."""
         logger.info(
             "Heartbeat task started (stream='%s', interval=%.3fs)",
             self.stream_name,
@@ -987,24 +1241,221 @@ class BaseConsumer(ABC, Generic[T]):
                 except TimeoutError:
                     pass
 
-            ids = self._in_flight_ids | self._reclaiming_ids
-            if not ids:
+            now = time.monotonic()
+            # Fencing des baux expirés, évalué localement avant toute I/O Redis :
+            # couvre aussi l'indisponibilité de Redis, où le watchdog est court-circuité.
+            self._fence_expired_leases(now)
+
+            redis_conn = await self._ensure_connection()
+            if redis_conn is None:
                 continue
-            try:
-                redis_conn = await self._ensure_connection()
-                if redis_conn is None:
+
+            healthy_ids: set[str] = set()
+            timed_out_contexts: list[InFlightContext] = []
+
+            for msg_id in list(self._in_flight_ids):
+                ctx = self._in_flight_contexts.get(msg_id)
+                if ctx is None:
+                    # Message en cours de préparation ou reclaim; maintenir le battement
+                    healthy_ids.add(msg_id)
                     continue
-                await self.delivery.refresh(redis_conn, ids)
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                self._invalidate_connection_on_transport_error(e)
-                logger.warning(
-                    "Heartbeat failed for stream=%s: %s",
-                    self.stream_name,
-                    type(e).__name__,
-                )
+
+                if ctx.handled:
+                    continue
+
+                if ctx.tracker.is_healthy(now):
+                    healthy_ids.add(msg_id)
+                    if (
+                        self.use_execution_lease
+                        and ctx.execution_id
+                        and ctx.lease_token
+                    ):
+                        try:
+                            renewed = await self.delivery.renew_lease(
+                                redis_conn,
+                                ctx.execution_id,
+                                ctx.lease_token,
+                                self.lease_ttl_ms,
+                            )
+                            if not renewed:
+                                logger.warning(
+                                    "Execution lease lost for execution_id=%s, msg_id=%s",
+                                    ctx.execution_id,
+                                    msg_id,
+                                )
+                                ctx.tracker.abort("lease_lost")
+                                healthy_ids.discard(msg_id)
+                                timed_out_contexts.append(ctx)
+                            else:
+                                ctx.lease_expires_at = now + self.lease_ttl_ms / 1000.0
+                        except Exception as renew_err:
+                            self._invalidate_connection_on_transport_error(renew_err)
+                            logger.warning(
+                                "Failed to renew lease for %s: %s",
+                                ctx.execution_id,
+                                renew_err,
+                            )
+                else:
+                    timed_out_contexts.append(ctx)
+
+            ids_to_refresh = healthy_ids | self._reclaiming_ids
+            if ids_to_refresh:
+                try:
+                    await self.delivery.refresh(redis_conn, ids_to_refresh)
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    self._invalidate_connection_on_transport_error(e)
+                    logger.warning(
+                        "Heartbeat failed for stream=%s: %s",
+                        self.stream_name,
+                        type(e).__name__,
+                    )
+
+            for ctx in timed_out_contexts:
+                if ctx.handled:
+                    continue
+                await self._handle_timed_out_entry(redis_conn, ctx)
         logger.info("Heartbeat task stopped (stream='%s')", self.stream_name)
+
+    def _notify_terminal_failure(
+        self, msg_id: str, fields: dict[str, Any], reason: str
+    ) -> None:
+        """Programme la notification d'échec terminal hors de la boucle de battement.
+
+        Déclenché uniquement après une rétention DLQ et un ACK confirmés : la tentative
+        a été fencée et ne rapportera donc jamais son propre échec. Le callback est
+        exécuté dans une tâche dédiée : il fait des lectures base, un commit et une
+        publication webhook, et l'attendre ici gèlerait le renouvellement des baux
+        ainsi que le fencing local de toutes les autres exécutions en vol.
+        """
+        if self.on_terminal_failure is None:
+            return
+        task = asyncio.create_task(
+            self._run_terminal_failure_callback(msg_id, fields, reason),
+            name=f"terminal-failure:{msg_id}",
+        )
+        self._terminal_failure_tasks.add(task)
+        task.add_done_callback(self._terminal_failure_tasks.discard)
+
+    async def _run_terminal_failure_callback(
+        self, msg_id: str, fields: dict[str, Any], reason: str
+    ) -> None:
+        if self.on_terminal_failure is None:
+            return
+        try:
+            await self.on_terminal_failure(msg_id, fields, reason)
+        except Exception as callback_err:
+            logger.error(
+                "Terminal-failure callback failed for message %s: %s",
+                msg_id,
+                callback_err,
+            )
+
+    async def _drain_terminal_failure_tasks(self) -> None:
+        """Attend (de façon bornée) les notifications d'échec terminal en cours.
+
+        Le message correspondant a déjà été acquitté : si le processus sortait
+        maintenant, son échec terminal serait perdu et l'exécution resterait à
+        ``STARTED``. Appelé par les deux chemins d'arrêt — ``_stop_tasks_only()``
+        (mode non bloquant) et ``_de_init_consumer()`` (``start_consumer()`` du
+        worker) — car ils ne partagent aucun autre crochet.
+        """
+        if not self._terminal_failure_tasks:
+            return
+        outstanding = set(self._terminal_failure_tasks)
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*outstanding, return_exceptions=True), timeout=5.0
+            )
+        except TimeoutError:
+            logger.warning(
+                "Timed out waiting for %d terminal-failure notification(s)",
+                len(outstanding),
+            )
+
+    async def _handle_timed_out_entry(
+        self, redis_conn: Redis, ctx: InFlightContext
+    ) -> None:
+        """Gère un message en timeout : arrêt heartbeat, fencing, annulation et rejeu immédiat."""
+        ctx.handled = True
+        msg_id = ctx.msg_id
+        self._in_flight_ids.discard(msg_id)
+
+        timeout_reason = ctx.tracker.check_timeout_reason() or "processing_timeout"
+        logger.warning(
+            "Watchdog detected timeout for message %s (stream='%s', reason='%s')",
+            msg_id,
+            self.stream_name,
+            timeout_reason,
+        )
+
+        ctx.tracker.abort(timeout_reason)
+
+        if (
+            ctx.future is not None
+            and not ctx.future.done()
+            and self._can_interrupt_pending_handler()
+        ):
+            ctx.future.cancel()
+
+        if self.use_execution_lease and ctx.execution_id and ctx.lease_token:
+            with contextlib.suppress(Exception):
+                await self.delivery.release_lease(
+                    redis_conn, ctx.execution_id, ctx.lease_token
+                )
+
+        try:
+            retry_count = self._parse_retry_count(ctx.fields)
+        except Exception:
+            retry_count = 0
+
+        attempts = retry_count + 1
+        if attempts >= self.max_retry_number:
+            logger.error(
+                "Max attempts exceeded for timed out message %s. Moving to DLQ with reason '%s'.",
+                msg_id,
+                timeout_reason,
+            )
+            try:
+                retained = await self._send_to_dlq(
+                    redis_connection=redis_conn,
+                    msg_id=msg_id,
+                    fields=ctx.fields,
+                    reason=timeout_reason,
+                    error=f"Timeout: {timeout_reason} (attempts {attempts}/{self.max_retry_number})",
+                )
+                if retained:
+                    await self.delivery.ack(redis_conn, msg_id)
+                    self._notify_terminal_failure(msg_id, ctx.fields, timeout_reason)
+            except Exception as dlq_err:
+                self._invalidate_connection_on_transport_error(dlq_err)
+                logger.error(
+                    "Failed to retain timed out message %s in DLQ: %s",
+                    msg_id,
+                    dlq_err,
+                )
+        else:
+            logger.info(
+                "Immediate requeue of timed out message %s with retries=%d (reason='%s')",
+                msg_id,
+                attempts,
+                timeout_reason,
+            )
+            try:
+                requeued = await self._requeue_once(
+                    redis_conn, msg_id, ctx.fields, attempts
+                )
+                if requeued:
+                    await self.delivery.ack(redis_conn, msg_id)
+                    logger.info("Acknowledged original timed out message %s", msg_id)
+            except Exception as requeue_err:
+                self._invalidate_connection_on_transport_error(requeue_err)
+                logger.error(
+                    "Failed to requeue timed out message %s: %s",
+                    msg_id,
+                    requeue_err,
+                )
 
     async def _reclaim_pending_messages(self) -> None:
         """Récupère les messages en attente inactifs depuis plus de reclaim_idle_ms."""

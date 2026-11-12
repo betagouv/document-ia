@@ -25,6 +25,7 @@ The API standardizes errors using a Problem Details-like format, for example:
 | `403` | authenticated but not authorized (admin role required, foreign resource access) |
 | `404` | missing entity (workflow, execution, organization, webhook...) |
 | `408` | `execute-sync` timeout |
+| `409` | idempotency conflict or concurrent request in progress |
 | `422` | schema/request validation errors |
 | `429` | rate limit exceeded |
 | `500` | unhandled internal error |
@@ -94,8 +95,59 @@ stream-capacity admission control is not covered by this behaviour.
 
 Retrying the request creates a new execution with a new `execution_id`. Because
 the failed attempt scheduled no work, no execution is left processing the same
-document twice. There is no `Idempotency-Key` support: a client that loses a
-successful response cannot retrieve the original execution by key.
+document twice. When an `Idempotency-Key` was provided, the key is immediately
+released upon scheduling failure so that the retry can proceed without waiting
+for the lock to expire.
+
+## Idempotency-Key support and resilience
+
+To protect against network drops, client disconnections, or gateway timeouts, the asynchronous workflow execution endpoints (`POST /api/v2/workflows/{id}/execute` and `POST /api/v1/workflows/{id}/execute`) support the optional `Idempotency-Key` request header (following the IETF standard draft).
+
+The synchronous route (`execute-sync`) is exclusively intended for interactive debugging and does not support idempotency keys.
+
+### Key requirements & validation
+- Format: printable ASCII string (characters 32 to 126 inclusive).
+- Length: between 1 and 256 characters inclusive.
+- Invalid keys are immediately rejected with `400 Bad Request` (`error: invalid_idempotency_key`).
+
+### Request fingerprinting
+A SHA-256 fingerprint is computed combining the HTTP method, canonical path, canonicalized JSON parameters (`metadata`, `override`, `classification-parameters`, `extraction-parameters`), and document:
+- For `UploadFile`: streamed in 64KB chunks to hash contents, resetting the cursor (`await file.seek(0)`) so the downstream upload to S3 is unaffected.
+- For `file_url`: hashed from the normalized URL.
+
+### Four execution outcomes
+1. **First submission (Miss)**: An atomic Lua script sets the key in Redis with status `IN_PROGRESS` and a 60-second safety lock TTL (`IDEMPOTENCY_LOCK_TTL_SECONDS`). The execution is scheduled; upon success, the key transitions to `COMPLETED` with retention TTL (default 12 hours / 43,200 seconds via `IDEMPOTENCY_KEY_TTL_SECONDS`).
+2. **Replay after lost response (Hit COMPLETED with same fingerprint)**: The API reconstructs the original acceptance response directly from the EventStore with the same `execution_id` and adds the HTTP response header `Idempotent-Replay: true`. No new DB events, S3 uploads, or Redis messages are generated.
+3. **Payload conflict (Hit with different fingerprint)**: Reusing the same key with different documents or parameters returns `409 Conflict`:
+```json
+{
+  "type": "about:blank",
+  "title": "Conflict",
+  "status": 409,
+  "code": "http.conflict",
+  "errors": {
+    "error": "idempotency_conflict",
+    "message": "The idempotency key is already used with a different request payload."
+  }
+}
+```
+4. **Concurrent request in flight (Hit IN_PROGRESS)**: If a duplicate arrives while the first is being processed, the server does not block or hold connections. It responds immediately with `409 Conflict` containing the pre-reserved `execution_id`:
+```json
+{
+  "type": "about:blank",
+  "title": "Conflict",
+  "status": 409,
+  "code": "http.conflict",
+  "errors": {
+    "error": "idempotency_in_progress",
+    "execution_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+    "message": "An execution with this idempotency key is currently being processed. You can query its status using the provided execution_id."
+  }
+}
+```
+
+### Scheduling failure cleanup
+If scheduling on Redis streams fails (`PublishFailedError` / `503 Service Unavailable`), the key is immediately released in Redis so the client can retry immediately without waiting for the 60s lock timeout.
 
 ## Sync workflow timeout errors
 

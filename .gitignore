@@ -220,3 +220,6 @@ __marimo__/
 # Scalingo build output / models
 .models/
 vendor/
+
+#Antigravity
+.agents/
