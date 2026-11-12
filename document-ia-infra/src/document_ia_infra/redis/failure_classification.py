@@ -17,14 +17,14 @@ from document_ia_infra.exception.retryable_exception import RetryableException
 
 def classify_failure(error: Exception) -> Literal["temporary", "permanent", "internal"]:
     if isinstance(error, httpx.HTTPStatusError):
-        status = error.response.status_code
-        if status in {408, 425, 429} or 500 <= status < 600:
-            return "temporary"
-        return "permanent" if 400 <= status < 500 else "internal"
+        return classify_http_status(error.response.status_code)
     if isinstance(
         error, (OpenAIAuthentificationError, S3AuthentificationException, ValueError)
     ):
         return "permanent"
+    status = getattr(error, "http_status_code", None)
+    if isinstance(status, int):
+        return classify_http_status(status)
     if isinstance(
         error,
         (
@@ -37,4 +37,13 @@ def classify_failure(error: Exception) -> Literal["temporary", "permanent", "int
         ),
     ):
         return "temporary"
+    if getattr(error, "is_transport_failure", False) is True:
+        return "temporary"
     return "internal"
+
+
+def classify_http_status(status: int) -> Literal["temporary", "permanent", "internal"]:
+    """Classify an HTTP status without needing the original response object."""
+    if status in {408, 425, 429} or 500 <= status < 600:
+        return "temporary"
+    return "permanent" if 400 <= status < 500 else "internal"

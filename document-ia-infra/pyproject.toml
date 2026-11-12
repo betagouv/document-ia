@@ -8,8 +8,8 @@ requires-python = ">=3.13"
 dependencies = [
     "python-dotenv == 1.2.4",
     "redis == 5.3.1",
-    "boto3==1.43.123",
-    "pydantic == 2.14.1",
+    "boto3 == 1.43.123",
+    "pydantic == 2.14.2",
     "pydantic-settings == 2.16.2",
     "openai==3.42.1",
     "httpx == 0.28.1",

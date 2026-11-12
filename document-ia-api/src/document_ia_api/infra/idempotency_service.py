@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import AsyncIterator, Awaitable
+from collections.abc import AsyncGenerator, Awaitable
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 import logging
@@ -361,7 +361,7 @@ idempotency_service = IdempotencyService()
 @asynccontextmanager
 async def hold_reservation(
     reservation: "IdempotencyReservation | None",
-) -> AsyncIterator[None]:
+) -> AsyncGenerator[None]:
     """Hold an idempotency reservation for the duration of an admission."""
     if reservation is None:
         yield

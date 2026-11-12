@@ -35,6 +35,7 @@ from document_ia_api.core.idempotency.exceptions import (
 from document_ia_api.infra.s3_service import s3_service
 from document_ia_api.schemas.workflow import WorkflowExecutionData
 from document_ia_infra.core.model.file_info import FileInfo
+from document_ia_infra.core.security.safe_logging import extract_safe_host
 from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import (
     ClassificationParameters,
     ExtractionParameters,
@@ -140,14 +141,19 @@ class WorkflowService:
                 )
 
                 logger.info(
-                    f"Workflow execution started: {execution_id} "
-                    f"(workflow: {workflow_id}, file: {file.filename})"
+                    "Workflow execution started: %s (workflow: %s, file_size: %s)",
+                    execution_id,
+                    workflow_id,
+                    len(file_content),
                 )
 
             else:
+                file_host = extract_safe_host(file_url)
                 logger.info(
-                    f"Workflow execution started: {execution_id} "
-                    f"(workflow: {workflow_id}, file_url: {file_url})"
+                    "Workflow execution started: %s (workflow: %s, file_host: %s)",
+                    execution_id,
+                    workflow_id,
+                    file_host,
                 )
 
             # Emit workflow started event. This is mandatory: the started event
@@ -253,7 +259,7 @@ class WorkflowService:
             # Re-raise HTTP exceptions
             raise
         except Exception as e:
-            logger.error(f"Workflow execution failed: {e}")
+            logger.error("Workflow execution failed: %s", type(e).__name__)
             raise HTTPException(
                 status_code=500,
                 detail={
@@ -397,7 +403,7 @@ class WorkflowService:
             content = await file.read()
             return content
         except Exception as e:
-            logger.error(f"Error reading file content: {e}")
+            logger.error("Error reading file content: %s", type(e).__name__)
             raise HTTPException(
                 status_code=400,
                 detail={
@@ -439,11 +445,11 @@ class WorkflowService:
                 metadata=s3_metadata,
             )
 
-            logger.info(f"File uploaded to S3: {result['s3_key']}")
+            logger.info("File uploaded to S3 successfully")
             return result
 
         except Exception as e:
-            logger.error(f"S3 upload failed: {e}")
+            logger.error("S3 upload failed: %s", type(e).__name__)
             raise HTTPException(
                 status_code=500,
                 detail={

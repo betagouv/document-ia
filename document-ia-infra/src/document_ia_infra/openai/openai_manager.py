@@ -120,7 +120,7 @@ class OpenAIManager:
                 )
             result = response.choices[0].message.content
             if result is None:
-                raise Exception(f"Failed to generate response: {response}")
+                raise RuntimeError("Empty response content from OpenAI")
 
             response_tokens = len(self.encoding.encode(result))
             logger.info(f"Response size : {response_tokens}")
@@ -139,5 +139,5 @@ class OpenAIManager:
             # Apparently openai-python PermissionDeniedError cannot be caught specifically in an except (it throw a type error because it is not a BaseException subclass ?)
             if isinstance(e, PermissionDeniedError):
                 raise OpenAIAuthentificationError()
-            logger.error(f"Error generating response: {e}")
+            logger.error("Error generating response: %s", type(e).__name__)
             raise e

@@ -79,18 +79,19 @@ class S3Service:
                 "presigned_url": presigned_url,
             }
 
-            logger.info(f"File uploaded successfully: {file_id} ({filename})")
+            logger.info(f"File uploaded successfully: {file_id}")
             return result
 
         except NoCredentialsError as e:
-            logger.error(f"S3 credentials error: {e}")
+            logger.error("S3 credentials error: %s", type(e).__name__)
             raise Exception("S3 credentials not configured properly")
         except ClientError as e:
-            logger.error(f"S3 client error: {e}")
-            raise Exception(f"Failed to upload file to S3: {e}")
+            error_code = self.s3_manager.client_error_code(e)
+            logger.error("S3 client error: %s", error_code)
+            raise Exception(f"Failed to upload file to S3: {error_code}")
         except Exception as e:
-            logger.error(f"Unexpected error during file upload: {e}")
-            raise Exception(f"File upload failed: {e}")
+            logger.error("Unexpected error during file upload: %s", type(e).__name__)
+            raise Exception(f"File upload failed: {type(e).__name__}")
 
     async def delete_file(self, s3_key: str) -> bool:
         return self.s3_manager.delete_file(s3_key)
