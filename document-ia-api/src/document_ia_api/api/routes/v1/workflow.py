@@ -41,7 +41,6 @@ from document_ia_api.infra.idempotency_service import (
     idempotency_service,
     mark_completed_or_retain,
 )
-from document_ia_api.schemas.rate_limiting import RateLimitInfo
 from document_ia_infra.data.database import database_manager
 from document_ia_infra.data.organization.dto.organization_dto import OrganizationDTO
 from document_ia_infra.core.security.safe_logging import extract_safe_host
@@ -617,9 +616,7 @@ async def execute_workflow_sync(
     metadata: Optional[str] = Form(
         default=None, description="JSON string containing metadata object"
     ),
-    api_key: str = Depends(verify_api_key),
     current_org: OrganizationDTO = Depends(get_current_organization),
-    rate_limit_info: RateLimitInfo = Depends(check_rate_limit),
     db_session: AsyncSession = Depends(database_manager.async_get_db),
 ) -> ExecutionResponse:
     """Execute a workflow synchronously by waiting for its final event."""
