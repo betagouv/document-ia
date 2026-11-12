@@ -75,11 +75,19 @@ print(schema.get_json_schema_dict())
 
 | Identifiant | Nom | Module |
 |-------------|-----|--------|
-| `cni` | Carte nationale d’identité | `document_ia_schemas.cni` |
+| `attestation_contrat_energie` | Attestation de contrat d'énergie | `document_ia_schemas.attestation_contrat_energie` |
+| `attestation_hebergement` | Attestation d'hebergement | `document_ia_schemas.attestation_hebergement` |
+| `avis_imposition` | Avis d'imposition | `document_ia_schemas.avis_imposition` |
+| `bulletin_salaire` | Bulletin de salaire | `document_ia_schemas.bulletin_salaire` |
+| `carte_grise` | Carte grise (Certificat d'immatriculation) | `document_ia_schemas.carte_grise` |
+| `cni` | Carte nationale d'identité | `document_ia_schemas.cni` |
+| `decision_comed` | Décision de la commission de médiation DALO | `document_ia_schemas.decision_comed` |
+| `facture_energie` | Facture d'énergie | `document_ia_schemas.facture_energie` |
 | `passeport` | Passeport | `document_ia_schemas.passeport` |
 | `permis_conduire` | Permis de conduire | `document_ia_schemas.permis_conduire` |
-| `carte_grise` | Carte grise (Certificat d'immatriculation) | `document_ia_schemas.carte_grise` |
-| `avis_imposition` | Avis d’imposition | `document_ia_schemas.avis_imposition` |
+| `quittance_loyer` | Quittance de loyer | `document_ia_schemas.quittance_loyer` |
+| `taxe_fonciere` | Taxe fonciere | `document_ia_schemas.taxe_fonciere` |
+| `visale_certificate` | Certificat de garantie Visale | `document_ia_schemas.visale_certificate` |
 
 Chaque type expose un modèle Pydantic décrivant les champs standardisés, avec alias et exemples pour faciliter les prompts.
 
