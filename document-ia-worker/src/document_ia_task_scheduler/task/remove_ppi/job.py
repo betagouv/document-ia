@@ -29,14 +29,6 @@ class RemovePPI(BaseScheduledJob):
         async with DatabaseManager().local_session() as session:
             event_repository = EventRepository(session)
 
-            oldest_age = await event_repository.get_oldest_pending_event_age_seconds(
-                before_date=cutoff_date
-            )
-            lag_value = oldest_age if oldest_age is not None else 0.0
-            logger.info(
-                f"event_purge operation=lag outcome=oldest_pending_age_seconds value={lag_value:.2f}"
-            )
-
             while True:
                 events = await event_repository.get_events_to_anonymize(
                     before_date=cutoff_date,
@@ -51,22 +43,33 @@ class RemovePPI(BaseScheduledJob):
                     break
 
                 for event in events:
+                    event_id = event.id
                     try:
                         await event_repository.anonymize_event(event)
                         success_count += 1
                     except Exception as e:
-                        logger.error(f"Error while anonymizing event {event.id}: {e}")
-                        failed_ids.add(event.id)
+                        logger.error(
+                            f"Error while anonymizing event {event_id}: {type(e).__name__}"
+                        )
+                        failed_ids.add(event_id)
                         error_count += 1
                         try:
-                            await event_repository.save_failed_anonymization(event)
+                            await event_repository.save_failed_anonymization(event_id)
                         except Exception as save_err:
                             logger.error(
-                                f"Failed to mark event {event.id} as ERROR: {save_err}"
+                                f"Failed to mark event {event_id} as ERROR: {type(save_err).__name__}"
                             )
 
                 if len(events) < batch_size:
                     break
+
+            oldest_age = await event_repository.get_oldest_pending_event_age_seconds(
+                before_date=cutoff_date
+            )
+            lag_value = oldest_age if oldest_age is not None else 0.0
+            logger.info(
+                f"event_purge operation=lag outcome=oldest_pending_age_seconds value={lag_value:.2f}"
+            )
 
             logger.info(
                 f"event_purge operation=purge outcome=success value={success_count}"

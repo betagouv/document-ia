@@ -181,10 +181,12 @@ async def test_reconcile_job_batch_failure_fallback_unitary():
         # 1er commit (lot entier) -> échoue
         # 2e commit (event_ok) -> réussit
         # 3e commit (event_err) -> échoue
+        # 4e commit (marquage ERROR pour event_err) -> réussit
         mock_session.commit.side_effect = [
             RuntimeError("Batch commit failed"),
             None,
             RuntimeError("Unitary commit failed for event_err"),
+            None,
         ]
 
         job = ReconcileHistoricalEventsJob(
@@ -224,3 +226,110 @@ async def test_cli_async_main():
         mock_job.run = AsyncMock(return_value={"main": {"errors": 1}})
         code_err = await async_main(args)
         assert code_err == 1
+
+
+@pytest.mark.asyncio
+async def test_reconcile_job_survives_expired_attributes_on_fallback():
+    """Verify that rollback expiring entities does not crash unitary fallback or cursor advance."""
+    ev1 = _make_event(status=AnonymizationStatus.DONE.value)
+    ev2 = _make_event(status=AnonymizationStatus.ERROR.value)
+
+    mock_session = AsyncMock()
+    mock_session.add = MagicMock()
+    mock_db = MagicMock()
+    mock_db.local_session.return_value.__aenter__.return_value = mock_session
+    mock_db.dispose_async = AsyncMock()
+
+    with (
+        patch(
+            "document_ia_task_scheduler.task.reconcile_historical_events.job.DatabaseManager",
+            return_value=mock_db,
+        ),
+        patch(
+            "document_ia_task_scheduler.task.reconcile_historical_events.job.EventRepository"
+        ) as mock_repo_class,
+    ):
+        from document_ia_infra.data.event.repository.event import EventRepository
+
+        mock_repo_class.anonymize_payload = EventRepository.anonymize_payload
+        mock_repo = mock_repo_class.return_value
+        mock_repo.count_events_by_statuses = AsyncMock(return_value=2)
+        mock_repo.get_events_by_cursor = AsyncMock(side_effect=[[ev1, ev2], []])
+
+        commit_count = 0
+
+        async def fake_commit():
+            nonlocal commit_count
+            commit_count += 1
+            if commit_count == 1:
+                # Simulate attributes becoming inaccessible on ev1 & ev2 after rollback
+                for ev in (ev1, ev2):
+                    ev.__dict__.clear()
+                raise RuntimeError("Batch commit failed")
+
+        mock_session.commit = AsyncMock(side_effect=fake_commit)
+
+        job = ReconcileHistoricalEventsJob(batch_size=2, pause_seconds=0.0)
+        # Must execute without raising MissingGreenlet / KeyError / RuntimeError on ev.id
+        stats = await job.run(target="main")
+        assert stats["main"]["success"] == 2
+        assert stats["main"]["errors"] == 0
+
+
+async def test_reconcile_job_analytics_not_configured_returns_zero(
+    caplog: pytest.LogCaptureFixture,
+):
+    caplog.set_level(logging.WARNING)
+
+    with patch(
+        "document_ia_task_scheduler.task.reconcile_historical_events.job.replicate_analytics_settings"
+    ) as mock_settings:
+        mock_settings.is_configured.return_value = False
+
+        job = ReconcileHistoricalEventsJob(batch_size=10, pause_seconds=0.0)
+        stats = await job.run(target="analytics")
+
+        assert stats["analytics"] == {
+            "total": 0,
+            "processed": 0,
+            "success": 0,
+            "errors": 0,
+        }
+        assert any(
+            "[ANALYTICS] Base analytique non configurée, réconciliation ignorée."
+            in r.message
+            for r in caplog.records
+        )
+
+
+@pytest.mark.asyncio
+async def test_reconcile_job_analytics_includes_pending_status():
+    mock_session = AsyncMock()
+    mock_db = MagicMock()
+    mock_db.local_session.return_value.__aenter__.return_value = mock_session
+    mock_db.dispose_async = AsyncMock()
+
+    with (
+        patch(
+            "document_ia_task_scheduler.task.reconcile_historical_events.job.replicate_analytics_settings"
+        ) as mock_settings,
+        patch(
+            "document_ia_task_scheduler.task.reconcile_historical_events.job.DatabaseManager",
+            return_value=mock_db,
+        ),
+        patch(
+            "document_ia_task_scheduler.task.reconcile_historical_events.job.EventRepository"
+        ) as mock_repo_class,
+    ):
+        mock_settings.is_configured.return_value = True
+        mock_repo = mock_repo_class.return_value
+        mock_repo.count_events_by_statuses = AsyncMock(return_value=0)
+
+        job = ReconcileHistoricalEventsJob(batch_size=10, pause_seconds=0.0)
+        await job.run(target="analytics")
+
+        # Verify count_events_by_statuses called with PENDING, DONE, ERROR
+        statuses_called = mock_repo.count_events_by_statuses.call_args[0][0]
+        assert "PENDING" in statuses_called
+        assert "DONE" in statuses_called
+        assert "ERROR" in statuses_called

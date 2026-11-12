@@ -60,6 +60,13 @@ The event store records four immutable workflow event types. During the purge pr
 > [!IMPORTANT]
 > In `WorkflowExecutionStartedEvent`, `s3_file_info` must be set to `None` rather than `{}`. Because `FileInfo` defines required fields (`filename`, `s3_key`, `size`), passing an empty dictionary causes Pydantic schema validation failures upon subsequent reads. Setting `None` conforms to `Optional[FileInfo]`.
 
+> [!NOTE]
+> **GDPR Qualification (Minimization & Pseudonymization)**:
+> In accordance with GDPR Art. 5(1)(c) (*Data Minimization*) and Art. 4(5) (*Pseudonymization*), the purge process removes all payload-level Personal Identifiable Information (PII), OCR extractions, URLs, and error diagnostics. Technical correlation keys (`id`, `execution_id`, `organization_id`, `workflow_id`) and chronological metadata (`created_at`) are intentionally retained to guarantee auditability, operational telemetry, and SLA compliance.
+>
+> **Arbitrage Decision D2 (Retention of Started Events)**:
+> As validated by project governance (Nicolas Sagon), data associated with `WorkflowExecutionStartedEvent` (`file_url`, `s3_file_info`, `metadata`) is intentionally kept intact in the operational database throughout the full retention duration (`EVENT_STORE_PPI_RETENTION_DAYS = 7`). There is no premature purge at workflow termination; minimization is handled solely by the scheduled `RemovePPI` job at J-7.
+
 ---
 
 ## 2. Worker Purge Scheduler (`RemovePPI`)
@@ -99,6 +106,8 @@ The `RemovePPI` job runs nightly as a background scheduled task. It includes the
        anonymization_status = EXCLUDED.anonymization_status;
    ```
    This guarantees that historical replays or re-purged source records propagate updates to the destination analytics store without generating duplicates.
+
+   *Replication Behavior Note*: `ReplicateAnalytics` advances incrementally based on `created_at >= cursor`. Because `created_at` does not change when an event is purged 7 days later by `RemovePPI`, normal incremental replication does not re-read past events. However, data copied to the analytics store is minimized on-the-fly upon initial ingestion via `_to_replicated_event()`. If historical records on the analytics database require batch remediation, `reconcile_historical_events --target both` (or `--target analytics`) directly sanitizes the analytics database.
 2. **Schema & Indexing Parity**:
    The analytics database schema is maintained in strict lockstep with the primary operational database via `migration_service.auto_migrate_analytics()`. An index on `anonymization_status` (`idx_event_store_anonymization_status`) accelerates both the nightly `RemovePPI` job and historical backfill operations.
 3. **Historical Reconciliation Script (`reconcile_historical_purged_events`)**:

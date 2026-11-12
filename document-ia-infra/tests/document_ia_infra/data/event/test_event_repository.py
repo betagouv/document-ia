@@ -460,15 +460,31 @@ class TestGetCreatedEventIfExecutionNotCompletedOrFailed:
     def test_anonymize_payload_started(self):
         payload = {
             "s3_file_info": {"filename": "test.pdf", "presigned_url": "https://secret"},
+            "file_info": {"legacy": "data"},
             "file_url": "https://secret/test.pdf",
             "metadata": {"user": "alice", "ip": "1.2.3.4"},
             "workflow_id": "wf-1",
         }
         res = EventRepository.anonymize_payload("WorkflowExecutionStarted", payload)
         assert res["s3_file_info"] is None
+        assert "file_info" not in res
         assert res["file_url"] is None
         assert res["metadata"] == {}
         assert res["workflow_id"] == "wf-1"
+
+        # Also verify with EventType enum
+        payload_enum = {
+            "s3_file_info": {"filename": "test.pdf"},
+            "file_info": {"legacy": "data"},
+            "file_url": "https://secret",
+            "metadata": {},
+        }
+        res_enum = EventRepository.anonymize_payload(
+            EventType.WORKFLOW_EXECUTION_STARTED, payload_enum
+        )
+        assert res_enum["s3_file_info"] is None
+        assert "file_info" not in res_enum
+        assert res_enum["file_url"] is None
 
     def test_anonymize_payload_step_completed(self):
         payload = {
@@ -558,6 +574,7 @@ class TestGetCreatedEventIfExecutionNotCompletedOrFailed:
         assert len(events) == 1
         assert events[0].id == entity1.id
         mock_session.execute.assert_called_once()
+        mock_session.expunge_all.assert_called_once()
 
     async def test_get_oldest_pending_event_age_seconds_none_when_empty(
         self, event_repository, mock_session
@@ -642,10 +659,21 @@ class TestGetCreatedEventIfExecutionNotCompletedOrFailed:
 
         mock_session.rollback.assert_awaited_once()
 
-    def test_anonymize_payload_unknown_event_type_noop(self):
+    async def test_save_failed_anonymization_accepts_uuid(
+        self, event_repository, mock_session
+    ):
+        target_id = uuid4()
+        await event_repository.save_failed_anonymization(target_id)
+        mock_session.execute.assert_called_once()
+        mock_session.commit.assert_awaited_once()
+
+    def test_anonymize_payload_unknown_event_type_raises_value_error(self):
         payload = {"data": "preserved"}
-        res = EventRepository.anonymize_payload("UnknownEventType", payload)
-        assert res == {"data": "preserved"}
+        with pytest.raises(
+            ValueError,
+            match="Unsupported event_type for anonymization: 'UnknownEventType'",
+        ):
+            EventRepository.anonymize_payload("UnknownEventType", payload)
 
     async def test_count_events_by_statuses(self, event_repository, mock_session):
         mock_result = MagicMock()

@@ -1,13 +1,16 @@
 import asyncio
+import copy
 import logging
 import time
 from typing import Dict, List, Literal, Optional
 from uuid import UUID
 
+from sqlalchemy import update
 from sqlalchemy.orm.attributes import flag_modified
 
 from document_ia_infra.data.database import DatabaseManager
 from document_ia_infra.data.event.dto.anonymization_enum import AnonymizationStatus
+from document_ia_infra.data.event.entity.event_entity import EventEntity
 from document_ia_infra.data.event.repository.event import EventRepository
 from document_ia_task_scheduler.task.replicate_analytics.replicate_analytics_settings import (
     replicate_analytics_settings,
@@ -60,13 +63,27 @@ class ReconcileHistoricalEventsJob:
             f"Dry-run: {self.dry_run} ==="
         )
 
+        if target == "analytics" and not replicate_analytics_settings.is_configured():
+            logger.warning(
+                "[ANALYTICS] Base analytique non configurée, réconciliation ignorée."
+            )
+            return {"total": 0, "processed": 0, "success": 0, "errors": 0}
+
         db_manager = (
             DatabaseManager()
             if target == "main"
             else DatabaseManager(db_settings=replicate_analytics_settings)
         )
 
-        statuses = [AnonymizationStatus.DONE.value, AnonymizationStatus.ERROR.value]
+        statuses = (
+            [
+                AnonymizationStatus.PENDING.value,
+                AnonymizationStatus.DONE.value,
+                AnonymizationStatus.ERROR.value,
+            ]
+            if target == "analytics"
+            else [AnonymizationStatus.DONE.value, AnonymizationStatus.ERROR.value]
+        )
         processed_count = 0
         success_count = 0
         error_count = 0
@@ -102,6 +119,10 @@ class ReconcileHistoricalEventsJob:
                     lot_idx += 1
                     lot_success = 0
                     lot_error = 0
+                    last_cursor_id = events[-1].id
+                    snapshots = [
+                        (ev.id, ev.event_type, copy.deepcopy(ev.event)) for ev in events
+                    ]
 
                     if self.dry_run:
                         lot_success = len(events)
@@ -119,34 +140,51 @@ class ReconcileHistoricalEventsJob:
                             lot_success = len(events)
                         except Exception as batch_exc:
                             logger.warning(
-                                f"[{target.upper()}] Échec du commit par lot, reprise unitaire: {batch_exc}"
+                                f"[{target.upper()}] Échec du commit par lot, reprise unitaire: {type(batch_exc).__name__}"
                             )
                             await session.rollback()
 
                             # Fallback unitaire pour isoler l'erreur éventuelle
-                            for event in events:
+                            for ev_id, ev_type, ev_payload in snapshots:
                                 try:
-                                    EventRepository.anonymize_payload(
-                                        event.event_type, event.event
+                                    sanitized = EventRepository.anonymize_payload(
+                                        ev_type, ev_payload
                                     )
-                                    flag_modified(event, "event")
-                                    event.anonymization_status = (
-                                        AnonymizationStatus.DONE.value
+                                    await session.execute(
+                                        update(EventEntity)
+                                        .where(EventEntity.id == ev_id)
+                                        .values(
+                                            event=sanitized,
+                                            anonymization_status=AnonymizationStatus.DONE.value,
+                                        )
                                     )
-                                    session.add(event)
                                     await session.commit()
                                     lot_success += 1
                                 except Exception as row_exc:
                                     await session.rollback()
                                     logger.error(
-                                        f"[{target.upper()}] Erreur sur l'événement {event.id}: {row_exc}"
+                                        f"[{target.upper()}] Erreur sur l'événement {ev_id}: {type(row_exc).__name__}"
                                     )
                                     lot_error += 1
+                                    try:
+                                        await session.execute(
+                                            update(EventEntity)
+                                            .where(EventEntity.id == ev_id)
+                                            .values(
+                                                anonymization_status=AnonymizationStatus.ERROR.value
+                                            )
+                                        )
+                                        await session.commit()
+                                    except Exception as mark_err:
+                                        await session.rollback()
+                                        logger.error(
+                                            f"[{target.upper()}] Échec du marquage ERROR sur {ev_id}: {type(mark_err).__name__}"
+                                        )
 
                     success_count += lot_success
                     error_count += lot_error
                     processed_count += len(events)
-                    cursor_id = events[-1].id
+                    cursor_id = last_cursor_id
 
                     # Calcul des métriques de débit et d'ETA
                     elapsed = time.monotonic() - start_time

@@ -16,7 +16,7 @@ class S3FileInfo(BaseModel):
 class ExecutionStartedData(BaseModel):
     created_at: datetime
     s3_file_info: Optional[S3FileInfo]
-    file_url: Optional[str]
+    file_url: Optional[SecretPayloadStr] = None
 
 
 class ExecutionStartedModel(BaseModel):

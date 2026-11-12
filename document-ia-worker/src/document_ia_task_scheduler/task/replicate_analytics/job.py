@@ -90,7 +90,10 @@ class ReplicateAnalytics(BaseScheduledJob):
                     await EventRepository(dest_session).bulk_insert_events(events)
                 total_replicated += len(events)
             except Exception as e:
-                logger.error(f"Error while replicating events batch: {e}")
+                logger.error(
+                    f"Error while replicating events batch: {type(e).__name__}"
+                )
+                break
 
             if len(events) < batch_size:
                 break

@@ -90,7 +90,11 @@ class EventEntity(Base):
         # Index for time-based queries
         Index("idx_event_store_created_at", "created_at"),
         # Index for anonymization status queries
-        Index("idx_event_store_anonymization_status", "anonymization_status"),
+        Index(
+            "idx_event_store_anonymization_status",
+            "anonymization_status",
+            "created_at",
+        ),
     )
 
     def __repr__(self) -> str:

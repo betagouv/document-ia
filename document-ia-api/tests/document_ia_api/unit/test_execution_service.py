@@ -20,6 +20,7 @@ from document_ia_infra.data.document.schema.document_extraction import (
 from document_ia_infra.data.event.dto.anonymization_enum import AnonymizationStatus
 from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.dto.event_type_enum import EventType
+from document_ia_infra.data.event.repository.event import EventRepository
 from document_ia_schemas import SupportedDocumentType
 
 from document_ia_infra.data.event.schema.workflow.workflow_execution_completed_event import (
@@ -391,7 +392,8 @@ def test_get_event_model_started_not_purged(service: ExecutionService):
     assert res.status == ExecutionStatus.STARTED
     assert res.purged is False
     assert res.data.s3_file_info is not None
-    assert res.data.file_url == "https://example.com/test.pdf"
+    assert res.data.file_url is not None
+    assert res.data.file_url.get_secret_value() == "https://example.com/test.pdf"
 
 
 def test_get_event_model_completed_purged(service: ExecutionService):
@@ -458,3 +460,124 @@ def test_get_event_model_failed_purged(service: ExecutionService):
     assert res.status == ExecutionStatus.FAILED
     assert res.purged is True
     assert res.data.error_message == "[PURGED]"
+
+
+def test_anonymize_payload_roundtrip_with_decode_and_execution_service(
+    service: ExecutionService,
+):
+    """End-to-end roundtrip: full payload -> anonymize_payload -> decode_event_dto -> get_event_model."""
+    # 1. WorkflowExecutionStartedEvent
+    raw_started = WorkflowExecutionStartedEvent(
+        event_id=uuid4(),
+        organization_id=uuid4(),
+        workflow_id="wf-test",
+        execution_id="exec-test",
+        created_at=datetime.now(UTC),
+        version=1,
+        s3_file_info=_file_info(),
+        file_url="https://s3.example.com/sensitive-doc.pdf?signature=secret",
+        metadata={"client_ip": "10.0.0.1", "username": "admin"},
+        classification_parameters=ClassificationParameters(),
+        extraction_parameters=ExtractionParameters(),
+    )
+    started_payload = raw_started.model_dump(mode="json")
+    EventRepository.anonymize_payload("WorkflowExecutionStarted", started_payload)
+
+    started_dto = EventDTO(
+        id=uuid4(),
+        organization_id=raw_started.organization_id,
+        workflow_id="wf-test",
+        execution_id="exec-test",
+        created_at=raw_started.created_at,
+        event_type=EventType.WORKFLOW_EXECUTION_STARTED,
+        event=started_payload,
+        anonymization_status=AnonymizationStatus.DONE,
+    )
+    started_model = service.get_event_model(
+        started_dto, execution_id="exec-test", is_debug_mode=False
+    )
+    assert started_model.status == ExecutionStatus.STARTED
+    assert started_model.purged is True
+    assert started_model.data.s3_file_info is None
+    assert started_model.data.file_url is None
+
+    # 2. WorkflowExecutionCompletedEvent
+    raw_completed = WorkflowExecutionCompletedEvent(
+        event_id=uuid4(),
+        organization_id=uuid4(),
+        workflow_id="wf-test",
+        execution_id="exec-test",
+        created_at=datetime.now(UTC),
+        version=1,
+        final_result=CompletedEventResult(
+            extraction=DocumentExtraction[SampleProps](
+                type=SupportedDocumentType.AUTRE,
+                properties=SampleProps(first_name="Jean", age=30),
+            ),
+            classification=DocumentClassification(
+                document_type=SupportedDocumentType.AUTRE,
+                confidence=0.98,
+                explanation="Valid document",
+            ),
+            barcodes=[],
+        ),
+        total_processing_time_ms=1800,
+        output_summary={"summary": "sensitive summary"},
+        steps_completed=3,
+        workflow_metadata=[{"meta": "sensitive"}],
+    )
+    completed_payload = raw_completed.model_dump(mode="json")
+    EventRepository.anonymize_payload("WorkflowExecutionCompleted", completed_payload)
+
+    completed_dto = EventDTO(
+        id=uuid4(),
+        organization_id=raw_completed.organization_id,
+        workflow_id="wf-test",
+        execution_id="exec-test",
+        created_at=raw_completed.created_at,
+        event_type=EventType.WORKFLOW_EXECUTION_COMPLETED,
+        event=completed_payload,
+        anonymization_status=AnonymizationStatus.DONE,
+    )
+    completed_model = service.get_event_model(
+        completed_dto, execution_id="exec-test", is_debug_mode=True
+    )
+    assert completed_model.status == ExecutionStatus.SUCCESS
+    assert completed_model.purged is True
+    assert completed_model.data.result.classification is None
+    assert completed_model.data.result.extraction is None
+    assert completed_model.data.result.barcodes == []
+    assert completed_model.data.result.workflow_metadata is None
+
+    # 3. WorkflowExecutionFailedEvent
+    raw_failed = WorkflowExecutionFailedEvent(
+        event_id=uuid4(),
+        organization_id=uuid4(),
+        workflow_id="wf-test",
+        execution_id="exec-test",
+        created_at=datetime.now(UTC),
+        version=1,
+        error_type="ExtractionError",
+        error_message="Critical: failed with token secret_token_xyz in query string",
+        failed_step="extract_text",
+        retry_count=1,
+    )
+    failed_payload = raw_failed.model_dump(mode="json")
+    EventRepository.anonymize_payload("WorkflowExecutionFailed", failed_payload)
+
+    failed_dto = EventDTO(
+        id=uuid4(),
+        organization_id=raw_failed.organization_id,
+        workflow_id="wf-test",
+        execution_id="exec-test",
+        created_at=raw_failed.created_at,
+        event_type=EventType.WORKFLOW_EXECUTION_FAILED,
+        event=failed_payload,
+        anonymization_status=AnonymizationStatus.DONE,
+    )
+    failed_model = service.get_event_model(
+        failed_dto, execution_id="exec-test", is_debug_mode=False
+    )
+    assert failed_model.status == ExecutionStatus.FAILED
+    assert failed_model.purged is True
+    assert failed_model.data.error_message == "[PURGED]"

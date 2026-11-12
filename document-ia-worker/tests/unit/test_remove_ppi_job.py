@@ -143,7 +143,7 @@ async def test_remove_ppi_job_handles_individual_errors_resiliently(
         # Both events were attempted
         assert mock_repo.anonymize_event.call_count == 2
         # Failed event was recorded as failed
-        mock_repo.save_failed_anonymization.assert_called_once_with(event_fail)
+        mock_repo.save_failed_anonymization.assert_called_once_with(event_fail.id)
 
         # Check outcome metrics
         assert any(
@@ -159,3 +159,116 @@ async def test_remove_ppi_job_handles_individual_errors_resiliently(
             "event_purge operation=purge outcome=error value=1" in record.message
             for record in caplog.records
         )
+
+
+@pytest.mark.asyncio
+async def test_remove_ppi_job_emits_lag_after_purge_loop():
+    call_order = []
+
+    mock_session = AsyncMock()
+    mock_db_manager = MagicMock()
+    mock_db_manager.return_value.local_session.return_value.__aenter__.return_value = (
+        mock_session
+    )
+
+    with (
+        patch(
+            "document_ia_task_scheduler.task.remove_ppi.job.DatabaseManager",
+            mock_db_manager,
+        ),
+        patch(
+            "document_ia_task_scheduler.task.remove_ppi.job.EventRepository"
+        ) as mock_repo_class,
+        patch(
+            "document_ia_task_scheduler.task.remove_ppi.job.remove_ppi_settings"
+        ) as mock_settings,
+    ):
+        mock_settings.EVENT_STORE_PPI_RETENTION_DAYS = 7
+        mock_settings.EVENT_STORE_PPI_BATCH_SIZE = 10
+
+        event = _make_event()
+        mock_repo = mock_repo_class.return_value
+
+        async def fake_anonymize(ev):
+            call_order.append("anonymize")
+
+        async def fake_get_lag(before_date=None):
+            call_order.append("get_lag")
+            return 42.0
+
+        mock_repo.get_events_to_anonymize = AsyncMock(side_effect=[[event], []])
+        mock_repo.anonymize_event = AsyncMock(side_effect=fake_anonymize)
+        mock_repo.get_oldest_pending_event_age_seconds = AsyncMock(
+            side_effect=fake_get_lag
+        )
+
+        job = RemovePPI()
+        await job._internal_execute()
+
+        assert call_order == ["anonymize", "get_lag"], (
+            "Lag metric must be computed AFTER the purge loop"
+        )
+
+
+@pytest.mark.asyncio
+async def test_remove_ppi_job_survives_sqlalchemy_session_rollback_expiration(
+    caplog: pytest.LogCaptureFixture,
+):
+    """Verify RemovePPI does not raise MissingGreenlet when an event's attributes expire."""
+    caplog.set_level(logging.INFO)
+
+    class ExpiringEvent:
+        def __init__(self, uid):
+            self._uid = uid
+            self.expired = False
+
+        @property
+        def id(self):
+            if self.expired:
+                raise RuntimeError("MissingGreenlet: attribute expired after rollback")
+            return self._uid
+
+    ev1 = ExpiringEvent(uuid4())
+    ev2 = ExpiringEvent(uuid4())
+
+    mock_session = AsyncMock()
+    mock_db_manager = MagicMock()
+    mock_db_manager.return_value.local_session.return_value.__aenter__.return_value = (
+        mock_session
+    )
+
+    with (
+        patch(
+            "document_ia_task_scheduler.task.remove_ppi.job.DatabaseManager",
+            mock_db_manager,
+        ),
+        patch(
+            "document_ia_task_scheduler.task.remove_ppi.job.EventRepository"
+        ) as mock_repo_class,
+        patch(
+            "document_ia_task_scheduler.task.remove_ppi.job.remove_ppi_settings"
+        ) as mock_settings,
+    ):
+        mock_settings.EVENT_STORE_PPI_RETENTION_DAYS = 7
+        mock_settings.EVENT_STORE_PPI_BATCH_SIZE = 10
+
+        mock_repo = mock_repo_class.return_value
+        mock_repo.get_oldest_pending_event_age_seconds = AsyncMock(return_value=0.0)
+        mock_repo.get_events_to_anonymize = AsyncMock(return_value=[ev1, ev2])
+
+        async def failing_anonymize(ev):
+            # Simulate rollback expiring attributes on ev
+            ev.expired = True
+            raise RuntimeError("Database deadlock during commit")
+
+        mock_repo.anonymize_event = AsyncMock(side_effect=failing_anonymize)
+        mock_repo.save_failed_anonymization = AsyncMock()
+
+        job = RemovePPI()
+        # Must not raise MissingGreenlet / RuntimeError from ev.id
+        await job._internal_execute()
+
+        assert mock_repo.anonymize_event.call_count == 2
+        assert mock_repo.save_failed_anonymization.call_count == 2
+        mock_repo.save_failed_anonymization.assert_any_call(ev1._uid)
+        mock_repo.save_failed_anonymization.assert_any_call(ev2._uid)

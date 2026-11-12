@@ -23,7 +23,7 @@ def upgrade() -> None:
     op.create_index(
         "idx_event_store_anonymization_status",
         "event_store",
-        ["anonymization_status"],
+        ["anonymization_status", "created_at"],
     )
 
 
