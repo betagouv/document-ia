@@ -20,7 +20,10 @@ from document_ia_infra.data.event.schema.event import (
     EventStoreRecord,
     EventStream,
 )
-from document_ia_infra.data.event.schema.mappers.event_mapper import convert_event_dto
+from document_ia_infra.data.event.schema.mappers.event_mapper import (
+    convert_event_dto,
+    decode_event_dto,
+)
 from document_ia_infra.data.event.schema.workflow.workflow_execution_completed_event import (
     CompletedEventResult,
     WorkflowExecutionCompletedEvent,
@@ -63,6 +66,26 @@ class EventStoreService:
         except Exception as e:
             logger.error(
                 f"Failed to get last event for execution_id {execution_id}: {e}"
+            )
+            raise
+
+    async def get_workflow_started_event(
+        self, execution_id: str
+    ) -> tuple[EventDTO, WorkflowExecutionStartedEvent] | None:
+        """Retrieve the started event for an execution."""
+        try:
+            event_dto = await self.repository.get_started_event_by_execution_id(
+                execution_id
+            )
+            if not event_dto:
+                return None
+            decoded = decode_event_dto(event_dto)
+            if isinstance(decoded, WorkflowExecutionStartedEvent):
+                return event_dto, decoded
+            return None
+        except Exception as e:
+            logger.error(
+                f"Failed to get started event for execution_id {execution_id}: {e}"
             )
             raise
 

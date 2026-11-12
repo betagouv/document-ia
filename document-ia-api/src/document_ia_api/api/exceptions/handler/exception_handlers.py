@@ -23,6 +23,7 @@ HTTP_CODE_MAP = {
     403: "http.forbidden",
     404: "http.not_found",
     405: "http.method_not_allowed",
+    409: "http.conflict",
     413: "http.payload_too_large",
     429: "http.rate_limited",
     503: "http.service_unavailable",

@@ -17,5 +17,12 @@ class FileSettings(BaseDocumentIaSettings):
         "image/png": [".png"],
     }
 
+    ALLOW_INSECURE_HTTP: bool = Field(
+        default=False, validation_alias="FILE_ALLOW_INSECURE_HTTP"
+    )
+    ALLOW_LOCAL_NETWORK: bool = Field(
+        default=False, validation_alias="FILE_ALLOW_LOCAL_NETWORK"
+    )
+
 
 file_settings = FileSettings()
