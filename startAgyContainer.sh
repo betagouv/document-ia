@@ -10,7 +10,7 @@ CONTAINER_NAME="${CONTAINER_NAME:-antigravity-${AGENT_ID}}"
 
 # Répertoire dédié de persistance Antigravity pour ce conteneur
 AGENT_DATA_DIR="${HOME}/.gemini/agent-containers/${AGENT_ID}/antigravity-cli"
-mkdir -p "${AGENT_DATA_DIR}/cache" "$HOME/.gemini/config" "$(pwd)/.uv-cache"
+mkdir -p "${AGENT_DATA_DIR}/cache" "$HOME/.gemini/config" "$HOME/.agentmemory" "$(pwd)/.uv-cache"
 touch "$HOME/.gemini/config/mcp_config.json"
 
 # Synchronisation du token OAuth depuis l'hôte
@@ -50,6 +50,7 @@ echo "==> Démarrage du conteneur Antigravity '${CONTAINER_NAME}'..."
 echo "    - Branche : ${BRANCH}"
 echo "    - Données Antigravity : ${AGENT_DATA_DIR}"
 echo "    - Partage configuration : ~/.gemini/config (MCP)"
+echo "    - Partage mémoire : ~/.agentmemory (agentmemory standalone)"
 echo "    - Réseau : host.docker.internal activé"
 
 exec docker run -it --rm \
@@ -64,4 +65,5 @@ exec docker run -it --rm \
   -v "$(pwd)/.uv-cache:/root/.cache/uv" \
   -v "${AGENT_DATA_DIR}:/root/.gemini/antigravity-cli" \
   -v "$HOME/.gemini/config:/root/.gemini/config" \
+  -v "$HOME/.agentmemory:/root/.agentmemory" \
   "${IMAGE_NAME}" "${@:-bash}"
