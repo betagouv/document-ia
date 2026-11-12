@@ -7,6 +7,7 @@ from document_ia_evals.components.auth_ui import enforce_page_auth
 from document_ia_evals.database.models import UserRole
 from document_ia_evals.services.auth_service import (
     add_evals_user,
+    assert_active_admin,
     list_evals_users,
     list_recent_access_logs,
     update_evals_user,
@@ -21,10 +22,15 @@ st.set_page_config(
 
 
 def _handle_role_change(email: str, widget_key: str) -> None:
-    """Callback when an administrator updates a user role via dropdown."""
+    """Callback when an administrator updates a user role via dropdown.
+
+    Streamlit runs this before the page reruns, so `enforce_page_auth` has not
+    executed yet: the acting administrator is re-checked against the database.
+    """
     new_role = st.session_state.get(widget_key)
     if new_role:
         try:
+            assert_active_admin(st.session_state.get("current_user_email"))
             update_evals_user(email, role=str(new_role))
             st.toast(f"Rôle de {email} mis à jour : {new_role}")
         except Exception as e:
@@ -61,6 +67,7 @@ def render_users_and_rights_page() -> None:
                     st.error("Veuillez saisir une adresse email valide.")
                 else:
                     try:
+                        assert_active_admin(current_user_email)
                         add_evals_user(new_email, new_role)
                         st.success(
                             f"L'utilisateur '{new_email}' a été habilité avec succès."
@@ -142,6 +149,7 @@ def render_users_and_rights_page() -> None:
                     width="stretch",
                 ):
                     try:
+                        assert_active_admin(current_user_email)
                         update_evals_user(u.email, is_active=not u.is_active)
                         st.rerun()
                     except Exception as e:

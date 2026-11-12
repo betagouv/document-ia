@@ -8,6 +8,7 @@ from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 # Local imports
 from document_ia_evals.components import render_workflow_configurator
+from document_ia_evals.services.administration_service import get_current_config
 from document_ia_evals.services.create_dataset_service import (
     get_failed_uploads,
     get_upload_statistics,
@@ -37,8 +38,11 @@ def render_configuration_warnings() -> bool:
         True if all configuration is valid, False otherwise
     """
     # Check API key
-    if not config.DOCUMENT_IA_API_KEY:
-        st.warning("⚠️ DOCUMENT_IA_API_KEY not found in configuration.")
+    if not get_current_config()["api_key"]:
+        st.warning(
+            "⚠️ Aucune clé API pour l'environnement sélectionné. "
+            "Renseignez DOCUMENT_IA_API_KEY ou la clé de l'environnement personnalisé."
+        )
         return False
 
     # Check S3 configuration
@@ -215,6 +219,7 @@ def handle_dataset_creation_v2(
     create_ls_project: bool = True,
     existing_project_id: int | None = None,
     s3_storage_id: int | None = None,
+    base_url: str | None = None,
 ) -> None:
     """Handle the dataset creation or append process using V2 API.
 
@@ -231,6 +236,7 @@ def handle_dataset_creation_v2(
         create_ls_project: Whether to create a new Label Studio project
         existing_project_id: Optional ID of an existing Label Studio project to sync instead of creating a new one
         s3_storage_id: Optional ID of the existing project's S3 import storage
+        base_url: Target API endpoint, paired with api_key
     """
     if not existing_project_id and not dataset_name:
         st.warning("⚠️ Veuillez entrer un nom pour le dataset.")
@@ -262,6 +268,7 @@ def handle_dataset_creation_v2(
             metadata={"source": "streamlit-dataset-creation-v2"},
             dataset_type=dataset_type,
             on_progress=update_progress,
+            base_url=base_url,
         )
 
     # Show upload results
@@ -371,8 +378,11 @@ def main() -> None:
     if not render_configuration_warnings():
         return
 
-    api_key = config.DOCUMENT_IA_API_KEY
-    assert api_key is not None
+    # Endpoint and credential must travel together: a custom environment uses its
+    # own key, never the server default.
+    current_config = get_current_config()
+    api_key = current_config["api_key"]
+    base_url = current_config["base_url"]
 
     # Import selector component
     from document_ia_evals.components.project_selector import (
@@ -632,6 +642,7 @@ def main() -> None:
                     override=override if override else None,
                     dataset_type=dataset_type,
                     create_ls_project=create_ls_project,
+                    base_url=base_url,
                 )
         else:
             # Append mode: Configuration is locked, just show details
@@ -670,6 +681,7 @@ def main() -> None:
                     create_ls_project=False,
                     existing_project_id=project_selection.project_id,
                     s3_storage_id=s3_storage_id,
+                    base_url=base_url,
                 )
 
 

@@ -200,6 +200,35 @@ def list_evals_users(limit: int = 200) -> Sequence[EvalsUser]:
         return session.scalars(stmt).all()
 
 
+def assert_active_admin(email: str | None) -> None:
+    """Reject a privileged mutation unless the actor is an active admin right now.
+
+    Streamlit runs widget callbacks before the script reruns, so a page left open
+    can invoke a mutation after the account was demoted or disabled. The cached
+    session role is not evidence of current rights: this reads the database.
+    """
+    clean_email = (email or "").strip().lower()
+    if not clean_email:
+        raise PermissionError("Action refusée : administrateur non identifié.")
+
+    if is_local_bypass_allowed():
+        return
+
+    with get_session() as session:
+        actor = session.scalars(
+            select(EvalsUser).where(func.lower(EvalsUser.email) == clean_email)
+        ).first()
+
+    if actor is None or not actor.is_active or actor.role != UserRole.ADMIN.value:
+        logger.warning(
+            "Rejected privileged user-management action for non-admin actor: %s",
+            clean_email,
+        )
+        raise PermissionError(
+            "Action refusée : vos droits d'administration ne sont plus actifs."
+        )
+
+
 def get_evals_user_by_email(email: str) -> EvalsUser | None:
     """Get user by email address."""
     clean_email = email.strip().lower()

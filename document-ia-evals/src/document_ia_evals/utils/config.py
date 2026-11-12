@@ -79,7 +79,10 @@ class Config(BaseSettings):
     PROCONNECT_REDIRECT_URI: str = Field(default="http://localhost:8501/oauth2callback")
     PROCONNECT_COOKIE_SECRET: str | None = Field(default=None)
     PROCONNECT_SCOPES: str = Field(default="openid email profile")
-    PROCONNECT_POST_LOGOUT_REDIRECT_URI: str = Field(default="http://localhost:8501/")
+    # Optional override. When unset, federated logout keeps the redirect Streamlit
+    # derives from PROCONNECT_REDIRECT_URI, so hosted deployments are not sent to
+    # a localhost address that ProConnect has not registered.
+    PROCONNECT_POST_LOGOUT_REDIRECT_URI: str | None = Field(default=None)
 
     def ensure_directories(self):
         """Ensure necessary directories exist."""
