@@ -80,6 +80,8 @@ class BoundedLokiQueueHandler(LokiQueueHandler):
         super().__init__(queue, **kwargs)  # pyright: ignore [reportUnknownMemberType]
         if hasattr(self, "handler") and hasattr(self.handler, "emitter"):
             self.handler.emitter.session_class = _TimeoutSession
+            if hasattr(self.handler.emitter, "close"):
+                self.handler.emitter.close()
 
     def emit(self, record: LogRecord) -> None:
         queue_obj = cast(Queue[Any], self.queue)

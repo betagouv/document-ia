@@ -11,6 +11,9 @@ from typing import (
 
 import cv2
 import numpy as np
+from PIL import Image, UnidentifiedImageError
+
+from document_ia_infra.redis.progress_tracker import get_current_progress_tracker
 from numpy.typing import NDArray
 
 from document_ia_infra.data.event.schema.barcode import (
@@ -45,6 +48,7 @@ __all__ = [
     "_BARCODE_LOCK",
     "_rescale_barcode_position",
     "load_and_downscale_barcode_image",
+    "is_barcode_extraction_aborted",
 ]
 
 
@@ -70,14 +74,45 @@ def _rescale_barcode_position(
     )
 
 
+def is_barcode_extraction_aborted(page_num: int) -> bool:
+    tracker = get_current_progress_tracker()
+    if tracker is not None and tracker.is_aborted:
+        logger.warning(
+            "Barcode extraction aborted by watchdog; stopping at page %d",
+            page_num,
+        )
+        return True
+    return False
+
+
 def load_and_downscale_barcode_image(
     file: str,
 ) -> tuple[ImageArray | None, float]:
     """
     Loads an image from file and downscales it using cv2.INTER_AREA if its maximum dimension
     exceeds barcode_settings.MAX_BARCODE_IMAGE_DIM.
+    Validates image header beforehand to protect against decompression bombs.
     Returns (image, scale_factor).
     """
+    try:
+        with Image.open(file) as pil_img:
+            orig_w, orig_h = pil_img.size
+            if (
+                orig_w <= 0
+                or orig_h <= 0
+                or (orig_w * orig_h) > barcode_settings.MAX_BARCODE_IMAGE_PIXELS
+            ):
+                logger.error(
+                    "Image dimensions (%dx%d) invalid or exceed safety pixel limit: %s",
+                    orig_w,
+                    orig_h,
+                    file,
+                )
+                return None, 1.0
+    except (UnidentifiedImageError, Image.DecompressionBombError, OSError) as exc:
+        logger.error("Impossible de valider l'entête de l'image %s: %s", file, exc)
+        return None, 1.0
+
     img_raw = cv2.imread(file)
     if img_raw is None:
         logger.error(f"Impossible de lire l'image: {file}")

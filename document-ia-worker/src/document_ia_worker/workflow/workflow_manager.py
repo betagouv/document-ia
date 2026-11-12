@@ -63,7 +63,11 @@ logger = logging.getLogger(__name__)
 def _load_libc() -> Any:
     if sys.platform.startswith("linux"):
         try:
-            return ctypes.CDLL("libc.so.6")
+            libc = ctypes.CDLL("libc.so.6")
+            if hasattr(libc, "malloc_trim"):
+                libc.malloc_trim.argtypes = [ctypes.c_size_t]
+                libc.malloc_trim.restype = ctypes.c_int
+            return libc
         except Exception:
             return None
     return None

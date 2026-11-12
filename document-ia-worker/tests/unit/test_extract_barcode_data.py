@@ -1,5 +1,6 @@
 from typing import Any, cast
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
+from PIL import Image
 
 import cv2
 import numpy as np
@@ -15,6 +16,7 @@ from document_ia_infra.data.event.schema.barcode import (
 from document_ia_worker.workflow.step.extract_barcode_data.base_extract_barcode import (
     BarcodeLike,
     BaseExtractBarcode,
+    load_and_downscale_barcode_image,
 )
 from document_ia_worker.workflow.step.extract_barcode_data.base_extract_barcode_2ddoc import (
     BaseExtractBarcode2DDoc,
@@ -205,8 +207,8 @@ def test_normalize_barcode_position() -> None:
 
 
 def test_read_barcodes_compat_crop_exceeding_threshold_skips_upscale() -> None:
-    # Crop dimension > 250 px (e.g. 300x300)
-    large_crop = np.zeros((300, 300, 3), dtype=np.uint8)
+    # Crop dimension > 300 px (e.g. 350x350)
+    large_crop = np.zeros((350, 350, 3), dtype=np.uint8)
     mock_pos = DummyPosition((0, 0), (10, 0), (10, 10), (0, 10))
     mock_barcode = DummyBarcode("DM", "DataMatrix", mock_pos)
 
@@ -329,7 +331,7 @@ def test_read_barcodes_compat_small_crop_fallback_upscales_3x_and_border() -> No
         patch(
             "document_ia_worker.workflow.step.extract_barcode_data.extract_barcode_2ddoc_data.ZXINGCPP.read_barcodes",
             return_value=[],
-        ),
+        ) as mock_read,
     ):
         result = _read_barcodes_compat(small_crop, is_from_crops=True)
 
@@ -341,6 +343,8 @@ def test_read_barcodes_compat_small_crop_fallback_upscales_3x_and_border() -> No
             for c in mock_upscale.call_args_list
         ]
         assert calls == [2, 3, 2, 3]
+        # ZXingCPP reads: 1x clean, 2x clean, 3x clean, 1x bordered, 2x bordered, 3x bordered -> exactly 6 passes, no fallthrough 7th pass
+        assert mock_read.call_count == 6
 
 
 @pytest.mark.asyncio
@@ -358,7 +362,12 @@ async def test_extract_barcode_2ddoc_large_image_downscaled_and_positions_rescal
     detected_pos = DummyPosition((100, 200), (200, 200), (200, 300), (100, 300))
     detected_barcode = DummyBarcode("TEST_CODE", "QRCode", detected_pos)
 
+    mock_pil = MagicMock()
+    mock_pil.size = (2400, 4800)
+    mock_pil.__enter__.return_value = mock_pil
+
     with (
+        patch("PIL.Image.open", return_value=mock_pil),
         patch("cv2.imread", return_value=raw_img),
         patch(
             "document_ia_worker.workflow.step.extract_barcode_data.extract_barcode_2ddoc_data._read_barcodes_compat",
@@ -395,7 +404,12 @@ async def test_extract_barcode_2ddoc_a4_200dpi_not_downscaled() -> None:
     mock_detector = MagicMock()
     mock_detector.detect.return_value = []
 
+    mock_pil = MagicMock()
+    mock_pil.size = (1654, 2338)
+    mock_pil.__enter__.return_value = mock_pil
+
     with (
+        patch("PIL.Image.open", return_value=mock_pil),
         patch("cv2.imread", return_value=a4_img),
         patch("cv2.resize", wraps=cv2.resize) as spy_resize,
         patch(
@@ -460,7 +474,12 @@ async def test_extract_barcode_2ddoc_qrdet_crop_coordinates_projected_to_global_
             return []
         return [crop_barcode]
 
+    mock_pil = MagicMock()
+    mock_pil.size = (2400, 4800)
+    mock_pil.__enter__.return_value = mock_pil
+
     with (
+        patch("PIL.Image.open", return_value=mock_pil),
         patch("cv2.imread", return_value=raw_img),
         patch(
             "document_ia_worker.workflow.step.extract_barcode_data.extract_barcode_2ddoc_data._get_qrdet_detector",
@@ -540,7 +559,14 @@ async def test_extract_barcode_raw_data_downscales_and_handles_unreadable_image(
             return None
         return large_img
 
+    def mock_pil_open(path: str, *args: Any, **kwargs: Any) -> Any:
+        mock_pil = MagicMock()
+        mock_pil.size = (100, 100) if "unreadable" in path else (2400, 4800)
+        mock_pil.__enter__.return_value = mock_pil
+        return mock_pil
+
     with (
+        patch("PIL.Image.open", side_effect=mock_pil_open),
         patch("cv2.imread", side_effect=mock_imread),
         patch(
             "document_ia_worker.workflow.step.extract_barcode_data.extract_barcode_raw_data.zxingcpp.read_barcodes",
@@ -637,3 +663,76 @@ async def test_extract_barcode_data_legacy_step_applies_downscale_and_lock() -> 
         assert result.pages[0].barcodes[0].raw_data == "LEGACY_PAYLOAD"
         # 100 / 0.5 = 200, 200 / 0.5 = 400
         assert result.pages[0].barcodes[0].position.top_left == (200, 400)
+
+
+def test_load_and_downscale_barcode_image_rejects_decompression_bomb() -> None:
+    # SEC-01: Images exceeding MAX_BARCODE_IMAGE_PIXELS or raising DecompressionBombError
+    # must be rejected with (None, 1.0) without calling cv2.imread.
+    mock_pil = MagicMock()
+    mock_pil.size = (20000, 10000)  # 200 MP > 100 MP limit
+    mock_pil.__enter__.return_value = mock_pil
+
+    with (
+        patch("PIL.Image.open", return_value=mock_pil),
+        patch("cv2.imread") as mock_imread,
+    ):
+        img, scale = load_and_downscale_barcode_image("/fake/bomb.png")
+        assert img is None
+        assert scale == 1.0
+        mock_imread.assert_not_called()
+
+    with (
+        patch(
+            "PIL.Image.open",
+            side_effect=Image.DecompressionBombError("Bomb detected"),
+        ),
+        patch("cv2.imread") as mock_imread,
+    ):
+        img, scale = load_and_downscale_barcode_image("/fake/bomb_err.png")
+        assert img is None
+        assert scale == 1.0
+        mock_imread.assert_not_called()
+
+    # Zero or negative dimensions
+    mock_zero = MagicMock()
+    mock_zero.size = (0, 100)
+    mock_zero.__enter__.return_value = mock_zero
+    with (
+        patch("PIL.Image.open", return_value=mock_zero),
+        patch("cv2.imread") as mock_imread,
+    ):
+        img, scale = load_and_downscale_barcode_image("/fake/zero.png")
+        assert img is None
+        assert scale == 1.0
+        mock_imread.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_extract_barcode_2ddoc_aborted_while_waiting_for_lock_skips_page() -> (
+    None
+):
+    # QUAL-04: If job is aborted by watchdog while waiting for _BARCODE_LOCK,
+    # the second abortion check inside with _BARCODE_LOCK must break immediately
+    # without calling load_and_downscale_barcode_image or allocating memory.
+    step = ExtractBarcode2DDocData()
+    step.preprocess_file_result = PreprocessFileResult(
+        output_files_path=["/mock/page1.png"],
+    )
+
+    mock_tracker = MagicMock()
+    # First check (before lock) returns False; second check (inside lock) returns True
+    type(mock_tracker).is_aborted = PropertyMock(side_effect=[False, True])
+
+    with (
+        patch(
+            "document_ia_worker.workflow.step.extract_barcode_data.extract_barcode_2ddoc_data.get_current_progress_tracker",
+            return_value=mock_tracker,
+        ),
+        patch(
+            "document_ia_worker.workflow.step.extract_barcode_data.extract_barcode_2ddoc_data.load_and_downscale_barcode_image",
+        ) as mock_load,
+    ):
+        result, _ = await step._execute_internal()
+
+        assert len(result.pages) == 0
+        mock_load.assert_not_called()

@@ -21,6 +21,17 @@ from document_ia_worker.workflow.step.step_result.barcode_result import (
 logger = logging.getLogger(__name__)
 
 
+def _is_barcode_extraction_aborted(page_num: int) -> bool:
+    tracker = get_current_progress_tracker()
+    if tracker is not None and tracker.is_aborted:
+        logger.warning(
+            "Barcode extraction aborted by watchdog; stopping at page %d",
+            page_num,
+        )
+        return True
+    return False
+
+
 # Step to read barcodes content.
 # No parsing is done on the content, only the raw text is extracted.
 class ExtractBarcodeRawData(BaseExtractBarcode):
@@ -30,15 +41,13 @@ class ExtractBarcodeRawData(BaseExtractBarcode):
         barcodes_data: list[PageResult] = []
 
         for idx, file in enumerate(self.preprocess_file_result.output_files_path):
-            tracker = get_current_progress_tracker()
-            if tracker is not None and tracker.is_aborted:
-                logger.warning(
-                    "Barcode extraction aborted by watchdog; stopping at page %d",
-                    idx + 1,
-                )
+            if _is_barcode_extraction_aborted(idx + 1):
                 break
 
             with _BARCODE_LOCK:
+                if _is_barcode_extraction_aborted(idx + 1):
+                    break
+
                 img: ImageArray | None = None
                 try:
                     img, scale = load_and_downscale_barcode_image(file)

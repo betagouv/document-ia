@@ -224,5 +224,5 @@ vendor/
 # Antigravity & local worker logs
 .agents/
 log-worker-*
-data/
+/data/
 benchmark_*.json

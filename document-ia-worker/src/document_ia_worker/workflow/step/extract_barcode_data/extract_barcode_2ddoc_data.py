@@ -48,6 +48,19 @@ class QRDetDetection(TypedDict, total=False):
 
 
 ZXINGCPP: Any = zxingcpp
+
+
+def _is_barcode_extraction_aborted(page_num: int) -> bool:
+    tracker = get_current_progress_tracker()
+    if tracker is not None and tracker.is_aborted:
+        logger.warning(
+            "Barcode extraction aborted by watchdog; stopping at page %d",
+            page_num,
+        )
+        return True
+    return False
+
+
 _qrdet_detector: Optional[QRDetector] = None
 _QRDET_LOCK = _BARCODE_LOCK  # Backwards compatibility alias
 
@@ -175,9 +188,7 @@ def _read_barcodes_compat(
             del image_scaled_2x
 
         # 3. Try 3x upscale on raw crop, then immediately free it
-        logger.debug(
-            "Last chance we try upscaling 3x for better QR code detection in crops..."
-        )
+        logger.debug("Trying upscaling 3x for barcode detection in crops...")
         image_scaled_3x: ImageArray | None = _upscale_crop(
             cast(ImageArray, image), scale=3
         )
@@ -193,9 +204,19 @@ def _read_barcodes_compat(
         finally:
             del image_scaled_3x
 
-        # 4. Final fallback: add white border + upscale 2x (and 3x if still not decoded)
+        # 4. Final fallback: add white border, try 1x first (0 extra allocation), then upscale 2x and 3x
         bordered = _add_white_border(cast(ImageArray, image), border_ratio=0.15)
         try:
+            raw_barcodes_1x = cast(
+                list[BarcodeLike],
+                ZXINGCPP.read_barcodes(bordered, formats=formats),
+            )
+            if raw_barcodes_1x:
+                return [
+                    _normalize_barcode_position(b, scale=1, pad=pad)
+                    for b in raw_barcodes_1x
+                ]
+
             bordered_scaled_2x: ImageArray | None = _upscale_crop(bordered, scale=2)
             try:
                 raw_barcodes_2x = cast(
@@ -225,6 +246,8 @@ def _read_barcodes_compat(
                 del bordered_scaled_3x
         finally:
             del bordered
+
+        return []
 
     return cast(
         list[BarcodeLike],
@@ -335,15 +358,13 @@ class ExtractBarcode2DDocData(BaseExtractBarcode2DDoc):
         target_formats: Any = ZXINGCPP.barcode_formats_from_str("DataMatrix|QRCode")
 
         for idx, file in enumerate(self.preprocess_file_result.output_files_path):
-            tracker = get_current_progress_tracker()
-            if tracker is not None and tracker.is_aborted:
-                logger.warning(
-                    "Barcode extraction aborted by watchdog; stopping at page %d",
-                    idx + 1,
-                )
+            if _is_barcode_extraction_aborted(idx + 1):
                 break
 
             with _BARCODE_LOCK:
+                if _is_barcode_extraction_aborted(idx + 1):
+                    break
+
                 img: ImageArray | None = None
                 detections: list[QRDetDetection] = []
                 rois: list[QRDetCrop] = []
@@ -372,6 +393,16 @@ class ExtractBarcode2DDocData(BaseExtractBarcode2DDoc):
                             )
 
                     if not has_ants:
+                        if _is_barcode_extraction_aborted(idx + 1):
+                            if page_barcode_data:
+                                barcodes_data.append(
+                                    PageResult(
+                                        page_number=idx + 1,
+                                        barcodes=page_barcode_data,
+                                    )
+                                )
+                            break
+
                         try:
                             logger.info(
                                 "No suitable barcode found, trying QRDet for better QR code detection..."
@@ -390,30 +421,36 @@ class ExtractBarcode2DDocData(BaseExtractBarcode2DDoc):
                         img = None
                         detections = []
 
-                        for crop_obj in rois:
+                        while rois:
+                            crop_obj = rois.pop(0)
                             crop, offset_x, offset_y = crop_obj
-                            crop_barcodes = _read_barcodes_compat(
-                                crop,
-                                target_formats,
-                                True,
-                            )
-                            if not crop_barcodes:
-                                continue
-                            crop_variants, seen_keys, _ = self._decode_barcodes_batch(
-                                crop_barcodes,
-                                idx + 1,
-                                seen_keys,
-                            )
-                            for variant in crop_variants:
-                                variant.position = _offset_barcode_position(
-                                    variant.position, offset_x, offset_y
+                            del crop_obj
+                            try:
+                                crop_barcodes = _read_barcodes_compat(
+                                    crop,
+                                    target_formats,
+                                    True,
                                 )
-                                if scale < 1.0:
-                                    variant.position = _rescale_barcode_position(
-                                        variant.position, scale
+                                if not crop_barcodes:
+                                    continue
+                                crop_variants, seen_keys, _ = (
+                                    self._decode_barcodes_batch(
+                                        crop_barcodes,
+                                        idx + 1,
+                                        seen_keys,
                                     )
-                            page_barcode_data.extend(crop_variants)
-                            crop = None
+                                )
+                                for variant in crop_variants:
+                                    variant.position = _offset_barcode_position(
+                                        variant.position, offset_x, offset_y
+                                    )
+                                    if scale < 1.0:
+                                        variant.position = _rescale_barcode_position(
+                                            variant.position, scale
+                                        )
+                                page_barcode_data.extend(crop_variants)
+                            finally:
+                                crop = None
 
                     if not page_barcode_data:
                         continue

@@ -1,3 +1,4 @@
+from typing import Any
 import logging
 from queue import Queue
 from unittest.mock import MagicMock
@@ -50,12 +51,19 @@ def test_logging_settings_reads_bearer_token(
 
 
 def test_build_loki_handler_bounded_queue(monkeypatch) -> None:
+    captured_queues: list[Queue[Any]] = []
+
+    def mock_init(self, q: Queue[Any], **kwargs: Any) -> None:
+        captured_queues.append(q)
+
     monkeypatch.setattr(
         "document_ia_infra.core.loki_settings.LokiQueueHandler.__init__",
-        lambda self, q, **kwargs: None,
+        mock_init,
     )
     handler = build_loki_handler("test-app")
     assert isinstance(handler, BoundedLokiQueueHandler)
+    assert len(captured_queues) == 1
+    assert captured_queues[0].maxsize == 1000
 
 
 def test_bounded_loki_queue_handler_drops_overflow_records() -> None:
@@ -101,7 +109,9 @@ def test_timeout_session_sets_default_timeout(monkeypatch) -> None:
 
 def test_bounded_loki_queue_handler_configures_timeout_session() -> None:
     queue: Queue[logging.LogRecord] = Queue(maxsize=10)
-    handler = BoundedLokiQueueHandler(queue, url="https://loki.example/push")
+    handler = BoundedLokiQueueHandler(
+        queue, url="https://loki.example/push", version="1"
+    )
     try:
         assert handler.handler.emitter.session_class is _TimeoutSession
     finally:
