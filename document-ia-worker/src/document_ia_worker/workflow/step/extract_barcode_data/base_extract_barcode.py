@@ -1,11 +1,20 @@
 import logging
+import threading
 from typing import (
     Optional,
     Any,
     runtime_checkable,
     Protocol,
     Iterable,
+    cast,
 )
+
+import cv2
+import numpy as np
+from PIL import Image, UnidentifiedImageError
+
+from document_ia_infra.redis.progress_tracker import get_current_progress_tracker
+from numpy.typing import NDArray
 
 from document_ia_infra.data.event.schema.barcode import (
     QrCode,
@@ -13,6 +22,7 @@ from document_ia_infra.data.event.schema.barcode import (
     BarcodeVariant,
     DataMatrix,
 )
+from document_ia_worker.core.barcode_settings import barcode_settings
 from document_ia_worker.workflow.step.base_step import BaseStep
 from document_ia_worker.workflow.step.step_result.barcode_result import (
     BarcodeResult,
@@ -22,6 +32,112 @@ from document_ia_worker.workflow.step.step_result.preprocess_file_result import 
 )
 
 logger = logging.getLogger(__name__)
+
+ImageArray = NDArray[np.uint8]
+MatLike = NDArray[np.generic]
+
+_BARCODE_LOCK = threading.Lock()
+
+__all__ = [
+    "PointLike",
+    "PositionLike",
+    "BarcodeLike",
+    "BaseExtractBarcode",
+    "ImageArray",
+    "MatLike",
+    "_BARCODE_LOCK",
+    "_rescale_barcode_position",
+    "load_and_downscale_barcode_image",
+    "is_barcode_extraction_aborted",
+]
+
+
+def _rescale_barcode_position(
+    position: BarcodePosition,
+    scale: float,
+) -> BarcodePosition:
+    """
+    Rescale barcode corner coordinates from a downscaled image space (scale < 1.0)
+    back to the original document's coordinate space.
+    """
+    if scale >= 1.0 or scale <= 0:
+        return position
+
+    def rescale_point(pt: tuple[int, int]) -> tuple[int, int]:
+        return (int(round(pt[0] / scale)), int(round(pt[1] / scale)))
+
+    return BarcodePosition(
+        top_left=rescale_point(position.top_left),
+        top_right=rescale_point(position.top_right),
+        bottom_right=rescale_point(position.bottom_right),
+        bottom_left=rescale_point(position.bottom_left),
+    )
+
+
+def is_barcode_extraction_aborted(page_num: int) -> bool:
+    tracker = get_current_progress_tracker()
+    if tracker is not None and tracker.is_aborted:
+        logger.warning(
+            "Barcode extraction aborted by watchdog; stopping at page %d",
+            page_num,
+        )
+        return True
+    return False
+
+
+def load_and_downscale_barcode_image(
+    file: str,
+) -> tuple[ImageArray | None, float]:
+    """
+    Loads an image from file and downscales it using cv2.INTER_AREA if its maximum dimension
+    exceeds barcode_settings.MAX_BARCODE_IMAGE_DIM.
+    Validates image header beforehand to protect against decompression bombs.
+    Returns (image, scale_factor).
+    """
+    try:
+        with Image.open(file) as pil_img:
+            orig_w, orig_h = pil_img.size
+            if (
+                orig_w <= 0
+                or orig_h <= 0
+                or (orig_w * orig_h) > barcode_settings.MAX_BARCODE_IMAGE_PIXELS
+            ):
+                logger.error(
+                    "Image dimensions (%dx%d) invalid or exceed safety pixel limit: %s",
+                    orig_w,
+                    orig_h,
+                    file,
+                )
+                return None, 1.0
+    except (UnidentifiedImageError, Image.DecompressionBombError, OSError) as exc:
+        logger.error("Impossible de valider l'entête de l'image %s: %s", file, exc)
+        return None, 1.0
+
+    img_raw = cv2.imread(file)
+    if img_raw is None:
+        logger.error(f"Impossible de lire l'image: {file}")
+        return None, 1.0
+
+    height, width = img_raw.shape[:2]
+    max_dim = max(height, width)
+    scale = 1.0
+
+    if max_dim > barcode_settings.MAX_BARCODE_IMAGE_DIM:
+        scale = barcode_settings.MAX_BARCODE_IMAGE_DIM / max_dim
+        new_width = max(1, int(round(width * scale)))
+        new_height = max(1, int(round(height * scale)))
+        img = cast(
+            ImageArray,
+            cv2.resize(
+                img_raw,
+                (new_width, new_height),
+                interpolation=cv2.INTER_AREA,
+            ),
+        )
+        del img_raw
+        return img, scale
+
+    return cast(ImageArray, img_raw), scale
 
 
 @runtime_checkable

@@ -1,4 +1,7 @@
+import ctypes
+import gc
 import logging
+import sys
 from datetime import datetime, UTC
 from typing import Optional, Any
 
@@ -55,6 +58,31 @@ from document_ia_worker.workflow.step_factory_v1 import prepareStepListsV1
 from document_ia_worker.workflow.step_factory_v2 import prepareStepListsV2
 
 logger = logging.getLogger(__name__)
+
+
+def _load_libc() -> Any:
+    if sys.platform.startswith("linux"):
+        try:
+            libc = ctypes.CDLL("libc.so.6")
+            if hasattr(libc, "malloc_trim"):
+                libc.malloc_trim.argtypes = [ctypes.c_size_t]
+                libc.malloc_trim.restype = ctypes.c_int
+            return libc
+        except Exception:
+            return None
+    return None
+
+
+_LIBC: Any = _load_libc()
+
+
+def _release_worker_memory() -> None:
+    gc.collect()
+    if _LIBC is not None:
+        try:
+            _LIBC.malloc_trim(0)
+        except Exception:
+            pass
 
 
 class WorkflowManager:
@@ -231,6 +259,9 @@ class WorkflowManager:
                     await self._webhook_redis_manager.close()
                 except Exception as e:
                     logger.error(f"Error while closing workflow Redis manager: {e}")
+                finally:
+                    self.main_workflow_context = None
+                    _release_worker_memory()
 
     async def _prepare_workflow(self, session: AsyncSession) -> bool:
         try:
@@ -442,6 +473,10 @@ class WorkflowManager:
             # We clean up the data in the reverse order because the first step need to be the last
             for step in reversed(self.step_list):
                 await step.cleanup(is_last_cleanup)
+
+            self.workflow_context.clear()
+            self.step_list.clear()
+            _release_worker_memory()
 
     async def _save_failure_event(self, db: AsyncSession, exception: Exception):
         if self.event_dto is None:

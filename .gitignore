@@ -221,5 +221,8 @@ __marimo__/
 .models/
 vendor/
 
-#Antigravity
+# Antigravity & local worker logs
 .agents/
+log-worker-*
+/data/
+benchmark_*.json
