@@ -94,6 +94,10 @@ jobs:
       DOCUMENT_IA_API_KEY: ${{ secrets.DOCUMENT_IA_API_KEY }}
       APP_ENV: dev
 
+      # Disable Loki shipping in CI: with no LOKI_URL the queue-handler's daemon
+      # listener thread races interpreter shutdown and aborts pytest (exit 134).
+      LOKI_LOGGING_ENABLED: "false"
+
       # OpenAI / Albert
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
