@@ -9,7 +9,7 @@ dependencies = [
     "document-ia-infra",
     "python-dotenv == 1.2.4",
     "pydantic-settings == 2.16.2",
-    "pydantic == 2.14.1",
+    "pydantic == 2.14.2",
 ]
 
 [build-system]
