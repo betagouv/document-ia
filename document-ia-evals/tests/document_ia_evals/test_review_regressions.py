@@ -248,6 +248,63 @@ def test_role_change_callback_blocks_demoted_actor(in_memory_db):
     assert target.role == "user"
 
 
+def test_dialog_mutations_recheck_acting_admin(in_memory_db):
+    """Dialog reruns skip app.main() and the page guard, so each mutation checks.
+
+    Covers organization, API-key and webhook mutations reached from a dialog.
+    """
+    from document_ia_evals.pages import admin_api_keys
+
+    add_evals_user("keeper4@beta.gouv.fr", role="admin")
+    actor = add_evals_user("dialog-actor@beta.gouv.fr", role="admin")
+    update_evals_user(actor.email, role="user")
+
+    with patch(
+        "streamlit.session_state",
+        {"current_user_email": actor.email, "current_user_role": "admin"},
+    ):
+        with pytest.raises(PermissionError):
+            admin_api_keys._require_active_admin()
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "create_organization",
+        "delete_organization",
+        "create_api_key",
+        "delete_api_key",
+        "update_api_key_status",
+        "create_webhook",
+        "delete_webhook",
+    ],
+)
+def test_every_admin_api_key_mutation_is_guarded(mutation: str):
+    """Each privileged call site must be preceded by the actor re-check."""
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "document_ia_evals"
+        / "pages"
+        / "admin_api_keys.py"
+    ).read_text(encoding="utf-8")
+    lines = source.splitlines()
+
+    call_lines = [
+        i
+        for i, line in enumerate(lines)
+        if f"{mutation}(" in line and "import" not in line and "def " not in line
+    ]
+    assert call_lines, f"no call site found for {mutation}"
+    for i in call_lines:
+        preceding = "\n".join(lines[max(0, i - 6) : i])
+        assert "_require_active_admin()" in preceding, (
+            f"{mutation} at line {i + 1} is not guarded"
+        )
+
+
 # --------------------------------------------------------------------------
 # 3. Federated logout redirect
 # --------------------------------------------------------------------------

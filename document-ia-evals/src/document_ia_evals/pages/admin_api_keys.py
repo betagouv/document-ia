@@ -15,6 +15,7 @@ from document_ia_api.api.contracts.organization.organization import (
 )
 from document_ia_api.api.contracts.webhook.webhook import CreateWebHookRequest
 from document_ia_evals.components.auth_ui import enforce_page_auth
+from document_ia_evals.services.auth_service import assert_active_admin
 from document_ia_evals.services.administration_service import (
     configure_service,
     create_api_key,
@@ -43,6 +44,16 @@ st.set_page_config(
 # S4 / Issue #155: Purge active et systématique de tout reliquat historique d'env_key et env_url dans l'URL
 st.query_params.pop("env_key", None)
 st.query_params.pop("env_url", None)
+
+
+def _require_active_admin() -> None:
+    """Re-check the acting administrator against the database before a mutation.
+
+    Dialog interactions rerun only the dialog function, so neither `app.main()`
+    nor this page's `main()` guard runs first. The cached session role is not
+    evidence of current rights.
+    """
+    assert_active_admin(st.session_state.get("current_user_email"))
 
 
 @st.dialog("Configuration de l'environnement")
@@ -134,6 +145,7 @@ def dialog_add_organization() -> None:
                         or PlatformRole(role_selection),
                     )
 
+                    _require_active_admin()
                     new_org = create_organization(req)
 
                     st.success(f"Organisation '{new_org.name}' créée avec succès !")
@@ -213,6 +225,7 @@ def render_delete_org_dialog(org) -> None:
     with col_confirm:
         if st.button("Confirmer la suppression", type="primary", width="stretch"):
             try:
+                _require_active_admin()
                 delete_organization(str(org.id))
                 st.success(f"Organisation '{org.name}' supprimée avec succès.")
                 st.rerun()
@@ -283,6 +296,7 @@ def _show_delete_api_key_dialog(
     with col_confirm:
         if st.button("Confirmer la suppression", type="primary", width="stretch"):
             try:
+                _require_active_admin()
                 delete_api_key(str(org_details.id), key_id)
                 st.success("Clé API supprimée avec succès.")
                 st.rerun()
@@ -307,6 +321,7 @@ def _show_delete_webhook_dialog(
     with col_confirm:
         if st.button("Confirmer la suppression", type="primary", width="stretch"):
             try:
+                _require_active_admin()
                 delete_webhook(str(org_details.id), webhook_id)
                 st.success("Webhook supprimé avec succès.")
                 st.rerun()
@@ -390,6 +405,7 @@ def _dialog_add_webhook(org_details: OrganizationDetailsResult) -> None:
         else:
             try:
                 req = CreateWebHookRequest(url=url, headers=headers_dict)
+                _require_active_admin()
                 create_webhook(str(org_details.id), req)
                 st.success("Webhook créé avec succès.")
 
@@ -406,6 +422,7 @@ def render_api_keys_tab(org_details: OrganizationDetailsResult) -> None:
 
     if st.button("➕ Générer une nouvelle clé API"):
         try:
+            _require_active_admin()
             created = create_api_key(str(org_details.id))
             _show_created_api_key_dialog(created)
         except Exception as e:
@@ -468,6 +485,7 @@ def render_api_keys_tab(org_details: OrganizationDetailsResult) -> None:
             ):
                 try:
                     req = UpdateAPIKeyStatusRequest(status=new_status)
+                    _require_active_admin()
                     update_api_key_status(
                         organization_id=str(org_details.id),
                         api_key_id=key.id,
