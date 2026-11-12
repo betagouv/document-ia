@@ -310,6 +310,114 @@ def test_every_admin_api_key_mutation_is_guarded(mutation: str):
 # --------------------------------------------------------------------------
 
 
+def test_workflow_cache_is_keyed_by_active_configuration():
+    """Switching environments must not reuse the previous endpoint's workflows."""
+    from document_ia_evals.components import workflow_configurator as wc
+
+    with patch(
+        "streamlit.session_state",
+        {"custom_document_ia_url": CUSTOM_URL, "custom_document_ia_api_key": CUSTOM_KEY},
+    ):
+        custom_fp = wc._config_fingerprint()
+
+    with patch("streamlit.session_state", {}):
+        default_fp = wc._config_fingerprint()
+
+    assert custom_fp != default_fp
+
+    # Same endpoint, different credential: still a different configuration.
+    with patch(
+        "streamlit.session_state",
+        {"custom_document_ia_url": CUSTOM_URL, "custom_document_ia_api_key": "other"},
+    ):
+        assert wc._config_fingerprint() != custom_fp
+
+
+def test_reset_clears_cached_workflows_and_derived_widgets():
+    from document_ia_evals.components import workflow_configurator as wc
+
+    session = {
+        "workflows_data": {"data": [{"id": "old-env-workflow"}]},
+        "workflow_selector_dataset_v2": {"id": "old-env-workflow"},
+        "last_default_workflow_id_dataset_v2": "old-env-workflow",
+        "extract_data_document_type_dataset_v2": "old_type",
+        "current_user_email": "admin@beta.gouv.fr",
+        "custom_document_ia_url": CUSTOM_URL,
+    }
+    with patch("streamlit.session_state", session):
+        wc._reset_workflow_state("_dataset_v2")
+
+    assert "workflows_data" not in session
+    assert "workflow_selector_dataset_v2" not in session
+    assert "extract_data_document_type_dataset_v2" not in session
+    # Identity and configuration are not workflow widget state.
+    assert session["current_user_email"] == "admin@beta.gouv.fr"
+    assert session["custom_document_ia_url"] == CUSTOM_URL
+
+
+def test_reset_with_empty_suffix_preserves_unrelated_session_keys():
+    """An empty key_suffix must not act as a match-everything suffix."""
+    from document_ia_evals.components import workflow_configurator as wc
+
+    session = {
+        "workflows_data": {"data": []},
+        "workflow_selector": {"id": "wf"},
+        "current_user_email": "admin@beta.gouv.fr",
+        "current_user_role": "admin",
+        "selected_org_name": "Acme",
+    }
+    with patch("streamlit.session_state", session):
+        wc._reset_workflow_state("")
+
+    assert "workflows_data" not in session
+    assert "workflow_selector" not in session
+    assert session["current_user_email"] == "admin@beta.gouv.fr"
+    assert session["current_user_role"] == "admin"
+    assert session["selected_org_name"] == "Acme"
+
+
+def test_configurator_refetches_after_environment_switch():
+    """End-to-end: the second render fetches from the newly selected endpoint."""
+    from document_ia_evals.components import workflow_configurator as wc
+
+    session: dict = {}
+    calls: list[str | None] = []
+
+    def fake_get_workflows(api_key=None, base_url=None):
+        calls.append(api_key)
+        return {"data": [{"id": f"wf-{api_key}", "name": "wf", "steps": []}]}
+
+    with patch.object(wc, "get_workflows", side_effect=fake_get_workflows):
+        with patch("streamlit.session_state", session):
+            with patch.object(wc.st, "spinner"):
+                with patch.object(wc.st, "selectbox", side_effect=lambda *a, **k: k["options"][0]):
+                    with patch.object(wc.st, "columns", return_value=[_Null(), _Null()]):
+                        with patch.object(wc.st, "markdown"), patch.object(wc.st, "write"), patch.object(
+                            wc.st, "subheader"
+                        ), patch.object(wc.st, "warning"), patch.object(wc.st, "error"):
+                            session.update(
+                                custom_document_ia_url=CUSTOM_URL,
+                                custom_document_ia_api_key=CUSTOM_KEY,
+                            )
+                            wc.render_workflow_configurator(CUSTOM_KEY, key_suffix="_t")
+                            # Administrator switches back to the default environment.
+                            session.pop("custom_document_ia_url")
+                            session.pop("custom_document_ia_api_key")
+                            wc.render_workflow_configurator(DEFAULT_KEY, key_suffix="_t")
+
+    assert calls == [CUSTOM_KEY, DEFAULT_KEY]
+
+
+class _Null:
+    """Context-manager stand-in for a Streamlit column."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
 def test_post_logout_override_is_optional_by_default():
     """Unset by default so Streamlit's deployment redirect is preserved."""
     assert config.PROCONNECT_POST_LOGOUT_REDIRECT_URI is None
