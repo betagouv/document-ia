@@ -108,9 +108,9 @@ Instead of raw body strings or recursively dumped models, logs record structured
 
 ### 3.1 Downloader URL Logging (`DownloadFileStep`)
 Logging complete URLs poses severe risks when presigned S3 URLs or authenticated endpoints are consumed. The worker must sanitize log records by:
-- Emitting only the network location: `host = urlparse(file_url).netloc`
+- Emitting only the safe hostname and non-standard port: `host = extract_safe_host(file_url)`
 - Never logging `file_info.s3_key`
-- Sanitizing network exceptions: only `exception_class`, `status_code`, and `elapsed_seconds` are logged, without embedding raw exception messages that might echo query strings.
+- Sanitizing network exceptions: only `exception_class`, `status_code`, and `elapsed_ms` are logged, without embedding raw exception messages that might echo query strings.
 
 ### 3.2 Webhook Logging (`WebhookNotificationService`)
 - Outgoing webhook notifications log solely the target hostname and correlation IDs:
@@ -208,6 +208,7 @@ SELECT
 FROM organization o
 JOIN api_key k ON k.organization_id = o.id
 WHERE o.platform_role != 'PlatformAdmin'
+  AND k.status = 'Active'
 ORDER BY o.name;
 ```
 
@@ -225,6 +226,7 @@ SELECT
 FROM organization o
 JOIN api_key k ON k.organization_id = o.id
 WHERE o.platform_role != 'PlatformAdmin'
+  AND k.status = 'Active'
 ORDER BY o.name;
 ```
 
@@ -250,6 +252,6 @@ L'équipe Document IA reste disponible pour tout échange ou accompagnement sur 
 ### 5.4 Remediation & Key Rotation Procedure
 1. **Identify Exposed Keys**: Run Query 5.1.C or SQL Query 5.2.B over the operational retention window and export the list of unique `prefix` / `masked_key` values.
 2. **Revoke Exposed Keys**:
-   - Call `PATCH /api/v1/admin/api-keys/{id}/status` with `status: "REVOKED"` for each compromised key.
+   - Call `PUT /api/v1/admin/organizations/{organization_id}/api-keys/{api_key_id}/status` with `{"status": "Revoked"}` for each compromised key.
    - Generate a replacement key via `POST /api/v1/admin/organizations/{organization_id}/api-keys` and securely transmit the new credential to the affected tenant.
 3. **Purge Compromised Log Segments**: Restrict access or execute Loki deletion requests for targeted chunks where secrets were detected, avoiding a full wipe of monitoring history.

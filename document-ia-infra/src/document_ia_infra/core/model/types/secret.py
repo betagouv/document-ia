@@ -1,7 +1,13 @@
-from typing import Annotated, Optional, TypeAlias, TypeVar, Generic, Any
+from typing import Annotated, Any, Generic, Optional, TypeAlias, TypeVar, get_args
 
-from pydantic import SecretStr, SecretBytes, BeforeValidator, GetCoreSchemaHandler
+from pydantic import (
+    GetCoreSchemaHandler,
+    GetJsonSchemaHandler,
+    SecretBytes,
+    SecretStr,
+)
 from pydantic.functional_serializers import PlainSerializer
+from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import core_schema
 
 V = TypeVar("V")
@@ -15,7 +21,35 @@ class SecretDict(Generic[V]):
     def __get_pydantic_core_schema__(
         cls, source_type: Any, handler: GetCoreSchemaHandler
     ) -> core_schema.CoreSchema:
-        return core_schema.is_instance_schema(cls)
+        args = get_args(source_type)
+        value_type = args[0] if args else Any
+        dict_schema = handler.generate_schema(dict[str, value_type])
+
+        def _validate_from_dict(val: Any) -> "SecretDict[Any]":
+            if isinstance(val, cls):
+                return val
+            return cls(val)
+
+        return core_schema.json_or_python_schema(
+            json_schema=core_schema.no_info_after_validator_function(cls, dict_schema),
+            python_schema=core_schema.union_schema(
+                [
+                    core_schema.is_instance_schema(cls),
+                    core_schema.no_info_after_validator_function(
+                        _validate_from_dict, dict_schema
+                    ),
+                ]
+            ),
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                _secret_dict_to_json, when_used="json"
+            ),
+        )
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls, _core_schema: core_schema.CoreSchema, handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        return handler(_core_schema)
 
     def get_secret_value(self) -> dict[str, V]:
         return self.inner_dict
@@ -67,14 +101,14 @@ class SecretDict(Generic[V]):
         return f"{self.__class__.__name__}(" + "{" + ", ".join(items) + "})"
 
 
-def _to_secret_dict(v: Any) -> SecretDict[V]:  # type: ignore[arg-type]
+def _to_secret_dict(v: Any) -> SecretDict[Any]:  # pyright: ignore [reportUnusedFunction]
     if v is None:
-        return SecretDict({})  # type: ignore[arg-type]
+        return SecretDict[Any]({})
     if isinstance(v, SecretDict):
-        return v  # type: ignore[arg-type]
+        return SecretDict[Any](v.inner_dict)  # pyright: ignore [reportUnknownMemberType, reportUnknownArgumentType]
     if isinstance(v, dict):
-        return SecretDict(v)  # type: ignore[arg-type]
-    raise TypeError("expected dict or SecretDict")
+        return SecretDict[Any](v)  # pyright: ignore [reportUnknownArgumentType]
+    raise ValueError("Value must be a dictionary or SecretDict")
 
 
 def _secret_dict_to_json(v: Optional[SecretDict[V]]) -> dict[str, V]:
@@ -122,6 +156,5 @@ SecretPayloadBytes: TypeAlias = Annotated[
 ]
 type SecretPayloadDict[T] = Annotated[
     SecretDict[T],
-    BeforeValidator(_to_secret_dict),
     PlainSerializer(_secret_dict_to_json, when_used="json"),
 ]

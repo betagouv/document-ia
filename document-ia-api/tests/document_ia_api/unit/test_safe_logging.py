@@ -278,3 +278,64 @@ async def test_webhook_notification_service_sanitizes_urls_and_exceptions(caplog
     assert "Retryable webhook HTTP status 500" in error_logs
     assert secret_query not in error_logs
     assert "SECRET_KEY_123" not in error_logs
+
+
+@pytest.mark.asyncio
+async def test_fastapi_validation_error_on_corrupt_json_and_invalid_payload_never_leaks_secrets(
+    caplog,
+):
+    from document_ia_api.api.exceptions.handler.exception_handlers import (
+        setup_exception_handlers,
+    )
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+
+    test_app = FastAPI()
+    setup_exception_handlers(test_app)
+
+    @test_app.post("/test-validation")
+    async def endpoint_with_validation(req: CreateWebHookRequest):
+        return {"status": "ok"}
+
+    # Test OpenAPI schema validity - no broken refs
+    openapi_schema = test_app.openapi()
+    assert openapi_schema is not None
+    schema_str = json.dumps(openapi_schema)
+    assert "CreateWebHookRequest" in schema_str
+    # Ensure there is no orphaned ref ending with __1
+    assert "CreateWebHookRequest-Input__1" not in schema_str
+
+    synth_secret = "SUPER_SECRET_PAYLOAD_VALUE_9999"  # gitleaks:allow
+
+    # 1. Invalid payload that fails Pydantic validation
+    async with AsyncClient(
+        transport=ASGITransport(app=test_app), base_url="http://test"
+    ) as client:
+        with caplog.at_level(logging.WARNING):
+            resp = await client.post(
+                "/test-validation",
+                json={
+                    "url": "https://example.com/webhook",
+                    "headers": {"secret_key": [1, 2, 3]},  # Invalid type for headers
+                    "leak_marker": synth_secret,
+                },
+            )
+            assert resp.status_code == 422
+            # The synth secret must never appear in any log output
+            assert synth_secret not in caplog.text
+            assert "Validation error on /test-validation" in caplog.text
+
+    caplog.clear()
+
+    # 2. Corrupt raw JSON containing secret marker
+    async with AsyncClient(
+        transport=ASGITransport(app=test_app), base_url="http://test"
+    ) as client:
+        with caplog.at_level(logging.WARNING):
+            resp = await client.post(
+                "/test-validation",
+                content=f'{{"secret": "{synth_secret}", broken_unquoted'.encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            assert resp.status_code == 422
+            assert synth_secret not in caplog.text

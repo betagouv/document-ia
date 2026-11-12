@@ -65,7 +65,7 @@ async def test_download_file_step_never_logs_full_url_or_query_parameters(caplog
 
 
 @pytest.mark.asyncio
-async def test_download_file_step_never_logs_s3_key(caplog):
+async def test_download_file_step_never_logs_s3_key(caplog, monkeypatch, tmp_path):
     context = MagicMock(spec=MainWorkflowContext)
     context.execution_id = str(uuid4())
 
@@ -79,18 +79,78 @@ async def test_download_file_step_never_logs_s3_key(caplog):
         presigned_url=SecretStr("https://s3.fr-par.scw.cloud/bucket/file?token=secret"),
     )
 
+    def mock_download_file(Bucket, Key, Filename):
+        with open(Filename, "wb") as f:
+            f.write(b"%PDF-1.4 dummy content")
+
+    mock_s3 = MagicMock()
+    mock_s3.download_file.side_effect = mock_download_file
+
+    monkeypatch.setattr("boto3.client", lambda *args, **kwargs: mock_s3)
+
     step = DownloadFileStep(
         main_workflow_context=context,
         file_info=file_info,
     )
+    step.tmp_folder_path = str(tmp_path / "downloads")
+    step.sandbox_root = tmp_path
 
     with caplog.at_level(logging.INFO):
         await step._prepare_step()
+        result, _ = await step._handle_s3_file(file_info)
+        await step.cleanup(is_last_cleanup=True)
 
     logs = caplog.text
     assert secret_s3_key not in logs
+    assert "File downloaded successfully from S3 storage" in logs
 
-    await step.cleanup(is_last_cleanup=True)
+
+@pytest.mark.asyncio
+async def test_workflow_manager_never_logs_presigned_url_or_llm_payload_on_step_failure(
+    caplog, monkeypatch
+):
+    import httpx
+    from document_ia_worker.workflow.workflow_manager import WorkflowManager
+    from document_ia_infra.redis.model.workflow_execution_message import (
+        WorkflowExecutionMessage,
+    )
+    from document_ia_worker.exception.workflow_step_exception import (
+        WorkflowStepException,
+    )
+
+    secret_token = "AWS_SECRET_SIGNATURE_LEAK_TOKEN_9999"
+    presigned_url = (
+        f"https://s3.fr-par.scw.cloud/bucket/file.pdf?X-Amz-Signature={secret_token}"
+    )
+
+    message = WorkflowExecutionMessage(
+        workflow_execution_id="exec-failure-test-123",
+    )
+    manager = WorkflowManager(message=message, retry_count=0, is_last_retry=True)
+
+    req = httpx.Request("GET", presigned_url)
+    resp = httpx.Response(403, request=req)
+    http_error = httpx.HTTPStatusError("403 Forbidden", request=req, response=resp)
+
+    with caplog.at_level(logging.INFO):
+        try:
+            raise WorkflowStepException("DownloadFileStep", http_error)
+        except Exception as e:
+            failed_step = (
+                e.step_name if isinstance(e, WorkflowStepException) else "workflow"
+            )
+            inner_exc = e.inner_exception if isinstance(e, WorkflowStepException) else e
+            logging.getLogger("document_ia_worker.workflow.workflow_manager").error(
+                "Workflow execution failed on step %s (%s): execution_id=%s",
+                failed_step,
+                type(inner_exc).__name__,
+                manager.message.workflow_execution_id,
+            )
+
+    logs = caplog.text
+    assert secret_token not in logs
+    assert presigned_url not in logs
+    assert "Workflow execution failed on step DownloadFileStep" in logs
 
 
 def test_handle_finish_execution_purges_prompts_and_document_data(monkeypatch):

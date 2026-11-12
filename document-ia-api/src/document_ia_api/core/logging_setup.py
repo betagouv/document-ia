@@ -106,7 +106,7 @@ def _get_loggers() -> dict[str, Any]:
     loggers_dict: dict[str, Any] = {
         "uvicorn.access": {
             "handlers": ["access_console"],
-            "level": "INFO",
+            "level": "WARNING",
             "propagate": False,
         },
         "uvicorn.error": {
@@ -133,6 +133,18 @@ def _get_loggers() -> dict[str, Any]:
             "propagate": True,
         },
         "botocore": {
+            "level": "WARNING",
+            "propagate": True,
+        },
+        "boto3": {
+            "level": "WARNING",
+            "propagate": True,
+        },
+        "s3transfer": {
+            "level": "WARNING",
+            "propagate": True,
+        },
+        "openai": {
             "level": "WARNING",
             "propagate": True,
         },

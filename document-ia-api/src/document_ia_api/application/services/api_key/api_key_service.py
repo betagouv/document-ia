@@ -116,5 +116,5 @@ class ApiKeyService:
             else:
                 return None
         except Exception as e:
-            logger.error("Error verifying API key: %s", e)
+            logger.error("Error verifying API key: %s", type(e).__name__)
             return None

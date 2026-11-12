@@ -140,6 +140,69 @@ def test_extract_safe_host_various_urls():
     assert extract_safe_host("   ") == "unknown"
 
 
+def test_extract_safe_host_rejects_schemeless_secrets():
+    # Secrets or arbitrary tokens passed by mistake must not be treated as hostnames
+    assert extract_safe_host("dia_prod_1_ABCDEFGH_SECRET_9999") == "unknown"
+    assert extract_safe_host("Bearer SECRET_TOKEN") == "unknown"
+    assert extract_safe_host("s3://bucket/key") == "unknown"
+    assert extract_safe_host("private-bucket/secret.pdf") == "unknown"
+
+    # CRLF injection prevention
+    assert extract_safe_host("https://example.com\r\ninjected-header: val") == "unknown"
+    assert extract_safe_host("https://example.com\nmalicious") == "unknown"
+
+    # IPv6 with non-standard port
+    assert extract_safe_host("http://[2001:db8::1]:8443/api") == "[2001:db8::1]:8443"
+    assert extract_safe_host("http://[::1]:80/api") == "::1"
+
+
+def test_secret_payload_dict_validates_inner_types_and_json_schema():
+    import pytest
+    from pydantic import ValidationError
+
+    class WebhookModel(BaseModel):
+        url: str
+        headers: SecretPayloadDict[str]
+
+    # Valid schema generation without PydanticInvalidForJsonSchema
+    schema = WebhookModel.model_json_schema()
+    assert "headers" in schema.get("properties", {})
+    # Schema resolves either directly or via $defs
+    if "$defs" in schema:
+        headers_def = schema["$defs"].get("SecretPayloadDict_str_") or schema[
+            "$defs"
+        ].get("SecretDict_str_")
+        assert headers_def is not None
+        assert headers_def.get("type") == "object"
+        assert headers_def.get("additionalProperties", {}).get("type") == "string"
+    else:
+        headers_prop = schema["properties"]["headers"]
+        assert headers_prop.get("type") == "object"
+        assert headers_prop.get("additionalProperties", {}).get("type") == "string"
+
+    # Valid payload
+    wh = WebhookModel.model_validate(
+        {"url": "https://example.com", "headers": {"Authorization": "token123"}}
+    )
+    assert wh.headers["Authorization"] == "token123"
+    assert "token123" not in str(wh)
+
+    # Invalid non-dict input raises ValidationError (not TypeError)
+    with pytest.raises(ValidationError):
+        WebhookModel.model_validate(
+            {"url": "https://example.com", "headers": "not-a-dict"}
+        )
+
+    with pytest.raises(ValidationError):
+        WebhookModel.model_validate({"url": "https://example.com", "headers": [1, 2]})
+
+    # Invalid value type inside dict raises ValidationError
+    with pytest.raises(ValidationError):
+        WebhookModel.model_validate(
+            {"url": "https://example.com", "headers": {"k": [1, 2]}}
+        )
+
+
 def test_secret_dict_and_payload():
     d = SecretDict({"api_key": "secret_val", "env": "prod"})
     assert "secret_val" not in str(d)

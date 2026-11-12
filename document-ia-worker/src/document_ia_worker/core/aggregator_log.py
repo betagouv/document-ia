@@ -118,11 +118,10 @@ def handle_finish_execution(
             "elapsed_time_ms": elapsed_time_ms,
             "logs": logs,
             "workflow_metadata": [
-                {
-                    k: v
-                    for k, v in meta.model_dump(mode="json").items()
-                    if k in ALLOWED_STEP_METADATA_FIELDS
-                }
+                meta.model_dump(
+                    mode="json",
+                    include=set(ALLOWED_STEP_METADATA_FIELDS),
+                )
                 for meta in (workflow_metadata or [])
             ],
         }

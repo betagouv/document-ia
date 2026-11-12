@@ -149,7 +149,9 @@ async def create_api_key(
         raise
     except Exception as err:
         logger.error(
-            "Error creating API key for organization %s: %s", str(organization_id), err
+            "Error creating API key for organization %s: %s",
+            str(organization_id),
+            type(err).__name__,
         )
         raise
 
@@ -293,7 +295,7 @@ async def update_api_key_status(
     except HttpEntityNotFoundException:
         raise
     except Exception as err:
-        logger.error("Error updating API key status: %s", err)
+        logger.error("Error updating API key status: %s", type(err).__name__)
         raise
 
 
@@ -382,5 +384,5 @@ async def delete_api_key(
     except HttpEntityNotFoundException:
         raise
     except Exception as err:
-        logger.error("Error updating API key status: %s", err)
+        logger.error("Error deleting API key: %s", type(err).__name__)
         raise

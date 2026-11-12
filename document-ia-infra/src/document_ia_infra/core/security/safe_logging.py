@@ -1,3 +1,5 @@
+import ipaddress
+import re
 from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlsplit
@@ -20,7 +22,6 @@ ALLOWED_RESPONSE_HEADERS: frozenset[str] = frozenset(
         "content-length",
         "x-request-id",
         "idempotent-replay",  # Preshot to support seamless integration with #148
-        "location",
     }
 )
 
@@ -61,6 +62,22 @@ ALLOWED_STEP_METADATA_FIELDS: frozenset[str] = frozenset(
 
 MASKED_VALUE: str = "**********"
 
+_SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
+_HOSTNAME_RE = re.compile(
+    r"^(?:localhost|(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63})$"
+)
+
+
+def _is_valid_host(hostname: str) -> bool:
+    raw_host = hostname.strip("[]")
+    if _HOSTNAME_RE.match(raw_host):
+        return True
+    try:
+        ipaddress.ip_address(raw_host)
+        return True
+    except ValueError:
+        return False
+
 
 def filter_headers(
     headers: Mapping[str, str],
@@ -98,7 +115,7 @@ def extract_safe_host(url: str | None) -> str:
     """Extracts only the safe hostname (and port if non-standard) from a URL.
 
     Strips any credentials (user:password@), path, query parameters, and fragments.
-    Returns 'unknown' if url is None, empty, or unparseable.
+    Returns 'unknown' if url is None, empty, unparseable, or not a valid host.
     """
     if not url:
         return "unknown"
@@ -107,17 +124,22 @@ def extract_safe_host(url: str | None) -> str:
     if not cleaned:
         return "unknown"
 
-    # Prepend dummy scheme '//' if not present so urlsplit correctly resolves netloc/hostname
-    if "://" not in cleaned and not cleaned.startswith("//"):
+    if any(c in cleaned for c in ("\r", "\n", "\0")):
+        return "unknown"
+
+    if not _SCHEME_RE.match(cleaned) and not cleaned.startswith("//"):
         cleaned = f"//{cleaned}"
 
     try:
         parsed = urlsplit(cleaned)
         hostname = parsed.hostname
-        if not hostname:
+        if not hostname or not _is_valid_host(hostname):
             return "unknown"
-        if parsed.port and parsed.port not in (80, 443):
-            return f"{hostname}:{parsed.port}"
+        port = parsed.port
+        if port and port not in (80, 443):
+            if ":" in hostname:
+                return f"[{hostname}]:{port}"
+            return f"{hostname}:{port}"
         return hostname
     except Exception:
         return "unknown"

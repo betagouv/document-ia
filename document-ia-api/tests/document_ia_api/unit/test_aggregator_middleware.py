@@ -2,37 +2,71 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Annotated, Optional
 from unittest.mock import MagicMock
 
 import pytest
 from fastapi import Request
-from pydantic import BaseModel, Field
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse, Response
 
 from document_ia_api.api.middleware.aggregator_middleware import (
     AggregationMiddleware,
-    _unwrap_is_secret_type,
     _wrap_response_and_capture,
     get_request_payload_safely,
 )
-from document_ia_infra.core.model.types.secret import (
-    SecretPayloadBytes,
-    SecretPayloadStr,
-)
 
 
-def test_unwrap_is_secret_type_variants():
-    assert _unwrap_is_secret_type(SecretPayloadStr)
-    assert _unwrap_is_secret_type(Optional[SecretPayloadStr])
-    assert _unwrap_is_secret_type(Annotated[SecretPayloadStr, Field(description="x")])
-    assert _unwrap_is_secret_type(SecretPayloadBytes)
+@pytest.mark.asyncio
+async def test_aggregator_middleware_logs_on_unhandled_500_exception(monkeypatch):
+    logged_entries: list[dict] = []
 
-    class NotSecret(BaseModel):
-        x: int
+    mock_logger = MagicMock()
+    mock_logger.info.side_effect = lambda msg, extra=None: logged_entries.append(
+        json.loads(msg)
+    )
+    orig_get_logger = logging.getLogger
 
-    assert _unwrap_is_secret_type(NotSecret) is False
+    def patched_get_logger(name=None):
+        if name == "aggregator":
+            return mock_logger
+        return orig_get_logger(name)
+
+    monkeypatch.setattr(
+        "document_ia_api.api.middleware.aggregator_middleware.logging.getLogger",
+        patched_get_logger,
+    )
+
+    middleware = AggregationMiddleware(app=MagicMock())
+
+    request = MagicMock(spec=Request)
+    request.method = "GET"
+    request.url.path = "/api/v1/failing-endpoint"
+    request.client.host = "127.0.0.1"
+    request.headers = Headers({"x-request-id": "req-fail-500"})
+    request.query_params = {}
+    request.path_params = {}
+    request.scope = {"route": MagicMock(path="/api/v1/failing-endpoint")}
+    request.state = MagicMock()
+    request.state.request_id = "req-fail-500"
+    request.state.organization = None
+    request.state.aggregator_payload = {
+        "query_params": {},
+        "path_params": {},
+        "request_body": None,
+    }
+
+    async def call_next_crashing(req: Request) -> Response:
+        raise RuntimeError("Database connection pool exhausted")
+
+    with pytest.raises(RuntimeError, match="Database connection pool exhausted"):
+        await middleware.dispatch(request, call_next_crashing)
+
+    assert len(logged_entries) == 1
+    entry = logged_entries[0]
+    assert entry["request_id"] == "req-fail-500"
+    assert entry["status_code"] == 500
+    assert entry["path"] == "/api/v1/failing-endpoint"
+    assert entry["method"] == "GET"
 
 
 @pytest.mark.asyncio

@@ -71,6 +71,18 @@ def _get_loggers() -> dict[str, Any]:
             "level": "WARNING",
             "propagate": True,
         },
+        "boto3": {
+            "level": "WARNING",
+            "propagate": True,
+        },
+        "s3transfer": {
+            "level": "WARNING",
+            "propagate": True,
+        },
+        "openai": {
+            "level": "WARNING",
+            "propagate": True,
+        },
     }
 
     if logging_settings.LOKI_LOGGING_ENABLED:

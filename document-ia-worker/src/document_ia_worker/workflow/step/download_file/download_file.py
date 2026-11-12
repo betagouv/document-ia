@@ -1,4 +1,5 @@
 import logging
+import time
 from pathlib import Path
 from uuid import uuid4
 
@@ -30,6 +31,10 @@ from document_ia_worker.workflow.step.step_result.download_file_result import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class DownloadFileStepException(Exception):
+    """Exception raised when downloading a file fails with sanitized details."""
 
 
 class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
@@ -69,6 +74,7 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
             raise ValueError("No file information or URL provided for download.")
 
     async def _handle_file_url(self, file_url: str) -> tuple[DownloadFileResult, None]:
+        start_time = time.perf_counter()
         host = extract_safe_host(file_url)
         logger.info(
             "Downloading file from host: %s (execution_id=%s)",
@@ -175,6 +181,14 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
             final_path = confined.path / final_name
             success = True
 
+            elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
+            logger.info(
+                "File downloaded successfully from host %s in %sms (execution_id=%s)",
+                host,
+                elapsed_ms,
+                self.execution_id,
+            )
+
             return (
                 DownloadFileResult(
                     file_path=str(final_path), content_type=detected_mime
@@ -183,15 +197,24 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
             )
 
         except Exception as e:
+            elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
             host = extract_safe_host(file_url)
             status_code = getattr(getattr(e, "response", None), "status_code", None)
             logger.error(
-                "Download file failed: host=%s exception=%s status_code=%s (execution_id=%s)",
+                "Download file failed: host=%s exception=%s status_code=%s elapsed_ms=%s (execution_id=%s)",
                 host,
                 type(e).__name__,
                 status_code,
+                elapsed_ms,
                 self.execution_id,
             )
+            if isinstance(e, httpx.HTTPError):
+                err_msg = (
+                    f"Failed to download file from host {host}: HTTP {status_code}"
+                    if status_code is not None
+                    else f"Failed to download file from host {host} ({type(e).__name__})"
+                )
+                raise DownloadFileStepException(err_msg) from None
             raise e
 
         finally:
@@ -206,6 +229,7 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
     async def _handle_s3_file(
         self, file_info: FileInfo
     ) -> tuple[DownloadFileResult, None]:
+        start_time = time.perf_counter()
         s3_key_value = file_info.s3_key.get_secret_value()
         logger.info(
             "Downloading file from S3 storage (execution_id=%s)", self.execution_id
@@ -222,8 +246,10 @@ class DownloadFileStep(BaseFileManipulationStep[DownloadFileResult]):
         s3_manager = S3Manager()
         try:
             s3_manager.download_file(s3_key_value, str(file_path))
+            elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
             logger.info(
-                "File downloaded successfully from S3 storage (execution_id=%s)",
+                "File downloaded successfully from S3 storage in %sms (execution_id=%s)",
+                elapsed_ms,
                 self.execution_id,
             )
             return (

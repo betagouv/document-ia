@@ -102,7 +102,7 @@ async def list_webhooks(
         service = WebHookService(db_session)
         return await service.list_by_organization(organization_id)
     except Exception as err:
-        logger.error(f"Error listing webhooks: {err}")
+        logger.error("Error listing webhooks: %s", type(err).__name__)
         raise
 
 
@@ -236,5 +236,5 @@ async def delete_webhook(
     except HttpEntityNotFoundException:
         raise
     except Exception as err:
-        logger.error(f"Error deleting webhook: {err}")
+        logger.error("Error deleting webhook: %s", type(err).__name__)
         raise
