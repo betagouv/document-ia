@@ -418,6 +418,149 @@ class _Null:
         return False
 
 
+# --------------------------------------------------------------------------
+# 4. Fragment guard and last-administrator serialization
+# --------------------------------------------------------------------------
+
+
+def test_inference_fragment_blocks_demoted_actor(in_memory_db):
+    """The @st.fragment reruns alone, so it must re-check before using the LLM key."""
+    from document_ia_evals.pages import prompt_playground as pp
+
+    add_evals_user("keeper5@beta.gouv.fr", role="admin")
+    actor = add_evals_user("frag-actor@beta.gouv.fr", role="admin")
+    update_evals_user(actor.email, role="user")
+
+    state = {"latest_by_task": {}, "system_prompt_by_document_type": {}}
+    with patch(
+        "streamlit.session_state",
+        {"current_user_email": actor.email, "current_user_role": "admin"},
+    ):
+        with patch.object(pp.st, "error") as error:
+            with patch.object(pp.st, "info") as info:
+                with patch.object(pp, "_replay_payload_from_execution") as replay:
+                    # st.fragment wraps the body; call the undecorated function.
+                    pp._render_latest_inference_section.__wrapped__(
+                        state=state, tasks_by_id={}, project_id=1, task_id=1
+                    )
+
+    error.assert_called_once()
+    # Refused before touching persisted inference data or the LLM.
+    info.assert_not_called()
+    replay.assert_not_called()
+
+
+def test_inference_fragment_allows_active_admin(in_memory_db):
+    """Positive control: an active admin reaches the fragment's normal path."""
+    from document_ia_evals.pages import prompt_playground as pp
+
+    add_evals_user("frag-admin@beta.gouv.fr", role="admin")
+
+    state = {"latest_by_task": {}, "system_prompt_by_document_type": {}}
+    with patch(
+        "streamlit.session_state",
+        {"current_user_email": "frag-admin@beta.gouv.fr", "current_user_role": "admin"},
+    ):
+        with patch.object(pp.st, "error") as error:
+            with patch.object(pp.st, "info") as info:
+                pp._render_latest_inference_section.__wrapped__(
+                    state=state, tasks_by_id={}, project_id=1, task_id=1
+                )
+
+    error.assert_not_called()
+    info.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [{"role": "user"}, {"is_active": False}],
+)
+def test_admin_removal_locks_before_counting(in_memory_db, kwargs):
+    """The count protecting the last admin must be taken under a row lock."""
+    from document_ia_evals.services import auth_service
+
+    add_evals_user("lock-a@beta.gouv.fr", role="admin")
+    add_evals_user("lock-b@beta.gouv.fr", role="admin")
+
+    order: list[str] = []
+    real_lock = auth_service._lock_active_admins
+    real_count = auth_service._count_active_admins
+
+    def traced_lock(session):
+        order.append("lock")
+        return real_lock(session)
+
+    def traced_count(session):
+        order.append("count")
+        return real_count(session)
+
+    with patch.object(auth_service, "_lock_active_admins", side_effect=traced_lock):
+        with patch.object(
+            auth_service, "_count_active_admins", side_effect=traced_count
+        ):
+            update_evals_user("lock-a@beta.gouv.fr", **kwargs)
+
+    assert order == ["lock", "count"]
+
+
+def test_delete_admin_locks_before_counting(in_memory_db):
+    from document_ia_evals.services import auth_service
+
+    add_evals_user("del-a@beta.gouv.fr", role="admin")
+    add_evals_user("del-b@beta.gouv.fr", role="admin")
+
+    order: list[str] = []
+    real_lock = auth_service._lock_active_admins
+    real_count = auth_service._count_active_admins
+
+    with patch.object(
+        auth_service,
+        "_lock_active_admins",
+        side_effect=lambda s: (order.append("lock"), real_lock(s))[1],
+    ):
+        with patch.object(
+            auth_service,
+            "_count_active_admins",
+            side_effect=lambda s: (order.append("count"), real_count(s))[1],
+        ):
+            auth_service.delete_evals_user("del-a@beta.gouv.fr")
+
+    assert order == ["lock", "count"]
+
+
+def test_lock_emits_for_update_on_postgresql_only():
+    """The lock must be a real row lock on the production dialect."""
+    from sqlalchemy import select
+    from sqlalchemy.dialects import postgresql, sqlite
+
+    from document_ia_evals.database.models import EvalsUser, UserRole
+
+    stmt = (
+        select(EvalsUser)
+        .where(
+            EvalsUser.role == UserRole.ADMIN.value,
+            EvalsUser.is_active.is_(True),
+        )
+        .order_by(EvalsUser.id)
+        .with_for_update()
+    )
+    assert "FOR UPDATE" in str(stmt.compile(dialect=postgresql.dialect()))
+    assert "FOR UPDATE" not in str(stmt.compile(dialect=sqlite.dialect()))
+
+
+def test_last_admin_still_cannot_be_removed(in_memory_db):
+    """The invariant itself is unchanged by the locking."""
+    from document_ia_evals.services.auth_service import delete_evals_user
+
+    admin = add_evals_user("solo@beta.gouv.fr", role="admin")
+    with pytest.raises(ValueError):
+        update_evals_user(admin.email, role="user")
+    with pytest.raises(ValueError):
+        update_evals_user(admin.email, is_active=False)
+    with pytest.raises(ValueError):
+        delete_evals_user(admin.email)
+
+
 def test_post_logout_override_is_optional_by_default():
     """Unset by default so Streamlit's deployment redirect is preserved."""
     assert config.PROCONNECT_POST_LOGOUT_REDIRECT_URI is None

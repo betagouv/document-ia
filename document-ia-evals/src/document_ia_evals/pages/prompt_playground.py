@@ -31,6 +31,7 @@ from document_ia_evals.services.create_predictions_service import (
     run_workflow_on_dataset_v2,
 )
 from document_ia_evals.services.administration_service import get_current_config
+from document_ia_evals.services.auth_service import assert_active_admin
 from document_ia_evals.pages.review_prediction_errors import render_browser_pdf
 from document_ia_evals.utils.config import config
 from document_ia_evals.utils.label_studio import annotation_results_to_dict
@@ -379,6 +380,15 @@ def _render_latest_inference_section(
     project_id: int,
     task_id: int,
 ) -> None:
+    # Fragment interactions rerun only this function, so neither app.main() nor
+    # the page's enforce_page_auth() runs first. Re-check the actor against the
+    # database before reading persisted data or spending the server's LLM key.
+    try:
+        assert_active_admin(st.session_state.get("current_user_email"))
+    except PermissionError as exc:
+        st.error(f"⛔ {exc}")
+        return
+
     latest_by_task: dict[str, Any] = state["latest_by_task"]
     selected = latest_by_task.get(str(task_id))
     if selected is None or selected.get("project_id") != project_id:

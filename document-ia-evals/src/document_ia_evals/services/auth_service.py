@@ -59,6 +59,31 @@ def _count_active_admins(session: Session) -> int:
     return session.scalar(stmt) or 0
 
 
+def _lock_active_admins(session: Session) -> None:
+    """Serialize the count-and-mutate that protects the last active administrator.
+
+    Two administrators demoting or disabling each other concurrently would
+    otherwise both read a count of two and both commit, leaving no active
+    administrator. Locking the current active-admin rows before counting makes
+    the second transaction wait and then observe the first one's commit.
+
+    PostgreSQL only: SQLite (used by the unit tests) has no row-level locking and
+    already serializes writers at the database level.
+    """
+    if session.get_bind().dialect.name != "postgresql":
+        return
+
+    session.scalars(
+        select(EvalsUser)
+        .where(
+            EvalsUser.role == UserRole.ADMIN.value,
+            EvalsUser.is_active.is_(True),
+        )
+        .order_by(EvalsUser.id)
+        .with_for_update()
+    ).all()
+
+
 def record_login_event(
     email: str,
     ip_address: str | None = None,
@@ -297,6 +322,7 @@ def update_evals_user(
             if role not in (UserRole.ADMIN.value, UserRole.USER.value):
                 raise ValueError(f"Rôle invalide : {role}")
             if is_currently_active_admin and role != UserRole.ADMIN.value:
+                _lock_active_admins(session)
                 if _count_active_admins(session) <= 1:
                     raise ValueError(
                         "Impossible de rétrograder le dernier administrateur actif."
@@ -305,6 +331,7 @@ def update_evals_user(
 
         if is_active is not None:
             if is_currently_active_admin and is_active is False:
+                _lock_active_admins(session)
                 if _count_active_admins(session) <= 1:
                     raise ValueError(
                         "Impossible de désactiver le dernier administrateur actif."
@@ -326,6 +353,7 @@ def delete_evals_user(email: str) -> bool:
             return False
 
         if user.role == UserRole.ADMIN.value and user.is_active is True:
+            _lock_active_admins(session)
             if _count_active_admins(session) <= 1:
                 raise ValueError(
                     "Impossible de supprimer le dernier administrateur actif."
