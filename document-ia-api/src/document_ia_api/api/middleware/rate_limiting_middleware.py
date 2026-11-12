@@ -37,8 +37,14 @@ async def check_rate_limit(
     request.state.rate_limit_info = rate_limit_info
 
     if not is_allowed:
-        # TODO: sanitize the api key in the logging service
-        logger.warning(f"Rate limit exceeded for API key {api_key[:8]}...")
+        org_id = getattr(getattr(request.state, "organization", None), "id", None)
+        url_obj = getattr(request, "url", None)
+        path = getattr(url_obj, "path", "unknown") if url_obj else "unknown"
+        logger.warning(
+            "Rate limit exceeded (organization_id=%s, path=%s)",
+            org_id,
+            path,
+        )
 
         now = datetime.now()
         resets: list[datetime] = []

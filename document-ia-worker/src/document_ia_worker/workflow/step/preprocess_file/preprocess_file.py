@@ -6,7 +6,8 @@ import threading
 from pathlib import Path
 from typing import Optional, Any, Iterable, Protocol, runtime_checkable, cast
 
-from pymupdf import pymupdf, Document
+import pymupdf
+from pymupdf import Document
 from PIL import Image
 
 from document_ia_infra.data.workflow.dto.workflow_v2_dto import PreprocessFileParams

@@ -103,7 +103,7 @@ class ExtractContentOcrLightOnStep(BaseStep[OcrResult]):
         semaphore: asyncio.Semaphore,
     ) -> OcrResultPage:
         async with semaphore:
-            logger.info(f"Processing image {file_path} with LightOn API")
+            logger.info("Processing page %d with LightOn API", page_number)
             try:
                 barcodes = self._get_barcodes_for_page(page_number)
 
@@ -123,8 +123,12 @@ class ExtractContentOcrLightOnStep(BaseStep[OcrResult]):
                     has_failed=False,
                 )
             except Exception as e:
+                status_code = getattr(getattr(e, "response", None), "status_code", None)
                 logger.error(
-                    f"Error during LightOn OCR processing for page {page_number}: {e}"
+                    "Error during LightOn OCR processing for page %d: %s (status_code=%s)",
+                    page_number,
+                    type(e).__name__,
+                    status_code,
                 )
                 return OcrResultPage(
                     text=None,

@@ -254,7 +254,9 @@ def _show_created_api_key_dialog(result: APIKeyCreatedResult) -> None:
         "**Une fois cette fenêtre fermée, il ne sera plus possible de la visualiser à nouveau.**\n\n"
         "Copiez-la immédiatement et stockez-la dans un endroit sûr (gestionnaire de secrets, coffre-fort, etc.).",
     )
-    st.code(result.key, language="text")
+    # This dialog is the only chance to copy the full key, so unwrap the secret
+    # at the display boundary; everywhere else it stays masked.
+    st.code(result.key.get_secret_value(), language="text")
 
     if st.button("J'ai copié cette clé", type="primary", use_container_width=True):
         st.rerun()
