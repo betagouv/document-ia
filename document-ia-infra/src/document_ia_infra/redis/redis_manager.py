@@ -31,6 +31,10 @@ class RedisManager:
             decode_responses=True,
             max_connections=20,
             socket_connect_timeout=5,
+            # Consumers block up to 10s on XREADGROUP (BLOCK 10000). redis-py 8
+            # defaults socket_timeout to 5s, which would abort those reads with
+            # a TimeoutError, so the read timeout is disabled explicitly here.
+            socket_timeout=None,
         )
         return Redis(connection_pool=pool)
 

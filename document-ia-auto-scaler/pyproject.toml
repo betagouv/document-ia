@@ -9,7 +9,7 @@ dependencies = [
     "document-ia-infra",
     "python-dotenv == 1.2.4",
     "pydantic-settings == 2.16.2",
-    "pydantic == 2.14.1",
+    "pydantic == 2.14.2",
 ]
 
 [build-system]
@@ -20,7 +20,7 @@ build-backend = "hatchling.build"
 dev = [
     "ruff == 0.17.3",
     "pytest == 9.2.0",
-    "pytest-asyncio == 1.4.1",
+    "pytest-asyncio==1.4.1.post1",
     "pre-commit == 4.7.0",
 ]
 
