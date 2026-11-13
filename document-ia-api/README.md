@@ -10,7 +10,7 @@ Technical README for the API subproject: setup, configuration, build, and useful
 
 ## Prerequisites
 
-- Python 3.13
+- Python 3.14
 - UV 0.11.x
 - Redis
 - PostgreSQL

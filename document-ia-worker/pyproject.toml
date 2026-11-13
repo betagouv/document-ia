@@ -4,7 +4,7 @@ version = "1.0.11"
 description = "Worker document ia"
 authors = [{name = "Nicolas Sagon",email = "nicolas.sagon@beta.gouv.fr"}]
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
     "document-ia-infra",
     "document-ia-schemas",
@@ -81,7 +81,7 @@ explicit = true
 packages = ["src/document_ia_worker", "src/document_ia_task_scheduler"]
 
 [tool.ruff]
-target-version = "py313"
+target-version = "py314"
 line-length = 88
 
 # TODO: Dans une PR complémentaire, durcir le linter et revenir aux règles par défaut de Ruff

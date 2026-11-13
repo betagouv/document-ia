@@ -4,7 +4,7 @@ version = "1.0.1"
 description = "Auto-scaler daemon for Scalingo workers based on queue lag"
 authors = [{name = "Nicolas Sagon",email = "nicolas.sagon@beta.gouv.fr"}]
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
     "document-ia-infra",
     "python-dotenv == 1.2.4",
@@ -37,7 +37,7 @@ editable = true
 packages = ["src/document_ia_auto_scaler"]
 
 [tool.ruff]
-target-version = "py313"
+target-version = "py314"
 line-length = 88
 
 # TODO: Dans une PR complémentaire, durcir le linter et revenir aux règles par défaut de Ruff

@@ -1,6 +1,6 @@
 # Document IA
 
-[![Python](https://img.shields.io/badge/python-3.13-blue)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/python-3.14-blue)](https://www.python.org/downloads/)
 [![uv](https://img.shields.io/badge/package%20manager-uv-blue)](https://github.com/astral-sh/uv)
 [![FastAPI](https://img.shields.io/badge/api-FastAPI-009688)](https://fastapi.tiangolo.com/)
 [![Docker Compose](https://img.shields.io/badge/local-Docker%20Compose-2496ED)](https://docs.docker.com/compose/)
@@ -14,7 +14,7 @@ The repository is organized as a Python monorepo with separate packages for the 
 
 Prerequisites:
 
-- Python 3.13
+- Python 3.14
 - UV 0.11.x
 - Docker Compose
 
