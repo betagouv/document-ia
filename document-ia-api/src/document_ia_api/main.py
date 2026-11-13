@@ -66,6 +66,9 @@ async def lifespan(app: FastAPI):
         process_message_callable=webhook_notification_service.handle_webhook_notification,
         max_retry_number=4,
         reclaim_poll_interval_s=5.0,
+        max_processing_time_s=15.0,
+        step_progress_timeout_s=None,
+        use_execution_lease=False,
     )
     webhook_notification_service.bind_stop_event(webhook_consumer.stop_flag)
     await webhook_consumer.start()

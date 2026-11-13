@@ -162,7 +162,9 @@ def create_webhook(
     response = requests.post(
         url,
         headers=_get_headers(),
-        json=request.model_dump(),
+        # SecretPayloadDict only serializes in JSON mode; the Python-mode dump
+        # keeps a SecretDict instance that requests cannot encode.
+        json=request.model_dump(mode="json"),
     )
     response.raise_for_status()
 

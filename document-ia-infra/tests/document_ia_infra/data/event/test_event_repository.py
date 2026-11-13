@@ -15,7 +15,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.dto.event_type_enum import EventType
 from document_ia_infra.data.event.repository.event import EventRepository
+from document_ia_infra.exception.processing_aborted_exception import (
+    ProcessingAbortedException,
+)
 from document_ia_infra.exception.retryable_exception import RetryableException
+from document_ia_infra.redis.progress_tracker import (
+    ProgressTracker,
+    current_progress_tracker,
+)
 
 
 @pytest.fixture
@@ -87,6 +94,32 @@ class TestEventRepository:
         mock_session.add.assert_called_once()
         mock_session.flush.assert_called_once()
         mock_session.refresh.assert_called_once()
+
+    async def test_put_event_refuses_to_commit_when_processing_aborted(
+        self, event_repository, mock_session
+    ):
+        """A write fences at the persistence boundary once the watchdog aborts the attempt.
+
+        ``put_event`` commits internally, so the worker's own ``is_aborted`` guard runs
+        too late; the check must happen here, immediately before the commit.
+        """
+        tracker = ProgressTracker(msg_id="msg-1", max_processing_time_s=1.0)
+        tracker.abort("step_timeout")
+        token = current_progress_tracker.set(tracker)
+        try:
+            with pytest.raises(ProcessingAbortedException):
+                await event_repository.put_event(
+                    workflow_id="test_workflow_001",
+                    organization_id=uuid4(),
+                    execution_id="test_execution_001",
+                    event_type=EventType.WORKFLOW_EXECUTION_COMPLETED.value,
+                    event_data={},
+                )
+        finally:
+            current_progress_tracker.reset(token)
+
+        mock_session.commit.assert_not_awaited()
+        mock_session.rollback.assert_awaited()
 
     def test_storage_projection_keeps_row_metadata_distinct(self):
         row = MagicMock()

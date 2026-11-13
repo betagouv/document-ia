@@ -10,6 +10,10 @@ post {
   auth: inherit
 }
 
+headers {
+  ~Idempotency-Key: {{idempotency-key}}
+}
+
 body:multipart-form {
   override: '''
     {
@@ -21,11 +25,17 @@ body:multipart-form {
       ]
     }
   '''
-  file: @file(/Users/nsagon/Projects/files/Avis_d_impot_2025_sur_les_revenus_2024.pdf)
+  file: @file(/Users/nsagon/Projects/files/Avis_d_impot_2025_sur_les_revenus_2024.pdf) @contentType(application/pdf)
 }
 
 vars:pre-request {
   worfklow_id: document-classification-extraction-v2
+  ~idempotency-key: test-idemp-002
+}
+
+script:pre-request {
+  // Décommenter pour générer automatiquement une nouvelle clé aléatoire à chaque requête :
+  // bru.setVar("idempotency_key", crypto.randomUUID());
 }
 
 settings {

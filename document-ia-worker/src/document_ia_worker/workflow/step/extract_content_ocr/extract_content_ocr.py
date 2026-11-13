@@ -63,7 +63,11 @@ class ExtractContentOcrStep(BaseStep[OcrResult]):
                     lang=self.tesseract_lang,
                     timeout=self.tesseract_timeout,
                 )
-                logger.debug(f"OCR data extracted : {data}")
+                logger.debug(
+                    "OCR extracted %d characters for page %d",
+                    len(data),
+                    index,
+                )
                 results.append(
                     OcrResultPage(
                         text=data,
@@ -74,7 +78,11 @@ class ExtractContentOcrStep(BaseStep[OcrResult]):
             # When there is an error during the OCR processing, we catch it and continue with the next page
             # It could be a timeout or any other error
             except Exception as e:
-                logger.error(f"Error during OCR processing: {e}")
+                logger.error(
+                    "Error during OCR processing for page %d: %s",
+                    index,
+                    type(e).__name__,
+                )
                 results.append(
                     OcrResultPage(
                         text=None,
@@ -84,7 +92,7 @@ class ExtractContentOcrStep(BaseStep[OcrResult]):
                 )
                 continue
             finally:
-                logger.info(f"OCR processing completed for file: {file_path}")
+                logger.info("OCR processing completed for page %d", index)
                 del gray
                 index += 1
 

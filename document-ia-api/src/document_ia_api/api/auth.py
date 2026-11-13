@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import Depends, Request, Security, HTTPException, Header
+from fastapi import Depends, Request, Security, HTTPException
 from fastapi.security import APIKeyHeader
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,7 +23,7 @@ async def verify_api_key(
     request: Request,
     api_key: Optional[str] = Security(security),
     db_session: AsyncSession = Depends(database_manager.async_get_db),
-):
+) -> ApiKeyDTO:
     if not api_key:
         raise MissingApiKeyException()
 
@@ -40,11 +40,6 @@ async def verify_api_key(
     request.state.organization = api_key_dto.organization
 
     return api_key_dto
-
-
-def get_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-KEY")):
-    """Get API key from header without requiring authentication."""
-    return x_api_key
 
 
 def get_current_organization(request: Request) -> OrganizationDTO:

@@ -11,7 +11,10 @@ Entry point for API documentation.
 - [Routes](./ROUTES.md)
 - [Workflow v1 (Deprecated)](./WORKFLOW_V1_DEPRECATED.md)
 - [Workflow v2](./WORKFLOW_V2.md)
+- [Workflow Idempotency-Key](./WORKFLOW_IDEMPOTENCY_KEY.md)
 - [Rate Limiting](./RATE_LIMITING.md)
+- [Security (File Confinement & Anti-SSRF)](./SECURITY_FILE_NETWORK.md)
+- [Security: Logging](./SECURITY_LOGGING.md)
 
 ## Quick navigation
 
@@ -22,6 +25,8 @@ Entry point for API documentation.
 3. **Error and quota behavior**:
    - [Error Handling](./ERROR_HANDLING.md),
    - [Rate Limiting](./RATE_LIMITING.md).
+4. **Security & Ingestion**:
+   - [Security (File Confinement & Anti-SSRF)](./SECURITY_FILE_NETWORK.md).
 
 ## Documentation conventions
 

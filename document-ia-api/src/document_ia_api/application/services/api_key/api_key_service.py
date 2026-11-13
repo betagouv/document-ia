@@ -2,6 +2,7 @@ import logging
 from typing import Optional
 from uuid import UUID
 
+from pydantic import SecretStr
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -88,7 +89,8 @@ class ApiKeyService:
             )
             await self.db_session.commit()
             return APIKeyCreatedResult(
-                **map_api_key_dto_to_api_result(api_key_dto).__dict__, key=presented
+                **map_api_key_dto_to_api_result(api_key_dto).__dict__,
+                key=SecretStr(presented),
             )
         except IntegrityError:
             await self.db_session.rollback()
@@ -114,5 +116,5 @@ class ApiKeyService:
             else:
                 return None
         except Exception as e:
-            logger.error("Error verifying API key: %s", e)
+            logger.error("Error verifying API key: %s", type(e).__name__)
             return None

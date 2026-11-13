@@ -3,6 +3,7 @@ import json
 import logging
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Dict, Any, Optional
 
@@ -19,6 +20,8 @@ from document_ia_api.api.exceptions.entity_not_found_exception import (
     HttpEntityNotFoundException,
 )
 from document_ia_api.application.services.execution_acceptance import (
+    EXECUTION_RESERVATION_LOST_ERROR,
+    fail_abandoned_execution,
     fail_unscheduled_execution,
     scheduling_log_context,
     scheduling_unavailable,
@@ -26,9 +29,13 @@ from document_ia_api.application.services.execution_acceptance import (
 from document_ia_api.application.services.execution_service import ExecutionService
 from document_ia_api.core.config import workflow_settings
 from document_ia_api.core.file_validator import validate_uploaded_file
+from document_ia_api.core.idempotency.exceptions import (
+    IdempotencyReservationLostException,
+)
 from document_ia_api.infra.s3_service import s3_service
 from document_ia_api.schemas.workflow import WorkflowExecutionData
 from document_ia_infra.core.model.file_info import FileInfo
+from document_ia_infra.core.security.safe_logging import extract_safe_host
 from document_ia_infra.data.event.schema.workflow.workflow_execution_started_event import (
     ClassificationParameters,
     ExtractionParameters,
@@ -37,7 +44,12 @@ from document_ia_infra.data.workflow.repository.workflow import workflow_reposit
 from document_ia_infra.redis.model.workflow_execution_message import (
     WorkflowExecutionMessage,
 )
-from document_ia_infra.redis.publisher import PublishFailedError, Publisher
+from document_ia_infra.redis.publisher import (
+    PublicationOutcomeUnknownError,
+    PublishFailedError,
+    Publisher,
+    ReservationLostError,
+)
 from document_ia_infra.redis.redis_settings import redis_settings
 from document_ia_infra.service.event_store_service import EventStoreService
 from document_ia_infra.exception.entity_not_found_exception import (
@@ -67,6 +79,8 @@ class WorkflowService:
             WorkflowClassificationParameterRequest
         ],
         request_extraction_parameter: Optional[WorkflowExtractionParameterRequest],
+        execution_id: Optional[str] = None,
+        before_publish: Callable[[Any, Any], Awaitable[str]] | None = None,
     ) -> WorkflowExecutionData:
         """
         Execute a workflow with file upload and metadata processing.
@@ -98,8 +112,8 @@ class WorkflowService:
             # Validate and parse metadata
             metadata = self._parse_metadata(metadata_json)
 
-            # Generate execution ID
-            execution_id = str(uuid.uuid4())
+            # Generate or use provided execution ID
+            execution_id = execution_id or str(uuid.uuid4())
 
             file_info: Optional[FileInfo] = None
 
@@ -127,20 +141,28 @@ class WorkflowService:
                 )
 
                 logger.info(
-                    f"Workflow execution started: {execution_id} "
-                    f"(workflow: {workflow_id}, file: {file.filename})"
+                    "Workflow execution started: %s (workflow: %s, file_size: %s)",
+                    execution_id,
+                    workflow_id,
+                    len(file_content),
                 )
 
             else:
+                file_host = extract_safe_host(file_url)
                 logger.info(
-                    f"Workflow execution started: {execution_id} "
-                    f"(workflow: {workflow_id}, file_url: {file_url})"
+                    "Workflow execution started: %s (workflow: %s, file_host: %s)",
+                    execution_id,
+                    workflow_id,
+                    file_host,
                 )
 
-            # Emit workflow started event
+            # Emit workflow started event. This is mandatory: the started event
+            # is what a replay reads back and what a reader consults to learn
+            # that the execution exists. Publishing without it returns 200 for an
+            # execution that cannot be replayed (the retry 404s) and lets the next
+            # retry schedule the same work again, so a failure aborts here.
+            event_store_service = EventStoreService(self.db_session)
             try:
-                event_store_service = EventStoreService(self.db_session)
-
                 await event_store_service.emit_workflow_started(
                     workflow_id=workflow_id,
                     execution_id=execution_id,
@@ -155,17 +177,56 @@ class WorkflowService:
                         request_extraction_parameter
                     ),
                 )
-                logger.debug(
-                    f"Workflow started event emitted for execution {execution_id}"
+            except Exception as emit_error:
+                logger.error(
+                    "Workflow execution %s: started event could not be persisted",
+                    execution_id,
                 )
+                # Nothing is scheduled, so the caller must not be told the
+                # execution was accepted; the route releases the reservation and
+                # the client can retry with the same key.
+                raise scheduling_unavailable(execution_id) from emit_error
+            logger.debug(f"Workflow started event emitted for execution {execution_id}")
 
-            except Exception as e:
-                logger.error(f"Failed to emit workflow started event: {e}")
-                # Don't fail the workflow execution if event emission fails
-
+            # Publication is fenced by reservation ownership in one Redis
+            # operation: a stale request must not publish a second execution.
+            # The started event is already committed by this point, so a lost
+            # reservation closes the execution explicitly.
             try:
-                await self.redis_producer.publish_message(
-                    WorkflowExecutionMessage(workflow_execution_id=execution_id)
+                execution_message = WorkflowExecutionMessage(
+                    workflow_execution_id=execution_id
+                )
+                if before_publish is not None:
+                    await before_publish(self.redis_producer, execution_message)
+                else:
+                    await self.redis_producer.publish_message(execution_message)
+            except (
+                ReservationLostError,
+                IdempotencyReservationLostException,
+            ):
+                await fail_abandoned_execution(
+                    self.db_session,
+                    execution_id=execution_id,
+                    workflow_id=workflow_id,
+                    organization_id=organization_id,
+                    error_type=EXECUTION_RESERVATION_LOST_ERROR,
+                    error_message=(
+                        "The idempotency reservation was lost before this "
+                        "execution was scheduled; nothing is pending. Retry the "
+                        "request."
+                    ),
+                )
+                raise IdempotencyReservationLostException(execution_id=execution_id)
+            except PublicationOutcomeUnknownError as unknown_error:
+                # Only reached when the reply was lost AND the message is
+                # confirmed on the stream: the reservation reconciles the
+                # outcome before re-raising. Recording a failure here would
+                # invite a retry that publishes the same work twice.
+                logger.warning(
+                    "Execution %s: publication reply lost (%s) but the message "
+                    "is queued; accepted",
+                    execution_id,
+                    unknown_error.reason,
                 )
             except PublishFailedError as publish_error:
                 # Aucun message ne programme le traitement : ne pas annoncer une
@@ -198,7 +259,7 @@ class WorkflowService:
             # Re-raise HTTP exceptions
             raise
         except Exception as e:
-            logger.error(f"Workflow execution failed: {e}")
+            logger.error("Workflow execution failed: %s", type(e).__name__)
             raise HTTPException(
                 status_code=500,
                 detail={
@@ -206,6 +267,26 @@ class WorkflowService:
                     "message": "An internal server error occurred during workflow execution",
                 },
             )
+
+    async def get_execution_data(
+        self, execution_id: str
+    ) -> WorkflowExecutionData | None:
+        """Retrieve execution data from the started event to reconstruct the admission response."""
+        event_store_service = EventStoreService(self.db_session)
+        result = await event_store_service.get_workflow_started_event(execution_id)
+        if result is None:
+            return None
+
+        dto, started = result
+        return WorkflowExecutionData(
+            execution_id=started.execution_id,
+            workflow_id=started.workflow_id,
+            status="processing",
+            created_at=dto.created_at.isoformat(),
+            file_info=started.s3_file_info,
+            file_url=started.file_url,
+            metadata=started.metadata,
+        )
 
     async def wait_for_execution_result(
         self,
@@ -322,7 +403,7 @@ class WorkflowService:
             content = await file.read()
             return content
         except Exception as e:
-            logger.error(f"Error reading file content: {e}")
+            logger.error("Error reading file content: %s", type(e).__name__)
             raise HTTPException(
                 status_code=400,
                 detail={
@@ -364,11 +445,11 @@ class WorkflowService:
                 metadata=s3_metadata,
             )
 
-            logger.info(f"File uploaded to S3: {result['s3_key']}")
+            logger.info("File uploaded to S3 successfully")
             return result
 
         except Exception as e:
-            logger.error(f"S3 upload failed: {e}")
+            logger.error("S3 upload failed: %s", type(e).__name__)
             raise HTTPException(
                 status_code=500,
                 detail={

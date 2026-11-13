@@ -36,5 +36,24 @@
     "Message": "feat: add organization_id on execution entity",
     "Tags": [],
     "Fingerprint": "35f258277c8fc310938aa24f7d30e9c487a7ba1c:.github/workflows/document-ia-ci.yml:document-ia-token:75"
+  },
+  {
+    "RuleID": "generic-api-key",
+    "Description": "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
+    "StartLine": 20,
+    "EndLine": 20,
+    "StartColumn": 2,
+    "EndColumn": 55,
+    "File": "document-ia-worker/tests/unit/workflow/step/test_download_file_failure_class.py",
+    "SymlinkFile": "",
+    "Commit": "c2ecb3214a4196f8405c42ca5cdd8d2e8c962b9c",
+    "Link": "https://github.com/etalab-ia/document-ia/blob/c2ecb3214a4196f8405c42ca5cdd8d2e8c962b9c/document-ia-worker/tests/unit/workflow/step/test_download_file_failure_class.py#L20",
+    "Entropy": 4.6821623,
+    "Author": "Luis Arias",
+    "Email": "luis.arias@numerique.gouv.fr",
+    "Date": "2026-11-12T13:16:41Z",
+    "Message": "fix(security): preserve download failure classification when sanitizing errors\n\nSanitizing httpx download errors dropped the type and status that\nclassify_failure uses, so 404/429/503 and transport timeouts all reached\ndelivery metrics and retained DLQ entries as failure_class=\"internal\".\n\nDownloadFileStepException now carries http_status_code and\nis_transport_failure, and classify_failure reads them via a shared\nclassify_http_status helper, keeping the classification policy in one place\nwithout restoring sensitive exception text.\n\nThe sanitized error is also raised after the handler exits: raising inside\nit left __context__ pointing at the original httpx error, whose message\ncontains the presigned URL, reachable from the propagated traceback.\n\nAdds 8 regression cases (4 HTTP statuses, 3 transport errors, context leak),\nall reproduced against the previous head before the fix.\n\n👾 Generated with [Letta Code](https://letta.com)\n\nModel: lc_qwencloud/qwen4-max-preview\n\nCo-Authored-By: Letta Code <noreply@letta.com>",
+    "Tags": [],
+    "Fingerprint": "c2ecb3214a4196f8405c42ca5cdd8d2e8c962b9c:document-ia-worker/tests/unit/workflow/step/test_download_file_failure_class.py:generic-api-key:20"
   }
 ]

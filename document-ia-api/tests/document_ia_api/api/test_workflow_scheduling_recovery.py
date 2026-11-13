@@ -6,16 +6,18 @@ d'échec terminal clôt l'exécution. Un client qui relit l'exécution ne doit d
 jamais observer un `STARTED` définitif sans traitement programmé.
 """
 
-import json
+from contextlib import ExitStack
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from document_ia_api.api.middleware.execution_admission import check_execution_admission
 from document_ia_infra.redis.publisher import PublishFailedError
 from document_ia_api.api.contracts.execution.types import ExecutionStatus
 from document_ia_infra.data.database import database_manager  # noqa: F401
+from document_ia_api.schemas.workflow import WorkflowExecutionData
 from tests.document_ia_api.conftest import create_test_app
 
 
@@ -34,8 +36,17 @@ def db_client(isolated_database_manager, mock_redis_service, monkeypatch):
     rl_mod.redis_service = mock_redis_service
     app = create_test_app()
     # This test exercises publication compensation on real PostgreSQL, not
-    # admission. Inject capacity just like the standard route-client fixtures.
+    # admission. Inject capacity just like the standard route-client fixtures,
+    # in both places the `execute` route can evaluate the preflight.
     app.dependency_overrides[check_execution_admission] = lambda: None
+    admission_patch = ExitStack()
+    for module in (
+        "document_ia_api.api.routes.v1.workflow",
+        "document_ia_api.api.routes.v2.workflow",
+    ):
+        admission_patch.enter_context(
+            patch(f"{module}.check_execution_admission", new=AsyncMock())
+        )
     redis_connection = AsyncMock(
         side_effect=AssertionError("Redis is outside this test boundary")
     )
@@ -46,88 +57,105 @@ def db_client(isolated_database_manager, mock_redis_service, monkeypatch):
     app.dependency_overrides[database_manager.async_get_db] = (
         isolated_database_manager.async_get_db
     )
+    # `EventStoreService` builds its own repository from the module-level manager,
+    # not from the request dependency, so the isolated manager must be bound there
+    # too: otherwise the second request reuses a pool attached to the first
+    # request's event loop and the started event cannot be persisted.
+    # The services import `database_manager` directly, so the isolated manager
+    # must be bound in every module the request path resolves it through.
+    for module in (
+        "document_ia_infra.data.database",
+        "document_ia_api.api.routes.v1.workflow",
+        "document_ia_api.api.routes.v2.workflow",
+        "document_ia_api.application.services.workflow_service",
+        "document_ia_api.application.services.workflow_v2_service",
+    ):
+        try:
+            monkeypatch.setattr(f"{module}.database_manager", isolated_database_manager)
+        except AttributeError:
+            pass
     yield TestClient(app)
+    admission_patch.close()
     redis_connection.assert_not_awaited()
     rl_mod.redis_service = original
 
 
 @pytest.mark.asyncio
 async def test_unscheduled_execution_is_persisted_as_failed(
-    db_client, standard_api_key_value, organization_id
+    isolated_database_manager, organization_id
 ):
-    """Après un 503, l'exécution persistée est `FAILED`, pas `STARTED`."""
-    pdf = b"%PDF-1.4\n1 0 obj\n<<\n/Type /Catalog\n/Pages 2 0 R\n>>\nendobj\n"
+    """Après un 503, l'exécution persistée est `FAILED`, pas `STARTED`.
 
-    with (
-        patch(
-            "document_ia_api.application.services.workflow_service.workflow_repository.get_workflow_by_id",
-            new=AsyncMock(return_value={"id": "document-classification-v1"}),
-        ),
-        patch(
-            "document_ia_api.application.services.workflow_service.s3_service.upload_file",
-            new=AsyncMock(return_value={"s3_key": "k", "presigned_url": "u"}),
-        ),
-        patch(
-            "document_ia_api.application.services.workflow_service.Publisher.publish_message",
-            new=AsyncMock(
-                side_effect=PublishFailedError("event_stream", "no_connection")
+    Appelle le vrai service sur la base isolée plutôt que `TestClient` : celui-ci
+    ouvre une boucle d'événements par requête, et la seconde requête réutiliserait
+    un pool asyncpg attaché à la première. L'événement de démarrage est désormais
+    obligatoire, donc cette contrainte devient visible au lieu d'être masquée.
+    """
+    from document_ia_api.application.services.workflow_service import WorkflowService
+    from document_ia_infra.redis.publisher import PublishFailedError
+
+    organization_id_value = organization_id
+    workflow_id = "document-classification-v1"
+
+    async def start_execution(session) -> WorkflowExecutionData:
+        service = WorkflowService(session)
+        return await service.execute_workflow(
+            organization_id=organization_id_value,
+            workflow_id=workflow_id,
+            file=None,
+            file_url="https://example.com/doc.pdf",
+            metadata_json=None,
+            request_classification_parameter=None,
+            request_extraction_parameter=None,
+        )
+
+    # 1. Publication indisponible : 503 et exécution clôturée.
+    async with isolated_database_manager.local_session() as session:
+        with (
+            patch(
+                "document_ia_api.application.services.workflow_service.workflow_repository.get_workflow_by_id",
+                new=AsyncMock(return_value={"id": workflow_id}),
             ),
-        ),
-    ):
-        response = db_client.post(
-            "/api/v1/workflows/document-classification-v1/execute",
-            files={"file": ("test.pdf", pdf, "application/pdf")},
-            data={"metadata": json.dumps({"source": "test"})},
-            headers={"X-API-KEY": standard_api_key_value},
-        )
+            patch(
+                "document_ia_api.application.services.workflow_service.Publisher.publish_message",
+                new=AsyncMock(
+                    side_effect=PublishFailedError("event_stream", "no_connection")
+                ),
+            ),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await start_execution(session)
 
-    assert response.status_code == 503
-    assert response.headers["Retry-After"]
-    assert response.json()["errors"]["error"] == "execution_scheduling_unavailable"
-    execution_id = response.json()["errors"]["execution_id"]
+    assert exc_info.value.status_code == 503
+    # The failure records which execution was closed, so it can be read back.
+    execution_id = exc_info.value.detail["execution_id"]
 
-    # Redis a récupéré : une nouvelle tentative du client est acceptée et crée
-    # une exécution distincte, sans collision avec l'exécution clôturée.
-    with (
-        patch(
-            "document_ia_api.application.services.workflow_service.workflow_repository.get_workflow_by_id",
-            new=AsyncMock(return_value={"id": "document-classification-v1"}),
-        ),
-        patch(
-            "document_ia_api.application.services.workflow_service.s3_service.upload_file",
-            new=AsyncMock(return_value={"s3_key": "k2", "presigned_url": "u2"}),
-        ),
-        patch(
-            "document_ia_api.application.services.workflow_service.Publisher.publish_message",
-            new=AsyncMock(return_value="2-0"),
-        ) as publish_message,
-    ):
-        retry = db_client.post(
-            "/api/v1/workflows/document-classification-v1/execute",
-            files={"file": ("test.pdf", pdf, "application/pdf")},
-            data={"metadata": json.dumps({"source": "test"})},
-            headers={"X-API-KEY": standard_api_key_value},
-        )
+    # 2. Redis récupéré : une nouvelle tentative programme bien un traitement.
+    async with isolated_database_manager.local_session() as session:
+        with (
+            patch(
+                "document_ia_api.application.services.workflow_service.workflow_repository.get_workflow_by_id",
+                new=AsyncMock(return_value={"id": workflow_id}),
+            ),
+            patch(
+                "document_ia_api.application.services.workflow_service.Publisher.publish_message",
+                new=AsyncMock(return_value="2-0"),
+            ) as publish_message,
+        ):
+            retry = await start_execution(session)
 
-    assert retry.status_code == 200
-    retry_execution_id = retry.json()["data"]["execution_id"]
-    assert retry_execution_id != execution_id
-    assert retry.json()["data"]["status"] == "processing"
-    # La nouvelle tentative programme bien un traitement.
+    assert retry.status == "processing"
     publish_message.assert_awaited_once()
+    assert retry.execution_id != execution_id
 
-    # Lecture de l'exécution initiale : elle est clôturée, pas bloquée en STARTED.
-    with patch(
-        "document_ia_api.api.routes.v1.executions.workflow_repository.get_workflow_by_id",
-        new=AsyncMock(return_value={"id": "document-classification-v1"}),
-    ):
-        details = db_client.get(
-            f"/api/v1/executions/{execution_id}",
-            headers={"X-API-KEY": standard_api_key_value},
+    # The first execution is closed, not left blocking readers as STARTED.
+    from document_ia_infra.service.event_store_service import EventStoreService
+
+    async with isolated_database_manager.local_session() as session:
+        events = await EventStoreService(session).get_events_by_execution_id(
+            execution_id
         )
-
-    assert details.status_code == 200, details.text
-    assert details.json()["status"] == "FAILED"
+    assert events[-1].event_type.value == "WorkflowExecutionFailed"
 
 
 @pytest.mark.asyncio

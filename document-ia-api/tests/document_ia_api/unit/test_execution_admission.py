@@ -12,8 +12,11 @@ from document_ia_api.api.middleware.execution_admission import check_execution_a
 from document_ia_api.api.middleware.rate_limiting_middleware import check_rate_limit
 from document_ia_api.infra.redis_service import RedisService
 from document_ia_api.schemas.rate_limiting import RateLimitInfo
+from document_ia_infra.data.api_key.dto.api_key_dto import ApiKeyDTO
+from document_ia_infra.data.api_key.enum.api_key_status import ApiKeyStatus
 from document_ia_infra.redis.admission import AdmissionUnavailableError
 from document_ia_infra.redis.redis_settings import RedisSettings
+from tests.document_ia_api.conftest import disable_admission_injection
 
 
 @pytest.fixture
@@ -34,7 +37,7 @@ async def test_quota_check_fails_closed(monkeypatch, failure):
         get_connection,
     )
     with pytest.raises(HTTPException) as exc:
-        await RedisService().check_rate_limit("test-key")
+        await RedisService().check_rate_limit(uuid4())
     assert exc.value.status_code == 503
     assert int(exc.value.headers["Retry-After"]) > 0
 
@@ -50,7 +53,7 @@ async def test_quota_pipeline_failure_is_not_client_exhaustion(monkeypatch):
         AsyncMock(return_value=connection),
     )
     with pytest.raises(HTTPException) as exc:
-        await RedisService().check_rate_limit("test-key")
+        await RedisService().check_rate_limit(uuid4())
     pipe.execute.assert_awaited_once()
     assert exc.value.status_code == 503
 
@@ -70,8 +73,18 @@ async def test_client_quota_returns_429_and_correct_retry_window(monkeypatch, da
         "document_ia_api.api.middleware.rate_limiting_middleware.redis_service.check_rate_limit",
         AsyncMock(return_value=(False, info)),
     )
+    api_key_dto = ApiKeyDTO(
+        id=uuid4(),
+        organization_id=uuid4(),
+        organization=None,
+        key_hash="dummy_hash",
+        prefix="TESTKEY1",
+        status=ApiKeyStatus.ACTIVE,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
     with pytest.raises(HTTPException) as exc:
-        await check_rate_limit(SimpleNamespace(state=SimpleNamespace()), "test-key")
+        await check_rate_limit(SimpleNamespace(state=SimpleNamespace()), api_key_dto)
     assert exc.value.status_code == 429
     assert int(exc.value.headers["Retry-After"]) == (3600 if daily else 30)
 
@@ -82,7 +95,10 @@ def test_all_execution_routes_refuse_before_creating_resources(
     monkeypatch, client_with_api_key_standard, standard_api_key_value, version, suffix
 ):
     client = client_with_api_key_standard
-    client.app.dependency_overrides.pop(check_execution_admission)
+    # `execute` routes run the preflight inside the handler, so the client
+    # fixture's stub must be removed from both places.
+    client.app.dependency_overrides.pop(check_execution_admission, None)
+    disable_admission_injection(client)
     connection = MagicMock()
     monkeypatch.setattr(
         "document_ia_api.api.middleware.execution_admission.redis_manager.get_connection",
@@ -101,11 +117,20 @@ def test_all_execution_routes_refuse_before_creating_resources(
     monkeypatch.setattr(
         f"document_ia_api.application.services.{service}.execute_workflow", execute
     )
-    response = client.post(
-        f"/api/{version}/workflows/example/{suffix}",
-        data={"file_url": "https://example.com/test.pdf"},
-        headers={"X-API-KEY": standard_api_key_value},
-    )
+    if version == "v1" and suffix == "execute":
+        # v1 `execute` requires a file part, and body validation now precedes
+        # the in-handler preflight: send a valid body so capacity is what refuses.
+        response = client.post(
+            f"/api/{version}/workflows/example/{suffix}",
+            files={"file": ("test.pdf", b"%PDF-1.4\n%%EOF\n", "application/pdf")},
+            headers={"X-API-KEY": standard_api_key_value},
+        )
+    else:
+        response = client.post(
+            f"/api/{version}/workflows/example/{suffix}",
+            data={"file_url": "https://example.com/test.pdf"},
+            headers={"X-API-KEY": standard_api_key_value},
+        )
     assert response.status_code == 503
     assert response.json()["code"] == "http.service_unavailable"
     assert response.json()["errors"]["error"] == "execution_capacity_unavailable"
@@ -137,7 +162,8 @@ def test_result_reads_do_not_depend_on_redis(
     monkeypatch, client_with_api_key_standard, standard_api_key_value, organization_id
 ):
     client = client_with_api_key_standard
-    client.app.dependency_overrides.pop(check_execution_admission)
+    client.app.dependency_overrides.pop(check_execution_admission, None)
+    disable_admission_injection(client)
     get = AsyncMock(side_effect=AssertionError("Result reads must not use Redis"))
     monkeypatch.setattr(
         "document_ia_api.api.middleware.execution_admission.redis_manager.get_connection",
