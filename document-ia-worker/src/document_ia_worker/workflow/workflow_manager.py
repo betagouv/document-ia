@@ -132,7 +132,20 @@ class WorkflowManager:
                         return
                     await self._execute_workflow()
                 except Exception as e:
-                    logger.error(f"Workflow execution failed: {e}")
+                    failed_step = (
+                        e.step_name
+                        if isinstance(e, WorkflowStepException)
+                        else "workflow"
+                    )
+                    inner_exc = (
+                        e.inner_exception if isinstance(e, WorkflowStepException) else e
+                    )
+                    logger.error(
+                        "Workflow execution failed on step %s (%s): execution_id=%s",
+                        failed_step,
+                        type(inner_exc).__name__,
+                        self.message.workflow_execution_id,
+                    )
                     is_success = False
 
                     tracker = get_current_progress_tracker()
@@ -144,17 +157,15 @@ class WorkflowManager:
 
                     # We use the WorkflowStepException to know in which step the error happened
                     # and we dispatch the inner exception to have the original exception
-                    if isinstance(e, WorkflowStepException):
-                        failed_step = e.step_name
-                        inner_exc = e.inner_exception
-                    else:
-                        inner_exc = e
                     err_type = (
                         RetryableException.__name__
                         if isinstance(inner_exc, RetryableException)
                         else inner_exc.__class__.__name__
                     )
-                    err_message = str(inner_exc)
+                    raw_msg = str(inner_exc)
+                    if "?" in raw_msg:
+                        raw_msg = raw_msg.split("?")[0]
+                    err_message = raw_msg
 
                     # we need to notify the webhook for every not retryable exception or if it's the last retry
                     # By default the need_to_notify_webhook is True
@@ -348,7 +359,9 @@ class WorkflowManager:
             return event
         except Exception as e:
             logger.error(
-                f"Failed to parse start event for execution {self.message.workflow_execution_id}: {e}"
+                "Failed to parse start event for execution %s: %s",
+                self.message.workflow_execution_id,
+                type(e).__name__,
             )
             raise WorkflowStepException("parse_start_event", e)
 
@@ -384,12 +397,16 @@ class WorkflowManager:
                     # désormais au lieu de renvoyer `None`, et une indisponibilité
                     # ne doit pas interrompre les notifications suivantes.
                     logger.error(
-                        f"Failed to publish webhook notification {webhook.id} "
-                        f"for execution {self.main_workflow_context.execution_id}: {e}"
+                        "Failed to publish webhook notification %s for execution %s: %s",
+                        webhook.id,
+                        self.main_workflow_context.execution_id,
+                        type(e).__name__,
                     )
         except Exception as e:
             logger.error(
-                f"Failed to notify webhook for finished execution {self.main_workflow_context.execution_id}: {e}"
+                "Failed to notify webhook for finished execution %s: %s",
+                self.main_workflow_context.execution_id,
+                type(e).__name__,
             )
 
     async def _execute_workflow(self):
@@ -430,8 +447,15 @@ class WorkflowManager:
             ):
                 is_last_cleanup = False
 
+            failed_step = (
+                e.step_name if isinstance(e, WorkflowStepException) else "unknown"
+            )
+            inner_exc = e.inner_exception if isinstance(e, WorkflowStepException) else e
             logger.error(
-                f"Failed to execute workflow {self.message.workflow_execution_id}: {e}"
+                "Failed to execute workflow %s on step %s: %s",
+                self.message.workflow_execution_id,
+                failed_step,
+                type(inner_exc).__name__,
             )
             raise e
         finally:

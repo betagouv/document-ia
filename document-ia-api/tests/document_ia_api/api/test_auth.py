@@ -7,7 +7,6 @@ from starlette.requests import Request
 
 from document_ia_api.api.auth import (
     verify_api_key,
-    get_api_key,
     get_current_organization,
     is_platform_admin,
 )
@@ -101,7 +100,9 @@ def make_service(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_verify_api_key_success_sets_state_and_returns_dto(make_service, api_key_with_org):
+async def test_verify_api_key_success_sets_state_and_returns_dto(
+    make_service, api_key_with_org
+):
     make_service.set_value(api_key_with_org)
     request = Request(scope={"type": "http"})
 
@@ -137,7 +138,9 @@ async def test_verify_api_key_missing_key_raises_401(make_service):
 
 
 @pytest.mark.asyncio
-async def test_verify_api_key_without_organization_raises_401(make_service, api_key_without_org):
+async def test_verify_api_key_without_organization_raises_401(
+    make_service, api_key_without_org
+):
     make_service.set_value(api_key_without_org)
     request = Request(scope={"type": "http"})
 
@@ -147,11 +150,6 @@ async def test_verify_api_key_without_organization_raises_401(make_service, api_
     assert exc.value.status_code == 401
     assert exc.value.detail == "API key has no associated organization"
     assert exc.value.headers == {"WWW-Authenticate": "APIKey"}
-
-
-def test_get_api_key_returns_header_value():
-    assert get_api_key("the-key") == "the-key"
-    assert get_api_key(None) is None
 
 
 def test_get_current_organization_success(org_standard):

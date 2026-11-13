@@ -91,8 +91,15 @@ def setup_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(request: Request, exc: RequestValidationError):  # pyright: ignore [reportUnusedFunction]
-        # Mapper l’erreur FastAPI -> RFC7807
-        logger.error(f"Validation Error {exc}")
+        # Mapper l’erreur FastAPI -> RFC7807 sans journaliser les valeurs d'entrée ('input')
+        safe_error_summary = [
+            {"loc": err.get("loc"), "type": err.get("type")} for err in exc.errors()
+        ]
+        logger.warning(
+            "Validation error on %s: %s",
+            request.url.path,
+            safe_error_summary,
+        )
         return _problem_response(
             request,
             status=422,

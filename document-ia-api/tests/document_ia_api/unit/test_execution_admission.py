@@ -12,6 +12,8 @@ from document_ia_api.api.middleware.execution_admission import check_execution_a
 from document_ia_api.api.middleware.rate_limiting_middleware import check_rate_limit
 from document_ia_api.infra.redis_service import RedisService
 from document_ia_api.schemas.rate_limiting import RateLimitInfo
+from document_ia_infra.data.api_key.dto.api_key_dto import ApiKeyDTO
+from document_ia_infra.data.api_key.enum.api_key_status import ApiKeyStatus
 from document_ia_infra.redis.admission import AdmissionUnavailableError
 from document_ia_infra.redis.redis_settings import RedisSettings
 from tests.document_ia_api.conftest import disable_admission_injection
@@ -35,7 +37,7 @@ async def test_quota_check_fails_closed(monkeypatch, failure):
         get_connection,
     )
     with pytest.raises(HTTPException) as exc:
-        await RedisService().check_rate_limit("test-key")
+        await RedisService().check_rate_limit(uuid4())
     assert exc.value.status_code == 503
     assert int(exc.value.headers["Retry-After"]) > 0
 
@@ -51,7 +53,7 @@ async def test_quota_pipeline_failure_is_not_client_exhaustion(monkeypatch):
         AsyncMock(return_value=connection),
     )
     with pytest.raises(HTTPException) as exc:
-        await RedisService().check_rate_limit("test-key")
+        await RedisService().check_rate_limit(uuid4())
     pipe.execute.assert_awaited_once()
     assert exc.value.status_code == 503
 
@@ -71,8 +73,18 @@ async def test_client_quota_returns_429_and_correct_retry_window(monkeypatch, da
         "document_ia_api.api.middleware.rate_limiting_middleware.redis_service.check_rate_limit",
         AsyncMock(return_value=(False, info)),
     )
+    api_key_dto = ApiKeyDTO(
+        id=uuid4(),
+        organization_id=uuid4(),
+        organization=None,
+        key_hash="dummy_hash",
+        prefix="TESTKEY1",
+        status=ApiKeyStatus.ACTIVE,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+    )
     with pytest.raises(HTTPException) as exc:
-        await check_rate_limit(SimpleNamespace(state=SimpleNamespace()), "test-key")
+        await check_rate_limit(SimpleNamespace(state=SimpleNamespace()), api_key_dto)
     assert exc.value.status_code == 429
     assert int(exc.value.headers["Retry-After"]) == (3600 if daily else 30)
 
