@@ -15,12 +15,8 @@ updates:
         patterns: ["*"]
         update-types: ["minor", "patch"]
         group-by: dependency-name
-      # Majors stay out of the minor/patch group so they get their own review,
-      # but are still one PR per dependency rather than per package.
-      uv-major:
-        patterns: ["*"]
-        update-types: ["major"]
-        group-by: dependency-name
+      # No major group on purpose: a wildcard major group would bundle every
+      # eligible major into one PR. Majors must fall through to individual PRs.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
