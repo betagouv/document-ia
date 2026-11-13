@@ -215,7 +215,7 @@ uv run python tests/fixtures/regenerate_extraction_prompt_fixtures.py
 
 ## Development
 
-Each subproject owns its Python environment and dependency lock file. Install dependencies from the package you are working on:
+Each subproject belongs to a single uv workspace declared at the repository root, which owns one `uv.lock` for the whole monorepo. Install dependencies from the package you are working on:
 
 ```bash
 cd document-ia-api
@@ -232,7 +232,9 @@ cd document-ia-schemas
 uv sync
 ```
 
-When developing against shared local packages, they are already configured in `pyproject.toml` and installed in editable mode by default when running `uv sync`.
+`uv sync` creates the virtual environment at the workspace root (`.venv/` at the repository root), shared by all packages, and installs only the dependencies of the package you synced. When developing against shared local packages, they are declared as workspace members in `pyproject.toml` (`workspace = true`) and installed in editable mode by default.
+
+Because the workspace holds a single lock, run `uv lock` from the repository root after changing any dependency in any `pyproject.toml`. The per-package `uv.lock` files are symlinks to the root lock, so they never need to be regenerated separately.
 
 ### Git Hooks
 

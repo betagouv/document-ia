@@ -32,8 +32,8 @@ uv sync
 # Run with UV
 uv run streamlit run src/document_ia_evals/app.py
 
-# Or activate the UV virtual environment first
-source .venv/bin/activate
+# Or activate the UV virtual environment first (shared, at the workspace root)
+source ../.venv/bin/activate
 streamlit run src/document_ia_evals/app.py
 ```
 

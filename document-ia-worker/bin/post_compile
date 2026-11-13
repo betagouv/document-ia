@@ -8,17 +8,22 @@ MODEL_SLUG_PATH="$MODEL_SLUG_DIR/yolov8m-world.pt"
 TESSDATA_DIR="$MODEL_SLUG_DIR/tessdata"
 FRA_TRAINEDDATA_PATH="$TESSDATA_DIR/fra.traineddata"
 
-echo "[post_compile] copy lib to vendor folder"
-cd "$APP_ROOT"
-mkdir -p vendor
-cp -r "$APP_ROOT/../document-ia-schemas" vendor/
-cp -r "$APP_ROOT/../document-ia-infra" vendor/
-
 export UV_SYSTEM_PYTHON=1
 
-echo "[post_compile] install local lib"
-uv pip install -e vendor/document-ia-schemas
-uv pip install -e vendor/document-ia-infra
+# Le monorepo est un unique workspace uv (un seul uv.lock à la racine). `uv sync`
+# du buildpack a donc déjà installé document-ia-schemas et document-ia-infra dans
+# le virtualenv, en copies réelles puisque UV_NO_EDITABLE=1 est défini sur l'app.
+# L'ancienne copie dans vendor/ + `uv pip install -e` n'est plus nécessaire et
+# échouerait de toute façon : ces paquets se déclarent désormais membres du
+# workspace (tool.uv.sources.* = { workspace = true }).
+echo "[post_compile] vérification des libs locales installées par le workspace"
+uv run --no-project python - <<'PY'
+import importlib.util
+
+for module in ("document_ia_schemas", "document_ia_infra"):
+    if importlib.util.find_spec(module) is None:
+        raise SystemExit(f"[post_compile] {module} est absent du virtualenv")
+PY
 
 mkdir -p "$MODEL_SLUG_DIR" "$TESSDATA_DIR"
 
