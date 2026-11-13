@@ -17,6 +17,7 @@ Prerequisites:
 - Python 3.13
 - UV 0.11.x
 - Docker Compose
+- An [Albert API](https://albert.api.etalab.gouv.fr/) key for OCR and LLM calls (`OPENAI_*` in `.env`)
 
 Create your local environment file:
 
@@ -24,13 +25,20 @@ Create your local environment file:
 cp env.example .env
 ```
 
+Configure `.env` before starting the API (see [document-ia-api/README.md](./document-ia-api/README.md) for API key generation):
+
+- `APP_ENV=dev`, `API_KEY_PEPPER_HASH`, `API_KEY_PEPPER_CHK`, and `DOCUMENT_IA_API_KEY` must be consistent (the admin org is seeded on first migration).
+- `OPENAI_API_KEY` must be your **Albert** credential.
+- Local Albert setup: `OPENAI_BASE_URL=https://albert.api.etalab.gouv.fr/v1`
+- Leave `AUTO_MIGRATE=true` so Alembic runs when the API starts.
+
 Start the local infrastructure services:
 
 ```bash
 docker compose up -d
 ```
 
-This starts PostgreSQL, Redis, MinIO, MockServer, and the MinIO bucket initialization service.
+This starts PostgreSQL, Redis, MinIO, MockServer, and the MinIO bucket initialization service (`init-s3-bucket` creates the `document-ia` bucket then exits).
 
 Run the API in one terminal:
 
@@ -48,6 +56,15 @@ uv sync
 uv run python src/document_ia_worker/main.py
 ```
 
+On startup the worker may consume leftover Redis messages from local tests (some may land in the DLQ); this is normal in dev.
+
+Check the API and admin key (trailing slash on the workflows URL):
+
+```bash
+export DIA_KEY=$(grep -E '^DOCUMENT_IA_API_KEY=' .env | cut -d= -f2-)
+curl -s -H "X-API-KEY: $DIA_KEY" http://localhost:8000/api/v2/workflows/ | head
+```
+
 Optional: run the evaluation app in a third terminal:
 
 ```bash
@@ -62,6 +79,35 @@ Useful local URLs:
 - API ReDoc: `http://localhost:8000/redoc`
 - MinIO console: `http://localhost:9001`
 - Streamlit evals: `http://localhost:8501`
+
+### Smoke test: classify and extract a PDF
+
+From the repository root, after API and worker are running:
+
+```bash
+export DIA_KEY=$(grep -E '^DOCUMENT_IA_API_KEY=' .env | cut -d= -f2-)
+
+curl -s -X POST "http://localhost:8000/api/v2/workflows/document-classification-extraction-v2/execute" \
+  -H "X-API-KEY: $DIA_KEY" \
+  -F "file=@your-document.pdf;type=application/pdf" \
+  -F 'override={"extract_content_ocr":[{"param":"model","value":"lightOn"}]}' \
+  | python3 -m json.tool
+```
+
+Use the `execution_id` from the response, then poll results (add `?is_debug_mode=true` to inspect workflow metadata):
+
+```bash
+curl -s -H "X-API-KEY: $DIA_KEY" \
+  "http://localhost:8000/api/v1/executions/<execution_id>?is_debug_mode=true"
+```
+
+For multi-page files or slow OCR, prefer `/execute` over `/execute-sync` (sync endpoints time out around 30s). Photo-based identity documents often need OCR `lightOn` rather than the default `mistral` model—otherwise extraction may succeed with hallucinated fields while OCR text is empty. Raw OCR text is only exposed in debug metadata when extraction runs (not when classification is `autre`); see [document-ia-api/docs/API_SUMMARY.md](./document-ia-api/docs/API_SUMMARY.md).
+
+Stop local processes with `Ctrl+C` in the API and worker terminals, then:
+
+```bash
+docker compose down
+```
 
 ## Index
 
@@ -168,6 +214,21 @@ The `init-s3-bucket` Docker Compose service creates the configured bucket after 
 ```bash
 docker compose up init-s3-bucket
 ```
+
+If `init-s3-bucket` fails because MinIO is reported unhealthy, MinIO may still be running; retry bucket init only:
+
+```bash
+docker compose up --no-deps init-s3-bucket
+```
+
+### Local troubleshooting
+
+| Symptom | What to check |
+|---|---|
+| `301` / `404` on `localhost:8000`, `Server: WSGIServer` | Another app is bound to port 8000: `lsof -nP -iTCP:8000 -sTCP:LISTEN` |
+| `401` from Albert during OCR/LLM | `OPENAI_API_KEY` is not an Albert key, or `OPENAI_BASE_URL` is wrong |
+| API key rejected after migration | `DOCUMENT_IA_API_KEY` does not match `APP_ENV` / pepper settings used at migration time |
+| Tesseract OCR errors on macOS | Prefer Albert OCR via workflow override; if using `tesseract`, ensure `fra.traineddata` is a valid binary (not a bad download) |
 
 ## Common Tasks
 
