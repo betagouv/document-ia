@@ -1,5 +1,8 @@
 import asyncio
 import logging
+import time
+
+from collections.abc import Mapping
 
 import httpx
 from sqlalchemy.exc import (
@@ -12,6 +15,8 @@ from sqlalchemy.exc import (
 )
 
 from document_ia_api.application.services.execution_service import ExecutionService
+from document_ia_infra.core.model.types.secret import SecretDict
+from document_ia_infra.core.security.safe_logging import extract_safe_host
 from document_ia_infra.data.database import database_manager
 from document_ia_infra.data.event.dto.event_dto import EventDTO
 from document_ia_infra.data.event.repository.event import EventRepository
@@ -133,19 +138,19 @@ class WebhookNotificationService:
             ):
                 logger.error(
                     "Non-retryable database error handling webhook notification: %s",
-                    db_exc,
+                    type(db_exc).__name__,
                 )
                 raise
             logger.warning(
                 "Transient database error handling webhook notification (retry_count=%d): %s",
                 retry_count,
-                db_exc,
+                type(db_exc).__name__,
             )
             await self._sleep_before_retry(
                 retry_count=retry_count, is_last_retry=is_last_retry
             )
             raise RetryableException(
-                f"Transient database error handling webhook notification: {db_exc}"
+                f"Transient database error handling webhook notification: {type(db_exc).__name__}"
             ) from db_exc
 
         if current_web_hook is None:
@@ -178,15 +183,22 @@ class WebhookNotificationService:
         retry_count: int = 0,
         is_last_retry: bool = False,
     ) -> None:
+        url = getattr(webhook_dto, "url", None)
+        host = extract_safe_host(url) if url else "unknown"
+        execution_id = str(getattr(event_dto, "execution_id", ""))
+        webhook_id = str(getattr(webhook_dto, "id", "") or "")
         try:
             await self._call_webhook_notification(webhook_dto, event_dto)
         except httpx.HTTPStatusError as http_exc:
             status_code = http_exc.response.status_code
             if self.should_retry_http_status(status_code):
                 logger.warning(
-                    "Retryable webhook HTTP status %d (retry_count=%d)",
+                    "Retryable webhook HTTP status %d: host=%s (retry_count=%d, webhook_id=%s, execution_id=%s)",
                     status_code,
+                    host,
                     retry_count,
+                    webhook_id,
+                    execution_id,
                 )
                 await self._sleep_before_retry(
                     retry_count=retry_count, is_last_retry=is_last_retry
@@ -195,16 +207,21 @@ class WebhookNotificationService:
                     f"Webhook HTTP status {status_code}"
                 ) from http_exc
             logger.error(
-                "Non-retryable webhook HTTP status %d: %s",
+                "Non-retryable webhook HTTP status %d: host=%s (webhook_id=%s, execution_id=%s)",
                 status_code,
-                type(http_exc).__name__,
+                host,
+                webhook_id,
+                execution_id,
             )
             raise
         except httpx.TransportError as transport_exc:
             logger.warning(
-                "Transient webhook transport error (retry_count=%d): %s",
-                retry_count,
+                "Transient webhook transport error: host=%s error=%s (retry_count=%d, webhook_id=%s, execution_id=%s)",
+                host,
                 type(transport_exc).__name__,
+                retry_count,
+                webhook_id,
+                execution_id,
             )
             await self._sleep_before_retry(
                 retry_count=retry_count, is_last_retry=is_last_retry
@@ -213,11 +230,19 @@ class WebhookNotificationService:
                 f"Webhook transport error: {type(transport_exc).__name__}"
             ) from transport_exc
         except Exception as exc:
-            logger.error("Error handling webhook notification: %s", type(exc).__name__)
+            logger.error(
+                "Error handling webhook notification: %s (host=%s, webhook_id=%s, execution_id=%s)",
+                type(exc).__name__,
+                host,
+                webhook_id,
+                execution_id,
+            )
             raise
 
     @staticmethod
-    def _build_headers(custom_headers: dict[str, str]) -> dict[str, str]:
+    def _build_headers(
+        custom_headers: Mapping[str, str] | SecretDict[str],
+    ) -> dict[str, str]:
         custom_content_type: str | None = None
         headers: dict[str, str] = {}
         for key, value in custom_headers.items():
@@ -231,22 +256,38 @@ class WebhookNotificationService:
     async def _call_webhook_notification(
         self, webhook_dto: WebHookDTO, event_dto: EventDTO
     ) -> None:
-        logger.info("Sending webhook notification")
-        payload = self._execution_service.get_event_model(
-            event_dto, event_dto.execution_id, is_debug_mode=False
+        url = getattr(webhook_dto, "url", None)
+        host = extract_safe_host(url) if url else "unknown"
+        execution_id: str = str(getattr(event_dto, "execution_id", ""))
+        webhook_id = str(getattr(webhook_dto, "id", "") or "")
+        start_time = time.perf_counter()
+
+        logger.info(
+            "Sending webhook notification to host %s (webhook_id=%s, execution_id=%s)",
+            host,
+            webhook_id,
+            execution_id,
         )
-        headers = self._build_headers(webhook_dto.headers)
+        payload = self._execution_service.get_event_model(
+            event_dto, execution_id, is_debug_mode=False
+        )
+        headers = self._build_headers(getattr(webhook_dto, "headers", {}))
 
         client = self._get_http_client()
         response = await client.post(
-            webhook_dto.url,
+            url or "",
             content=payload.model_dump_json(),
             headers=headers,
         )
         response.raise_for_status()
+        elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
         logger.info(
-            "Webhook notification sent successfully with status %d",
+            "Webhook notification sent successfully with status %d: host=%s elapsed_ms=%s (webhook_id=%s, execution_id=%s)",
             response.status_code,
+            host,
+            elapsed_ms,
+            webhook_id,
+            execution_id,
         )
 
 

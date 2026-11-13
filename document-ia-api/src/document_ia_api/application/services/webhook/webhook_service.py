@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +10,7 @@ from document_ia_api.api.exceptions.entity_not_found_exception import (
 from document_ia_api.application.services.webhook.mapper import (
     map_webhook_dto_to_api_result,
 )
+from document_ia_infra.core.model.types.secret import SecretDict
 from document_ia_infra.data.webhook.repository.webhook_repository import (
     WebHookRepository,
 )
@@ -30,11 +32,14 @@ class WebHookService:
         *,
         organization_id: UUID,
         url: str,
-        headers: dict[str, str],
+        headers: Mapping[str, str] | SecretDict[str],
     ) -> WebHookResult:
+        raw_headers: dict[str, str] = (
+            headers.inner_dict if isinstance(headers, SecretDict) else dict(headers)
+        )
         try:
             dto = await self.repository.create(
-                organization_id=organization_id, url=url, headers=headers
+                organization_id=organization_id, url=url, headers=raw_headers
             )
             await self.db_session.commit()
             return map_webhook_dto_to_api_result(dto)

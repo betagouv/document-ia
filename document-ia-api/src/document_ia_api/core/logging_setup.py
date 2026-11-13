@@ -106,7 +106,7 @@ def _get_loggers() -> dict[str, Any]:
     loggers_dict: dict[str, Any] = {
         "uvicorn.access": {
             "handlers": ["access_console"],
-            "level": "INFO",
+            "level": "WARNING",
             "propagate": False,
         },
         "uvicorn.error": {
@@ -118,6 +118,35 @@ def _get_loggers() -> dict[str, Any]:
             "handlers": [],
             "level": "INFO",
             "propagate": False,
+        },
+        # Suppress verbose HTTP client logs that might echo headers or sensitive queries
+        "httpx": {
+            "level": "WARNING",
+            "propagate": True,
+        },
+        "httpcore": {
+            "level": "WARNING",
+            "propagate": True,
+        },
+        "urllib3": {
+            "level": "WARNING",
+            "propagate": True,
+        },
+        "botocore": {
+            "level": "WARNING",
+            "propagate": True,
+        },
+        "boto3": {
+            "level": "WARNING",
+            "propagate": True,
+        },
+        "s3transfer": {
+            "level": "WARNING",
+            "propagate": True,
+        },
+        "openai": {
+            "level": "WARNING",
+            "propagate": True,
         },
     }
 
