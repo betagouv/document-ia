@@ -1,7 +1,10 @@
 version: 2
 updates:
+  # One entry for the whole monorepo. Grouping is per-directory, so a single
+  # dependency release would otherwise fan out into one grouped PR per package;
+  # `group-by: dependency-name` collapses it into one PR across all packages.
   - package-ecosystem: "uv"
-    directory: "/document-ia-api"
+    directories: ["/document-ia-*"]
     schedule:
       interval: "weekly"
     cooldown:
@@ -11,61 +14,9 @@ updates:
       uv-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
-  - package-ecosystem: "uv"
-    directory: "/document-ia-infra"
-    schedule:
-      interval: "weekly"
-    cooldown:
-      default-days: 7
-    open-pull-requests-limit: 10
-    groups:
-      uv-minor-patch:
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
-  - package-ecosystem: "uv"
-    directory: "/document-ia-worker"
-    schedule:
-      interval: "weekly"
-    cooldown:
-      default-days: 7
-    open-pull-requests-limit: 10
-    groups:
-      uv-minor-patch:
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
-  - package-ecosystem: "uv"
-    directory: "/document-ia-schemas"
-    schedule:
-      interval: "weekly"
-    cooldown:
-      default-days: 7
-    open-pull-requests-limit: 10
-    groups:
-      uv-minor-patch:
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
-  - package-ecosystem: "uv"
-    directory: "/document-ia-evals"
-    schedule:
-      interval: "weekly"
-    cooldown:
-      default-days: 7
-    open-pull-requests-limit: 10
-    groups:
-      uv-minor-patch:
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
-  - package-ecosystem: "uv"
-    directory: "/document-ia-auto-scaler"
-    schedule:
-      interval: "weekly"
-    cooldown:
-      default-days: 7
-    open-pull-requests-limit: 10
-    groups:
-      uv-minor-patch:
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
+        group-by: dependency-name
+      # No major group on purpose: a wildcard major group would bundle every
+      # eligible major into one PR. Majors must fall through to individual PRs.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
