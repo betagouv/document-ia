@@ -110,21 +110,21 @@ class CarteGriseExtractSchema(BaseDocumentTypeSchema[CarteGriseModel]):
 2) Définir le modèle Pydantic avec des descriptions en français, alias explicites et exemples.
 3) Définir la classe `*ExtractSchema` avec `type`, `name`, `description` et `document_model`.
 4) Ajouter dans `src/document_ia_schemas/__init__.py` le type dans la liste des types inclus.
-5) Il faut régénérer les snapshot de prompt avec le script `src_document_ia_schemas/tests/fixtures/generate_prompt_snapshots.py`
-6) Optionnel: mettre à jour la table des types dans le `README.md` (section « Types de documents inclus »).
+5) Il faut régénérer les snapshot de prompt dans `document-ia-worker` avec le script `uv run python tests/fixtures/regenerate_extraction_prompt_fixtures.py`
+6) Optionnel: mettre à jour la table des types dans le `document-ia-schemas/README.md` (section « Types de documents inclus »).
 7) Lancer les vérifications locales (ruff/pytest) — voir section suivante.
 8) Ouvrir une PR claire et concise.
 
 
 ## 🧪 Tests locaux et qualité
 
-Pré-requis: Python 3.13+, Poetry
+Pré-requis: Python 3.13+, `uv`
 
 ```bash
-poetry install
-poetry run ruff check .
-poetry run ruff format --check .
-poetry run pytest -v
+uv sync
+uv run ruff check .
+uv run ruff format --check .
+uv run pytest -v
 ```
 
 Conseils:
