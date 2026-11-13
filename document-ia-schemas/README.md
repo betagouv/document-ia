@@ -1,4 +1,4 @@
-# document-ia-schemas  [![Python Version](https://img.shields.io/badge/python-3.13%2B-blue.svg)](https://www.python.org/downloads/) [![uv](https://img.shields.io/badge/package%20manager-uv-blue)](https://github.com/astral-sh/uv)
+# document-ia-schemas  [![Python Version](https://img.shields.io/badge/python-3.14%2B-blue.svg)](https://www.python.org/downloads/) [![uv](https://img.shields.io/badge/package%20manager-uv-blue)](https://github.com/astral-sh/uv)
 
 Ensemble de modèles de documents utilisés par Document-IA pour l’extraction de données depuis des pièces justificatives françaises.
 
@@ -159,7 +159,7 @@ src/
 
 ## 🧪 Développement
 
-Pré-requis: Python 3.13+, UV
+Pré-requis: Python 3.14+, UV
 
 ```bash
 # Installer les dépendances

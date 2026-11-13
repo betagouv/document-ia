@@ -54,7 +54,7 @@ class WorkflowRepository:
             logger.warning(f"Workflow not found: {workflow_id}")
             return None
 
-        except (FileNotFoundError, json.JSONDecodeError, ValueError):
+        except FileNotFoundError, json.JSONDecodeError, ValueError:
             # Re-raise these specific exceptions
             raise
         except Exception as e:

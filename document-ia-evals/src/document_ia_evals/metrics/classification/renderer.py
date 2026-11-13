@@ -75,7 +75,7 @@ def render_results(experiment_results: Dict[str, Any]) -> None:
 
                     if obs_data.error:
                         errors_count += 1
-                except (json.JSONDecodeError, TypeError, ValueError):
+                except json.JSONDecodeError, TypeError, ValueError:
                     errors_count += 1
                     details_data.append(
                         {
@@ -156,7 +156,7 @@ def render_results(experiment_results: Dict[str, Any]) -> None:
                             if obs_data.error:
                                 task_id = obs.get("task_id")
                                 st.error(f"**Task {task_id}:** {obs_data.error}")
-                        except (json.JSONDecodeError, TypeError, ValueError):
+                        except json.JSONDecodeError, TypeError, ValueError:
                             pass
 
         if model_version != model_versions[-1]:

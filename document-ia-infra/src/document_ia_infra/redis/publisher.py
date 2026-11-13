@@ -263,6 +263,6 @@ class Publisher(Generic[T]):
             try:
                 if json.loads(raw).get("workflow_execution_id") == execution_id:
                     return True
-            except (ValueError, AttributeError):
+            except ValueError, AttributeError:
                 continue
         return False

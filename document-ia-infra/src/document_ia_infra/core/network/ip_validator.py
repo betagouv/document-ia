@@ -131,5 +131,5 @@ def is_ip_allowed(
     try:
         validate_ip(ip, allow_local=allow_local)
         return True
-    except (BlockedAddressException, ValueError):
+    except BlockedAddressException, ValueError:
         return False

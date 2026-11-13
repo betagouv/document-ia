@@ -4,7 +4,7 @@ version = "1.0.11"
 description = "Code des briques d'infrastructure pour Document IA"
 authors = [{name = "Nicolas Sagon",email = "nicolas.sagon@beta.gouv.fr"}]
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
     "python-dotenv == 1.2.4",
     "redis == 8.1.0",
@@ -51,7 +51,7 @@ editable = true
 packages = ["src/document_ia_infra"]
 
 [tool.ruff]
-target-version = "py313"
+target-version = "py314"
 line-length = 88
 
 # TODO: Dans une PR complémentaire, durcir le linter et revenir aux règles par défaut de Ruff

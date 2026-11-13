@@ -2102,7 +2102,7 @@ def test_thread_consumer_sync_wrapper_cancels_pending_tasks_on_timeout(
     # Doit s'exécuter et sortir sans erreur ni boucle pendante
     c._process_message_sync_wrapper(message, 0)
     with pytest.raises(RuntimeError, match="no current event loop"):
-        aio.get_event_loop_policy().get_event_loop()
+        aio.get_event_loop()
 
 
 @pytest.mark.asyncio
