@@ -15,7 +15,7 @@ dependencies = [
     "uvicorn == 0.54.0",
     "gunicorn == 26.2.0",
     "python-magic == 0.4.27",
-    "python-multipart == 0.0.32",
+    "python-multipart==0.0.33",
     "asyncpg == 0.32.0",
     "greenlet == 3.5.6",
     "alembic == 1.20.1",
@@ -40,7 +40,7 @@ dev = [
     "pre-commit == 4.7.0",
     "httpx == 0.28.1",
     "pyright == 1.1.414",
-    "boto3-stubs == 1.43.121",
+    "boto3-stubs==1.43.123",
 ]
 
 [tool.uv]
