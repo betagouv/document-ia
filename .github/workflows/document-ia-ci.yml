@@ -291,12 +291,7 @@ jobs:
         continue-on-error: true
         run: |
           osv-scanner \
-            --lockfile=document-ia-api/uv.lock \
-            --lockfile=document-ia-infra/uv.lock \
-            --lockfile=document-ia-worker/uv.lock \
-            --lockfile=document-ia-schemas/uv.lock \
-            --lockfile=document-ia-evals/uv.lock \
-            --lockfile=document-ia-auto-scaler/uv.lock \
+            --lockfile=uv.lock \
             --format=sarif \
             --output=results.sarif
 

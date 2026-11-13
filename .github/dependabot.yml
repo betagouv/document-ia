@@ -1,7 +1,11 @@
 version: 2
 updates:
+  # Le monorepo est un unique workspace uv : un seul uv.lock à la racine, donc
+  # une seule entrée Dependabot. Les fichiers uv.lock des sous-projets sont des
+  # liens symboliques vers celui-ci ; les déclarer comme répertoires ferait
+  # travailler Dependabot sur six vues du même lock.
   - package-ecosystem: "uv"
-    directory: "/document-ia-api"
+    directory: "/"
     schedule:
       interval: "weekly"
     cooldown:
@@ -11,61 +15,9 @@ updates:
       uv-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
-  - package-ecosystem: "uv"
-    directory: "/document-ia-infra"
-    schedule:
-      interval: "weekly"
-    cooldown:
-      default-days: 7
-    open-pull-requests-limit: 10
-    groups:
-      uv-minor-patch:
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
-  - package-ecosystem: "uv"
-    directory: "/document-ia-worker"
-    schedule:
-      interval: "weekly"
-    cooldown:
-      default-days: 7
-    open-pull-requests-limit: 10
-    groups:
-      uv-minor-patch:
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
-  - package-ecosystem: "uv"
-    directory: "/document-ia-schemas"
-    schedule:
-      interval: "weekly"
-    cooldown:
-      default-days: 7
-    open-pull-requests-limit: 10
-    groups:
-      uv-minor-patch:
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
-  - package-ecosystem: "uv"
-    directory: "/document-ia-evals"
-    schedule:
-      interval: "weekly"
-    cooldown:
-      default-days: 7
-    open-pull-requests-limit: 10
-    groups:
-      uv-minor-patch:
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
-  - package-ecosystem: "uv"
-    directory: "/document-ia-auto-scaler"
-    schedule:
-      interval: "weekly"
-    cooldown:
-      default-days: 7
-    open-pull-requests-limit: 10
-    groups:
-      uv-minor-patch:
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
+      # Pas de groupe pour les majeures : un groupe wildcard en `major` les
+      # regrouperait toutes dans une seule PR au lieu de les garder reviewables
+      # individuellement. Elles tombent donc en PR séparées.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

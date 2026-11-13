@@ -1,0 +1,13 @@
+[tool.uv]
+required-version = ">=0.12.0"
+exclude-newer = "1 week"
+
+# Single uv workspace for the monorepo: one lockfile at the repo root instead of
+# one per package. The root has no [project] table, so it is a virtual project
+# and is not itself installable.
+#
+# Each member keeps a `uv.lock` symlink to this directory's lock, because the
+# Scalingo Python buildpack only looks for a lockfile at the app's build root
+# (the directory named by PROJECT_DIR), never in a parent.
+[tool.uv.workspace]
+members = ["document-ia-*"]

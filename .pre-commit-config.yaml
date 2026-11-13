@@ -45,42 +45,13 @@ repos:
         always_run: true
         stages: [pre-push]
 
-  # Hooks locaux pour gérer uv lock par sous-projet lorsque le pyproject.toml change
+  # Un seul lockfile à la racine du monorepo (workspace uv). Il n'y a donc plus
+  # un hook par sous-projet : toute modification d'un pyproject.toml relocke l'ensemble.
   - repo: local
     hooks:
-      - id: uv-lock-schemas
-        name: uv lock (schemas)
+      - id: uv-lock
+        name: uv lock (workspace)
         language: system
         pass_filenames: false
-        files: ^document-ia-schemas/pyproject.toml$
-        entry: bash -c 'cd document-ia-schemas && uv lock'
-      - id: uv-lock-infra
-        name: uv lock (infra)
-        language: system
-        pass_filenames: false
-        files: ^document-ia-infra/pyproject.toml$
-        entry: bash -c 'cd document-ia-infra && uv lock'
-      - id: uv-lock-auto-scaler
-        name: uv lock (auto-scaler)
-        language: system
-        pass_filenames: false
-        files: ^document-ia-auto-scaler/pyproject.toml$
-        entry: bash -c 'cd document-ia-auto-scaler && uv lock'
-      - id: uv-lock-api
-        name: uv lock (api)
-        language: system
-        pass_filenames: false
-        files: ^document-ia-api/pyproject.toml$
-        entry: bash -c 'cd document-ia-api && uv lock'
-      - id: uv-lock-worker
-        name: uv lock (worker)
-        language: system
-        pass_filenames: false
-        files: ^document-ia-worker/pyproject.toml$
-        entry: bash -c 'cd document-ia-worker && uv lock'
-      - id: uv-lock-evals
-        name: uv lock (evals)
-        language: system
-        pass_filenames: false
-        files: ^document-ia-evals/pyproject.toml$
-        entry: bash -c 'cd document-ia-evals && uv lock'
+        files: (^|/)pyproject\.toml$
+        entry: uv lock
