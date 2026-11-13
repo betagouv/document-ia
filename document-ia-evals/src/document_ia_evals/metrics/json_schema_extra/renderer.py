@@ -74,7 +74,7 @@ def render_results(experiment_results: Dict[str, Any]) -> None:
                         model_version
                     ].append(score)
 
-            except (json.JSONDecodeError, TypeError, ValueError):
+            except json.JSONDecodeError, TypeError, ValueError:
                 continue
 
     if field_metric_scores_by_model:
@@ -161,7 +161,7 @@ def render_results(experiment_results: Dict[str, Any]) -> None:
 
                     if obs_data.error:
                         errors_count += 1
-                except (json.JSONDecodeError, TypeError, ValueError):
+                except json.JSONDecodeError, TypeError, ValueError:
                     errors_count += 1
 
         col1, col2, col3, col4 = st.columns(4)
@@ -249,7 +249,7 @@ def render_results(experiment_results: Dict[str, Any]) -> None:
                             if obs_data.error:
                                 task_id: Any = obs.get("task_id")
                                 st.error(f"**Task {task_id}:** {obs_data.error}")
-                        except (json.JSONDecodeError, TypeError, ValueError):
+                        except json.JSONDecodeError, TypeError, ValueError:
                             pass
 
         if model_version != model_versions[-1]:

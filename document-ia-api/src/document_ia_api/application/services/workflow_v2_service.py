@@ -132,7 +132,7 @@ class WorkflowV2Service:
                 await before_publish(self.redis_producer, execution_message)
             else:
                 await self.redis_producer.publish_message(execution_message)
-        except (ReservationLostError, IdempotencyReservationLostException):
+        except ReservationLostError, IdempotencyReservationLostException:
             await fail_abandoned_execution(
                 self.db_session,
                 execution_id=execution_id,

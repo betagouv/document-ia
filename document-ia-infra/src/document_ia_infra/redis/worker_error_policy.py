@@ -56,7 +56,7 @@ class WorkerErrorPolicy:
             )
             try:
                 retries = int(fields.get("retries", "0"))
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 retries = 0
             if isinstance(exc, RetryableException) and retries < self.max_attempts - 1:
                 try:

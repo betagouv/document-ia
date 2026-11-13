@@ -478,7 +478,7 @@ class SimpleStreamConsumer(Generic[T]):
     ) -> None:
         try:
             attempts = int(fields.get("retries", "0")) + 1
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             # Champ « retries » illisible : la tentative ne peut être
             # comptée ni la remise en file honorée. Conserver en DLQ plutôt
             # que de re-réclamer la même entrée indéfiniment.

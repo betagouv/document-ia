@@ -130,12 +130,12 @@ def _register_signal_handlers(
         except NotImplementedError:
             try:
                 signal.signal(s, _fallback_handler)
-            except (ValueError, RuntimeError):
+            except ValueError, RuntimeError:
                 logger.warning(
                     "Impossible d'enregistrer le handler pour le signal %s (environnement non supporté)",
                     s,
                 )
-        except (ValueError, RuntimeError):
+        except ValueError, RuntimeError:
             logger.warning(
                 "Impossible d'enregistrer le handler pour le signal %s (environnement non supporté)",
                 s,

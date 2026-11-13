@@ -408,7 +408,7 @@ class BaseConsumer(ABC, Generic[T]):
                         timeout=self.drain_timeout_s + 5.0,
                     )
                     break
-                except (TimeoutError, asyncio.CancelledError):
+                except TimeoutError, asyncio.CancelledError:
                     break
 
         if self.heartbeat_task is not None and not self.heartbeat_task.done():
@@ -490,13 +490,13 @@ class BaseConsumer(ABC, Generic[T]):
                                 timeout=self.drain_timeout_s + 5.0,
                             )
                             break
-                        except (TimeoutError, asyncio.CancelledError):
+                        except TimeoutError, asyncio.CancelledError:
                             break
 
                 if self.heartbeat_task is not None and not self.heartbeat_task.done():
                     try:
                         await asyncio.wait_for(self.heartbeat_task, timeout=5.0)
-                    except (TimeoutError, asyncio.CancelledError):
+                    except TimeoutError, asyncio.CancelledError:
                         self.heartbeat_task.cancel()
                         await asyncio.gather(
                             self.heartbeat_task, return_exceptions=True

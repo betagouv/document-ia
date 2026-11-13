@@ -138,7 +138,7 @@ def find_error_documents(
             observation = JsonSchemaExtraObservation.model_validate_json(
                 observation_json
             )
-        except (json.JSONDecodeError, TypeError, ValueError):
+        except json.JSONDecodeError, TypeError, ValueError:
             continue
         if observation.error:
             continue
